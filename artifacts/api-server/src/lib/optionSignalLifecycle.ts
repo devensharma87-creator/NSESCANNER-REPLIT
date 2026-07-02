@@ -9,6 +9,25 @@ import {
   reconcileOrphanedPaperTrades,
   getMissedSignals,
 } from "./paperTradingFO";
+import {
+  ensureFnoExitMonitorSchemaColumns,
+  recordFnoExitCheck,
+  noteFnoExitMonitorScan,
+  noteFnoExitMonitorDecision,
+  noteFnoExitMonitorError,
+} from "./fnoExitMonitorHealth";
+import type {
+  FnoExitMonitorCycleAccumulator,
+  FnoExitTradeKey,
+} from "./fnoExitMonitorHealth";
+// Type-only: erased at compile time, so this does NOT create a runtime
+// circular import even though fnoExitDecision.ts imports value-level
+// symbols FROM this module. The function itself is loaded via a dynamic
+// `await import("./fnoExitDecision")` at the one call site below.
+import type {
+  FnoExitQuoteProvenance,
+  FnoExitDecisionExit,
+} from "./fnoExitDecision";
 
 /**
  * Signal lifecycle tracker.
@@ -245,6 +264,23 @@ function bestExcursions(
 interface RecordInput {
   signal: OptionSignal;
   snapshot: SpotSnapshot;
+  /**
+   * Provenance of the spot quote inside `snapshot`, used ONLY to gate a
+   * terminal exit transition (F&O Exit Monitoring Reliability, 2026-07-02).
+   * Omitted by legacy/test call sites — defaults to a conservative
+   * `{source:"STALE", kiteSessionActive:false, asOfMs:null}`, which fails
+   * CLOSED (blocks any exit) rather than silently trusting an unverified
+   * quote. Callers that want exits to actually commit MUST pass real
+   * provenance (optionSignals.ts and paperTradingFO.ts's orphan sweep do).
+   */
+  provenance?: FnoExitQuoteProvenance;
+  /**
+   * Optional per-cycle counter accumulator for the F&O Exit Monitoring
+   * Reliability scheduler summary (T004, 2026-07-02). Threaded in by
+   * `optionSignals.ts`'s cohort loop; omitted by legacy/test call sites,
+   * which is a safe no-op (see `noteFnoExitMonitor*` in fnoExitMonitorHealth.ts).
+   */
+  exitMonitorCycle?: FnoExitMonitorCycleAccumulator;
 }
 
 /**
@@ -486,6 +522,109 @@ export async function recordOrUpdate(
       },
       "lifecycle eval",
     );
+
+    // F&O Exit Monitoring Reliability trust/freshness gate (2026-07-02).
+    // A terminal exit (TRIGGERED/TARGET1_HIT -> STOPPED/TARGET2_HIT) must
+    // NEVER commit off a non-trade-grade spot quote (Yahoo, stale bar-close,
+    // no live Kite session). This does NOT touch the PENDING->TRIGGERED
+    // entry trigger, nor the non-exiting TRIGGERED->TARGET1_HIT advance —
+    // both fall straight through to the existing CAS write below untouched.
+    // `evaluateFnoPaperTradeExit` re-runs the SAME `evaluateTransition` this
+    // function already called (zero math duplication) purely to wrap it
+    // with the trust check; it never invents its own trigger logic.
+    //
+    // Scheduler summary counter: every signal reaching this point has been
+    // fully examined for a potential exit this cycle (the eval above already
+    // ran), regardless of whether it turns out to be an exit candidate — so
+    // this increment happens unconditionally, not only inside the
+    // `isExitCandidate` branch. Counting from `recordFnoExitCheck` calls
+    // alone would undercount `openTradesScanned`, since that gate only fires
+    // when an exit is actually pending (architect-reviewed, 2026-07-02).
+    noteFnoExitMonitorScan(input.exitMonitorCycle);
+    let committedExitDecision: FnoExitDecisionExit | undefined;
+    const isExitCandidate =
+      trans.exited &&
+      (currentStatus === "TRIGGERED" || currentStatus === "TARGET1_HIT");
+    if (isExitCandidate) {
+      // Dynamic import avoids a static circular import: fnoExitDecision.ts
+      // imports value-level symbols FROM this module. Pure function, only
+      // needed at this one call site, so the runtime cycle is benign (same
+      // pattern already used for evaluateTransition in paperTradingFO.ts).
+      const { evaluateFnoPaperTradeExit } = await import("./fnoExitDecision");
+      const provenance: FnoExitQuoteProvenance = input.provenance ?? {
+        source: "STALE",
+        kiteSessionActive: false,
+        asOfMs: null,
+      };
+      const decision = evaluateFnoPaperTradeExit({
+        currentStatus,
+        direction,
+        entry: lockedEntry,
+        stop: lockedStop,
+        target1: lockedT1,
+        target2: lockedT2,
+        snapshot,
+        provenance,
+        nowMs: now.getTime(),
+      });
+      if (decision.kind === "BLOCKED") {
+        logger.warn(
+          {
+            phase: "fno_exit_blocked",
+            idx: signal.index,
+            setup: signal.setupKey,
+            dir: direction,
+            currentStatus,
+            blockedReason: decision.blockedReason,
+            wouldHaveExited: decision.wouldHaveExited,
+            wouldHaveExitReason: decision.wouldHaveExitReason,
+            quoteSource: decision.quoteSource,
+            quoteFreshnessSec: decision.quoteFreshnessSec,
+          },
+          "fno exit monitor: BLOCKED non-trade-grade exit quote, holding position",
+        );
+        await ensureFnoExitMonitorSchemaColumns();
+        const blockedKey: FnoExitTradeKey = {
+          signalDate: date,
+          indexSymbol: signal.index,
+          setupKey: signal.setupKey,
+          direction,
+        };
+        noteFnoExitMonitorDecision(input.exitMonitorCycle, blockedKey, decision);
+        await recordFnoExitCheck(blockedKey, decision, now).catch((err: unknown) => {
+          noteFnoExitMonitorError(input.exitMonitorCycle);
+          logger.warn(
+            { err: err instanceof Error ? err.message : String(err) },
+            "fno exit monitor: audit stamp failed (blocked)",
+          );
+        });
+        // No optionSignalHistoryTable write at all — the row stays exactly
+        // as persisted (lastSpot/MFE/MAE included). Mirrors the "CAS-lost"
+        // re-read branch shape so the caller sees the true persisted state.
+        return {
+          status: currentStatus,
+          firstSeenAt: row.generatedAt,
+          triggeredAt: row.triggeredAt ?? undefined,
+          exitedAt: row.exitedAt ?? undefined,
+          exitReason: (row.exitReason as LifecycleExitReason | null) ?? undefined,
+          exitPrice: row.exitPrice != null ? num(row.exitPrice) : undefined,
+          maxFavorableExcursionPts: round2(num(row.maxFavorableExcursion)),
+          maxAdverseExcursionPts: round2(num(row.maxAdverseExcursion)),
+          lastSpot: num(row.lastSpot),
+          lastEvaluatedAt: row.lastEvaluatedAt,
+          lockedEntry,
+          lockedStopLoss: lockedStop,
+          lockedTarget1: lockedT1,
+          lockedTarget2: lockedT2,
+          lockedEntryTrigger: row.entryTrigger,
+        };
+      }
+      // decision.kind === "EXIT" is guaranteed here: evaluateFnoPaperTradeExit
+      // only returns HOLD when trans.exited is false, which isExitCandidate
+      // already excludes. Fall through to the existing CAS write unchanged;
+      // stamp the trade-grade audit columns AFTER onLifecycleUpsert commits.
+      committedExitDecision = decision as FnoExitDecisionExit;
+    }
     // Local "best so far" view returned to *this* caller. Note the
     // value persisted to the DB below is computed atomically with
     // `GREATEST(...)`, not from this local snapshot — so two concurrent
@@ -625,6 +764,29 @@ export async function recordOrUpdate(
       signalDate: date,
       direction,
     });
+
+    if (committedExitDecision) {
+      // Trade-grade audit stamp AFTER the close is durably committed
+      // (matches the existing "close/advance first, audit after" pattern
+      // elsewhere in this module). Best-effort — a stamp failure must never
+      // undo or retry the already-committed exit.
+      const exitKey: FnoExitTradeKey = {
+        signalDate: date,
+        indexSymbol: signal.index,
+        setupKey: signal.setupKey,
+        direction,
+      };
+      noteFnoExitMonitorDecision(input.exitMonitorCycle, exitKey, committedExitDecision);
+      await recordFnoExitCheck(exitKey, committedExitDecision, now).catch(
+        (err: unknown) => {
+          noteFnoExitMonitorError(input.exitMonitorCycle);
+          logger.warn(
+            { err: err instanceof Error ? err.message : String(err) },
+            "fno exit monitor: audit stamp failed (committed exit)",
+          );
+        },
+      );
+    }
 
     return {
       status: trans.next,

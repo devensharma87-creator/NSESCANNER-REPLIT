@@ -33,6 +33,7 @@ import {
   FIXTURE_FNO_SUPPRESSED,
   FIXTURE_FNO_EXIT_SL,
   FIXTURE_FNO_EXIT_TARGET,
+  FIXTURE_FNO_EXIT_MANUAL,
   FIXTURE_TESTSTK_BLOCKED,
   FIXTURE_YAHOO_BLOCKED,
   FIXTURE_STALE_BLOCKED,
@@ -261,7 +262,7 @@ describe("T19-T20 Part I: Telegram formatter determinism and hash stability", ()
     expect(hashMessage(text1)).toBe(hashMessage(text2));
   });
 
-  it("T20 All 14 fixtures produce a non-empty Telegram message and a 16-hex hash", () => {
+  it("T20 All fixtures produce a non-empty Telegram message and a 16-hex hash", () => {
     for (const fixture of ALL_FIXTURES) {
       const text = formatTradeTelegramMessage(fixture.event);
       expect(text.length).toBeGreaterThan(10);
@@ -275,7 +276,7 @@ describe("T19-T20 Part I: Telegram formatter determinism and hash stability", ()
 
 describe("Bonus: fixture meta invariants", () => {
 
-  it("All 14 fixtures have fixtureOnly=true, environment=test, sendTelegram=false", () => {
+  it("All fixtures have fixtureOnly=true, environment=test, sendTelegram=false", () => {
     for (const fixture of ALL_FIXTURES) {
       expect(fixture.meta.fixtureOnly).toBe(true);
       expect(fixture.meta.environment).toBe("test");
@@ -283,7 +284,7 @@ describe("Bonus: fixture meta invariants", () => {
     }
   });
 
-  it("All 14 fixture canonical events use a known harness environment value", () => {
+  it("All fixture canonical events use a known harness environment value", () => {
     const ALLOWED_ENVS = new Set(["test", "development", "production"]);
     // DEV_ENV_BLOCKED fixture must be "development" (tests env isolation).
     // Fixtures testing data-trust gates use "production" so DEV_ENV_BLOCKED
@@ -305,7 +306,7 @@ describe("Bonus: fixture meta invariants", () => {
     }
   });
 
-  it("All 14 fixture canonical events have brokerExecutionStatus=DISABLED", () => {
+  it("All fixture canonical events have brokerExecutionStatus=DISABLED", () => {
     for (const fixture of ALL_FIXTURES) {
       expect(fixture.event.brokerExecutionStatus).toBe("DISABLED");
     }
@@ -319,9 +320,35 @@ describe("Bonus: fixture meta invariants", () => {
   });
 
   it("F&O exit fixtures carry exitPrice and exitReason", () => {
-    for (const fixture of [FIXTURE_FNO_EXIT_SL, FIXTURE_FNO_EXIT_TARGET]) {
+    for (const fixture of [FIXTURE_FNO_EXIT_SL, FIXTURE_FNO_EXIT_TARGET, FIXTURE_FNO_EXIT_MANUAL]) {
       expect(fixture.event.exitPrice).not.toBeNull();
       expect(fixture.event.exitReason).not.toBeNull();
     }
+  });
+
+  it("F&O exit fixtures are honestly INFO_ONLY / non-signal-driving (2026-07-02 canonical migration)", () => {
+    for (const fixture of [FIXTURE_FNO_EXIT_SL, FIXTURE_FNO_EXIT_TARGET, FIXTURE_FNO_EXIT_MANUAL]) {
+      expect(fixture.event.sourceStatus).toBe("INFO_ONLY");
+      expect(fixture.event.canDriveSignals).toBe(false);
+      expect(fixture.event.canDriveTradeAlerts).toBe(false);
+    }
+  });
+
+  it("F&O EXIT_MANUAL fixture is sourced as manual (owner-initiated close)", () => {
+    expect(FIXTURE_FNO_EXIT_MANUAL.event.source).toBe("manual");
+  });
+
+  it("F&O EXIT_STOP_LOSS/TARGET fixtures are sourced as computed_from_kite (locked DB premium, not manual)", () => {
+    for (const fixture of [FIXTURE_FNO_EXIT_SL, FIXTURE_FNO_EXIT_TARGET]) {
+      expect(fixture.event.source).toBe("computed_from_kite");
+    }
+  });
+
+  it("T21 F&O EXIT_MANUAL passes internal_only validation despite INFO_ONLY sourceStatus (exit events are not gated by the entry-only trust checks)", () => {
+    const result = validateTradeEventForNotification(FIXTURE_FNO_EXIT_MANUAL.event, {
+      destination: "internal_only",
+    });
+    expect(result.allowed).toBe(true);
+    expect(result.reason).toBeNull();
   });
 });

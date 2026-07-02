@@ -3805,6 +3805,18 @@ export const PaperTradeFOPositionStatus = {
   OPEN: "OPEN",
 } as const;
 
+/**
+ * F&O Exit Monitoring Reliability: outcome of the most recent trust-gate check for this open position.
+ */
+export type PaperTradeFOPositionExitMonitorStatus =
+  | (typeof PaperTradeFOPositionExitMonitorStatus)[keyof typeof PaperTradeFOPositionExitMonitorStatus]
+  | null;
+
+export const PaperTradeFOPositionExitMonitorStatus = {
+  MONITORED: "MONITORED",
+  BLOCKED: "BLOCKED",
+} as const;
+
 export interface PaperTradeFOPosition {
   id: string;
   signalDate: string;
@@ -3833,6 +3845,20 @@ export interface PaperTradeFOPosition {
   openedAt: string;
   lastEvaluatedAt: string;
   status: PaperTradeFOPositionStatus;
+  /** F&O Exit Monitoring Reliability: outcome of the most recent trust-gate check for this open position. */
+  exitMonitorStatus?: PaperTradeFOPositionExitMonitorStatus;
+  /** Whether the most recent exit check used a trade-grade (fresh, authoritative) quote. */
+  exitTradeGrade?: boolean | null;
+  /** Quote source used by the most recent exit check (e.g. kite). */
+  exitQuoteSource?: string | null;
+  /** As-of timestamp of the quote used by the most recent exit check. */
+  exitQuoteAsOf?: string | null;
+  /** Freshness (seconds) of the quote used by the most recent exit check. */
+  exitQuoteFreshnessSec?: number | null;
+  /** When the exit monitor last evaluated this position. */
+  lastExitCheckAt?: string | null;
+  /** Reason the most recent exit check was BLOCKED (null when MONITORED). */
+  lastExitCheckError?: string | null;
   spotLifecycle?: FnoSpotLifecycle | null;
 }
 
@@ -3862,6 +3888,31 @@ export const PaperTradeFOClosedExitReason = {
   EXPIRED: "EXPIRED",
   MANUAL_OVERRIDE: "MANUAL_OVERRIDE",
   TIME_EXIT_1520: "TIME_EXIT_1520",
+} as const;
+
+/**
+ * F&O Exit Monitoring Reliability: outcome of the last trust-gate check recorded before this trade closed.
+ */
+export type PaperTradeFOClosedExitMonitorStatus =
+  | (typeof PaperTradeFOClosedExitMonitorStatus)[keyof typeof PaperTradeFOClosedExitMonitorStatus]
+  | null;
+
+export const PaperTradeFOClosedExitMonitorStatus = {
+  MONITORED: "MONITORED",
+  BLOCKED: "BLOCKED",
+} as const;
+
+/**
+ * Delivery status of the canonical exit Telegram alert for this trade, looked up from notification_delivery_log (null when no record found yet).
+ */
+export type PaperTradeFOClosedTelegramStatus =
+  | (typeof PaperTradeFOClosedTelegramStatus)[keyof typeof PaperTradeFOClosedTelegramStatus]
+  | null;
+
+export const PaperTradeFOClosedTelegramStatus = {
+  SENT: "SENT",
+  FAILED: "FAILED",
+  DUPLICATE: "DUPLICATE",
 } as const;
 
 export interface PaperTradeFOClosed {
@@ -3894,6 +3945,24 @@ export interface PaperTradeFOClosed {
   maxRunup?: number | null;
   /** Read-only: lowest unrealized P&L observed for this position (≤ 0). */
   maxDrawdown?: number | null;
+  /** F&O Exit Monitoring Reliability: outcome of the last trust-gate check recorded before this trade closed. */
+  exitMonitorStatus?: PaperTradeFOClosedExitMonitorStatus;
+  /** Whether the last exit check used a trade-grade (fresh, authoritative) quote. */
+  exitTradeGrade?: boolean | null;
+  /** Quote source used by the last exit check (e.g. kite). */
+  exitQuoteSource?: string | null;
+  /** As-of timestamp of the quote used by the last exit check. */
+  exitQuoteAsOf?: string | null;
+  /** Freshness (seconds) of the quote used by the last exit check. */
+  exitQuoteFreshnessSec?: number | null;
+  /** When the exit monitor first detected this trade as an EXIT candidate. */
+  exitDetectedAt?: string | null;
+  /** When the exit monitor last evaluated this trade. */
+  lastExitCheckAt?: string | null;
+  /** Reason the last exit check was BLOCKED prior to close (null when MONITORED). */
+  lastExitCheckError?: string | null;
+  /** Delivery status of the canonical exit Telegram alert for this trade, looked up from notification_delivery_log (null when no record found yet). */
+  telegramStatus?: PaperTradeFOClosedTelegramStatus;
   spotLifecycle?: FnoSpotLifecycle | null;
 }
 

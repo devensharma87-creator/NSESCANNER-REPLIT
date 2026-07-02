@@ -48,6 +48,7 @@ import { Seo } from "@/components/seo";
 import {
   deriveCandleSeverity,
   deriveCoverageSeverity,
+  deriveExitMonitorSeverity,
   deriveSnapshotSectionSeverity,
   deriveSnapshotSeverity,
   formatAge,
@@ -56,6 +57,8 @@ import {
   type Severity,
   type SnapshotDiagnostics,
   type CandleIntervalRow,
+  type ExitMonitorHealthLite,
+  type SubsystemHealthLite,
 } from "@/lib/infraHealth";
 import { GateStatusPanel } from "@/components/infra/GateStatusPanel";
 import { SwingFreshnessPanel } from "@/components/infra/SwingFreshnessPanel";
@@ -268,6 +271,52 @@ interface ParityStatusResp {
     lastExit: ParityLogRecord | null;
     retrievedAt: string;
   };
+}
+
+interface SubsystemHealthResp {
+  cyclesTotal?: number;
+  runsTotal?: number;
+  lastSuccessAt: string | null;
+  lastErrorAt: string | null;
+  lastErrorClass: string | null;
+  lastErrorMessage: string | null;
+}
+
+interface ExitMonitorCycleStatsResp {
+  checkedAt: string;
+  openTradesScanned: number;
+  quotesFetched: number;
+  exitedCount: number;
+  blockedCount: number;
+  skippedCount: number;
+  duplicateSkippedCount: number;
+  staleDataCount: number;
+  kiteUnavailableCount: number;
+  blockedByReason: Record<string, number>;
+  errors: number;
+  durationMs: number;
+  nextRunAt: string;
+}
+
+interface ExitMonitorStatusResp {
+  generatedAt: string;
+  exitMonitor: {
+    cyclesTotal: number;
+    exitedTotal: number;
+    blockedTotal: number;
+    errorsTotal: number;
+    lastCycle: ExitMonitorCycleStatsResp | null;
+    lastSuccessAt: string | null;
+    lastErrorAt: string | null;
+    lastErrorClass: string | null;
+    lastErrorMessage: string | null;
+    bootedAt: string;
+  };
+  premiumOverlay: SubsystemHealthResp & { stoppedTotal: number };
+  orphanExit: SubsystemHealthResp & { closedTotal: number; lifecycleAdvanceFailures: number };
+  mtmSweep: SubsystemHealthResp & { rowsUpdatedTotal: number };
+  timeExit1520: SubsystemHealthResp & { rowsClosedTotal: number; lastRunAt: string | null };
+  globalDataHealth: { gate: string; reason?: string | null } | Record<string, unknown>;
 }
 
 // ── helpers ─────────────────────────────────────────────────────────────────
@@ -2481,6 +2530,130 @@ function ParitySection({ data, error, loading }: FetchState<ParityStatusResp>): 
   );
 }
 
+// ── Part I: F&O Exit Monitoring Reliability Section ──────────────────────────
+
+function ExitMonitorSection({ data, error, loading, nowMs }: FetchState<ExitMonitorStatusResp> & { nowMs: number }): React.ReactElement {
+  function fmtIst(iso: string | null | undefined): string {
+    if (!iso) return "—";
+    return new Date(iso).toLocaleString("en-IN", {
+      timeZone: "Asia/Kolkata",
+      day: "2-digit", month: "short", year: "numeric",
+      hour: "2-digit", minute: "2-digit",
+    });
+  }
+  const derived = data
+    ? deriveExitMonitorSeverity(
+        data.exitMonitor,
+        [data.premiumOverlay, data.orphanExit, data.mtmSweep, data.timeExit1520] as SubsystemHealthLite[],
+        nowMs,
+      )
+    : null;
+  let severity: Severity = "disabled";
+  if (error || (!data && !loading)) severity = "fail";
+  else if (derived) severity = derived.severity;
+
+  const subsystems = data
+    ? ([
+        ["Premium Overlay (hard-stop backstop)", data.premiumOverlay, data.premiumOverlay.cyclesTotal, "stoppedTotal" in data.premiumOverlay ? data.premiumOverlay.stoppedTotal : null],
+        ["Orphan-Exit Sweep (P0 orphaned-OPEN)", data.orphanExit, data.orphanExit.cyclesTotal, "closedTotal" in data.orphanExit ? data.orphanExit.closedTotal : null],
+        ["MTM Sweep (all-open refresh)", data.mtmSweep, data.mtmSweep.cyclesTotal, "rowsUpdatedTotal" in data.mtmSweep ? data.mtmSweep.rowsUpdatedTotal : null],
+        ["15:20 IST Force-Exit", data.timeExit1520, data.timeExit1520.runsTotal, "rowsClosedTotal" in data.timeExit1520 ? data.timeExit1520.rowsClosedTotal : null],
+      ] as const)
+    : [];
+
+  return (
+    <SectionShell
+      title="F&O Exit Monitoring Reliability"
+      icon={ShieldAlert}
+      severity={severity}
+      description="Owner-only roll-up of the exit-monitor scheduler + its 4 dependent sub-systems. Read-only — no sweep, no order, no Telegram send happens from this panel."
+      testId="section-exit-monitor"
+    >
+      {error && <div className="text-sm text-rose-500">Failed to load: {error}</div>}
+      {loading && !data && <div className="text-sm text-muted-foreground">Loading…</div>}
+      {data && (
+        <div className="space-y-4">
+          <div className="grid grid-cols-4 gap-2 text-center">
+            {([
+              ["Cycles", data.exitMonitor.cyclesTotal],
+              ["Exited", data.exitMonitor.exitedTotal],
+              ["Blocked", data.exitMonitor.blockedTotal],
+              ["Errors", data.exitMonitor.errorsTotal],
+            ] as const).map(([label, n]) => (
+              <div key={label} className="rounded border border-border/50 px-2 py-1.5">
+                <div className="text-lg font-bold">{num(n)}</div>
+                <div className="text-[10px] font-mono text-muted-foreground">{label}</div>
+              </div>
+            ))}
+          </div>
+
+          <div className="flex justify-between text-xs">
+            <span className="text-muted-foreground">Last cycle</span>
+            <span className="font-mono">
+              {data.exitMonitor.lastCycle ? formatAge(data.exitMonitor.lastCycle.checkedAt, nowMs) : "never"}
+            </span>
+          </div>
+          {data.exitMonitor.lastCycle && (
+            <div className="grid grid-cols-3 gap-x-4 gap-y-1 text-[11px] font-mono text-muted-foreground">
+              <span>Scanned: {num(data.exitMonitor.lastCycle.openTradesScanned)}</span>
+              <span>Quotes: {num(data.exitMonitor.lastCycle.quotesFetched)}</span>
+              <span>Stale: {num(data.exitMonitor.lastCycle.staleDataCount)}</span>
+              <span>Kite down: {num(data.exitMonitor.lastCycle.kiteUnavailableCount)}</span>
+              <span>Duplicate: {num(data.exitMonitor.lastCycle.duplicateSkippedCount)}</span>
+              <span>Duration: {num(data.exitMonitor.lastCycle.durationMs)}ms</span>
+            </div>
+          )}
+          {data.exitMonitor.lastErrorAt && (
+            <div className="text-xs text-amber-500">
+              Last error {formatAge(data.exitMonitor.lastErrorAt, nowMs)}: {data.exitMonitor.lastErrorMessage ?? data.exitMonitor.lastErrorClass ?? "—"}
+            </div>
+          )}
+
+          <table className="w-full text-xs">
+            <thead className="text-muted-foreground">
+              <tr className="border-b border-border/50">
+                <th className="text-left py-1.5">Sub-system</th>
+                <th className="text-right py-1.5">Runs</th>
+                <th className="text-right py-1.5">Actions</th>
+                <th className="text-right py-1.5">Last success</th>
+                <th className="text-right py-1.5">Last error</th>
+              </tr>
+            </thead>
+            <tbody>
+              {subsystems.map(([label, sub, runs, actions]) => (
+                <tr key={label} className="border-b border-border/30 last:border-b-0">
+                  <td className="py-1.5">{label}</td>
+                  <td className="text-right font-mono">{num(runs ?? null)}</td>
+                  <td className="text-right font-mono">{num(actions)}</td>
+                  <td className="text-right text-muted-foreground">{formatAge(sub.lastSuccessAt, nowMs)}</td>
+                  <td className="text-right">
+                    {sub.lastErrorAt ? (
+                      <span className="text-amber-500">{formatAge(sub.lastErrorAt, nowMs)}</span>
+                    ) : (
+                      <span className="text-muted-foreground">—</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+
+          {derived && derived.reasons.length > 0 && (
+            <div className="text-xs text-muted-foreground">
+              {derived.reasons.map((r, i) => <div key={i}>{r}</div>)}
+            </div>
+          )}
+
+          <div className="text-[10px] text-muted-foreground">
+            Generated at: {fmtIst(data.generatedAt)} IST · Live control (Run Dry / Run Now per open trade) lives on the
+            F&amp;O Paper Trading page's Exit Monitor panel, not here.
+          </div>
+        </div>
+      )}
+    </SectionShell>
+  );
+}
+
 // ── GlobalHealthSection ───────────────────────────────────────────────────────
 
 interface GlobalDataHealthModuleH {
@@ -2654,6 +2827,7 @@ export default function InfraHealthPage(): React.ReactElement {
   const fnoGap = useEndpoint<FnoSignalGapResp>("api/fno/no-signal-gap", auto, tick);
   const parityStatus = useEndpoint<ParityStatusResp>("api/parity/status", auto, tick);
   const globalHealth = useEndpoint<GlobalDataHealthResp>("api/data-health/global", auto, tick);
+  const exitMonitor = useEndpoint<ExitMonitorStatusResp>("api/paper/diagnostics/fo/exit-monitor/status", auto, tick);
 
   // P16: failure-diagnosis endpoint with an exact-only toggle. The URL changes
   // when the toggle flips, which invalidates the SWR/useEndpoint cache key.
@@ -2683,8 +2857,17 @@ export default function InfraHealthPage(): React.ReactElement {
       else if (isDataRelatedGap && (gapTradingDays ?? 0) > 0) severities.push("warn");
       else severities.push("ok");
     } else if (fnoGap.error) severities.push("warn");
+    if (exitMonitor.data) {
+      severities.push(
+        deriveExitMonitorSeverity(
+          exitMonitor.data.exitMonitor,
+          [exitMonitor.data.premiumOverlay, exitMonitor.data.orphanExit, exitMonitor.data.mtmSweep, exitMonitor.data.timeExit1520] as SubsystemHealthLite[],
+          nowMs,
+        ).severity,
+      );
+    } else if (exitMonitor.error) severities.push("fail");
     return rollUp(severities);
-  }, [security, sector, snapshot, analytics, candle, fnoGap]);
+  }, [security, sector, snapshot, analytics, candle, fnoGap, exitMonitor, nowMs]);
 
   const anyLoading = security.loading || sector.loading || snapshot.loading || analytics.loading || candle.loading || candidates.loading;
 
@@ -2770,6 +2953,9 @@ export default function InfraHealthPage(): React.ReactElement {
         </div>
         <div className="md:col-span-2">
           <ParitySection {...parityStatus} />
+        </div>
+        <div className="md:col-span-2">
+          <ExitMonitorSection {...exitMonitor} nowMs={nowMs} />
         </div>
       </div>
     </div>

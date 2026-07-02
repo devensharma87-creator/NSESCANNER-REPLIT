@@ -79,7 +79,7 @@ router.get("/parity/status", requireOwner, async (_req, res, next) => {
  * Modes:
  *   dry_run         — validate + project + format + compare; no Telegram
  *   test_destination — same plus sends to PARITY_TEST_TELEGRAM_BOT_TOKEN channel
- *   all_fixtures    — runs all 14 built-in fixtures and returns aggregate results
+ *   all_fixtures    — runs all built-in fixtures (see ALL_FIXTURES) and returns aggregate results
  *
  * NEVER sends to the real trade channel. Returns full ParityRunResult.
  */

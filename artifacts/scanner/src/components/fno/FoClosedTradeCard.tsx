@@ -17,6 +17,8 @@ import {
   fmtInrDec,
   fmtDateTime,
   pnlTone,
+  ExitMonitorBadge,
+  TelegramStatusBadge,
 } from "./FoOpenTradeCard";
 
 const DASH = "—";
@@ -50,6 +52,19 @@ export interface FoClosedTrade {
   maxRunup?: number | null;
   maxDrawdown?: number | null;
   spotLifecycle?: SpotLifecycleLike | null;
+  // F&O Exit Monitoring Reliability — read-only trust status of the last exit
+  // check recorded before this trade closed, plus the canonical Telegram
+  // delivery status looked up from notification_delivery_log. All optional
+  // so the card stays backward-compatible with older payloads.
+  exitMonitorStatus?: "MONITORED" | "BLOCKED" | null;
+  exitTradeGrade?: boolean | null;
+  exitQuoteSource?: string | null;
+  exitQuoteAsOf?: string | null;
+  exitQuoteFreshnessSec?: number | null;
+  exitDetectedAt?: string | null;
+  lastExitCheckAt?: string | null;
+  lastExitCheckError?: string | null;
+  telegramStatus?: "SENT" | "FAILED" | "DUPLICATE" | null;
 }
 
 /** Map a closed-trade payload row to the shared `FoTradeRow` shape. */
@@ -167,8 +182,17 @@ export function FoClosedTradeCard({
       </div>
 
       <FoRiskBadges badges={badges} />
-      <div>
+      <div className="flex flex-wrap items-center gap-1.5">
         <P25Badge display={p25} />
+        <ExitMonitorBadge
+          status={t.exitMonitorStatus}
+          tradeGrade={t.exitTradeGrade}
+          quoteSource={t.exitQuoteSource}
+          freshnessSec={t.exitQuoteFreshnessSec}
+          lastCheckAt={t.lastExitCheckAt}
+          lastCheckError={t.lastExitCheckError}
+        />
+        <TelegramStatusBadge status={t.telegramStatus} />
       </div>
 
       <div className="grid grid-cols-3 gap-x-3 gap-y-2 text-sm">

@@ -43,7 +43,16 @@ import {
   type FoClosedTrade,
 } from "./FoClosedTradeCard";
 import { FoWhyThisTrade } from "./FoWhyThisTrade";
-import { fmtPremium, fmtInt, fmtInr, fmtInrDec, fmtDateTime, pnlTone } from "./FoOpenTradeCard";
+import {
+  fmtPremium,
+  fmtInt,
+  fmtInr,
+  fmtInrDec,
+  fmtDateTime,
+  pnlTone,
+  ExitMonitorBadge,
+  TelegramStatusBadge,
+} from "./FoOpenTradeCard";
 
 const DASH = "—";
 
@@ -100,8 +109,17 @@ function DesktopRow({
             {t.optionType} {fmtInt(t.strike)} · {t.setupKey || DASH}
           </div>
           <FoRiskBadges badges={badges} className="mt-1" />
-          <div className="mt-1">
+          <div className="mt-1 flex flex-wrap items-center gap-1">
             <P25Badge display={p25} compact />
+            <ExitMonitorBadge
+              status={t.exitMonitorStatus}
+              tradeGrade={t.exitTradeGrade}
+              quoteSource={t.exitQuoteSource}
+              freshnessSec={t.exitQuoteFreshnessSec}
+              lastCheckAt={t.lastExitCheckAt}
+              lastCheckError={t.lastExitCheckError}
+            />
+            <TelegramStatusBadge status={t.telegramStatus} />
           </div>
         </td>
         <td className="py-2 pr-3">

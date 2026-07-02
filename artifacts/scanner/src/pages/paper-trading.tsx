@@ -31,6 +31,11 @@ import {
 } from "@/components/fno/FoClosedTradesReview";
 import { FoCockpitControls } from "@/components/fno/FoCockpitControls";
 import {
+  FoExitMonitorPanel,
+  type ExitMonitorStatusResponse,
+  type RunResultLike,
+} from "@/components/fno/FoExitMonitorPanel";
+import {
   summarizeFoCockpit,
   deriveP25Headline,
   deriveP25EvidenceDetail,
@@ -144,6 +149,13 @@ interface OpenPosition {
   openedAt: string;
   lastEvaluatedAt: string;
   spotLifecycle?: SpotLifecycleLike | null;
+  exitMonitorStatus?: "MONITORED" | "BLOCKED" | null;
+  exitTradeGrade?: boolean | null;
+  exitQuoteSource?: string | null;
+  exitQuoteAsOf?: string | null;
+  exitQuoteFreshnessSec?: number | null;
+  lastExitCheckAt?: string | null;
+  lastExitCheckError?: string | null;
 }
 
 interface ClosedTrade {
@@ -172,6 +184,15 @@ interface ClosedTrade {
   maxRunup?: number | null;
   maxDrawdown?: number | null;
   spotLifecycle?: SpotLifecycleLike | null;
+  exitMonitorStatus?: "MONITORED" | "BLOCKED" | null;
+  exitTradeGrade?: boolean | null;
+  exitQuoteSource?: string | null;
+  exitQuoteAsOf?: string | null;
+  exitQuoteFreshnessSec?: number | null;
+  exitDetectedAt?: string | null;
+  lastExitCheckAt?: string | null;
+  lastExitCheckError?: string | null;
+  telegramStatus?: "SENT" | "FAILED" | "DUPLICATE" | null;
 }
 
 const inr = (n: number) =>
@@ -1441,6 +1462,57 @@ function FOSegment() {
     queryFn: () => api<PaperAccount>(`/paper/account?segment=FNO`),
     refetchInterval: 10_000,
   });
+  const exitMonitorStatus = useQuery({
+    queryKey: ["paper", "diagnostics", "fo", "exit-monitor", "status"] as const,
+    queryFn: () => api<ExitMonitorStatusResponse>(`/paper/diagnostics/fo/exit-monitor/status`),
+    refetchInterval: 30_000,
+  });
+  const [exitMonitorSelectedId, setExitMonitorSelectedId] = useState("");
+  const [exitMonitorRunResult, setExitMonitorRunResult] = useState<RunResultLike | null>(null);
+  const runDryMut = useMutation({
+    mutationFn: (id: string) =>
+      api<{ generatedAt: string; status?: string; decision?: RunResultLike["decision"] }>(
+        `/paper/diagnostics/fo/exit-monitor/run-dry`,
+        { method: "POST", body: JSON.stringify({ id }) },
+      ),
+    onSuccess: (res) => {
+      setExitMonitorRunResult({ action: "dry", at: Date.now(), status: res.status, decision: res.decision ?? null });
+    },
+    onError: (err: Error) => {
+      setExitMonitorRunResult({ action: "dry", at: Date.now(), error: err.message });
+    },
+  });
+  const runNowMut = useMutation({
+    mutationFn: (id: string) =>
+      api<{
+        generatedAt: string;
+        status?: string;
+        closed?: boolean;
+        decision?: RunResultLike["decision"];
+      }>(`/paper/diagnostics/fo/exit-monitor/run-now`, {
+        method: "POST",
+        body: JSON.stringify({ id }),
+      }),
+    onSuccess: (res) => {
+      setExitMonitorRunResult({
+        action: "now",
+        at: Date.now(),
+        status: res.status,
+        closed: res.closed,
+        decision: res.decision ?? null,
+      });
+      if (res.closed) {
+        toast({ title: "Trade closed", description: "Exit monitor manually closed the selected trade." });
+        void qc.invalidateQueries({ queryKey: QK_POSITIONS });
+        void qc.invalidateQueries({ queryKey: QK_ACCOUNT });
+        void qc.invalidateQueries({ queryKey: QK_TRADES });
+      }
+      void qc.invalidateQueries({ queryKey: ["paper", "diagnostics", "fo", "exit-monitor", "status"] });
+    },
+    onError: (err: Error) => {
+      setExitMonitorRunResult({ action: "now", at: Date.now(), error: err.message });
+    },
+  });
   const positions = useQuery({
     queryKey: QK_POSITIONS,
     queryFn: () => api<{ positions: OpenPosition[]; generatedAt: string }>(`/paper/positions/fo`),
@@ -1480,6 +1552,14 @@ function FOSegment() {
   const closedRows = useMemo<FoTradeRow[]>(
     () => (trades.data?.trades ?? []).map((t) => ({ ...t, status: "CLOSED" })),
     [trades.data],
+  );
+  const exitMonitorOpenPositions = useMemo(
+    () =>
+      (positions.data?.positions ?? []).map((p) => ({
+        id: p.id,
+        label: `${p.indexSymbol} ${p.strike} ${p.optionType} · ${p.direction} · opened ${p.openedAt.slice(0, 16).replace("T", " ")}`,
+      })),
+    [positions.data],
   );
 
   // ── W3-P6: client-side cockpit controls (display-only) ──────────────────────
@@ -1675,6 +1755,19 @@ function FOSegment() {
         loading={shadowExits.isLoading}
         error={shadowExits.error instanceof Error ? shadowExits.error.message : null}
         errorStatus={shadowExits.error instanceof ApiError ? shadowExits.error.status : null}
+      />
+      <FoExitMonitorPanel
+        data={exitMonitorStatus.data ?? null}
+        loading={exitMonitorStatus.isLoading}
+        error={exitMonitorStatus.error instanceof Error ? exitMonitorStatus.error.message : null}
+        openPositions={exitMonitorOpenPositions}
+        selectedId={exitMonitorSelectedId}
+        onSelectedIdChange={setExitMonitorSelectedId}
+        onRunDry={() => runDryMut.mutate(exitMonitorSelectedId)}
+        onRunNow={() => runNowMut.mutate(exitMonitorSelectedId)}
+        runDryPending={runDryMut.isPending}
+        runNowPending={runNowMut.isPending}
+        runResult={exitMonitorRunResult}
       />
       <AccountCard
         data={account.data}

@@ -1,0 +1,247 @@
+CODER PROMPT — P1 PROFESSIONAL TRADING RELIABILITY FIX: F&O STOP/TARGET MONITORING RELIABILITY + EXIT EVENT CONSISTENCY + NO MISSED EXITS
+
+Current accepted production milestones:
+
+1. SIGNAL_DATA_NOTIFICATION_PARITY_DETERMINISTIC_PROD_VERIFIED_LIVE_SMOKE_PENDING
+2. GLOBAL_DATA_HEALTH_KITE_RESILIENCE_PROD_VERIFIED
+3. SWING_TTL_LIFECYCLE_PROD_VERIFIED
+
+The platform now has:
+
+- canonical signal / paper trade / Telegram parity foundation
+- deterministic parity verification harness
+- production-verified global data-health endpoint
+- production-verified Kite readiness / global banner
+- production-verified Swing TTL stale staged-order cleanup
+- broker execution disabled
+- no real orders placed
+
+Now the next professional trading reliability issue must be fixed:
+
+F&O open paper trades must be monitored reliably for stop-loss and target exits using fresh trusted Kite data.
+
+A professional trading system cannot only focus on entries. Exit reliability is more important than entry reliability.
+
+If an F&O paper trade is opened and the system misses the stop-loss, delays target detection, duplicates exit messages, uses stale price, or shows different exit status across Paper Trading / Telegram / DB / reports, the trade lifecycle becomes unreliable.
+
+This task is only about F&O open paper-trade exit monitoring and exit consistency.
+
+====================================================
+CORE OBJECTIVE
+====================================================
+
+Build professional-grade F&O stop-loss / target monitoring reliability.
+
+The system must ensure:
+
+1. Every open F&O paper trade is monitored on a reliable cadence.
+2. Stop-loss and target exits are detected using fresh trusted Kite data only.
+3. Stale, missing, Yahoo, cached, delayed, or synthetic data must never trigger an exit.
+4. Exit detection must fail closed if data is not trade-grade.
+5. Exit event must be canonical and idempotent.
+6. Telegram exit alert must send once only.
+7. Paper trade DB row must close once only.
+8. UI, DB, Telegram, notification log, reports, and parity harness must agree.
+9. Stop-loss priority must be deterministic if both SL and target appear crossed.
+10. Monitoring health must be visible in Infra Health.
+11. Broker execution remains disabled.
+12. No real order is placed.
+
+====================================================
+DO NOT DO
+====================================================
+
+Do not change F&O entry strategy logic.
+
+Do not change signal generation thresholds.
+
+Do not change stop-loss or target formulas unless a clear bug is found and separately reported.
+
+Do not change Swing scoring logic.
+
+Do not enable broker execution.
+
+Do not place real orders.
+
+Do not create fake trades.
+
+Do not use Yahoo/proxy/cache/stale data for F&O exits.
+
+Do not send duplicate Telegram exit alerts.
+
+Do not send test/dev/sample exits to real Telegram.
+
+Do not silently close trades without audit trail.
+
+Do not delete DB rows.
+
+Do not perform destructive migrations.
+
+Do not run heavy candle backfill.
+
+Do not hide source warnings.
+
+Do not fake Kite readiness.
+
+Do not break global data-health.
+
+Do not break Swing TTL lifecycle.
+
+Do not break the parity harness.
+
+Do not trim or rewrite `replit.md`.
+
+Do not claim production verified without production evidence.
+
+====================================================
+PHASE 0 — READ CONTEXT FIRST
+====================================================
+
+Before coding, read:
+
+- `AGENT.md`
+- `docs/llm-index/AGENT_START_HERE.md`
+- `docs/llm-index/CRITICAL_FLOWS.md`
+- `docs/llm-index/API_ROUTES_INDEX.md`
+- `docs/llm-index/DATABASE_INDEX.md`
+- `docs/llm-index/DATA_SOURCES_AND_PROVENANCE.md`
+- `docs/llm-index/TEST_AND_VERIFICATION_INDEX.md`
+- `SIGNAL_DATA_NOTIFICATION_PARITY_FIX_REPORT.md`
+- `GLOBAL_DATA_HEALTH_AND_KITE_RESILIENCE_REPORT.md`
+- `SWING_TTL_STAGED_ORDER_LIFECYCLE_REPORT.md`
+- `FULL_WEBSITE_DEEP_AUDIT_REPORT.md`
+- `LIVE_VS_PROD_DEEP_AUDIT_REPORT.md`
+
+Then inspect:
+
+- F&O paper trading schema/table
+- F&O paper trading routes
+- F&O signal generation files
+- F&O option-chain quote files
+- Kite option quote/futures quote functions
+- canonical trade lifecycle files
+- notification delivery log
+- Telegram F&O alert functions
+- Paper Trading UI
+- Paper Trading Reports
+- Infra Health page
+- scheduler files
+- app_state / scheduler latch patterns
+- global data-health files
+- parity harness fixtures/comparator
+- existing F&O stop/target tests
+
+Before coding, write a short implementation note answering:
+
+1. Where are F&O paper trades opened?
+2. Where are F&O paper trades currently monitored for SL/target?
+3. Is exit monitoring pull-based, scheduler-based, UI-triggered, or mixed?
+4. What data source is used for current exit price?
+5. Is the exit price definitely Kite/trusted?
+6. What happens if Kite quote is stale or unavailable?
+7. Is there a monitoring cadence today?
+8. Is there a lock/idempotency guard to avoid duplicate exits?
+9. Where is Telegram exit sent?
+10. Is Telegram sent before or after DB close?
+11. What happens if Telegram send fails after DB close?
+12. Does notification_delivery_log dedup exit events?
+13. Which reports consume closed paper trades?
+14. Which UI pages show open/closed F&O paper trades?
+15. Can an open trade remain unmonitored if nobody opens the page?
+16. What fields store entry, SL, target, LTP, close price, close reason, closedAt?
+17. What fields are missing for auditability?
+18. How will multi-worker duplicate exit prevention work?
+19. How will global data-health gate exit monitoring?
+20. What exact files will be changed?
+
+Do not start coding until this is understood.
+
+====================================================
+PHASE 1 — DEFINE F&O PAPER TRADE EXIT CONTRACT
+====================================================
+
+Create or formalize a professional exit contract for F&O paper trades.
+
+Required exit states:
+
+- OPEN
+- EXIT_PENDING
+- CLOSED_TARGET
+- CLOSED_STOP_LOSS
+- CLOSED_MANUAL
+- CLOSED_EXPIRED
+- CLOSED_DATA_INVALID
+- EXIT_BLOCKED_STALE_DATA
+- EXIT_BLOCKED_SOURCE_NOT_TRADE_GRADE
+- EXIT_BLOCKED_KITE_UNAVAILABLE
+- EXIT_BLOCKED_INVALID_CONTRACT
+- EXIT_DUPLICATE_SKIPPED
+
+Use existing statuses if already present. Do not break existing data. Additive changes only.
+
+Each exit event must capture:
+
+- paperTradeId
+- signalId if available
+- owner/user
+- underlying symbol
+- index
+- option contract symbol
+- exchange
+- instrument token if available
+- side: CALL / PUT
+- direction
+- entry price
+- stop-loss price
+- target price
+- current quote price
+- exit price
+- exit reason
+- exit trigger type: TARGET / STOP_LOSS / MANUAL / EXPIRED / DATA_INVALID
+- quote source
+- quote as-of time
+- quote freshness seconds
+- data trade-grade boolean
+- global data-health status at exit time
+- detectedAt
+- closedAt
+- Telegram delivery status
+- notification log id if available
+
+Professional rule:
+
+If quote is not trusted/fresh/trade-grade, do not close the trade automatically. Mark monitoring attempt as blocked and visible in diagnostics.
+
+====================================================
+PHASE 2 — STOP/TARGET DECISION RULES
+====================================================
+
+Implement deterministic exit decision rules.
+
+Required:
+
+1. Use latest fresh Kite option quote for the actual contract wherever possible.
+2. If actual option quote is unavailable, do not use Yahoo, synthetic, or approximate proxy for trade exit.
+3. If quote is stale beyond configured threshold, block exit detection.
+4. If contract is invalid or missing, block exit detection.
+5. If both stop-loss and target appear crossed in the same check:
+   - use conservative rule
+   - for long option paper trades, stop-loss priority unless reliable intrabar sequence exists
+   - document the rule clearly
+6. Exit reason must be explicit:
+   - TARGET_HIT
+   - STOP_LOSS_HIT
+   - MANUAL_CLOSE
+   - CONTRACT_INVALID
+   - DATA_STALE
+   - SOURCE_NOT_TRADE_GRADE
+   - KITE_UNAVAILABLE
+7. Exit should use quote timestamp, not server time alone.
+8. Exit price should be the actual quote/ltp used for trigger.
+9. No exit on stale or missing data.
+10. No exit on cached scanner value.
+
+Create pure function:
+
+```ts
+evaluateFnoPaperTradeExit(input): FnoExitDecision

@@ -25,12 +25,19 @@
 import crypto from "crypto";
 import { alertOwnerRaw } from "./alerting";
 import { logger } from "./logger";
+import { validateTradeEventForNotification } from "./tradeLifecycle/validateTradeEvent";
+import { formatTradeTelegramMessage } from "./tradeLifecycle/formatTelegramMessage";
 import {
   hasAlreadyDelivered,
   logNotificationDelivery,
   hashMessage,
 } from "./tradeLifecycle/notificationLog";
-import type { TradeAlertEventType } from "./tradeLifecycle/types";
+import type {
+  CanonicalTradeEvent,
+  NotificationDestination,
+  TradeAlertEventType,
+  TradeLifecycleStatus,
+} from "./tradeLifecycle/types";
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
@@ -301,7 +308,195 @@ function closeReasonToEventType(reason: string): TradeAlertEventType {
   }
 }
 
+/** Maps a TradeAlertEventType (EXIT_* only) to its canonical lifecycle status. */
+function exitEventTypeToLifecycleStatus(eventType: TradeAlertEventType): TradeLifecycleStatus {
+  switch (eventType) {
+    case "EXIT_TARGET_1":  return "EXITED_TARGET_1";
+    case "EXIT_TARGET_2":  return "EXITED_TARGET_2";
+    case "EXIT_STOP_LOSS": return "EXITED_STOP_LOSS";
+    case "EXIT_MANUAL":    return "EXITED_MANUAL";
+    default:               return "EXITED_TIME"; // EXIT_TIME
+  }
+}
+
+/** Runtime environment bucket for CanonicalTradeEvent ("production"/"development"/"test"). */
+function deriveFnoCanonicalEnvironment(): "production" | "development" | "test" {
+  const n = process.env["NODE_ENV"];
+  if (n === "production") return "production";
+  if (n === "test") return "test";
+  return "development";
+}
+
+function computeFnoRr(entry: number, stop: number, target: number | null): number | null {
+  if (target == null) return null;
+  const risk = entry - stop;
+  if (!Number.isFinite(risk) || risk <= 0) return null;
+  const reward = target - entry;
+  if (!Number.isFinite(reward)) return null;
+  return reward / risk;
+}
+
 /**
+ * Build a CanonicalTradeEvent from an F&O paper-trade close (FnoExitAlertInput).
+ *
+ * DATA-TRUST DESIGN (2026-07-02): an EXIT event reports a position that has
+ * ALREADY been closed against a locked/committed DB premium — the real
+ * "should we exit" trust enforcement happened upstream (the F&O Exit
+ * Monitoring Reliability gate, before the DB commit). This report is
+ * therefore stamped honestly as INFO_ONLY / canDriveSignals=false /
+ * canDriveTradeAlerts=false — it is NOT a live trade-grade quote and must
+ * never be mistaken for one. `source` is "manual" only for owner-initiated
+ * MANUAL_OVERRIDE closes; every other close reason (STOPPED, TARGET1_HIT,
+ * TARGET2_HIT, EXPIRED, TIME_EXIT_1520) is "computed_from_kite" — the close
+ * premium is a locked DB value derived from a prior Kite-sourced tick, not a
+ * fresh live quote.
+ *
+ * `instrumentToken` is null — F&O paper trades do not persist a Kite
+ * instrument token, and TOKEN_MISSING is scoped to ENTRY events only (see
+ * validateTradeEvent.ts), so this is safe and does not block delivery.
+ * `assetType` is honestly "option" (not "index" — the underlying is an
+ * index, but the traded instrument is an index option).
+ */
+export function buildFnoExitCanonicalEvent(input: FnoExitAlertInput): CanonicalTradeEvent {
+  const eventType = closeReasonToEventType(input.reason);
+  const lifecycleStatus = exitEventTypeToLifecycleStatus(eventType);
+  const side: CanonicalTradeEvent["side"] = input.direction === "BULLISH" ? "CALL" : "PUT";
+  const source: CanonicalTradeEvent["source"] =
+    input.reason === "MANUAL_OVERRIDE" ? "manual" : "computed_from_kite";
+
+  // stopLoss is a required, must-be-positive field on CanonicalTradeEvent, but
+  // stopPremium can legitimately be null on older/edge-case paper trade rows.
+  // Fall back to entryPremium (never fabricate a different number) and record
+  // the fallback in `warnings` so it is never silently mistaken for a real SL.
+  const warnings: string[] = [];
+  let stopLoss = input.stopPremium;
+  if (stopLoss == null || !Number.isFinite(stopLoss) || stopLoss <= 0) {
+    stopLoss = input.entryPremium;
+    warnings.push("StopLossUnavailable: stopPremium missing on this trade row, defaulted to entryPremium for display");
+  }
+
+  const quantity = input.lots * input.lotSize;
+  const tradingSymbol = `${input.indexSymbol}${input.optionType ? ` ${input.optionType}` : ""}`;
+
+  return {
+    id: crypto.randomUUID(),
+    domain: "FNO_INTRADAY",
+    eventType,
+    lifecycleStatus,
+    signalId: null,
+    orderId: null,
+    paperTradeId: input.paperTradeId,
+    symbol: input.indexSymbol,
+    tradingSymbol,
+    exchange: "INDEX",
+    instrumentToken: null,
+    assetType: "option",
+    side,
+    setupName: input.setupKey,
+    confidence: null,
+    entryPrice: input.entryPremium,
+    stopLoss,
+    target1: input.target1Premium ?? null,
+    target2: null,
+    exitPrice: input.exitPremium,
+    exitReason: input.reason,
+    quantity,
+    capitalRequired: input.entryPremium * quantity,
+    maxRisk: Math.abs(input.entryPremium - stopLoss) * quantity,
+    riskPercent: null,
+    riskReward: computeFnoRr(input.entryPremium, stopLoss, input.target1Premium),
+    source,
+    sourceStatus: "INFO_ONLY",
+    sourceAsOf: input.exitedAt.toISOString(),
+    canDriveSignals: false,
+    canDriveTradeAlerts: false,
+    brokerExecutionStatus: "DISABLED",
+    paperTradeStatus: "CLOSED",
+    environment: deriveFnoCanonicalEnvironment(),
+    createdAt: input.openedAt.toISOString(),
+    entryTime: input.openedAt.toISOString(),
+    exitTime: input.exitedAt.toISOString(),
+    appUrl: "/fno",
+    warnings,
+  };
+}
+
+const FNO_EXIT_DEST: NotificationDestination = "telegram_main";
+
+/**
+ * Fire the canonical EXIT_* alert pipeline for a closed F&O paper trade.
+ *
+ * Steps: validate → DB dedup → format → send → log delivery.
+ * Safe-fail — never throws. All errors are caught and logged.
+ */
+async function dispatchFnoCanonicalExit(event: CanonicalTradeEvent, realizedPnl: number): Promise<void> {
+  try {
+    // 1. Canonical validation — blocks test env, test symbols, broker-live, etc.
+    const validation = validateTradeEventForNotification(event, { destination: FNO_EXIT_DEST });
+    if (!validation.allowed) {
+      logger.info(
+        { reason: validation.reason, symbol: event.symbol, paperTradeId: event.paperTradeId },
+        `fnoSignalAlerts: EXIT blocked — ${validation.reason ?? "unknown"}`,
+      );
+      return;
+    }
+
+    // 2. DB-backed dedup — one exit alert per (domain, eventType, paperTradeId, destination).
+    const isDuplicate = await hasAlreadyDelivered(
+      event.domain,
+      event.eventType,
+      event,
+      FNO_EXIT_DEST,
+    );
+    if (isDuplicate) {
+      logger.info(
+        { paperTradeId: event.paperTradeId, eventType: event.eventType },
+        "fnoSignalAlerts: EXIT skipped — already delivered (DB dedup)",
+      );
+      return;
+    }
+
+    // 3. Canonical format — single formatter for all trade events.
+    const text = formatTradeTelegramMessage(event);
+
+    // 4. Send via existing alertOwnerRaw infrastructure.
+    const dedupKey = `FNO_EXIT::${event.paperTradeId}::${event.eventType}`;
+    const logMsg = `F&O exit: ${event.symbol} ${event.side} reason=${event.exitReason} pnl=${realizedPnl.toFixed(0)}`;
+    alertOwnerRaw(dedupKey, logMsg, text, FNO_SIGNAL_DEDUP_MS);
+
+    // 5. Log delivery to notification_delivery_log (DB idempotency record).
+    void logNotificationDelivery({
+      eventId:      event.id,
+      domain:       event.domain,
+      eventType:    event.eventType,
+      signalId:     event.signalId,
+      orderId:      event.orderId,
+      paperTradeId: event.paperTradeId,
+      symbol:       event.symbol,
+      exchange:     event.exchange,
+      destination:  FNO_EXIT_DEST,
+      messageHash:  hashMessage(text),
+      status:       "SENT",
+      errorCode:    null,
+      errorMessage: null,
+      sentAt:       new Date().toISOString(),
+      environment:  event.environment,
+    });
+  } catch (err) {
+    logger.warn(
+      { err: (err as Error)?.message },
+      "fnoSignalAlerts: dispatchFnoCanonicalExit unexpected error (safe-fail)",
+    );
+  }
+}
+
+/**
+ * @deprecated LEGACY — superseded by buildFnoExitCanonicalEvent + formatTradeTelegramMessage
+ * (canonical Telegram migration, 2026-07-02). No longer called from the production dispatch
+ * path (alertFnoExitSignal -> dispatchFnoCanonicalExit). Retained only because
+ * tradeLifecycleParity.test.ts still exercises it directly as a pure formatter; do not wire
+ * this back into any live send path.
+ *
  * Builds the Telegram message text for a closed F&O paper trade.
  * Pure function — no side-effects.
  */
@@ -527,77 +722,24 @@ export function alertFnoTradeableSignal(input: FnoTradeAlertInput): void {
  * Called from closePaperTradeForSignal after the transaction commits.
  * Safe-fail — never throws. Never blocks the close path.
  *
- * Applies the same canonical safety gates:
- *   – TEST_SYMBOL_BLOCKED, DEV_ENV_BLOCKED, DB dedup by paperTradeId + eventType.
+ * CANONICAL PIPELINE (2026-07-02): builds a CanonicalTradeEvent
+ * (buildFnoExitCanonicalEvent) and dispatches it through the same
+ * validate → DB dedup → format → send → log pipeline used by Swing Cash
+ * and the F&O entry alert. See buildFnoExitCanonicalEvent's doc comment for
+ * the INFO_ONLY / canDriveTradeAlerts=false data-trust rationale.
  *
  * Does NOT: place real orders, change signal logic, modify paper trade rows.
  */
 export function alertFnoExitSignal(input: FnoExitAlertInput): void {
-  void (async () => {
-    try {
-      // Gate 1: TEST_SYMBOL_BLOCKED
-      if (isFnoTestSymbol(input.indexSymbol)) return;
-
-      // Gate 2: DEV_ENV_BLOCKED
-      if (getFnoEnvironment() !== "production") {
-        logger.info(
-          { env: process.env["NODE_ENV"], paperTradeId: input.paperTradeId },
-          "fnoSignalAlerts: EXIT blocked — DEV_ENV_BLOCKED (not production)",
-        );
-        return;
-      }
-
-      const eventType = closeReasonToEventType(input.reason);
-
-      // Gate 3: DB dedup — one exit alert per (paperTradeId, exitType)
-      const isDuplicate = await hasAlreadyDelivered(
-        "FNO_INTRADAY",
-        eventType,
-        {
-          orderId:      null,
-          paperTradeId: input.paperTradeId,
-          signalId:     null,
-          id:           `${input.paperTradeId}::${eventType}`,
-        },
-        "telegram_main",
-      );
-      if (isDuplicate) {
-        logger.info(
-          { paperTradeId: input.paperTradeId, eventType },
-          "fnoSignalAlerts: EXIT skipped — DB dedup",
-        );
-        return;
-      }
-
-      const text     = buildFnoExitAlertText(input);
-      const dedupKey = `FNO_EXIT::${input.paperTradeId}::${input.reason}`;
-      const logMsg   = `F&O exit: ${input.indexSymbol} ${input.direction} reason=${input.reason} pnl=${input.realizedPnl.toFixed(0)}`;
-      alertOwnerRaw(dedupKey, logMsg, text, FNO_SIGNAL_DEDUP_MS);
-
-      void logNotificationDelivery({
-        eventId:      crypto.randomUUID(),
-        domain:       "FNO_INTRADAY",
-        eventType,
-        signalId:     null,
-        orderId:      null,
-        paperTradeId: input.paperTradeId,
-        symbol:       input.indexSymbol,
-        exchange:     "INDEX",
-        destination:  "telegram_main",
-        messageHash:  hashMessage(text),
-        status:       "SENT",
-        errorCode:    null,
-        errorMessage: null,
-        sentAt:       new Date().toISOString(),
-        environment:  "production",
-      });
-    } catch (err) {
-      logger.warn(
-        { err: (err as Error)?.message },
-        "alertFnoExitSignal: unexpected error (safe-fail)",
-      );
-    }
-  })();
+  try {
+    const event = buildFnoExitCanonicalEvent(input);
+    void dispatchFnoCanonicalExit(event, input.realizedPnl);
+  } catch (err) {
+    logger.warn(
+      { err: (err as Error)?.message },
+      "alertFnoExitSignal: unexpected error (safe-fail)",
+    );
+  }
 }
 
 // ── Sample alert builder (for test endpoint only) ─────────────────────────────

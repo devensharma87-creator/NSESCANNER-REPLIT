@@ -7,6 +7,7 @@
  */
 import type { FnoSpotLifecycle } from "./fnoSpotLifecycle";
 import type { PaperTradeFOPositionDirection } from "./paperTradeFOPositionDirection";
+import type { PaperTradeFOPositionExitMonitorStatus } from "./paperTradeFOPositionExitMonitorStatus";
 import type { PaperTradeFOPositionOptionType } from "./paperTradeFOPositionOptionType";
 import type { PaperTradeFOPositionStatus } from "./paperTradeFOPositionStatus";
 
@@ -38,5 +39,19 @@ export interface PaperTradeFOPosition {
   openedAt: Date;
   lastEvaluatedAt: Date;
   status: PaperTradeFOPositionStatus;
+  /** F&O Exit Monitoring Reliability: outcome of the most recent trust-gate check for this open position. */
+  exitMonitorStatus?: PaperTradeFOPositionExitMonitorStatus;
+  /** Whether the most recent exit check used a trade-grade (fresh, authoritative) quote. */
+  exitTradeGrade?: boolean | null;
+  /** Quote source used by the most recent exit check (e.g. kite). */
+  exitQuoteSource?: string | null;
+  /** As-of timestamp of the quote used by the most recent exit check. */
+  exitQuoteAsOf?: Date | null;
+  /** Freshness (seconds) of the quote used by the most recent exit check. */
+  exitQuoteFreshnessSec?: number | null;
+  /** When the exit monitor last evaluated this position. */
+  lastExitCheckAt?: Date | null;
+  /** Reason the most recent exit check was BLOCKED (null when MONITORED). */
+  lastExitCheckError?: string | null;
   spotLifecycle?: FnoSpotLifecycle | null;
 }

@@ -4975,6 +4975,13 @@ components:
         openedAt:        { type: string, format: date-time }
         lastEvaluatedAt: { type: string, format: date-time }
         status:          { type: string, enum: [OPEN] }
+        exitMonitorStatus:     { type: string, nullable: true, enum: [MONITORED, BLOCKED], description: "F&O Exit Monitoring Reliability: outcome of the most recent trust-gate check for this open position." }
+        exitTradeGrade:        { type: boolean, nullable: true, description: "Whether the most recent exit check used a trade-grade (fresh, authoritative) quote." }
+        exitQuoteSource:       { type: string, nullable: true, description: "Quote source used by the most recent exit check (e.g. kite)." }
+        exitQuoteAsOf:         { type: string, format: date-time, nullable: true, description: "As-of timestamp of the quote used by the most recent exit check." }
+        exitQuoteFreshnessSec: { type: integer, nullable: true, description: "Freshness (seconds) of the quote used by the most recent exit check." }
+        lastExitCheckAt:       { type: string, format: date-time, nullable: true, description: "When the exit monitor last evaluated this position." }
+        lastExitCheckError:    { type: string, nullable: true, description: "Reason the most recent exit check was BLOCKED (null when MONITORED)." }
         spotLifecycle:
           nullable: true
           allOf:
@@ -5028,6 +5035,15 @@ components:
         target2Premium:  { type: number, nullable: true, description: "Read-only: option-premium target 2 locked at entry." }
         maxRunup:        { type: number, nullable: true, description: "Read-only: highest unrealized P&L observed for this position (peak)." }
         maxDrawdown:     { type: number, nullable: true, description: "Read-only: lowest unrealized P&L observed for this position (≤ 0)." }
+        exitMonitorStatus:     { type: string, nullable: true, enum: [MONITORED, BLOCKED], description: "F&O Exit Monitoring Reliability: outcome of the last trust-gate check recorded before this trade closed." }
+        exitTradeGrade:        { type: boolean, nullable: true, description: "Whether the last exit check used a trade-grade (fresh, authoritative) quote." }
+        exitQuoteSource:       { type: string, nullable: true, description: "Quote source used by the last exit check (e.g. kite)." }
+        exitQuoteAsOf:         { type: string, format: date-time, nullable: true, description: "As-of timestamp of the quote used by the last exit check." }
+        exitQuoteFreshnessSec: { type: integer, nullable: true, description: "Freshness (seconds) of the quote used by the last exit check." }
+        exitDetectedAt:        { type: string, format: date-time, nullable: true, description: "When the exit monitor first detected this trade as an EXIT candidate." }
+        lastExitCheckAt:       { type: string, format: date-time, nullable: true, description: "When the exit monitor last evaluated this trade." }
+        lastExitCheckError:    { type: string, nullable: true, description: "Reason the last exit check was BLOCKED prior to close (null when MONITORED)." }
+        telegramStatus:        { type: string, nullable: true, enum: [SENT, FAILED, DUPLICATE], description: "Delivery status of the canonical exit Telegram alert for this trade, looked up from notification_delivery_log (null when no record found yet)." }
         spotLifecycle:
           nullable: true
           allOf:

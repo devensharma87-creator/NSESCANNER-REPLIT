@@ -1,4 +1,4 @@
-import { afterAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { TransactionRollbackError } from "drizzle-orm/errors";
 import { and, eq } from "drizzle-orm";
 import {
@@ -14,6 +14,7 @@ import {
   getOrphanExitSweepHealth,
   __resetOrphanExitSweepHealthForTests,
 } from "./paperTradingFO";
+import { ensureFnoExitMonitorSchemaColumns } from "./fnoExitMonitorHealth";
 
 /**
  * P0 hotfix — Orphaned-OPEN spot-exit re-evaluation tests.
@@ -256,6 +257,17 @@ describe("evaluateOrphanedOpenTrades — fail-safe", () => {
 // ─────────────────────────────────────────────────────────────────────────
 
 describe("evaluateOrphanedOpenTrades — DB integration (rolled back)", () => {
+  // Pre-warm the additive exit-monitor audit columns OUTSIDE any transaction.
+  // The exit gate calls recordFnoExitCheck -> ensureFnoExitMonitorSchemaColumns
+  // on the FIRST hit in this process; if that fired lazily from inside the
+  // rolled-back tx below it would self-deadlock (ALTER TABLE needs an
+  // ACCESS EXCLUSIVE lock on paper_trade_fo, which the open tx already holds
+  // row locks against via its INSERT) and time out at vitest's default 5s.
+  // Same pattern as swingTtlSweep.test.ts's beforeAll.
+  beforeAll(async () => {
+    if (hasDb) await ensureFnoExitMonitorSchemaColumns();
+  });
+
   beforeEach(() => __resetOrphanExitSweepHealthForTests());
 
   dbit("BULLISH frozen orphan whose spot breached the stop → STOPPED close", async () => {

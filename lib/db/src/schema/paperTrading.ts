@@ -32,6 +32,7 @@ import {
   timestamp,
   numeric,
   integer,
+  boolean,
   date,
   index,
   uniqueIndex,
@@ -142,6 +143,34 @@ export const paperTradeFoTable = pgTable(
 
     journal: text("journal"),
     tags: text("tags").array(),
+
+    /**
+     * F&O Exit Monitoring Reliability audit columns (additive 2026-07-02,
+     * all nullable — pre-change rows stay honestly NULL, never backfilled).
+     * Applied via raw `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` in
+     * `applyFnoExitMonitorSchemaColumns()` (fnoExitMonitorHealth.ts), NEVER
+     * `drizzle-kit push` (would attempt to drop out-of-schema tables in
+     * this DB). See fnoExitDecision.ts for the trust-gate that populates
+     * these fields.
+     */
+    /** When the trade actually transitioned to a terminal exit status (may differ from exitedAt only in edge cases; kept for audit parity with quote checks). */
+    exitDetectedAt: timestamp("exit_detected_at", { withTimezone: true }),
+    /** DataQualityLabel of the spot quote that decided/attempted this exit check. */
+    exitQuoteSource: text("exit_quote_source"),
+    /** ms-epoch-derived timestamp of that quote, stored as a timestamptz. */
+    exitQuoteAsOf: timestamp("exit_quote_as_of", { withTimezone: true }),
+    /** Age of that quote in seconds at evaluation time. */
+    exitQuoteFreshnessSec: integer("exit_quote_freshness_sec"),
+    /** Whether the quote that produced this row's current state was trade-grade (Kite live, fresh, session active). */
+    exitTradeGrade: boolean("exit_trade_grade"),
+    /** MONITORED | BLOCKED | UNMONITORED — last exit-check outcome class for this row. */
+    exitMonitorStatus: text("exit_monitor_status"),
+    /** Wall-clock time of the most recent exit-monitor evaluation attempt for this row (updates even when the outcome is BLOCKED or HOLD). */
+    lastExitCheckAt: timestamp("last_exit_check_at", { withTimezone: true }),
+    /** Last exit-check error message, if the evaluation itself threw (distinct from a BLOCKED decision, which is not an error). */
+    lastExitCheckError: text("last_exit_check_error"),
+    /** SENT | FAILED | SKIPPED_CONFIG_MISSING — outcome of the exit Telegram notification for this trade, if it closed. */
+    exitNotificationStatus: text("exit_notification_status"),
   },
   (t) => ({
     // 1:1 with the underlying signal — prevents the lifecycle hook from

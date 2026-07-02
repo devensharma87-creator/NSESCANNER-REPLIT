@@ -273,6 +273,11 @@ export const FIXTURE_FNO_SUPPRESSED: Fixture = {
 
 /**
  * Fixture 8 — F&O EXIT_STOP_LOSS
+ * Mirrors buildFnoExitCanonicalEvent's real production shape (2026-07-02
+ * canonical Telegram migration): a close reports a committed DB premium,
+ * not a live quote — sourceStatus INFO_ONLY, canDriveSignals/canDriveTradeAlerts
+ * false, source "computed_from_kite". isEntryEvent-gated checks (#8-#12 in
+ * validateTradeEvent.ts) do not apply to EXIT_* events, so this still passes.
  * Expected: allowed (F&O exit event after close transaction)
  */
 export const FIXTURE_FNO_EXIT_SL: Fixture = {
@@ -280,23 +285,30 @@ export const FIXTURE_FNO_EXIT_SL: Fixture = {
     fixtureOnly:   true,
     environment:   "test",
     sendTelegram:  false,
-    description:   "F&O EXIT_STOP_LOSS — valid exit event after close tx",
+    description:   "F&O EXIT_STOP_LOSS — valid exit event after close tx (INFO_ONLY, honest)",
     expectedBlock: null,
   },
   event: fnoBase({
-    id:              "fixture-fno-exit-sl",
-    eventType:       "EXIT_STOP_LOSS",
-    lifecycleStatus: "EXITED_STOP_LOSS",
-    exitPrice:        80.00,
-    exitReason:      "Stop-loss triggered",
-    entryTime:       "2026-07-01T09:30:15.000Z",
-    exitTime:        "2026-07-01T11:00:00.000Z",
-    paperTradeStatus: "CLOSED",
+    id:                  "fixture-fno-exit-sl",
+    eventType:           "EXIT_STOP_LOSS",
+    lifecycleStatus:     "EXITED_STOP_LOSS",
+    exitPrice:            80.00,
+    exitReason:          "Stop-loss triggered",
+    entryTime:           "2026-07-01T09:30:15.000Z",
+    exitTime:            "2026-07-01T11:00:00.000Z",
+    paperTradeStatus:    "CLOSED",
+    source:              "computed_from_kite",
+    sourceStatus:        "INFO_ONLY",
+    canDriveSignals:     false,
+    canDriveTradeAlerts: false,
+    instrumentToken:     null,
+    exchange:            "INDEX",
   }),
 };
 
 /**
  * Fixture 9 — F&O EXIT_TARGET_2
+ * Same honest INFO_ONLY shape as Fixture 8 — see its comment.
  * Expected: allowed (F&O target exit event)
  */
 export const FIXTURE_FNO_EXIT_TARGET: Fixture = {
@@ -304,18 +316,55 @@ export const FIXTURE_FNO_EXIT_TARGET: Fixture = {
     fixtureOnly:   true,
     environment:   "test",
     sendTelegram:  false,
-    description:   "F&O EXIT_TARGET_2 — valid target exit event",
+    description:   "F&O EXIT_TARGET_2 — valid target exit event (INFO_ONLY, honest)",
     expectedBlock: null,
   },
   event: fnoBase({
-    id:              "fixture-fno-exit-t2",
-    eventType:       "EXIT_TARGET_2",
-    lifecycleStatus: "EXITED_TARGET_2",
-    exitPrice:       280.00,
-    exitReason:      "Target 2 hit",
-    entryTime:       "2026-07-01T09:30:15.000Z",
-    exitTime:        "2026-07-01T14:00:00.000Z",
-    paperTradeStatus: "CLOSED",
+    id:                  "fixture-fno-exit-t2",
+    eventType:           "EXIT_TARGET_2",
+    lifecycleStatus:     "EXITED_TARGET_2",
+    exitPrice:           280.00,
+    exitReason:          "Target 2 hit",
+    entryTime:           "2026-07-01T09:30:15.000Z",
+    exitTime:            "2026-07-01T14:00:00.000Z",
+    paperTradeStatus:    "CLOSED",
+    source:              "computed_from_kite",
+    sourceStatus:        "INFO_ONLY",
+    canDriveSignals:     false,
+    canDriveTradeAlerts: false,
+    instrumentToken:     null,
+    exchange:            "INDEX",
+  }),
+};
+
+/**
+ * Fixture 15 — F&O EXIT_MANUAL (owner-initiated close)
+ * source="manual" per buildFnoExitCanonicalEvent's MANUAL_OVERRIDE branch.
+ * Expected: allowed (F&O manual exit event)
+ */
+export const FIXTURE_FNO_EXIT_MANUAL: Fixture = {
+  meta: {
+    fixtureOnly:   true,
+    environment:   "test",
+    sendTelegram:  false,
+    description:   "F&O EXIT_MANUAL — owner-initiated close, source=manual (INFO_ONLY, honest)",
+    expectedBlock: null,
+  },
+  event: fnoBase({
+    id:                  "fixture-fno-exit-manual",
+    eventType:           "EXIT_MANUAL",
+    lifecycleStatus:     "EXITED_MANUAL",
+    exitPrice:           140.00,
+    exitReason:          "MANUAL_OVERRIDE",
+    entryTime:           "2026-07-01T09:30:15.000Z",
+    exitTime:            "2026-07-01T12:15:00.000Z",
+    paperTradeStatus:    "CLOSED",
+    source:              "manual",
+    sourceStatus:        "INFO_ONLY",
+    canDriveSignals:     false,
+    canDriveTradeAlerts: false,
+    instrumentToken:     null,
+    exchange:            "INDEX",
   }),
 };
 
@@ -438,6 +487,7 @@ export const ALL_FIXTURES: Fixture[] = [
   FIXTURE_FNO_SUPPRESSED,
   FIXTURE_FNO_EXIT_SL,
   FIXTURE_FNO_EXIT_TARGET,
+  FIXTURE_FNO_EXIT_MANUAL,
   FIXTURE_TESTSTK_BLOCKED,
   FIXTURE_YAHOO_BLOCKED,
   FIXTURE_STALE_BLOCKED,

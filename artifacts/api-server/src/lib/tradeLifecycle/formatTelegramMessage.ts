@@ -74,9 +74,14 @@ function holdingTime(entryTime: string | null, exitTime: string | null): string 
 
 function pnl(event: CanonicalTradeEvent): string {
   if (event.exitPrice == null || !Number.isFinite(event.exitPrice)) return "—";
-  const diff = (event.side === "BUY" || event.side === "CALL")
-    ? event.exitPrice - event.entryPrice
-    : event.entryPrice - event.exitPrice;
+  // "SELL" is the only short-position side in this system (equity short-sell).
+  // CALL/PUT are option TYPES, not directions — this system only ever buys
+  // (goes long) options, so a long PUT's premium P&L is exit − entry too
+  // (profit when premium rises), exactly like a long CALL or a BUY equity leg.
+  const isShort = event.side === "SELL";
+  const diff = isShort
+    ? event.entryPrice - event.exitPrice
+    : event.exitPrice - event.entryPrice;
   const raw = diff * event.quantity;
   return `${raw >= 0 ? "+" : ""}${inr(raw)}`;
 }
@@ -235,6 +240,7 @@ function buildFnoExit(event: CanonicalTradeEvent): string {
     `Exit Time: ${istTime(event.exitTime)}`,
     `Holding Time: ${holdingTime(event.entryTime, event.exitTime)}`,
     `Source: ${sourceLabel(event)}`,
+    "Broker execution: DISABLED \u2014 no order placed",
     `ID: ${event.paperTradeId ?? event.signalId ?? event.id}`,
   ];
   if (event.warnings.length > 0) lines.push(`Warnings: ${event.warnings.join("; ")}`);

@@ -13,13 +13,17 @@ import {
   buildFnoSignalAlertText,
   buildFnoSampleAlertText,
   alertFnoTradeableSignal,
+  alertFnoExitSignal,
+  buildFnoExitCanonicalEvent,
   getLastFnoSignalAlertRecord,
   resetFnoSignalAlertState,
   FNO_SIGNAL_ALERT_NEW_OPEN_MAX_MS,
   FNO_SIGNAL_DEDUP_MS,
   type FnoTradeAlertInput,
+  type FnoExitAlertInput,
 } from "./fnoSignalAlerts";
 import { alertOwnerRaw, resetAlertDedup } from "./alerting";
+import { hasAlreadyDelivered, logNotificationDelivery } from "./tradeLifecycle/notificationLog";
 
 vi.mock("./alerting", () => ({
   alertOwnerRaw: vi.fn(),
@@ -362,5 +366,175 @@ describe("constants", () => {
 
   it("new-open freshness window is 5 minutes", () => {
     expect(FNO_SIGNAL_ALERT_NEW_OPEN_MAX_MS).toBe(5 * 60 * 1000);
+  });
+});
+
+// ── 11. buildFnoExitCanonicalEvent — canonical Telegram migration (2026-07-02) ──
+
+function freshExitInput(overrides: Partial<FnoExitAlertInput> = {}): FnoExitAlertInput {
+  const nowMs = Date.now();
+  return {
+    paperTradeId:   "pt-exit-001",
+    indexSymbol:    "NIFTY",
+    direction:      "BULLISH",
+    setupKey:       "NIFTY_MEAN_REVERSION",
+    signalDate:     "2026-07-01",
+    optionType:     "CE",
+    entryPremium:   125.0,
+    exitPremium:    80.0,
+    stopPremium:    80.0,
+    target1Premium: 200.0,
+    lots:           10,
+    lotSize:        75,
+    realizedPnl:    -33750,
+    reason:         "STOPPED",
+    openedAt:       new Date(nowMs - 60 * 60 * 1000),
+    exitedAt:       new Date(nowMs),
+    ...overrides,
+  };
+}
+
+describe("buildFnoExitCanonicalEvent — honest INFO_ONLY exit shape", () => {
+  it("maps STOPPED reason to EXIT_STOP_LOSS / EXITED_STOP_LOSS", () => {
+    const ev = buildFnoExitCanonicalEvent(freshExitInput({ reason: "STOPPED" }));
+    expect(ev.eventType).toBe("EXIT_STOP_LOSS");
+    expect(ev.lifecycleStatus).toBe("EXITED_STOP_LOSS");
+  });
+
+  it("maps TARGET1_HIT reason to EXIT_TARGET_1 / EXITED_TARGET_1", () => {
+    const ev = buildFnoExitCanonicalEvent(freshExitInput({ reason: "TARGET1_HIT" }));
+    expect(ev.eventType).toBe("EXIT_TARGET_1");
+    expect(ev.lifecycleStatus).toBe("EXITED_TARGET_1");
+  });
+
+  it("maps TARGET2_HIT reason to EXIT_TARGET_2 / EXITED_TARGET_2", () => {
+    const ev = buildFnoExitCanonicalEvent(freshExitInput({ reason: "TARGET2_HIT" }));
+    expect(ev.eventType).toBe("EXIT_TARGET_2");
+    expect(ev.lifecycleStatus).toBe("EXITED_TARGET_2");
+  });
+
+  it("maps MANUAL_OVERRIDE reason to EXIT_MANUAL / EXITED_MANUAL and source=manual", () => {
+    const ev = buildFnoExitCanonicalEvent(freshExitInput({ reason: "MANUAL_OVERRIDE" }));
+    expect(ev.eventType).toBe("EXIT_MANUAL");
+    expect(ev.lifecycleStatus).toBe("EXITED_MANUAL");
+    expect(ev.source).toBe("manual");
+  });
+
+  it("maps TIME_EXIT_1520/EXPIRED (any other reason) to EXIT_TIME / EXITED_TIME", () => {
+    const ev = buildFnoExitCanonicalEvent(freshExitInput({ reason: "TIME_EXIT_1520" }));
+    expect(ev.eventType).toBe("EXIT_TIME");
+    expect(ev.lifecycleStatus).toBe("EXITED_TIME");
+  });
+
+  it("non-manual closes are sourced as computed_from_kite (locked DB premium, not a live quote)", () => {
+    const ev = buildFnoExitCanonicalEvent(freshExitInput({ reason: "TARGET1_HIT" }));
+    expect(ev.source).toBe("computed_from_kite");
+  });
+
+  it("is stamped honestly INFO_ONLY / non-signal-driving", () => {
+    const ev = buildFnoExitCanonicalEvent(freshExitInput());
+    expect(ev.sourceStatus).toBe("INFO_ONLY");
+    expect(ev.canDriveSignals).toBe(false);
+    expect(ev.canDriveTradeAlerts).toBe(false);
+  });
+
+  it("BULLISH direction maps to side=CALL, BEARISH maps to side=PUT", () => {
+    expect(buildFnoExitCanonicalEvent(freshExitInput({ direction: "BULLISH" })).side).toBe("CALL");
+    expect(buildFnoExitCanonicalEvent(freshExitInput({ direction: "BEARISH" })).side).toBe("PUT");
+  });
+
+  it("uses stopPremium directly when present (no fallback warning)", () => {
+    const ev = buildFnoExitCanonicalEvent(freshExitInput({ stopPremium: 80.0 }));
+    expect(ev.stopLoss).toBe(80.0);
+    expect(ev.warnings.some((w) => w.includes("StopLossUnavailable"))).toBe(false);
+  });
+
+  it("falls back stopLoss to entryPremium and records a warning when stopPremium is null", () => {
+    const ev = buildFnoExitCanonicalEvent(freshExitInput({ stopPremium: null, entryPremium: 125.0 }));
+    expect(ev.stopLoss).toBe(125.0);
+    expect(ev.warnings.some((w) => w.includes("StopLossUnavailable"))).toBe(true);
+  });
+
+  it("computes quantity as lots * lotSize", () => {
+    const ev = buildFnoExitCanonicalEvent(freshExitInput({ lots: 10, lotSize: 75 }));
+    expect(ev.quantity).toBe(750);
+  });
+
+  it("has instrumentToken=null and exchange=INDEX", () => {
+    const ev = buildFnoExitCanonicalEvent(freshExitInput());
+    expect(ev.instrumentToken).toBeNull();
+    expect(ev.exchange).toBe("INDEX");
+  });
+
+  it("carries exitReason and exitPrice from input", () => {
+    const ev = buildFnoExitCanonicalEvent(freshExitInput({ reason: "STOPPED", exitPremium: 80.0 }));
+    expect(ev.exitReason).toBe("STOPPED");
+    expect(ev.exitPrice).toBe(80.0);
+  });
+
+  it("brokerExecutionStatus is always DISABLED and paperTradeStatus is always CLOSED", () => {
+    const ev = buildFnoExitCanonicalEvent(freshExitInput());
+    expect(ev.brokerExecutionStatus).toBe("DISABLED");
+    expect(ev.paperTradeStatus).toBe("CLOSED");
+  });
+});
+
+// ── 12. alertFnoExitSignal — canonical dispatch pipeline ─────────────────────
+
+describe("alertFnoExitSignal — canonical pipeline dispatch", () => {
+  it("sends exactly once for a valid production exit", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    alertFnoExitSignal(freshExitInput());
+    await new Promise((r) => setTimeout(r, 50));
+    expect(vi.mocked(alertOwnerRaw)).toHaveBeenCalledTimes(1);
+  });
+
+  it("is blocked in non-production environment (DEV_ENV_BLOCKED)", async () => {
+    // Default NODE_ENV=test in vitest
+    alertFnoExitSignal(freshExitInput());
+    await new Promise((r) => setTimeout(r, 50));
+    expect(vi.mocked(alertOwnerRaw)).not.toHaveBeenCalled();
+  });
+
+  it("is blocked for TESTSTK-style test symbols even in production", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    alertFnoExitSignal(freshExitInput({ indexSymbol: "TESTSTK" }));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(vi.mocked(alertOwnerRaw)).not.toHaveBeenCalled();
+  });
+
+  it("skips sending when hasAlreadyDelivered resolves true (DB dedup)", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.mocked(hasAlreadyDelivered).mockResolvedValueOnce(true);
+    alertFnoExitSignal(freshExitInput());
+    await new Promise((r) => setTimeout(r, 50));
+    expect(vi.mocked(alertOwnerRaw)).not.toHaveBeenCalled();
+  });
+
+  it("logs delivery to notification_delivery_log on successful send", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    alertFnoExitSignal(freshExitInput());
+    await new Promise((r) => setTimeout(r, 50));
+    expect(vi.mocked(logNotificationDelivery)).toHaveBeenCalled();
+  });
+
+  it("does not throw even when alertOwnerRaw throws catastrophically", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.mocked(alertOwnerRaw).mockImplementationOnce(() => { throw new Error("CATASTROPHIC"); });
+    expect(() => alertFnoExitSignal(freshExitInput())).not.toThrow();
+    await new Promise((r) => setTimeout(r, 50));
+  });
+
+  it("does not throw when buildFnoExitCanonicalEvent input is malformed", () => {
+    expect(() => alertFnoExitSignal(freshExitInput({ lots: NaN as unknown as number }))).not.toThrow();
+  });
+
+  it("sent Telegram text contains the index symbol and STOP-LOSS wording for a STOPPED exit", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    alertFnoExitSignal(freshExitInput({ reason: "STOPPED", indexSymbol: "BANKNIFTY" }));
+    await new Promise((r) => setTimeout(r, 50));
+    const call = vi.mocked(alertOwnerRaw).mock.calls[0];
+    expect(call?.[2]).toContain("BANKNIFTY");
+    expect(call?.[2]?.toUpperCase()).toContain("STOP-LOSS");
   });
 });

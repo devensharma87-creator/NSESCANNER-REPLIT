@@ -1,6 +1,6 @@
 ---
 name: tradeLifecycle module — canonical foundation
-description: CanonicalTradeEvent types + validate/format/dedup — additive foundation not yet wired into existing alert functions; follow-up task required to migrate swingAlerts and fnoSignalAlerts.
+description: CanonicalTradeEvent types + validate/format/dedup. Wired into fnoSignalAlerts (entry + exit, as of 2026-07-02). swingAlerts.ts still unmigrated.
 ---
 
 ## Module Location
@@ -13,10 +13,12 @@ description: CanonicalTradeEvent types + validate/format/dedup — additive foun
 - `notificationLog.ts` — DB-backed dedup: `notification_delivery_log` table (raw SQL), `hasAlreadyDelivered()`, `logNotificationDelivery()`, `gateAndLogDedup()`
 - `index.ts` — barrel re-exports
 
-## What It Is NOT (Yet)
-The module is additive foundation. Existing `swingAlerts.ts`, `fnoSignalAlerts.ts`, and `alerting.ts` are unchanged. The canonical formatter and guard are not yet called from production alert paths.
+## Migration Status
+- `fnoSignalAlerts.ts` — MIGRATED (entry + exit both route through the canonical pipeline: build event -> validate -> format -> dedup -> send -> log).
+- `swingAlerts.ts` — still on its own bespoke formatting path; not yet migrated.
+- `alerting.ts` — unchanged; still the low-level `alertOwnerRaw` transport used by the canonical pipeline's send step.
 
-**Why:** Migrating existing alert functions requires product decisions (which lifecycle events go to main trade channel vs. internal-only) and is a separate follow-up task.
+**Why partial:** Migrating each alert function requires the same product decision (which lifecycle events go to the main trade channel vs. internal-only) plus fixture/test coverage; each surface is migrated as its own task rather than in one sweep.
 
 ## notification_delivery_log Table
 Created via raw `CREATE TABLE IF NOT EXISTS` (not drizzle-kit — avoids DROP risk). Dedup index on `(domain, event_type, destination, COALESCE(order_id, signal_id, paper_trade_id, event_id))`.

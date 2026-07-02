@@ -374,6 +374,94 @@ export interface PublicFreshness {
   severity: Severity;
   label: string;
 }
+// ───────────────────────────────────────────────────────────────────────────
+// F&O Exit Monitoring Reliability (T007): pure severity for the
+// `/paper/diagnostics/fo/exit-monitor/status` payload, consumed by both the
+// paper-trading Exit Monitor panel's badge and the Infra Health rollup.
+// Read-only — no fetch, no mutation, no trading-logic touch.
+// ───────────────────────────────────────────────────────────────────────────
+
+export interface ExitMonitorHealthLite {
+  cyclesTotal: number;
+  errorsTotal: number;
+  lastCycle: { checkedAt: string } | null;
+  lastErrorAt: string | null;
+  bootedAt: string;
+}
+
+export interface SubsystemHealthLite {
+  lastErrorAt: string | null;
+}
+
+/**
+ * Severity for the exit-monitor's own cycle cadence + errors, plus the four
+ * dependent sub-systems (premium overlay, orphan-exit sweep, MTM sweep,
+ * 15:20 force-exit) whose health rides along in the same status payload.
+ *
+ *  - no `exitMonitor` object at all (endpoint failed/unreachable) → fail
+ *  - never completed a cycle:
+ *      - booted < `cycleStaleMin` ago → disabled (still warming up)
+ *      - otherwise                    → fail (monitor never ran)
+ *  - last cycle older than `cycleStaleMin` → propagate via deriveAgeSeverity
+ *  - a monitor or sub-system error within the last `errorWindowMin` minutes
+ *    → warn (does not escalate to fail on its own — errors are expected to
+ *    be transient and the monitor's own fail-open design already protects
+ *    trading; this is observability, not a trading gate)
+ */
+export function deriveExitMonitorSeverity(
+  exitMonitor: ExitMonitorHealthLite | null | undefined,
+  subsystems: SubsystemHealthLite[],
+  nowMs: number,
+  cycleStaleMin = 5,
+  errorWindowMin = 30,
+): { severity: Severity; reasons: string[] } {
+  const reasons: string[] = [];
+  if (!exitMonitor) {
+    reasons.push("Exit monitor health unavailable (status endpoint unreachable).");
+    return { severity: "fail", reasons };
+  }
+
+  let cycleSev: Severity;
+  if (exitMonitor.lastCycle) {
+    cycleSev = deriveAgeSeverity(exitMonitor.lastCycle.checkedAt, nowMs, cycleStaleMin);
+    if (cycleSev !== "ok") {
+      reasons.push(`Last exit-monitor cycle was at ${exitMonitor.lastCycle.checkedAt}.`);
+    }
+  } else {
+    const bootedMs = Date.parse(exitMonitor.bootedAt);
+    const bootAgeMin = Number.isFinite(bootedMs) ? (nowMs - bootedMs) / 60_000 : Infinity;
+    if (exitMonitor.cyclesTotal === 0 && bootAgeMin < cycleStaleMin) {
+      cycleSev = "disabled";
+      reasons.push("No exit-monitor cycles yet (server recently restarted).");
+    } else {
+      cycleSev = "fail";
+      reasons.push("Exit monitor has never completed a cycle.");
+    }
+  }
+
+  const recentErrorAgeMin = (errAt: string | null): number => {
+    if (!errAt) return Infinity;
+    const t = Date.parse(errAt);
+    return Number.isFinite(t) ? (nowMs - t) / 60_000 : Infinity;
+  };
+
+  let errSev: Severity = "ok";
+  if (recentErrorAgeMin(exitMonitor.lastErrorAt) < errorWindowMin) {
+    errSev = "warn";
+    reasons.push(`Exit monitor recorded an error at ${exitMonitor.lastErrorAt}.`);
+  }
+
+  let subSev: Severity = "ok";
+  if (subsystems.some((s) => recentErrorAgeMin(s.lastErrorAt) < errorWindowMin)) {
+    subSev = "warn";
+    reasons.push(
+      "A dependent sub-system (premium overlay / orphan-exit sweep / MTM sweep / 15:20 force-exit) recently errored.",
+    );
+  }
+
+  return { severity: rollUp([cycleSev, errSev, subSev]), reasons };
+}
+
 export function derivePublicFreshness(
   input: { scanDate: string | null; intradayTimestamps: Array<string | null | undefined> },
   nowMs: number,

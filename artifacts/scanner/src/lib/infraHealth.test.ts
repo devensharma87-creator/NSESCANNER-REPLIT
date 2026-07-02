@@ -5,6 +5,7 @@ import {
   deriveSnapshotSeverity,
   deriveCandleSeverity,
   deriveSnapshotSectionSeverity,
+  deriveExitMonitorSeverity,
   formatAge,
   rollUp,
   deriveP25Gate,
@@ -14,6 +15,8 @@ import {
   derivePublicFreshness,
   type GateState,
   type SnapshotDiagnostics,
+  type ExitMonitorHealthLite,
+  type SubsystemHealthLite,
 } from "./infraHealth";
 
 const NOW = Date.parse("2026-05-15T13:00:00Z");
@@ -334,5 +337,139 @@ describe("derivePublicFreshness", () => {
     const f = derivePublicFreshness({ scanDate: null, intradayTimestamps: [] }, NOW);
     expect(f.severity).toBe("fail");
     expect(f.label).toBe("No scan yet");
+  });
+});
+
+describe("deriveExitMonitorSeverity", () => {
+  const freshCycle = new Date(NOW - 2 * 60_000).toISOString(); // 2 min ago
+  const staleCycle = new Date(NOW - 7 * 60_000).toISOString(); // 7 min ago (>5, <10)
+  const deadCycle = new Date(NOW - 30 * 60_000).toISOString(); // 30 min ago (>=10)
+  const noError: SubsystemHealthLite[] = [
+    { lastErrorAt: null },
+    { lastErrorAt: null },
+    { lastErrorAt: null },
+    { lastErrorAt: null },
+  ];
+
+  it("fails when the exit-monitor health object itself is unavailable", () => {
+    const r = deriveExitMonitorSeverity(null, noError, NOW);
+    expect(r.severity).toBe("fail");
+    expect(r.reasons.join(" ")).toMatch(/unavailable/i);
+  });
+
+  it("is ok when the monitor has a fresh cycle and no recent errors", () => {
+    const exitMonitor: ExitMonitorHealthLite = {
+      cyclesTotal: 120,
+      errorsTotal: 0,
+      lastCycle: { checkedAt: freshCycle },
+      lastErrorAt: null,
+      bootedAt: new Date(NOW - 5 * 3600_000).toISOString(),
+    };
+    const r = deriveExitMonitorSeverity(exitMonitor, noError, NOW);
+    expect(r.severity).toBe("ok");
+    expect(r.reasons).toEqual([]);
+  });
+
+  it("propagates cycle staleness via deriveAgeSeverity (stale then fail)", () => {
+    const staleExitMonitor: ExitMonitorHealthLite = {
+      cyclesTotal: 120,
+      errorsTotal: 0,
+      lastCycle: { checkedAt: staleCycle },
+      lastErrorAt: null,
+      bootedAt: new Date(NOW - 5 * 3600_000).toISOString(),
+    };
+    expect(deriveExitMonitorSeverity(staleExitMonitor, noError, NOW).severity).toBe("stale");
+
+    const deadExitMonitor: ExitMonitorHealthLite = {
+      ...staleExitMonitor,
+      lastCycle: { checkedAt: deadCycle },
+    };
+    expect(deriveExitMonitorSeverity(deadExitMonitor, noError, NOW).severity).toBe("fail");
+  });
+
+  it("is disabled (not fail) when freshly booted with zero cycles", () => {
+    const justBooted: ExitMonitorHealthLite = {
+      cyclesTotal: 0,
+      errorsTotal: 0,
+      lastCycle: null,
+      lastErrorAt: null,
+      bootedAt: new Date(NOW - 60_000).toISOString(), // 1 min ago
+    };
+    const r = deriveExitMonitorSeverity(justBooted, noError, NOW);
+    expect(r.severity).toBe("disabled");
+  });
+
+  it("fails when the monitor never completed a cycle and was not recently booted", () => {
+    const neverRan: ExitMonitorHealthLite = {
+      cyclesTotal: 0,
+      errorsTotal: 0,
+      lastCycle: null,
+      lastErrorAt: null,
+      bootedAt: new Date(NOW - 3 * 3600_000).toISOString(), // 3h ago
+    };
+    const r = deriveExitMonitorSeverity(neverRan, noError, NOW);
+    expect(r.severity).toBe("fail");
+    expect(r.reasons.join(" ")).toMatch(/never completed a cycle/i);
+  });
+
+  it("warns (does not fail) on a recent monitor error within the error window", () => {
+    const recentError: ExitMonitorHealthLite = {
+      cyclesTotal: 120,
+      errorsTotal: 1,
+      lastCycle: { checkedAt: freshCycle },
+      lastErrorAt: new Date(NOW - 10 * 60_000).toISOString(), // 10 min ago, <30
+      bootedAt: new Date(NOW - 5 * 3600_000).toISOString(),
+    };
+    const r = deriveExitMonitorSeverity(recentError, noError, NOW);
+    expect(r.severity).toBe("warn");
+  });
+
+  it("ignores errors older than the error window", () => {
+    const oldError: ExitMonitorHealthLite = {
+      cyclesTotal: 120,
+      errorsTotal: 1,
+      lastCycle: { checkedAt: freshCycle },
+      lastErrorAt: new Date(NOW - 90 * 60_000).toISOString(), // 90 min ago
+      bootedAt: new Date(NOW - 5 * 3600_000).toISOString(),
+    };
+    const r = deriveExitMonitorSeverity(oldError, noError, NOW);
+    expect(r.severity).toBe("ok");
+  });
+
+  it("warns when a dependent sub-system recently errored, even if the monitor itself is clean", () => {
+    const healthyMonitor: ExitMonitorHealthLite = {
+      cyclesTotal: 120,
+      errorsTotal: 0,
+      lastCycle: { checkedAt: freshCycle },
+      lastErrorAt: null,
+      bootedAt: new Date(NOW - 5 * 3600_000).toISOString(),
+    };
+    const subsWithRecentError: SubsystemHealthLite[] = [
+      { lastErrorAt: null },
+      { lastErrorAt: new Date(NOW - 5 * 60_000).toISOString() },
+      { lastErrorAt: null },
+      { lastErrorAt: null },
+    ];
+    const r = deriveExitMonitorSeverity(healthyMonitor, subsWithRecentError, NOW);
+    expect(r.severity).toBe("warn");
+    expect(r.reasons.join(" ")).toMatch(/dependent sub-system/i);
+  });
+
+  it("fail from a dead cycle wins over a warn-level sub-system error (rollUp ordering)", () => {
+    const deadExitMonitor: ExitMonitorHealthLite = {
+      cyclesTotal: 120,
+      errorsTotal: 0,
+      lastCycle: { checkedAt: deadCycle },
+      lastErrorAt: null,
+      bootedAt: new Date(NOW - 5 * 3600_000).toISOString(),
+    };
+    const subsWithRecentError: SubsystemHealthLite[] = [
+      { lastErrorAt: new Date(NOW - 5 * 60_000).toISOString() },
+      { lastErrorAt: null },
+      { lastErrorAt: null },
+      { lastErrorAt: null },
+    ];
+    const r = deriveExitMonitorSeverity(deadExitMonitor, subsWithRecentError, NOW);
+    expect(r.severity).toBe("fail");
   });
 });

@@ -41,6 +41,16 @@ export interface FoOpenPosition {
   openedAt: string;
   lastEvaluatedAt: string;
   spotLifecycle?: SpotLifecycleLike | null;
+  // F&O Exit Monitoring Reliability — read-only trust status of the most
+  // recent exit-monitor check for this open position. All optional so the
+  // component stays backward-compatible with older payloads.
+  exitMonitorStatus?: "MONITORED" | "BLOCKED" | null;
+  exitTradeGrade?: boolean | null;
+  exitQuoteSource?: string | null;
+  exitQuoteAsOf?: string | null;
+  exitQuoteFreshnessSec?: number | null;
+  lastExitCheckAt?: string | null;
+  lastExitCheckError?: string | null;
 }
 
 const DASH = "—";
@@ -124,6 +134,85 @@ function Field({
       </span>
       <span className={`tabular-nums ${tone ?? ""}`}>{value}</span>
     </div>
+  );
+}
+
+/**
+ * F&O Exit Monitoring Reliability — read-only badge for the trust status of
+ * the most recent exit-monitor check on a single position/trade. Purely
+ * presentational over fields already returned by `/paper/positions/fo` and
+ * `/paper/trades/fo`; does not derive or recompute anything.
+ */
+export function ExitMonitorBadge({
+  status,
+  tradeGrade,
+  quoteSource,
+  freshnessSec,
+  lastCheckAt,
+  lastCheckError,
+}: {
+  status?: "MONITORED" | "BLOCKED" | null;
+  tradeGrade?: boolean | null;
+  quoteSource?: string | null;
+  freshnessSec?: number | null;
+  lastCheckAt?: string | null;
+  lastCheckError?: string | null;
+}) {
+  if (!status) return null;
+  const tone =
+    status === "BLOCKED"
+      ? "border-rose-500/30 bg-rose-500/10 text-rose-200"
+      : tradeGrade === false
+        ? "border-amber-500/30 bg-amber-500/10 text-amber-200"
+        : "border-emerald-500/30 bg-emerald-500/10 text-emerald-200";
+  const label =
+    status === "BLOCKED" ? "Exit: Blocked" : tradeGrade === false ? "Exit: Delayed" : "Exit: Live";
+  const title = [
+    `Exit monitor check: ${status}`,
+    quoteSource ? `source ${quoteSource}` : null,
+    freshnessSec != null && Number.isFinite(freshnessSec) ? `${freshnessSec}s old` : null,
+    lastCheckAt ? `checked ${fmtDateTime(lastCheckAt)}` : null,
+    lastCheckError ? `reason: ${lastCheckError}` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  return (
+    <span
+      title={title}
+      className={`inline-block rounded-full border px-2 py-0.5 text-[10px] font-medium leading-tight ${tone}`}
+    >
+      {label}
+    </span>
+  );
+}
+
+/**
+ * F&O Exit Monitoring Reliability — read-only badge for the canonical exit
+ * Telegram alert's delivery status on a closed trade, looked up from
+ * `notification_delivery_log`. `null` means no record was found yet (older
+ * trade, or send still pending) — rendered as nothing, never a false claim.
+ */
+export function TelegramStatusBadge({
+  status,
+}: {
+  status?: "SENT" | "FAILED" | "DUPLICATE" | null;
+}) {
+  if (!status) return null;
+  const tone =
+    status === "SENT"
+      ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-200"
+      : status === "DUPLICATE"
+        ? "border-sky-500/30 bg-sky-500/10 text-sky-200"
+        : "border-rose-500/30 bg-rose-500/10 text-rose-200";
+  const label =
+    status === "SENT" ? "Telegram: Sent" : status === "DUPLICATE" ? "Telegram: Duplicate" : "Telegram: Failed";
+  return (
+    <span
+      title={`Canonical exit alert delivery status: ${status}`}
+      className={`inline-block rounded-full border px-2 py-0.5 text-[10px] font-medium leading-tight ${tone}`}
+    >
+      {label}
+    </span>
   );
 }
 
@@ -224,14 +313,24 @@ export function FoOpenTradeCard({
       </div>
 
       <div className="flex items-center justify-between gap-2 pt-1">
-        <span className="text-[11px] text-muted-foreground">
-          <span
-            className={`inline-block h-1.5 w-1.5 rounded-full mr-1.5 ${
-              stale ? "bg-amber-400" : "bg-emerald-400"
-            }`}
+        <div className="flex flex-col gap-1">
+          <span className="text-[11px] text-muted-foreground">
+            <span
+              className={`inline-block h-1.5 w-1.5 rounded-full mr-1.5 ${
+                stale ? "bg-amber-400" : "bg-emerald-400"
+              }`}
+            />
+            Last eval {fmtDateTime(p.lastEvaluatedAt)}
+          </span>
+          <ExitMonitorBadge
+            status={p.exitMonitorStatus}
+            tradeGrade={p.exitTradeGrade}
+            quoteSource={p.exitQuoteSource}
+            freshnessSec={p.exitQuoteFreshnessSec}
+            lastCheckAt={p.lastExitCheckAt}
+            lastCheckError={p.lastExitCheckError}
           />
-          Last eval {fmtDateTime(p.lastEvaluatedAt)}
-        </span>
+        </div>
         <Button size="sm" variant="outline" disabled={closing} onClick={onClose}>
           {closing ? "Closing…" : "Close"}
         </Button>

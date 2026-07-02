@@ -7,8 +7,10 @@
  */
 import type { FnoSpotLifecycle } from "./fnoSpotLifecycle";
 import type { PaperTradeFOClosedDirection } from "./paperTradeFOClosedDirection";
+import type { PaperTradeFOClosedExitMonitorStatus } from "./paperTradeFOClosedExitMonitorStatus";
 import type { PaperTradeFOClosedExitReason } from "./paperTradeFOClosedExitReason";
 import type { PaperTradeFOClosedOptionType } from "./paperTradeFOClosedOptionType";
+import type { PaperTradeFOClosedTelegramStatus } from "./paperTradeFOClosedTelegramStatus";
 
 export interface PaperTradeFOClosed {
   id: string;
@@ -40,5 +42,23 @@ export interface PaperTradeFOClosed {
   maxRunup?: number | null;
   /** Read-only: lowest unrealized P&L observed for this position (≤ 0). */
   maxDrawdown?: number | null;
+  /** F&O Exit Monitoring Reliability: outcome of the last trust-gate check recorded before this trade closed. */
+  exitMonitorStatus?: PaperTradeFOClosedExitMonitorStatus;
+  /** Whether the last exit check used a trade-grade (fresh, authoritative) quote. */
+  exitTradeGrade?: boolean | null;
+  /** Quote source used by the last exit check (e.g. kite). */
+  exitQuoteSource?: string | null;
+  /** As-of timestamp of the quote used by the last exit check. */
+  exitQuoteAsOf?: Date | null;
+  /** Freshness (seconds) of the quote used by the last exit check. */
+  exitQuoteFreshnessSec?: number | null;
+  /** When the exit monitor first detected this trade as an EXIT candidate. */
+  exitDetectedAt?: Date | null;
+  /** When the exit monitor last evaluated this trade. */
+  lastExitCheckAt?: Date | null;
+  /** Reason the last exit check was BLOCKED prior to close (null when MONITORED). */
+  lastExitCheckError?: string | null;
+  /** Delivery status of the canonical exit Telegram alert for this trade, looked up from notification_delivery_log (null when no record found yet). */
+  telegramStatus?: PaperTradeFOClosedTelegramStatus;
   spotLifecycle?: FnoSpotLifecycle | null;
 }

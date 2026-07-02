@@ -60,6 +60,12 @@ import {
 } from "./paperAccount";
 import { computeFnoLotSizing } from "./fnoSizingHelper";
 import { fetchOptionChain, LOT_SIZES, type OcResponse } from "./optionChain";
+// Type-only: does not create a runtime import of fnoExitDecision.ts at
+// module load time (the runtime import is dynamic, inside
+// evaluateOrphanedOpenTrades, to match this file's existing lazy-import
+// convention for optionSignalLifecycle).
+import type { FnoExitQuoteProvenance, FnoExitDecision } from "./fnoExitDecision";
+import type { FnoExitMonitorCycleAccumulator } from "./fnoExitMonitorHealth";
 import {
   buildOptionChainProvenance,
   type OcSourceProvider,
@@ -1674,6 +1680,13 @@ export interface OrphanExitCycleStats {
   noExit: number;
   /** Leg had no usable fresh chain LTP — frozen MTM telemetry (no decision impact). */
   staleMtm: number;
+  /**
+   * An exit was about to be committed (STOPPED/TARGET2_HIT) but the F&O Exit
+   * Monitoring Reliability trust gate (fnoExitDecision.ts) rejected the quote
+   * as not trade-grade — the row stays OPEN and is retried next cycle. See
+   * paperTradeFoTable exit-monitor audit columns for the per-row reason.
+   */
+  blocked: number;
   errors: number;
 }
 
@@ -1847,6 +1860,7 @@ export async function evaluateOrphanedOpenTrades(
     direction: "BULLISH" | "BEARISH",
     reason: CloseReason,
   ) => Promise<PaperTradeFoRow | null> = closePaperTradeForSignal,
+  exitMonitorCycle?: FnoExitMonitorCycleAccumulator,
 ): Promise<OrphanExitCycleStats> {
   const stats: OrphanExitCycleStats = {
     considered: 0,
@@ -1857,6 +1871,7 @@ export async function evaluateOrphanedOpenTrades(
     target1Advanced: 0,
     noExit: 0,
     staleMtm: 0,
+    blocked: 0,
     errors: 0,
   };
   orphanExitCyclesTotal += 1;
@@ -1865,6 +1880,12 @@ export async function evaluateOrphanedOpenTrades(
     // imports this module at top level. evaluateTransition is pure and only
     // used at call time, so the runtime cycle is benign.
     const { evaluateTransition } = await import("./optionSignalLifecycle");
+    // Dynamic import for the same reason: fnoExitDecision is a leaf pure
+    // module with no cycle risk, but importing it lazily here keeps this
+    // hot path's import graph consistent with the rest of the function.
+    const { evaluateFnoPaperTradeExit } = await import("./fnoExitDecision");
+    const { recordFnoExitCheck, noteFnoExitMonitorScan, noteFnoExitMonitorDecision, noteFnoExitMonitorError } =
+      await import("./fnoExitMonitorHealth");
 
     const openRows = await dbHandle
       .select({
@@ -1891,10 +1912,19 @@ export async function evaluateOrphanedOpenTrades(
       return stats;
     }
 
-    const chainByIndex = new Map<string, OcResponse | null>();
+    const chainByIndex = new Map<
+      string,
+      { chain: OcResponse | null; fetchedAtMs: number }
+    >();
 
     for (const row of openRows) {
       try {
+        // Scheduler summary counter: every open row reaching this point has
+        // been examined for a potential exit this sweep, regardless of
+        // whether it turns out to be an exit candidate below (mirrors the
+        // unconditional increment in optionSignalLifecycle.ts's cohort loop;
+        // architect-reviewed, 2026-07-02).
+        noteFnoExitMonitorScan(exitMonitorCycle);
         const dir: "BULLISH" | "BEARISH" =
           row.direction === "BEARISH" ? "BEARISH" : "BULLISH";
 
@@ -1943,11 +1973,19 @@ export async function evaluateOrphanedOpenTrades(
         }
 
         // Fresh chain (cached per index): gives spot + a staleness probe.
-        let chain = chainByIndex.get(row.indexSymbol);
-        if (chain === undefined) {
-          chain = await chainFetcher(row.indexSymbol).catch(() => null);
-          chainByIndex.set(row.indexSymbol, chain);
+        // fetchedAtMs is captured at the moment of the fetch call (not chain
+        // .generatedAt) so it also honestly reflects the cached-hit case —
+        // every row sharing this index's cache entry shares the SAME fetch
+        // instant, which is what actually determines quote freshness for the
+        // exit-monitoring trust gate below.
+        let cached = chainByIndex.get(row.indexSymbol);
+        if (cached === undefined) {
+          const fetchedAtMs = Date.now();
+          const chain = await chainFetcher(row.indexSymbol).catch(() => null);
+          cached = { chain, fetchedAtMs };
+          chainByIndex.set(row.indexSymbol, cached);
         }
+        const chain = cached.chain;
         const spot = chain?.spot;
         if (spot == null || !Number.isFinite(spot) || spot <= 0) {
           // No fresh spot → cannot evaluate this cycle; the 15:20 / EOD nets
@@ -1973,6 +2011,74 @@ export async function evaluateOrphanedOpenTrades(
         });
 
         const now = new Date();
+        const nowMs = now.getTime();
+
+        // F&O Exit Monitoring Reliability trust gate: only relevant for the
+        // exit-committing branch below (STOPPED/TARGET2_HIT) — T1 touch and
+        // other non-exit advances stay on the pre-existing `trans` path
+        // unchanged, since they don't settle a trade at a frozen premium.
+        // `chain.spotSource === "kite"` is the ONLY trusted provenance this
+        // function has (the chain fetch is Kite-first with an NSE/unavailable
+        // fallback for DISPLAY purposes — see optionChain.ts); anything else
+        // is treated as not trade-grade so a stale/NSE-fallback spot can
+        // never freeze-settle a trade. `wouldHaveExited`/diagnostics are
+        // still computed via `trans` for the retry, never used to close.
+        const isExitCandidate =
+          trans.exited && (trans.next === "STOPPED" || trans.next === "TARGET2_HIT");
+        if (isExitCandidate) {
+          const provenance: FnoExitQuoteProvenance = {
+            source: chain?.spotSource === "kite" ? "LIVE_KITE_FULL" : "STALE",
+            kiteSessionActive: chain?.spotSource === "kite",
+            asOfMs: chain?.spotSource === "kite" ? cached.fetchedAtMs : null,
+          };
+          const decision = evaluateFnoPaperTradeExit({
+            currentStatus,
+            direction: dir,
+            entry,
+            stop,
+            target1: t1,
+            target2: t2,
+            snapshot: { spot },
+            provenance,
+            nowMs,
+          });
+          if (decision.kind === "BLOCKED") {
+            stats.blocked += 1;
+            noteFnoExitMonitorDecision(exitMonitorCycle, { id: row.id }, decision);
+            await recordFnoExitCheck({ id: row.id }, decision, now).catch((auditErr) => {
+              noteFnoExitMonitorError(exitMonitorCycle);
+              logger.warn(
+                { err: (auditErr as Error).message, id: row.id },
+                "evaluateOrphanedOpenTrades: exit-monitor audit stamp failed (non-fatal)",
+              );
+            });
+            logger.warn(
+              {
+                id: row.id,
+                idx: row.indexSymbol,
+                setup: row.setupKey,
+                dir,
+                blockedReason: decision.blockedReason,
+                wouldHaveExited: decision.wouldHaveExited,
+                wouldHaveExitReason: decision.wouldHaveExitReason,
+              },
+              "evaluateOrphanedOpenTrades: ORPHAN_OPEN_EXIT_BLOCKED — quote not trade-grade, exit deferred to next cycle",
+            );
+            continue;
+          }
+          // EXIT/HOLD: stamp the audit trail same as the committing path
+          // records below, but do it here too so a HOLD from this gate
+          // (should not happen when isExitCandidate is true, kept for
+          // defense-in-depth) is still observable.
+          noteFnoExitMonitorDecision(exitMonitorCycle, { id: row.id }, decision);
+          await recordFnoExitCheck({ id: row.id }, decision, now).catch((auditErr) => {
+            noteFnoExitMonitorError(exitMonitorCycle);
+            logger.warn(
+              { err: (auditErr as Error).message, id: row.id },
+              "evaluateOrphanedOpenTrades: exit-monitor audit stamp failed (non-fatal)",
+            );
+          });
+        }
 
         // Exit (STOPPED / TARGET2_HIT). Ordering is deliberately CLOSE-FIRST,
         // then advance the lifecycle — the reverse of the advance-then-close
@@ -1984,7 +2090,7 @@ export async function evaluateOrphanedOpenTrades(
         // the stale last_premium. closePaperTradeForSignal settles at the
         // locked stop/T2 premium and never reads the lifecycle row, so closing
         // before the advance is correct.
-        if (trans.exited && (trans.next === "STOPPED" || trans.next === "TARGET2_HIT")) {
+        if (isExitCandidate) {
           const reason: CloseReason =
             trans.next === "STOPPED" ? "STOPPED" : "TARGET2_HIT";
           const out = await closer(
@@ -2112,6 +2218,7 @@ export async function evaluateOrphanedOpenTrades(
         stats.noExit += 1;
       } catch (err) {
         stats.errors += 1;
+        noteFnoExitMonitorError(exitMonitorCycle);
         orphanExitLastErrorAt = new Date();
         orphanExitLastErrorClass = (err as Error).name ?? "Error";
         orphanExitLastErrorMessage = String((err as Error).message ?? "").slice(0, 200);
@@ -2136,6 +2243,124 @@ export async function evaluateOrphanedOpenTrades(
     );
     return stats;
   }
+}
+
+export type FnoExitEvaluationStatus =
+  | "NOT_FOUND"
+  | "NOT_OPEN"
+  | "LIFECYCLE_NOT_FOUND"
+  | "NO_FRESH_SPOT"
+  | "EVALUATED";
+
+export interface FnoExitEvaluationTrade {
+  id: string;
+  signalDate: string;
+  indexSymbol: string;
+  setupKey: string;
+  direction: "BULLISH" | "BEARISH";
+}
+
+export interface FnoExitEvaluationResult {
+  status: FnoExitEvaluationStatus;
+  trade?: FnoExitEvaluationTrade;
+  decision?: FnoExitDecision;
+}
+
+/**
+ * F&O Exit Monitoring Reliability (T005) — evaluate ONE open paper trade's
+ * exit eligibility on demand, using the EXACT SAME quote-provenance +
+ * trust-gate path as `evaluateOrphanedOpenTrades`'s per-row block (fresh
+ * chain fetch, `chain.spotSource === "kite"` provenance, `evaluateFnoPaperTradeExit`
+ * for the trust/freshness gate over `evaluateTransition`). Zero math
+ * duplication — this is a read-only evaluation with NO DB writes and NO
+ * Telegram side effects, safe to call from a "run dry" diagnostic endpoint.
+ * Callers that want to actually close a trade must separately invoke
+ * `closePaperTradeForSignal` (T005's "run now" endpoint does this, gated on
+ * `decision.kind === "EXIT"` only — never forces a close on HOLD/BLOCKED).
+ */
+export async function evaluateSingleFnoTradeExit(
+  tradeId: string,
+  chainFetcher: (
+    underlying: string,
+  ) => Promise<OcResponse | null> = (sym) => fetchOptionChain(sym),
+  dbHandle: Pick<typeof db, "select"> = db,
+): Promise<FnoExitEvaluationResult> {
+  const { evaluateFnoPaperTradeExit } = await import("./fnoExitDecision");
+
+  const rows = await dbHandle
+    .select({
+      id: paperTradeFoTable.id,
+      signalDate: paperTradeFoTable.signalDate,
+      indexSymbol: paperTradeFoTable.indexSymbol,
+      setupKey: paperTradeFoTable.setupKey,
+      direction: paperTradeFoTable.direction,
+      status: paperTradeFoTable.status,
+    })
+    .from(paperTradeFoTable)
+    .where(eq(paperTradeFoTable.id, tradeId))
+    .limit(1);
+
+  if (rows.length === 0) return { status: "NOT_FOUND" };
+  const row = rows[0]!;
+  const dir: "BULLISH" | "BEARISH" = row.direction === "BEARISH" ? "BEARISH" : "BULLISH";
+  const trade: FnoExitEvaluationTrade = {
+    id: row.id,
+    signalDate: row.signalDate,
+    indexSymbol: row.indexSymbol,
+    setupKey: row.setupKey,
+    direction: dir,
+  };
+  if (row.status !== "OPEN") return { status: "NOT_OPEN", trade };
+
+  const lc = await dbHandle
+    .select({
+      status: optionSignalHistoryTable.status,
+      entry: optionSignalHistoryTable.entry,
+      stopLoss: optionSignalHistoryTable.stopLoss,
+      target1: optionSignalHistoryTable.target1,
+      target2: optionSignalHistoryTable.target2,
+    })
+    .from(optionSignalHistoryTable)
+    .where(
+      and(
+        eq(optionSignalHistoryTable.signalDate, row.signalDate),
+        eq(optionSignalHistoryTable.indexSymbol, row.indexSymbol),
+        eq(optionSignalHistoryTable.setupKey, row.setupKey),
+        eq(optionSignalHistoryTable.direction, row.direction),
+      ),
+    )
+    .limit(1);
+
+  if (lc.length === 0) return { status: "LIFECYCLE_NOT_FOUND", trade };
+  const h = lc[0]!;
+  const currentStatus = (h.status as LifecycleStatus) ?? "PENDING";
+
+  const fetchedAtMs = Date.now();
+  const chain = await chainFetcher(row.indexSymbol).catch(() => null);
+  const spot = chain?.spot;
+  if (spot == null || !Number.isFinite(spot) || spot <= 0) {
+    return { status: "NO_FRESH_SPOT", trade };
+  }
+
+  const provenance: FnoExitQuoteProvenance = {
+    source: chain?.spotSource === "kite" ? "LIVE_KITE_FULL" : "STALE",
+    kiteSessionActive: chain?.spotSource === "kite",
+    asOfMs: chain?.spotSource === "kite" ? fetchedAtMs : null,
+  };
+
+  const decision = evaluateFnoPaperTradeExit({
+    currentStatus,
+    direction: dir,
+    entry: num(h.entry),
+    stop: num(h.stopLoss),
+    target1: num(h.target1),
+    target2: num(h.target2),
+    snapshot: { spot },
+    provenance,
+    nowMs: Date.now(),
+  });
+
+  return { status: "EVALUATED", trade, decision };
 }
 
 /**

@@ -17,6 +17,13 @@ import {
   persistOptionPremiums,
   type SpotSnapshot,
 } from "./optionSignalLifecycle";
+// Type-only: does not create a runtime import of fnoExitDecision.ts here.
+import type { FnoExitQuoteProvenance } from "./fnoExitDecision";
+import {
+  beginFnoExitMonitorCycle,
+  finalizeFnoExitMonitorCycle,
+  type FnoExitMonitorCycleAccumulator,
+} from "./fnoExitMonitorHealth";
 import { computeMarketStatus } from "./marketEvents";
 import { fetchOiInsights, type OiInsightsResponse, type OiStrikeRow } from "./oiLab";
 import { classifyVolRegime, resolveDataQuality, isActionableForFno, type VolRegime, type DataQualityLabel } from "./tradingConfig";
@@ -2254,6 +2261,15 @@ async function applyOiConfirmation(
 
 export async function getOptionSignals(): Promise<OptionSignalsResult> {
   if (cache && Date.now() - cache.ts < TTL) return cache.data;
+  // F&O Exit Monitoring Reliability scheduler summary (T004, 2026-07-02):
+  // one explicit accumulator PER `getOptionSignals()` invocation, never a
+  // module-level singleton — this function is also invoked on-demand (no
+  // in-flight dedup), so two concurrent cycles must never cross-attribute
+  // counts into a shared mutable object (architect-reviewed). Threaded
+  // through the cohort-loop's `recordLifecycle` calls below and into
+  // `evaluateOrphanedOpenTrades`; finalized once at the very end of this
+  // function into the process-local rolling health snapshot.
+  const exitMonitorCycle: FnoExitMonitorCycleAccumulator = beginFnoExitMonitorCycle();
   const out: OptionSignal[] = [];
   const suppressed: { index: string; reasons: string[] }[] = [];
   let indicesWithBars = 0;
@@ -2281,10 +2297,17 @@ export async function getOptionSignals(): Promise<OptionSignalsResult> {
   // real-time ticks instead of the close of a (potentially 15-minute
   // delayed) Yahoo bar — that single change is what unblocks the "every
   // card stuck on Waiting trigger" bug.
-  let liveQuotes: Map<string, { price: number }> | null = null;
+  let liveQuotes: Awaited<ReturnType<typeof centralIndexQuotes>> = null;
+  // Wall-clock fallback for a live tick's own `asOf` when the provider
+  // doesn't stamp one — used ONLY as provenance for the exit-monitoring
+  // trust gate below, never for signal emission itself.
+  let quotesFetchedAtMs: number | null = null;
   try {
     const q = await centralIndexQuotes();
-    if (q) liveQuotes = q;
+    if (q) {
+      liveQuotes = q;
+      quotesFetchedAtMs = Date.now();
+    }
   } catch (err) {
     logger.warn({ err: (err as Error).message }, "live Kite quote fetch failed; using bar close as spot");
   }
@@ -2297,13 +2320,19 @@ export async function getOptionSignals(): Promise<OptionSignalsResult> {
   // sessionAgeMs stays null and we fall through to the normal error path.
   const SESSION_WARMUP_MS = 5 * 60 * 1000; // 5 minutes
   let sessionAgeMs: number | null = null;
+  // Whether the Kite broker session is currently ACTIVE — feeds the
+  // exit-monitoring trust gate's KITE_UNAVAILABLE check (fnoExitDecision.ts).
+  // Defaults conservatively to false (fail-closed) if the status read fails.
+  let kiteSessionActive = false;
   try {
     const sessionStatus = await getActiveSessionStatus();
     if (sessionStatus.session?.loginTime) {
       sessionAgeMs = Date.now() - new Date(sessionStatus.session.loginTime).getTime();
     }
+    kiteSessionActive = sessionStatus.session != null;
   } catch {
-    // fail-open: treat as unknown session age
+    // fail-open for warmup classification, fail-CLOSED for exit trust gate
+    // (kiteSessionActive stays false)
   }
 
   for (const cfg of OPTION_INDICES) {
@@ -2526,6 +2555,20 @@ export async function getOptionSignals(): Promise<OptionSignalsResult> {
     // never. Bar high/low remain from the latest closed bar so wick-based
     // T1/T2/SL hits still work correctly.
     let snapForLc: SpotSnapshot = b.snapshot;
+    // Provenance for the F&O Exit Monitoring Reliability trust gate
+    // (fnoExitDecision.ts). `source` reuses the SAME DataQualityLabel this
+    // index's signals were already stamped with above (zero duplication) —
+    // intraday is Kite-only in this pipeline, so it is always
+    // LIVE_KITE_FULL/PARTIAL here, never DELAYED_YAHOO/STALE. Freshness is
+    // what actually distinguishes a live tick from a stale bar-close: when
+    // no live tick is available for this index, `asOfMs` stays null, which
+    // fails the gate CLOSED (STALE_QUOTE) rather than assuming a bar close
+    // of unknown age is fresh enough to commit an exit.
+    let quoteProvenance: FnoExitQuoteProvenance = {
+      source: (b.signals[0]?.dataQuality as FnoExitQuoteProvenance["source"]) ?? "STALE",
+      kiteSessionActive,
+      asOfMs: null,
+    };
     if (liveQuotes && b.signals.length > 0) {
       const ltpKey = SIGNAL_INDEX_TO_LTP_KEY[b.signals[0]!.index];
       const live = ltpKey ? liveQuotes.get(ltpKey) : undefined;
@@ -2536,11 +2579,20 @@ export async function getOptionSignals(): Promise<OptionSignalsResult> {
         const high = Math.max(b.snapshot.high ?? live.price, live.price);
         const low  = Math.min(b.snapshot.low  ?? live.price, live.price);
         snapForLc = { spot: live.price, high, low };
+        quoteProvenance = {
+          ...quoteProvenance,
+          asOfMs: live.asOf ?? quotesFetchedAtMs,
+        };
       }
     }
     for (const s of b.signals) {
       try {
-        const lc = await recordLifecycle({ signal: s, snapshot: snapForLc });
+        const lc = await recordLifecycle({
+          signal: s,
+          snapshot: snapForLc,
+          provenance: quoteProvenance,
+          exitMonitorCycle,
+        });
         if (!lc) continue;
         s.status = lc.status;
         s.firstSeenAt = lc.firstSeenAt;
@@ -2636,7 +2688,13 @@ export async function getOptionSignals(): Promise<OptionSignalsResult> {
   // the locked stop premium / TARGET2 at the locked T2 premium — immune to the
   // stale-last_premium anomaly. Close-only (not gated by PAPER_TRADING_ENABLED,
   // like reconcile / 15:20 force-exit); fail-safe and idempotent.
-  await evaluateOrphanedOpenTrades(signalDate).catch((err) =>
+  await evaluateOrphanedOpenTrades(
+    signalDate,
+    undefined,
+    undefined,
+    undefined,
+    exitMonitorCycle,
+  ).catch((err) =>
     logger.warn({ err: (err as Error).message }, "evaluateOrphanedOpenTrades failed"),
   );
 
@@ -2788,6 +2846,12 @@ export async function getOptionSignals(): Promise<OptionSignalsResult> {
       },
     },
   };
+  // Finalize this cycle's F&O Exit Monitoring Reliability counters exactly
+  // once, after both trust-gate call sites (cohort-loop recordLifecycle +
+  // evaluateOrphanedOpenTrades) have run. Side effect only — rolls into the
+  // process-local `getFnoExitMonitorHealth()` snapshot; does not affect
+  // `result`/`cache`.
+  finalizeFnoExitMonitorCycle(exitMonitorCycle);
   cache = { ts: Date.now(), data: result };
 
   // ─── P14b upstream reasoning logger (diagnostics-only, fire-and-forget) ──

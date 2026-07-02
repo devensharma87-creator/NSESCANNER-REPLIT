@@ -4496,6 +4496,46 @@ export const GetPaperPositionsFOResponse = zod.object({
       openedAt: zod.coerce.date(),
       lastEvaluatedAt: zod.coerce.date(),
       status: zod.enum(["OPEN"]),
+      exitMonitorStatus: zod
+        .enum(["MONITORED", "BLOCKED"])
+        .nullish()
+        .describe(
+          "F&O Exit Monitoring Reliability: outcome of the most recent trust-gate check for this open position.",
+        ),
+      exitTradeGrade: zod
+        .boolean()
+        .nullish()
+        .describe(
+          "Whether the most recent exit check used a trade-grade (fresh, authoritative) quote.",
+        ),
+      exitQuoteSource: zod
+        .string()
+        .nullish()
+        .describe(
+          "Quote source used by the most recent exit check (e.g. kite).",
+        ),
+      exitQuoteAsOf: zod.coerce
+        .date()
+        .nullish()
+        .describe(
+          "As-of timestamp of the quote used by the most recent exit check.",
+        ),
+      exitQuoteFreshnessSec: zod
+        .number()
+        .nullish()
+        .describe(
+          "Freshness (seconds) of the quote used by the most recent exit check.",
+        ),
+      lastExitCheckAt: zod.coerce
+        .date()
+        .nullish()
+        .describe("When the exit monitor last evaluated this position."),
+      lastExitCheckError: zod
+        .string()
+        .nullish()
+        .describe(
+          "Reason the most recent exit check was BLOCKED (null when MONITORED).",
+        ),
       spotLifecycle: zod
         .object({
           status: zod
@@ -4590,6 +4630,54 @@ export const GetPaperTradesFOResponse = zod.object({
         .describe(
           "Read-only: lowest unrealized P&L observed for this position (≤ 0).",
         ),
+      exitMonitorStatus: zod
+        .enum(["MONITORED", "BLOCKED"])
+        .nullish()
+        .describe(
+          "F&O Exit Monitoring Reliability: outcome of the last trust-gate check recorded before this trade closed.",
+        ),
+      exitTradeGrade: zod
+        .boolean()
+        .nullish()
+        .describe(
+          "Whether the last exit check used a trade-grade (fresh, authoritative) quote.",
+        ),
+      exitQuoteSource: zod
+        .string()
+        .nullish()
+        .describe("Quote source used by the last exit check (e.g. kite)."),
+      exitQuoteAsOf: zod.coerce
+        .date()
+        .nullish()
+        .describe("As-of timestamp of the quote used by the last exit check."),
+      exitQuoteFreshnessSec: zod
+        .number()
+        .nullish()
+        .describe(
+          "Freshness (seconds) of the quote used by the last exit check.",
+        ),
+      exitDetectedAt: zod.coerce
+        .date()
+        .nullish()
+        .describe(
+          "When the exit monitor first detected this trade as an EXIT candidate.",
+        ),
+      lastExitCheckAt: zod.coerce
+        .date()
+        .nullish()
+        .describe("When the exit monitor last evaluated this trade."),
+      lastExitCheckError: zod
+        .string()
+        .nullish()
+        .describe(
+          "Reason the last exit check was BLOCKED prior to close (null when MONITORED).",
+        ),
+      telegramStatus: zod
+        .enum(["SENT", "FAILED", "DUPLICATE"])
+        .nullish()
+        .describe(
+          "Delivery status of the canonical exit Telegram alert for this trade, looked up from notification_delivery_log (null when no record found yet).",
+        ),
       spotLifecycle: zod
         .object({
           status: zod
@@ -4680,6 +4768,52 @@ export const ClosePaperPositionFOResponse = zod.object({
     .nullish()
     .describe(
       "Read-only: lowest unrealized P&L observed for this position (≤ 0).",
+    ),
+  exitMonitorStatus: zod
+    .enum(["MONITORED", "BLOCKED"])
+    .nullish()
+    .describe(
+      "F&O Exit Monitoring Reliability: outcome of the last trust-gate check recorded before this trade closed.",
+    ),
+  exitTradeGrade: zod
+    .boolean()
+    .nullish()
+    .describe(
+      "Whether the last exit check used a trade-grade (fresh, authoritative) quote.",
+    ),
+  exitQuoteSource: zod
+    .string()
+    .nullish()
+    .describe("Quote source used by the last exit check (e.g. kite)."),
+  exitQuoteAsOf: zod.coerce
+    .date()
+    .nullish()
+    .describe("As-of timestamp of the quote used by the last exit check."),
+  exitQuoteFreshnessSec: zod
+    .number()
+    .nullish()
+    .describe("Freshness (seconds) of the quote used by the last exit check."),
+  exitDetectedAt: zod.coerce
+    .date()
+    .nullish()
+    .describe(
+      "When the exit monitor first detected this trade as an EXIT candidate.",
+    ),
+  lastExitCheckAt: zod.coerce
+    .date()
+    .nullish()
+    .describe("When the exit monitor last evaluated this trade."),
+  lastExitCheckError: zod
+    .string()
+    .nullish()
+    .describe(
+      "Reason the last exit check was BLOCKED prior to close (null when MONITORED).",
+    ),
+  telegramStatus: zod
+    .enum(["SENT", "FAILED", "DUPLICATE"])
+    .nullish()
+    .describe(
+      "Delivery status of the canonical exit Telegram alert for this trade, looked up from notification_delivery_log (null when no record found yet).",
     ),
   spotLifecycle: zod
     .object({

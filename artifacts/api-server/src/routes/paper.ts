@@ -49,12 +49,16 @@ import {
 } from "../lib/paperAccount";
 import {
   closePaperTradeForSignal,
+  evaluateSingleFnoTradeExit,
   getMissedSignals,
   getMtmSweepHealth,
   getOrphanExitSweepHealth,
   getTimeExit1520Health,
 } from "../lib/paperTradingFO";
 import { getPremiumOverlayHealth } from "../lib/fnoPremiumExitOverlay";
+import { getFnoExitMonitorHealth, recordFnoExitCheck } from "../lib/fnoExitMonitorHealth";
+import { buildGlobalDataHealth } from "../lib/globalDataHealth";
+import type { LifecycleExitReason } from "../lib/optionSignalLifecycle";
 import {
   getReasoningLoggerHealth,
   normaliseFilters,
@@ -153,6 +157,17 @@ function toOpenPosition(
     openedAt: r.openedAt.toISOString(),
     lastEvaluatedAt: evaluatedAt.toISOString(),
     status: "OPEN" as const,
+    // F&O Exit Monitoring Reliability (T007) — read-only pass-through of the
+    // audit columns `recordFnoExitCheck` stamps every ~30s sweep cycle. Never
+    // mutated here; a null exitMonitorStatus just means no check has landed
+    // yet for this row (e.g. freshly opened).
+    exitMonitorStatus: (r.exitMonitorStatus ?? null) as "MONITORED" | "BLOCKED" | null,
+    exitTradeGrade: r.exitTradeGrade ?? null,
+    exitQuoteSource: r.exitQuoteSource ?? null,
+    exitQuoteAsOf: r.exitQuoteAsOf ? r.exitQuoteAsOf.toISOString() : null,
+    exitQuoteFreshnessSec: r.exitQuoteFreshnessSec ?? null,
+    lastExitCheckAt: r.lastExitCheckAt ? r.lastExitCheckAt.toISOString() : null,
+    lastExitCheckError: r.lastExitCheckError ?? null,
     spotLifecycle: spotLifecycle ?? null,
   };
 }
@@ -214,7 +229,11 @@ async function fetchLiveLtpForOpenRows(
   return out;
 }
 
-function toClosedTrade(r: PaperTradeFoRow, spotLifecycle?: FnoSpotLifecycle | null) {
+function toClosedTrade(
+  r: PaperTradeFoRow,
+  spotLifecycle?: FnoSpotLifecycle | null,
+  telegramStatus?: "SENT" | "FAILED" | "DUPLICATE" | null,
+) {
   return {
     id: r.id,
     signalDate: r.signalDate,
@@ -247,8 +266,63 @@ function toClosedTrade(r: PaperTradeFoRow, spotLifecycle?: FnoSpotLifecycle | nu
     target2Premium: r.target2Premium == null ? null : num(r.target2Premium),
     maxRunup: r.maxRunup == null ? null : num(r.maxRunup),
     maxDrawdown: r.maxDrawdown == null ? null : num(r.maxDrawdown),
+    // F&O Exit Monitoring Reliability (T007) — read-only pass-through of the
+    // audit columns stamped by `recordFnoExitCheck` before this trade closed.
+    exitMonitorStatus: (r.exitMonitorStatus ?? null) as "MONITORED" | "BLOCKED" | null,
+    exitTradeGrade: r.exitTradeGrade ?? null,
+    exitQuoteSource: r.exitQuoteSource ?? null,
+    exitQuoteAsOf: r.exitQuoteAsOf ? r.exitQuoteAsOf.toISOString() : null,
+    exitQuoteFreshnessSec: r.exitQuoteFreshnessSec ?? null,
+    exitDetectedAt: r.exitDetectedAt ? r.exitDetectedAt.toISOString() : null,
+    lastExitCheckAt: r.lastExitCheckAt ? r.lastExitCheckAt.toISOString() : null,
+    lastExitCheckError: r.lastExitCheckError ?? null,
+    // Real Telegram delivery status lives in notification_delivery_log, NOT
+    // the dead `exit_notification_status` column (never written anywhere —
+    // see FNO_EXIT_MONITORING_RELIABILITY_REPORT.md for the documented gap).
+    // Batched lookup by the caller; undefined param → null (fail-open).
+    telegramStatus: telegramStatus ?? null,
     spotLifecycle: spotLifecycle ?? null,
   };
+}
+
+/**
+ * Batched, read-only lookup of the most recent canonical Telegram delivery
+ * status per closed F&O paper trade, from `notification_delivery_log`
+ * (populated by the tradeLifecycle pipeline — see `buildFnoExitCanonicalEvent`
+ * in fnoSignalAlerts.ts). Scoped to `domain='FNO_INTRADAY'` and the 5 EXIT_*
+ * event types (`closeReasonToEventType`) — NOT the dead `paper_trade_fo
+ * .exit_notification_status` column, which is never written. One query for
+ * the whole page (no N+1). Fails OPEN: any DB error yields an empty map, so
+ * callers fall back to telegramStatus=null rather than erroring the page.
+ */
+async function fetchTelegramStatusForClosedTrades(
+  ids: string[],
+): Promise<Map<string, "SENT" | "FAILED" | "DUPLICATE">> {
+  const map = new Map<string, "SENT" | "FAILED" | "DUPLICATE">();
+  if (ids.length === 0) return map;
+  try {
+    const result = await db.execute(sql`
+      SELECT DISTINCT ON (paper_trade_id) paper_trade_id, status
+      FROM notification_delivery_log
+      WHERE domain = 'FNO_INTRADAY'
+        AND event_type IN ('EXIT_TARGET_1', 'EXIT_TARGET_2', 'EXIT_STOP_LOSS', 'EXIT_MANUAL', 'EXIT_TIME')
+        AND paper_trade_id = ANY(${ids})
+      ORDER BY paper_trade_id, created_at DESC
+    `);
+    for (const row of result.rows as Record<string, unknown>[]) {
+      const paperTradeId = row["paper_trade_id"] != null ? String(row["paper_trade_id"]) : null;
+      const status = row["status"];
+      if (paperTradeId && (status === "SENT" || status === "FAILED" || status === "DUPLICATE")) {
+        map.set(paperTradeId, status);
+      }
+    }
+  } catch (err) {
+    logger.warn(
+      { err: (err as Error).message, count: ids.length },
+      "fetchTelegramStatusForClosedTrades: notification_delivery_log lookup failed (fail-open, telegramStatus will be null)",
+    );
+  }
+  return map;
 }
 
 router.get("/paper/account", requireOwner, async (req, res, next) => {
@@ -390,9 +464,12 @@ router.get("/paper/trades/fo", requireOwner, async (req, res, next) => {
       )
       .orderBy(desc(paperTradeFoTable.exitedAt));
     const lifecycles = await loadSpotLifecycleByKey(rows);
+    const telegramStatuses = await fetchTelegramStatusForClosedTrades(rows.map((r) => r.id));
     const data = GetPaperTradesFOResponse.parse({
       date,
-      trades: rows.map((r) => toClosedTrade(r, lifecycles.get(lifecycleKeyOf(r)))),
+      trades: rows.map((r) =>
+        toClosedTrade(r, lifecycles.get(lifecycleKeyOf(r)), telegramStatuses.get(r.id) ?? null),
+      ),
       generatedAt: new Date().toISOString(),
     });
     return res.json(data);
@@ -1230,6 +1307,150 @@ router.get("/paper/diagnostics/fo/exit-safety", requireOwner, (_req, res) => {
     mtmSweep: getMtmSweepHealth(),
     timeExit1520: getTimeExit1520Health(),
   });
+});
+
+/**
+ * F&O Exit Monitoring Reliability (T005) — owner-only status roll-up.
+ *
+ * Merges the NEW `fnoExitMonitorHealth` scheduler-summary counters (T004)
+ * alongside the four pre-existing exit-safety snapshots above and the
+ * canonical global-data-health gate state, so a single GET answers
+ * "is the exit monitor healthy AND is the underlying data trade-grade
+ * right now". Pure passthrough/orchestration — does NOT trigger any sweep,
+ * query Kite, touch the DB, or mutate trading state.
+ *
+ * NOTE: intentionally NOT registered in `lib/api-spec/openapi.yaml` —
+ * matches the established convention for this entire family of owner-only
+ * `/paper/diagnostics/fo/*` routes (exit-safety, mtm-sweep, fno-observability
+ * etc.) and other owner-only diagnostics surfaces (`/api/option-snapshots/analytics`,
+ * `/api/candles/diagnostics`, `/api/paper/eq/sizing-preview`) — none of which
+ * are in the OpenAPI spec today; the frontend fetches them directly rather
+ * than via generated hooks.
+ */
+router.get("/paper/diagnostics/fo/exit-monitor/status", requireOwner, async (_req, res, next) => {
+  try {
+    const globalDataHealth = await buildGlobalDataHealth();
+    res.json({
+      generatedAt: new Date().toISOString(),
+      exitMonitor: getFnoExitMonitorHealth(),
+      premiumOverlay: getPremiumOverlayHealth(),
+      orphanExit: getOrphanExitSweepHealth(),
+      mtmSweep: getMtmSweepHealth(),
+      timeExit1520: getTimeExit1520Health(),
+      globalDataHealth,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * F&O Exit Monitoring Reliability (T005) — owner-only dry-run evaluation.
+ *
+ * Evaluates ONE open F&O paper trade's exit eligibility via
+ * `evaluateSingleFnoTradeExit` (same trust/freshness gate as the live
+ * scheduler) with ZERO DB writes and ZERO Telegram side effects — a pure
+ * read used to answer "what WOULD the monitor do right now" without
+ * touching anything.
+ */
+router.post("/paper/diagnostics/fo/exit-monitor/run-dry", requireOwner, async (req, res, next) => {
+  try {
+    const id = String((req.body as { id?: unknown } | undefined)?.id ?? "").trim();
+    if (!id) {
+      res.status(400).json({ error: "id (paper_trade_fo row id) is required" });
+      return;
+    }
+    const result = await evaluateSingleFnoTradeExit(id);
+    res.json({ generatedAt: new Date().toISOString(), ...result });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * F&O Exit Monitoring Reliability (T005) — owner-only manual exit trigger.
+ *
+ * Re-evaluates the trade via the SAME `evaluateSingleFnoTradeExit` gate used
+ * by run-dry (never a separate/looser check), audit-stamps the check via
+ * `recordFnoExitCheck` either way, and ONLY when the decision is a
+ * trade-grade `EXIT` does it call the existing `closePaperTradeForSignal`
+ * CAS close path (no second close implementation) — which itself sends the
+ * canonical Telegram exit alert after commit. A HOLD/BLOCKED decision is
+ * never forced closed; a NOT_FOUND/NOT_OPEN/LIFECYCLE_NOT_FOUND/NO_FRESH_SPOT
+ * evaluation status is surfaced as-is with no mutation.
+ */
+/**
+ * `LifecycleExitReason` (optionSignalLifecycle.ts, the lifecycle-row exit
+ * taxonomy) has three EXPIRED variants (EXPIRED_TRIGGERED / EXPIRED_PENDING /
+ * STALE_TRIGGER) that `CloseReason` (paperTradingFO.ts, the paper-trade
+ * settlement taxonomy) deliberately collapses to a single "EXPIRED" —
+ * matching the existing collapse in `reconcileOrphanedPaperTrades`. TARGET1/
+ * TARGET2/STOPPED pass through unchanged (identical labels in both enums).
+ */
+function toCloseReason(exitReason: LifecycleExitReason) {
+  if (exitReason === "TARGET1_HIT") return "TARGET1_HIT" as const;
+  if (exitReason === "TARGET2_HIT") return "TARGET2_HIT" as const;
+  if (exitReason === "STOPPED") return "STOPPED" as const;
+  return "EXPIRED" as const;
+}
+
+router.post("/paper/diagnostics/fo/exit-monitor/run-now", requireOwner, async (req, res, next) => {
+  try {
+    const id = String((req.body as { id?: unknown } | undefined)?.id ?? "").trim();
+    if (!id) {
+      res.status(400).json({ error: "id (paper_trade_fo row id) is required" });
+      return;
+    }
+    const evalResult = await evaluateSingleFnoTradeExit(id);
+    if (evalResult.status !== "EVALUATED" || !evalResult.trade || !evalResult.decision) {
+      const statusCode = evalResult.status === "NOT_FOUND" ? 404 : 409;
+      res.status(statusCode).json({ generatedAt: new Date().toISOString(), ...evalResult });
+      return;
+    }
+    const { trade, decision } = evalResult;
+    await recordFnoExitCheck({ id: trade.id }, decision).catch((auditErr) => {
+      req.log.warn(
+        { err: (auditErr as Error).message, id: trade.id },
+        "run-now: exit-monitor audit stamp failed (non-fatal)",
+      );
+    });
+
+    if (decision.kind !== "EXIT") {
+      res.json({
+        generatedAt: new Date().toISOString(),
+        closed: false,
+        trade,
+        decision,
+      });
+      return;
+    }
+
+    const closed = await closePaperTradeForSignal(
+      trade.signalDate,
+      trade.indexSymbol,
+      trade.setupKey,
+      trade.direction,
+      toCloseReason(decision.exitReason),
+    );
+    if (!closed) {
+      res.status(409).json({
+        generatedAt: new Date().toISOString(),
+        closed: false,
+        trade,
+        decision,
+        note: "trade was already closed by a concurrent process before this request completed",
+      });
+      return;
+    }
+    res.json({
+      generatedAt: new Date().toISOString(),
+      closed: true,
+      trade: closed,
+      decision,
+    });
+  } catch (err) {
+    next(err);
+  }
 });
 
 router.get("/paper/analytics/fo", requireOwner, async (req, res, next) => {

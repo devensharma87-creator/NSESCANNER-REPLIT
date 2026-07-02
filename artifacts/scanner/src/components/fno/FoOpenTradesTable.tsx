@@ -28,6 +28,7 @@ import {
 } from "@/lib/foCockpitView";
 import {
   FoOpenTradeCard,
+  ExitMonitorBadge,
   fmtPremium,
   fmtInt,
   fmtInr,
@@ -155,6 +156,16 @@ function DesktopRow({
           }`}
         />
         {fmtDateTime(p.lastEvaluatedAt)}
+        <div className="mt-1">
+          <ExitMonitorBadge
+            status={p.exitMonitorStatus}
+            tradeGrade={p.exitTradeGrade}
+            quoteSource={p.exitQuoteSource}
+            freshnessSec={p.exitQuoteFreshnessSec}
+            lastCheckAt={p.lastExitCheckAt}
+            lastCheckError={p.lastExitCheckError}
+          />
+        </div>
       </td>
       <td className="py-2 pr-3 text-right">
         <Button size="sm" variant="outline" disabled={closing} onClick={onClose}>

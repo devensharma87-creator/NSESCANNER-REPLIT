@@ -15,15 +15,24 @@
  *   TEST_SYMBOL_BLOCKED        — symbol matches /^test/i or known test symbols
  *   INSTRUMENT_NOT_FOUND       — symbol blank or explicitly flagged as missing
  *   EXCHANGE_MISSING           — exchange field blank/invalid
- *   TOKEN_MISSING              — instrumentToken required but absent
- *   SOURCE_NOT_TRADE_GRADE     — sourceStatus !== TRADE_GRADE
+ *   TOKEN_MISSING              — instrumentToken required for F&O ENTRY events but absent
+ *                                (ENTRY_READY / ENTRY_OPENED only — an EXIT event reports an
+ *                                already-committed close, not a new instrument-identification
+ *                                decision, so it is exempt)
+ *   SOURCE_NOT_TRADE_GRADE     — sourceStatus !== TRADE_GRADE (ENTRY events only)
  *   YAHOO_NOT_ALLOWED          — source is delayed/yahoo
- *   STALE_DATA_NOT_ALLOWED     — sourceStatus is STALE
+ *   STALE_DATA_NOT_ALLOWED     — sourceStatus is STALE (ENTRY events only)
  *   DEV_ENV_BLOCKED            — dev/test event to production Telegram
  *   SAMPLE_ALERT_BLOCKED       — event explicitly flagged as sample/test
  *   MISSING_RISK_FIELDS        — entryPrice, stopLoss, or quantity is 0 / non-finite
  *   DUPLICATE_EVENT            — same event already delivered (checked by caller)
  *   BROKER_EXECUTION_MISMATCH  — brokerExecutionStatus is LIVE_ENABLED
+ *
+ * EXIT events (eventType starting with EXIT_, or MANUAL_OVERRIDE close reports) are
+ * informational reports of an already-committed close, not a new trade decision, so
+ * the source-trust checks (SOURCE_NOT_TRADE_GRADE, YAHOO_NOT_ALLOWED price-trust variant,
+ * STALE_DATA_NOT_ALLOWED, canDriveTradeAlerts) and TOKEN_MISSING are scoped to ENTRY
+ * events only (isEntryEvent = eventType is ENTRY_READY or ENTRY_OPENED).
  */
 
 import type { CanonicalTradeEvent, ValidationBlockReason, ValidationResult } from "./types";
@@ -166,47 +175,65 @@ export function validateTradeEventForNotification(
     );
   }
 
-  // 8. Stale data — sourceStatus STALE must never drive trade alerts
-  if (event.sourceStatus === "STALE") {
-    return block(
-      "STALE_DATA_NOT_ALLOWED",
-      `Source data is marked STALE for "${event.symbol}". Stale data must not drive trade alerts. Event ID: ${event.id}`,
-    );
-  }
+  // 8-11. Price-trust checks — ENTRY events ONLY. An ENTRY event recommends
+  // a NEW action off a live quote, so untrustworthy sourcing is genuinely
+  // dangerous. An EXIT event reports a position that has ALREADY been
+  // closed against a locked/committed DB premium — the real trust
+  // enforcement for "should we exit" already happened upstream (F&O Exit
+  // Monitoring Reliability trust/freshness gate, before the DB commit).
+  // Retroactively blocking the *report* of an already-committed close on
+  // sourceStatus grounds would silently suppress legitimate owner-facing
+  // exit alerts (e.g. MANUAL_OVERRIDE, TIME_EXIT_1520) that never claim to
+  // be a live trade-grade quote in the first place. Does not affect ENTRY
+  // behavior — this only narrows the checks' applicability.
+  const isEntryEvent = event.eventType === "ENTRY_READY" || event.eventType === "ENTRY_OPENED";
+  if (isEntryEvent) {
+    // 8. Stale data — sourceStatus STALE must never drive trade alerts
+    if (event.sourceStatus === "STALE") {
+      return block(
+        "STALE_DATA_NOT_ALLOWED",
+        `Source data is marked STALE for "${event.symbol}". Stale data must not drive trade alerts. Event ID: ${event.id}`,
+      );
+    }
 
-  // 9. Yahoo / delayed source — not trade-grade, cannot drive alerts
-  if (event.sourceStatus === "DELAYED") {
-    return block(
-      "YAHOO_NOT_ALLOWED",
-      `Source status is DELAYED (Yahoo or similar) for "${event.symbol}". Only TRADE_GRADE (Kite) data is allowed for trade alerts. Event ID: ${event.id}`,
-    );
-  }
+    // 9. Yahoo / delayed source — not trade-grade, cannot drive alerts
+    if (event.sourceStatus === "DELAYED") {
+      return block(
+        "YAHOO_NOT_ALLOWED",
+        `Source status is DELAYED (Yahoo or similar) for "${event.symbol}". Only TRADE_GRADE (Kite) data is allowed for trade alerts. Event ID: ${event.id}`,
+      );
+    }
 
-  // 10. Source not trade grade — covers UNAVAILABLE, ERROR, INFO_ONLY
-  if (event.sourceStatus !== "TRADE_GRADE") {
-    return block(
-      "SOURCE_NOT_TRADE_GRADE",
-      `sourceStatus is "${event.sourceStatus}" for "${event.symbol}". Only TRADE_GRADE sources are allowed on the trade Telegram channel. Event ID: ${event.id}`,
-    );
-  }
+    // 10. Source not trade grade — covers UNAVAILABLE, ERROR, INFO_ONLY
+    if (event.sourceStatus !== "TRADE_GRADE") {
+      return block(
+        "SOURCE_NOT_TRADE_GRADE",
+        `sourceStatus is "${event.sourceStatus}" for "${event.symbol}". Only TRADE_GRADE sources are allowed on the trade Telegram channel. Event ID: ${event.id}`,
+      );
+    }
 
-  // 11. canDriveTradeAlerts must be true — enforces the full trust chain
-  if (!event.canDriveTradeAlerts) {
-    return block(
-      "SOURCE_NOT_TRADE_GRADE",
-      `canDriveTradeAlerts is false for "${event.symbol}" (sourceStatus=${event.sourceStatus}, canDriveSignals=${event.canDriveSignals}). Event ID: ${event.id}`,
-    );
-  }
+    // 11. canDriveTradeAlerts must be true — enforces the full trust chain
+    if (!event.canDriveTradeAlerts) {
+      return block(
+        "SOURCE_NOT_TRADE_GRADE",
+        `canDriveTradeAlerts is false for "${event.symbol}" (sourceStatus=${event.sourceStatus}, canDriveSignals=${event.canDriveSignals}). Event ID: ${event.id}`,
+      );
+    }
 
-  // 12. Token missing — required for F&O events (options/futures)
-  if (
-    (event.assetType === "option" || event.assetType === "future") &&
-    (event.instrumentToken === null || event.instrumentToken <= 0)
-  ) {
-    return block(
-      "TOKEN_MISSING",
-      `instrumentToken is missing for F&O asset "${event.tradingSymbol}" (assetType=${event.assetType}). Event ID: ${event.id}`,
-    );
+    // 12. Token missing — required for F&O ENTRY events (options/futures).
+    // Instrument identification is an entry-time concern: the token was
+    // already resolved (or not) when the position was opened. An EXIT event
+    // reports an already-committed close, not a new instrument-identification
+    // decision, so a missing token here does not indicate a new safety issue.
+    if (
+      (event.assetType === "option" || event.assetType === "future") &&
+      (event.instrumentToken === null || event.instrumentToken <= 0)
+    ) {
+      return block(
+        "TOKEN_MISSING",
+        `instrumentToken is missing for F&O asset "${event.tradingSymbol}" (assetType=${event.assetType}). Event ID: ${event.id}`,
+      );
+    }
   }
 
   // 13. Duplicate event — checked by caller; flagged here for logging
