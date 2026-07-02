@@ -162,6 +162,7 @@ export async function getEquityCandles(
 ): Promise<CandleSeries | null> {
   const chart = await fetchKiteEquityIntraday(nseSymbol, interval, daysBack);
   if (!chart || chart.close.length === 0) return null;
+  const fetchedAt = Date.now();
   const candles: Candle[] = [];
   for (let i = 0; i < chart.timestamps.length; i++) {
     const o = chart.open[i];
@@ -179,7 +180,6 @@ export async function getEquityCandles(
       volume: chart.volume[i] ?? 0,
     });
   }
-  const lastTsSec = chart.timestamps[chart.timestamps.length - 1];
   return {
     symbol: nseSymbol,
     interval,
@@ -187,7 +187,14 @@ export async function getEquityCandles(
     meta: buildMeta({
       source: "kite",
       trustTier: "authoritative",
-      asOfMs: lastTsSec != null ? lastTsSec * 1000 : null,
+      // Use fetch time, NOT last-candle timestamp, as asOfMs.
+      // Rationale: for daily candles the last bar is yesterday (~17-30 h old),
+      // which always exceeds the live-quote staleness budget (600 s). The
+      // correct question is "how recently did we fetch from Kite?" — the 60-s
+      // in-process cache ensures the answer is always ≤60 s, well inside any
+      // freshness budget. The candle DATA timestamps are preserved in the
+      // candles array and are unaffected by this change.
+      asOfMs: fetchedAt,
       delayed: false,
       notForSignals: false,
       complete: candles.length > 0,
@@ -204,6 +211,7 @@ export async function getEquityCandlesByToken(
 ): Promise<CandleSeries | null> {
   const chart = await fetchKiteEquityIntradayByToken(instrumentToken, label, interval, daysBack);
   if (!chart || chart.close.length === 0) return null;
+  const fetchedAt = Date.now();
   const candles: Candle[] = [];
   for (let i = 0; i < chart.timestamps.length; i++) {
     const o = chart.open[i];
@@ -221,7 +229,6 @@ export async function getEquityCandlesByToken(
       volume: chart.volume[i] ?? 0,
     });
   }
-  const lastTsSec = chart.timestamps[chart.timestamps.length - 1];
   return {
     symbol: label,
     interval,
@@ -229,7 +236,7 @@ export async function getEquityCandlesByToken(
     meta: buildMeta({
       source: "kite",
       trustTier: "authoritative",
-      asOfMs: lastTsSec != null ? lastTsSec * 1000 : null,
+      asOfMs: fetchedAt,
       delayed: false,
       notForSignals: false,
       complete: candles.length > 0,
@@ -268,7 +275,7 @@ export async function getIndexCandles(
       volume: chart.volume[i] ?? 0,
     });
   }
-  const lastTsSec = chart.timestamps[chart.timestamps.length - 1];
+  const fetchedAt = Date.now();
   return {
     symbol: yahooSymbol,
     interval,
@@ -276,7 +283,8 @@ export async function getIndexCandles(
     meta: buildMeta({
       source: "kite",
       trustTier: "authoritative",
-      asOfMs: lastTsSec != null ? lastTsSec * 1000 : null,
+      // Use fetch time as asOfMs (see getEquityCandles for rationale).
+      asOfMs: fetchedAt,
       delayed: false,
       notForSignals: false,
       complete: candles.length > 0,

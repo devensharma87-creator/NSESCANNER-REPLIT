@@ -1,0 +1,357 @@
+CODER PROMPT — URGENT SCOPED FIX: F&O KITE DAILY HISTORY PATH RETURNS UNKNOWN FOR ALL INDICES
+
+Unified Market Data Backbone production verification is complete.
+
+Final verdict from backbone task:
+
+UNIFIED_BACKBONE_PARTIAL_MIGRATION_SOURCE_GAP_REMAINS
+
+The backbone is live and working, but it exposed one critical blocker:
+
+F&O daily bars are still UNKNOWN for all three F&O indices even though Kite session is active and live ticks are available.
+
+Production evidence from market-hours verification:
+
+Kite session: ACTIVE
+quoteStatus: LIVE_TICKS
+market open
+/api/data-health/backbone: live
+warmup ran
+intraday bars: OK in warmup
+option chain: OK in warmup
+index quotes: OK in warmup
+but dailyBars:
+NIFTY: UNKNOWN
+BANKNIFTY: UNKNOWN
+SENSEX: UNKNOWN
+
+Reported root issue:
+
+Kite session active but daily bars unavailable — history not yet fetched or upstream returned empty.
+
+This is now the immediate blocker.
+
+Do not do broad backbone work.
+
+Do not change F&O strategy logic.
+
+Do not change F&O thresholds.
+
+Do not change signal formulas.
+
+Do not change scanner logic.
+
+Do not change swing logic.
+
+Do not enable broker execution.
+
+Do not place real orders.
+
+Do not mutate trading state except safe data-readiness/warmup metadata if required.
+
+Do not use Yahoo fallback for F&O trade-grade signals.
+
+Do not fake daily bars.
+
+Do not mark F&O ready unless Kite/local-Kite-derived daily bars are actually available.
+
+Do not trim or rewrite replit.md.
+
+Find and fix why F&O Kite daily history returns UNKNOWN for all indices when Kite session is active.
+
+Fix only the F&O daily-history data path.
+
+Affected indices:
+
+NIFTY
+BANKNIFTY
+SENSEX
+
+Main target:
+
+Daily bars must become available independently per index where supported.
+
+If an index is unsupported, classify it exactly and do not block the others.
+
+Read first:
+
+AGENT.md
+docs/llm-index/AGENT_START_HERE.md
+docs/llm-index/CRITICAL_FLOWS.md
+docs/llm-index/API_ROUTES_INDEX.md
+docs/llm-index/DATABASE_INDEX.md
+docs/llm-index/DATA_SOURCES_AND_PROVENANCE.md
+docs/llm-index/TEST_AND_VERIFICATION_INDEX.md
+FULL_WEBSITE_DEEP_AUDIT_REPORT.md
+FULL_WEBSITE_AUDIT_TRIAGE_PLAN.md
+
+Then inspect:
+
+marketData/compat.ts
+centralIndexCandles
+Kite historical candle wrapper
+Kite token resolver
+F&O warmup module
+kiteWarmup.ts
+backboneHealth.ts
+fnoFailureDiagnosis.ts
+F&O diagnostics helpers
+F&O signal cycle daily-history checks
+/api/data-health/backbone
+/api/fno/no-signal-gap
+/fno-diagnostics
+
+Using authenticated owner session in production/dev:
+
+For each index:
+
+NIFTY
+BANKNIFTY
+SENSEX
+
+Call the exact daily-history path used by warmup/backbone.
+
+Report:
+
+index name
+exchange
+instrument token
+symbol/tradingsymbol used
+date range requested
+interval requested
+function called
+raw Kite response length
+transformed candle count
+final readiness status
+error code
+error message
+whether data is empty or rejected later
+
+Important:
+
+Distinguish between:
+
+Kite returned no candles.
+Kite returned candles but parser rejected them.
+Kite returned candles but freshness window rejected them.
+Wrong token/exchange used.
+Date range is wrong.
+Session was missing.
+Request was throttled.
+Fetch not attempted.
+Fetch attempted before login and not retried.
+Warmup result not written/read by backbone.
+
+For each index verify:
+
+NIFTY:
+
+exchange used
+token used
+historical endpoint accepted token?
+daily candles returned?
+
+BANKNIFTY:
+
+exchange used
+token used
+historical endpoint accepted token?
+daily candles returned?
+
+SENSEX:
+
+exchange used
+token used
+historical endpoint accepted token?
+daily candles returned?
+if unsupported, classify as EXCHANGE_UNSUPPORTED or HISTORICAL_UNAVAILABLE, not generic UNKNOWN.
+
+Do not let SENSEX failure block NIFTY/BANKNIFTY.
+
+Verify daily candle request:
+
+from date
+to date
+timezone
+interval
+market holiday handling
+current day inclusion/exclusion
+weekend handling
+whether date range starts after end accidentally
+whether market-open day has incomplete candle issue
+whether Kite requires previous completed day for daily candles
+
+Expected robust behavior:
+
+request last 60 trading/calendar days safely
+accept previous completed daily candle if current day daily candle not yet final
+classify current-day missing as MARKET_DAY_NOT_FINAL if applicable
+do not mark all history unavailable because today's daily bar is not final
+
+Verify whether candles are actually fetched but rejected because of freshness.
+
+If daily candle latest date is previous trading day, that may be valid during market hours.
+
+Daily bars should not be rejected only because latest daily candle is yesterday.
+
+Define correct daily freshness rule:
+
+during market hours, previous completed daily candle is valid for indicators/levels
+current intraday candle is separate
+daily history should be considered available if recent completed trading day candle exists within acceptable trading-day window
+
+Fix if the current freshness rule expects today’s daily candle before market close.
+
+Verify:
+
+warmup fetches daily bars
+warmup records daily bar result per index
+backbone reads the same result
+F&O diagnostics reads the same result
+pre/post report reads the same result
+failure latch cleared after success
+no stale failure persists after data becomes available
+
+If warmup succeeds but backbone still shows UNKNOWN, fix state propagation.
+
+Replace generic UNKNOWN where possible.
+
+Classification should include:
+
+SESSION_MISSING
+TOKEN_MISSING
+EXCHANGE_UNSUPPORTED
+HISTORICAL_UNAVAILABLE
+HISTORICAL_EMPTY
+THROTTLED
+DATE_RANGE
+MARKET_DAY_NOT_FINAL
+FRESHNESS_REJECTED
+FETCH_NOT_ATTEMPTED
+PARSER_REJECTED
+STATE_NOT_PROPAGATED
+UNKNOWN
+
+After this task, UNKNOWN should only remain when truly unknown after all checks.
+
+Implement only the required fix.
+
+Possible acceptable fixes:
+
+Correct token/exchange mapping.
+Correct date range.
+Correct daily freshness logic.
+Accept previous completed trading day candle.
+Ensure post-login retry fetches daily candles.
+Ensure warmup daily result is written and read.
+Clear stale failure latch after success.
+Classify unsupported SENSEX separately.
+Fix parser rejecting valid Kite candle shape.
+
+Do not start candle warehouse Phase B in this task.
+
+Do not add DB/schema changes.
+
+Do not change strategy formulas.
+
+Add/update tests for:
+
+Daily candle fetch success marks index dailyBars OK.
+Previous completed daily candle is accepted during market hours.
+Missing current-day daily candle does not mean full history unavailable.
+Wrong token classified as TOKEN_MISSING.
+Unsupported exchange classified as EXCHANGE_UNSUPPORTED.
+Empty Kite response classified as HISTORICAL_EMPTY.
+Date range bug classified as DATE_RANGE.
+Freshness rejection classified as FRESHNESS_REJECTED.
+Parser rejection classified as PARSER_REJECTED.
+Warmup daily success propagates to backbone.
+NIFTY daily success independent of SENSEX failure.
+BANKNIFTY daily success independent of SENSEX failure.
+SENSEX failure does not block NIFTY/BANKNIFTY.
+F&O remains blocked if daily bars truly unavailable.
+No Yahoo fallback for F&O daily bars.
+No broker execution.
+No paper trade creation.
+
+Run:
+
+pnpm --filter @workspace/api-server run typecheck
+pnpm --filter @workspace/api-server run typecheck:libs
+pnpm --filter @workspace/api-server exec vitest run src/lib/*fno*.test.ts src/lib/*backbone*.test.ts src/lib/*kiteWarmup*.test.ts src/lib/marketData/requirements.test.ts src/lib/marketDataHealth.test.ts
+pnpm --filter @workspace/scanner exec vitest run
+pnpm --filter @workspace/scripts run index:llm
+pnpm --filter @workspace/scripts run index:llm:check
+
+Use repo-correct test names if different.
+
+After publish, verify during market hours if possible.
+
+Call:
+
+/api/data-health/backbone
+manual warmup endpoint
+/fno-diagnostics
+/api/fno/no-signal-gap
+Pre/Post report if relevant
+
+Verify:
+
+Kite session active.
+NIFTY dailyBars status.
+BANKNIFTY dailyBars status.
+SENSEX dailyBars status.
+exact failure code if any index fails.
+daily bars are not UNKNOWN unless truly unknown.
+daily success propagates to F&O diagnostics.
+daily success propagates to Pre/Post readiness.
+F&O remains blocked only for true missing requirements.
+no Yahoo fallback.
+no fake readiness.
+no trading mutation.
+broker execution disabled.
+
+If market is closed, verify with unit tests plus production warmup diagnostics and schedule next market-hours recheck.
+
+Final report must include:
+
+Root cause.
+Files touched.
+Token/exchange result per index.
+Daily request result per index.
+Date range/freshness result.
+Warmup write/read result.
+Error classification result.
+Fix implemented.
+Tests run.
+LLM index result.
+Production verification result.
+Remaining blockers.
+Exact next action.
+
+Final verdict must be exactly one:
+
+FNO_DAILY_HISTORY_PATH_PROD_VERIFIED
+FNO_DAILY_HISTORY_PATH_DEV_VERIFIED_MARKET_RECHECK_REQUIRED
+FNO_DAILY_HISTORY_TOKEN_MAPPING_FIXED
+FNO_DAILY_HISTORY_DATE_RANGE_FIXED
+FNO_DAILY_HISTORY_FRESHNESS_FIXED
+FNO_DAILY_HISTORY_SOURCE_GAP_REMAINS
+ROLLBACK_REQUIRED
+
+Task is complete only if:
+
+daily-history root cause is identified
+daily path checked for NIFTY/BANKNIFTY/SENSEX
+token/exchange checked per index
+date range/freshness checked
+warmup write/read checked
+exact classification replaces generic UNKNOWN where possible
+SENSEX cannot block NIFTY/BANKNIFTY
+no Yahoo fallback for F&O daily bars
+no fake readiness
+no trading state mutation
+broker execution disabled
+tests pass
+LLM index fresh
+production verification completed or market-hours recheck clearly scheduled

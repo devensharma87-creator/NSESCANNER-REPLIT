@@ -98,13 +98,13 @@
   {
     "path": "artifacts/api-server/src/lib/backboneHealth.test.ts",
     "purpose": "test",
-    "lines": 166,
+    "lines": 219,
     "exports": [],
     "externalImports": [
       "vitest"
     ],
     "routes": [],
-    "hash": "147c395653a72ad7"
+    "hash": "af4acba21595073b"
   },
   {
     "path": "artifacts/api-server/src/lib/backboneHealth.ts",
@@ -2697,9 +2697,20 @@
     "hash": "550513335686e403"
   },
   {
+    "path": "artifacts/api-server/src/lib/marketData/kiteProvider.candleFreshness.test.ts",
+    "purpose": "test",
+    "lines": 155,
+    "exports": [],
+    "externalImports": [
+      "vitest"
+    ],
+    "routes": [],
+    "hash": "f30a79f7223d16ed"
+  },
+  {
     "path": "artifacts/api-server/src/lib/marketData/kiteProvider.ts",
     "purpose": "data-source",
-    "lines": 290,
+    "lines": 298,
     "exports": [
       "KiteProviderHealth",
       "kiteHealth",
@@ -2714,7 +2725,7 @@
     ],
     "externalImports": [],
     "routes": [],
-    "hash": "216ff49114909e21"
+    "hash": "d15c6a2a6146f88a"
   },
   {
     "path": "artifacts/api-server/src/lib/marketData/marketData.test.ts",

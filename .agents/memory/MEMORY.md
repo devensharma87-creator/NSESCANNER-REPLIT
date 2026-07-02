@@ -33,3 +33,4 @@
 - [F&O OI backfill queue starvation](fno-backfill-queue-starvation.md) — OI backfill shares the 30-slot throttle queue; use a separate `isBackfill:true` cap (BACKFILL_MAX_QUEUE=8) or backfill crowds out live signal-sweep slots.
 - [LLM index system — docs/llm-index/](llm-index-system.md) — read AGENT.md first, then one targeted index file; run index:llm after each task; checkLlmIndex.ts exits 1 on stale.
 - [Provider-import burn-down → route via compat](provider-import-burndown-compat.md) — new modules needing Kite session/providers must re-export through marketData/compat, NOT direct-import + NOT allowlist (burn-down mode wants the list to shrink).
+- [Kite candle series asOfMs must be fetch time](kite-candle-asofms-fetch-time.md) — use Date.now() not lastTsSec*1000; last daily bar is 17-30h old → HARD-STALE → all fno/swing BLOCKED despite valid Kite session.

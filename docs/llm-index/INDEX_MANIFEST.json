@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-02T07:14:15.915Z",
+  "generatedAt": "2026-07-02T07:57:25.472Z",
   "generatorVersion": "1.0.0",
   "files": {
     "artifacts/api-server/src/routes/admin.ts": {
@@ -633,9 +633,9 @@
       "mtime": "2026-06-22T12:58:01.190Z"
     },
     "artifacts/api-server/src/lib/marketData/kiteProvider.ts": {
-      "hash": "216ff49114909e21",
-      "lines": 290,
-      "mtime": "2026-06-22T12:58:01.190Z"
+      "hash": "d15c6a2a6146f88a",
+      "lines": 298,
+      "mtime": "2026-07-02T07:52:08.219Z"
     },
     "artifacts/api-server/src/lib/marketData/optionChainProvenance.ts": {
       "hash": "5e569f4064f15203",

@@ -163,3 +163,56 @@ describe("buildBackbone* — degraded live/warmup evidence", () => {
     expect(benchmark?.readiness.status).toBe("DEGRADED");
   });
 });
+
+describe("buildBackbone* — dailyBars warmup step (regression guard for 2026-07-02 freshness fix)", () => {
+  it("BLOCKS fno.dailyCandles when warmup dailyBars fails for ALL indices", () => {
+    const w = warmup([
+      { index: "NIFTY",     steps: [{ step: "dailyBars", ok: false, code: "UNKNOWN", message: "daily_history_unavailable_kite" }] },
+      { index: "BANKNIFTY", steps: [{ step: "dailyBars", ok: false, code: "UNKNOWN", message: "daily_history_unavailable_kite" }] },
+      { index: "SENSEX",    steps: [{ step: "dailyBars", ok: false, code: "UNKNOWN", message: "daily_history_unavailable_kite" }] },
+    ]);
+    const m = moduleOf(facts({ warmup: w }), "fno");
+    expect(m.status).toBe("BLOCKED");
+    expect(m.failures.some((x) => x.startsWith("dailyCandles"))).toBe(true);
+  });
+
+  it("BLOCKS swing when warmup dailyBars fails for ALL indices", () => {
+    const w = warmup([
+      { index: "NIFTY",     steps: [{ step: "dailyBars", ok: false, code: "UNKNOWN", message: "daily_history_unavailable_kite" }] },
+      { index: "BANKNIFTY", steps: [{ step: "dailyBars", ok: false, code: "UNKNOWN", message: "daily_history_unavailable_kite" }] },
+    ]);
+    expect(moduleOf(facts({ warmup: w }), "swing").status).toBe("BLOCKED");
+  });
+
+  it("BLOCKS fno.dailyCandles when dailyBars fails for SOME indices (partial → STALE point)", () => {
+    const w = warmup([
+      { index: "NIFTY",     steps: [{ step: "dailyBars", ok: true }] },
+      { index: "BANKNIFTY", steps: [{ step: "dailyBars", ok: false, code: "UNKNOWN", message: "daily_history_unavailable_kite" }] },
+    ]);
+    const m = moduleOf(facts({ warmup: w }), "fno");
+    expect(m.status).toBe("BLOCKED");
+    expect(m.failures.some((x) => x.startsWith("dailyCandles"))).toBe(true);
+  });
+
+  it("fno and swing are OK when warmup dailyBars succeeds for ALL indices (the fixed path)", () => {
+    const w = warmup([
+      { index: "NIFTY",     steps: [{ step: "dailyBars", ok: true }] },
+      { index: "BANKNIFTY", steps: [{ step: "dailyBars", ok: true }] },
+      { index: "SENSEX",    steps: [{ step: "dailyBars", ok: true }] },
+    ]);
+    expect(moduleOf(facts({ warmup: w }), "fno").status).toBe("OK");
+    expect(moduleOf(facts({ warmup: w }), "swing").status).toBe("OK");
+  });
+
+  it("fno failure message contains the UNKNOWN code from the warmup step (honesty check)", () => {
+    const w = warmup([
+      { index: "NIFTY",     steps: [{ step: "dailyBars", ok: false, code: "UNKNOWN", message: "daily_history_unavailable_kite" }] },
+      { index: "BANKNIFTY", steps: [{ step: "dailyBars", ok: false, code: "UNKNOWN", message: "daily_history_unavailable_kite" }] },
+      { index: "SENSEX",    steps: [{ step: "dailyBars", ok: false, code: "UNKNOWN", message: "daily_history_unavailable_kite" }] },
+    ]);
+    const m = moduleOf(facts({ warmup: w }), "fno");
+    const dailyFailure = m.failures.find((x) => x.startsWith("dailyCandles"));
+    expect(dailyFailure).toBeDefined();
+    expect(dailyFailure).toContain("daily_history_unavailable_kite");
+  });
+});
