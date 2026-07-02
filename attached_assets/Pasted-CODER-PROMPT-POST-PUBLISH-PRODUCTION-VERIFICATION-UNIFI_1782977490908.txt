@@ -1,0 +1,319 @@
+CODER PROMPT — POST-PUBLISH PRODUCTION VERIFICATION: UNIFIED MARKET DATA BACKBONE + F&O WARMUP
+
+Task #131 Unified Market Data Backbone has been implemented in dev.
+
+Reported completed work:
+
+MarketDataPoint<T> contract added.
+marketData/requirements.ts added.
+Requirement engine rejects Yahoo/delayed/stale/unavailable data for TRADE_GRADE_REQUIRED.
+/api/data-health/backbone owner endpoint added.
+kiteWarmup.ts added.
+Warmup routes through marketData/compat.ts using centralActiveSession.
+Post-login Kite warmup trigger added.
+Boot-time warmup job added with 40s stagger.
+F&O data failure classifier added.
+F&O data alert dedup helper added.
+docs/PROVIDER_IMPORT_BURNDOWN.md added.
+Provider import guard is green.
+Changed-module tests pass: 131 tests.
+API server typecheck passes.
+Typecheck libs passes.
+LLM index fresh.
+API server boots clean.
+No trading/scoring/F&O/swing/broker strategy change.
+No DB/schema change.
+No broker execution.
+
+Important: this is not accepted as production verified yet.
+
+Now publish and perform production verification.
+
+Do not add new features.
+
+Do not change F&O strategy logic.
+
+Do not change swing strategy logic.
+
+Do not change scanner scoring.
+
+Do not change thresholds.
+
+Do not enable broker execution.
+
+Do not place real orders.
+
+Do not mutate trading state except safe warmup/readiness metadata.
+
+Do not hide warnings.
+
+Do not fake readiness.
+
+Do not use Yahoo fallback for F&O trade-grade signals.
+
+Do not expose secrets.
+
+Do not trim or rewrite replit.md.
+
+Verify that the unified market data backbone is deployed and that the F&O warmup/diagnostics path works in production.
+
+Production URL:
+
+https://marketscannerbydev.in
+
+The main production problem to verify:
+
+Previously, after Kite login:
+
+topbar showed Kite live
+Kite page showed session/feed connected
+but F&O reported:
+daily bars unavailable
+no live intraday
+all indices suppressed
+repeated FNO_DAILY_HISTORY_UNAVAILABLE alerts
+
+Now verify whether the new backbone and warmup improve or precisely diagnose this.
+
+Report:
+
+production commit/hash
+latest workspace commit/hash
+production PID / boot timestamp
+API health
+frontend health
+whether production includes:
+MarketDataPoint
+DataRequirement
+/api/data-health/backbone
+kiteWarmup
+POST /api/kite/warmup or actual mounted route
+classifyDataFailure
+F&O data alert dedup helper
+provider burn-down doc if bundle/source check available
+
+If old build is still serving, stop and report:
+
+UNIFIED_BACKBONE_BUILD_NOT_DEPLOYED
+
+Authenticated owner call:
+
+GET /api/data-health/backbone
+
+Verify it returns module-wise readiness for at least:
+
+home
+scanner
+fno
+swing
+watchlist
+portfolio
+charting
+optionChain
+prePost
+
+For each module verify:
+
+requirement
+status
+failures
+recoveryAction
+no secrets
+no tokens
+no API keys
+no chat IDs
+no DB URLs
+
+Report exact safe summary.
+
+Verify warmup triggers:
+
+Boot-time warmup job registered.
+Post-login warmup trigger exists.
+Manual owner warmup endpoint exists.
+Warmup is single-flight.
+Warmup is debounced.
+Warmup fails closed when no Kite session.
+Warmup runs per index independently.
+
+Authenticated owner call:
+
+POST /api/kite/warmup
+
+or correct mounted route.
+
+Verify response includes:
+
+trigger
+session state
+per-index result
+per-step result
+NIFTY result
+BANKNIFTY result
+SENSEX result
+error codes if any
+no secrets
+
+During market hours if possible, verify:
+
+Kite session active.
+WebSocket connected.
+Critical index quote fetch attempted.
+Daily bars fetch attempted.
+Intraday bars fetch attempted.
+Option-chain warmup attempted.
+NIFTY readiness is independent.
+BANKNIFTY readiness is independent.
+SENSEX readiness is independent.
+One failed index does not block others.
+F&O diagnostics shows exact failure code if any.
+
+Check:
+
+/fno-diagnostics
+/api/fno/no-signal-gap
+/api/data-health/backbone
+Pre/Post report output if generated
+
+Expected improvement:
+
+If data is available:
+
+F&O daily/intraday bars should become ready.
+
+If data is not available:
+
+system must show exact reason:
+SESSION_MISSING
+TOKEN_MISSING
+EXCHANGE_UNSUPPORTED
+THROTTLED
+DATE_RANGE
+MARKET_JUST_OPENED
+UNKNOWN
+
+Do not accept generic “unavailable” if exact cause is known.
+
+Verify repeated identical F&O data alerts are deduped.
+
+Test scenario:
+
+same alert type
+same affected index
+repeated within 10 minutes
+
+Expected:
+
+first alert sent
+second identical alert suppressed
+recovery alert allowed if state changes
+
+Verify:
+
+manual Pre/Post report does not spam duplicate F&O data alerts
+signal cycle does not spam duplicate F&O data alerts
+dedup key is specific enough:
+alertType
+index/affected set
+data issue type
+
+Verify by tests/code:
+
+TRADE_GRADE_REQUIRED rejects Yahoo.
+TRADE_GRADE_REQUIRED rejects stale data.
+TRADE_GRADE_REQUIRED rejects unavailable data.
+INFO_ONLY_ACCEPTABLE allows Yahoo with label.
+Scanner Phase A remains KITE_PARTIAL.
+Home source-honesty remains intact.
+F&O does not accept Yahoo for trade-grade signals.
+Paper trade opens require trade-grade source.
+Broker execution remains disabled.
+
+Verify provider import guard still passes.
+
+Report:
+
+total allowlisted files
+total import pairs
+newly added allowlist entries
+whether kiteWarmup.ts avoids direct provider import
+status of:
+dailyReports.ts
+marketDataHealth.ts
+optionSignals.ts
+
+Do not expand scope to fix all provider imports now.
+
+Run:
+
+pnpm --filter @workspace/api-server run typecheck
+pnpm --filter @workspace/api-server run typecheck:libs
+pnpm --filter @workspace/api-server exec vitest run src/lib/marketData/requirements.test.ts src/lib/backboneHealth.test.ts src/lib/fnoSignalAlerts.test.ts src/lib/fnoFailureDiagnosis.test.ts src/lib/providerImportGuard.test.ts
+pnpm --filter @workspace/scanner exec vitest run
+pnpm --filter @workspace/scripts run index:llm
+pnpm --filter @workspace/scripts run index:llm:check
+
+Use repo-correct test files if names differ.
+
+If full api-server suite times out due to known live-network/live-DB tests, say so clearly and report changed-module coverage.
+
+Verify:
+
+no secrets exposed
+no tokens
+no chat IDs
+no API keys
+no DB URLs
+no trading state mutation
+no paper trade created
+no real order placed
+no broker execution
+no strategy/threshold changes
+
+Final report must include:
+
+Deployment confirmation.
+/api/data-health/backbone result.
+Warmup trigger result.
+F&O readiness result.
+Per-index NIFTY/BANKNIFTY/SENSEX result.
+Alert dedup result.
+Requirement engine result.
+Provider import burn-down result.
+Tests run.
+LLM index result.
+Production safety result.
+What is fully migrated.
+What is still pending.
+Whether market-hours recheck is still required.
+Exact next action.
+
+Final verdict must be exactly one:
+
+UNIFIED_MARKET_DATA_BACKBONE_PROD_VERIFIED
+UNIFIED_BACKBONE_CORE_FNO_MIGRATED_PROD_VERIFIED
+UNIFIED_BACKBONE_CORE_FNO_DEV_VERIFIED_MARKET_RECHECK_REQUIRED
+UNIFIED_BACKBONE_PARTIAL_MIGRATION_SOURCE_GAP_REMAINS
+UNIFIED_BACKBONE_BUILD_NOT_DEPLOYED
+ROLLBACK_REQUIRED
+
+Task is complete only if:
+
+production serves latest backbone build
+/api/data-health/backbone works
+warmup endpoint works
+post-login warmup exists
+F&O readiness is visible per index
+NIFTY/BANKNIFTY/SENSEX are isolated
+exact failure codes are visible
+duplicate F&O alerts are deduped
+no Yahoo fallback for F&O trade-grade signals
+scanner Phase A remains intact
+Home source-honesty remains intact
+no secrets exposed
+no fake readiness
+no trading state mutated
+broker execution disabled
+tests pass or changed-module coverage is clearly reported
+LLM index fresh
+production verification completed or market-hours recheck clearly scheduled
