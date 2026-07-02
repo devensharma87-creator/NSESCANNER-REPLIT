@@ -4793,6 +4793,22 @@
     "hash": "8f7c708f9fb65303"
   },
   {
+    "path": "artifacts/api-server/src/lib/tradeLifecycle/compareTradeEventParity.ts",
+    "purpose": "lib",
+    "lines": 334,
+    "exports": [
+      "ParityMismatch",
+      "ParityResult",
+      "DbNotificationSnapshot",
+      "PaperTradeSnapshot",
+      "ParityCompareInput",
+      "compareTradeEventParity"
+    ],
+    "externalImports": [],
+    "routes": [],
+    "hash": "f6ed36d62b91a936"
+  },
+  {
     "path": "artifacts/api-server/src/lib/tradeLifecycle/formatTelegramMessage.ts",
     "purpose": "lib",
     "lines": 284,
@@ -4806,11 +4822,11 @@
   {
     "path": "artifacts/api-server/src/lib/tradeLifecycle/index.ts",
     "purpose": "lib",
-    "lines": 40,
+    "lines": 72,
     "exports": [],
     "externalImports": [],
     "routes": [],
-    "hash": "a0d557de387b964c"
+    "hash": "c04bba5c1b414ffd"
   },
   {
     "path": "artifacts/api-server/src/lib/tradeLifecycle/notificationLog.ts",
@@ -4832,6 +4848,80 @@
     ],
     "routes": [],
     "hash": "37d796c32432099e"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/tradeLifecycle/parityFixtures.ts",
+    "purpose": "lib",
+    "lines": 447,
+    "exports": [
+      "FixtureMetadata",
+      "Fixture",
+      "FIXTURE_SWING_ENTRY_READY",
+      "FIXTURE_SWING_APPROVAL_REQUIRED",
+      "FIXTURE_SWING_DRY_RUN",
+      "FIXTURE_SWING_EXIT_SL",
+      "FIXTURE_SWING_EXIT_TARGET",
+      "FIXTURE_FNO_ENTRY_OPENED",
+      "FIXTURE_FNO_SUPPRESSED",
+      "FIXTURE_FNO_EXIT_SL",
+      "FIXTURE_FNO_EXIT_TARGET",
+      "FIXTURE_TESTSTK_BLOCKED",
+      "FIXTURE_YAHOO_BLOCKED",
+      "FIXTURE_STALE_BLOCKED",
+      "FIXTURE_DEV_ENV_BLOCKED",
+      "FIXTURE_DUPLICATE_BLOCKED",
+      "ALL_FIXTURES"
+    ],
+    "externalImports": [],
+    "routes": [],
+    "hash": "3389edc91b6db291"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/tradeLifecycle/parityHarness.ts",
+    "purpose": "lib",
+    "lines": 474,
+    "exports": [
+      "ParityMode",
+      "ParityRunResult",
+      "ReplayRecord",
+      "ReplayResult",
+      "ParityStatusSummary",
+      "runDryRunParity",
+      "loadLatestNotificationLogRecords",
+      "replayFromNotificationLog",
+      "buildParityStatusSummary",
+      "runAllFixtureParity"
+    ],
+    "externalImports": [
+      "crypto",
+      "drizzle-orm",
+      "@workspace/db"
+    ],
+    "routes": [],
+    "hash": "f64e84cb2b227a64"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/tradeLifecycle/projectTradeEvent.ts",
+    "purpose": "lib",
+    "lines": 189,
+    "exports": [
+      "TradeEventUiProjection",
+      "projectTradeEventForUi"
+    ],
+    "externalImports": [],
+    "routes": [],
+    "hash": "f1dfe780d2b72b1f"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/tradeLifecycle/tradeEventParity.test.ts",
+    "purpose": "test",
+    "lines": 328,
+    "exports": [],
+    "externalImports": [
+      "vitest"
+    ],
+    "routes": [],
+    "hash": "de2c4fbc12f16cca"
   },
   {
     "path": "artifacts/api-server/src/lib/tradeLifecycle/tradeLifecycle.test.ts",
@@ -5579,7 +5669,7 @@
   {
     "path": "artifacts/api-server/src/routes/fno.ts",
     "purpose": "api-route",
-    "lines": 491,
+    "lines": 543,
     "exports": [],
     "externalImports": [
       "express",
@@ -5595,7 +5685,7 @@
       "GET /fno/diagnostics/blocked-signals",
       "GET /fno/no-signal-gap"
     ],
-    "hash": "8036c6874cd494ce"
+    "hash": "04173d913ca1269f"
   },
   {
     "path": "artifacts/api-server/src/routes/global/index.ts",
@@ -5663,13 +5753,13 @@
   {
     "path": "artifacts/api-server/src/routes/index.ts",
     "purpose": "api-route",
-    "lines": 105,
+    "lines": 107,
     "exports": [],
     "externalImports": [
       "express"
     ],
     "routes": [],
-    "hash": "4b868cadf8b5aa1d"
+    "hash": "64d2b7f81d041995"
   },
   {
     "path": "artifacts/api-server/src/routes/indices.ts",
@@ -5845,6 +5935,24 @@
       "POST /paper/combos/:id/close"
     ],
     "hash": "ce6ef9a7fdbb135d"
+  },
+  {
+    "path": "artifacts/api-server/src/routes/parity.ts",
+    "purpose": "api-route",
+    "lines": 240,
+    "exports": [],
+    "externalImports": [
+      "express",
+      "drizzle-orm",
+      "@workspace/db"
+    ],
+    "routes": [
+      "GET /parity/status",
+      "POST /parity/trade-event/verify",
+      "GET /parity/trade-event/latest",
+      "GET /parity/trade-event/replay/:id"
+    ],
+    "hash": "7883689d31c0326a"
   },
   {
     "path": "artifacts/api-server/src/routes/portfolio.ts",
@@ -7282,7 +7390,7 @@
   {
     "path": "artifacts/scanner/src/pages/infra-health.tsx",
     "purpose": "ui-page",
-    "lines": 2435,
+    "lines": 2631,
     "exports": [],
     "externalImports": [
       "react",
@@ -7297,7 +7405,7 @@
       "@/components/infra/ShadowDiagnosticsPanel"
     ],
     "routes": [],
-    "hash": "9a85fa995f987a09"
+    "hash": "1c5c2587af9e9a4b"
   },
   {
     "path": "artifacts/scanner/src/pages/kite.tsx",

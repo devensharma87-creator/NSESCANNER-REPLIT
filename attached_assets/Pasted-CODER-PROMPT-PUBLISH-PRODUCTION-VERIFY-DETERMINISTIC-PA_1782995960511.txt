@@ -1,0 +1,92 @@
+CODER PROMPT — PUBLISH + PRODUCTION VERIFY DETERMINISTIC PARITY HARNESS
+
+We have completed the deterministic parity verification harness in dev/build.
+
+Current accepted dev/build verdict:
+
+SIGNAL_DATA_NOTIFICATION_PARITY_DETERMINISTIC_HARNESS_BUILT
+
+Reported delivered:
+
+* Owner-only parity APIs:
+    * /api/parity/status
+    * /api/parity/verify
+    * /api/parity/replay-from-log
+    * /api/parity/run-all-fixtures
+* projectTradeEvent.ts
+* compareTradeEventParity.ts
+* parityHarness.ts
+* 14 deterministic fixtures
+* 25 parity tests passed
+* api-server typecheck clean
+* scanner typecheck clean
+* GET /api/fno/no-signal-gap additive diagnostics added
+* Infra Health Signal / Telegram Parity section added
+* SIGNAL_DATA_NOTIFICATION_PARITY_FIX_REPORT.md updated with harness section
+
+Now the harness must be published and production verified.
+
+This is not a new feature-build task.
+This is a controlled production verification task.
+
+====================================================
+WHY THIS MATTERS
+
+The platform has already been judged as source-honest but fragmented. The audit confirms the site uses multiple layers — live Kite, delayed Yahoo, NSE archive/context data, cached scanner data, and computed/derived data — and therefore needs a single canonical truth layer so users do not see different information in different tabs.
+
+The deterministic parity harness is designed to solve the repeated problem where final parity was dependent on live market hours.
+
+After this task, we should be able to verify outside live market hours that:
+
+* canonical event
+* UI projection
+* Telegram preview
+* DB/log replay
+* paper-trade snapshot
+* parity comparator
+
+all agree.
+
+Live market should become only a final smoke check, not the entire verification method.
+
+====================================================
+ABSOLUTE DO-NOT-DO RULES
+
+Do not change F&O strategy logic.
+
+Do not change Swing scoring logic.
+
+Do not change thresholds.
+
+Do not tune signal rules.
+
+Do not enable broker execution.
+
+Do not place real orders.
+
+Do not create real paper trades from verification unless explicitly marked dry-run and rolled back.
+
+Do not send fake trade-looking Telegram messages to the real trade Telegram channel.
+
+Do not send test/sample/dev events to production Telegram.
+
+Do not run candle backfill.
+
+Do not delete DB rows.
+
+Do not perform destructive migrations.
+
+Do not hide source warnings.
+
+Do not fake readiness.
+
+Do not label fixture/replay data as live market data.
+
+Do not trim or rewrite replit.md.
+
+Do not claim final production verified unless actual production endpoints and production safety are verified.
+
+====================================================
+PART A — DEPLOYMENT CONFIRMATION
+
+First confirm the deterministic parity harness is included in the published app.

@@ -1,0 +1,75 @@
+Publish the deterministic parity verification harness and run production verification.
+
+Do not change strategy logic.
+Do not change thresholds.
+Do not enable broker execution.
+Do not place real orders.
+Do not send fake trade-looking messages to the real Telegram trade channel.
+Do not run candle backfill.
+Do not delete DB rows.
+Do not trim or rewrite replit.md.
+
+Verify in production:
+
+1. Published build includes:
+   - /api/parity/status
+   - /api/parity/verify
+   - /api/parity/replay-from-log
+   - /api/parity/run-all-fixtures
+   - projectTradeEventForUi
+   - compareTradeEventParity
+   - parityHarness
+   - ParitySection in Infra Health
+
+2. Auth/security:
+   - anonymous /api/parity/* returns 401
+   - owner session returns 200
+   - no secrets, tokens, chat IDs, DB URLs exposed
+
+3. Run production-safe dry-run:
+   - valid Swing fixture: parity OK, no Telegram sent
+   - valid F&O fixture: parity OK, no Telegram sent
+   - TESTSTK fixture: blocked TEST_SYMBOL_BLOCKED, no Telegram sent
+   - Yahoo fixture: blocked YAHOO_NOT_ALLOWED or SOURCE_NOT_TRADE_GRADE, no Telegram sent
+   - stale fixture: blocked STALE_DATA_NOT_ALLOWED or SOURCE_NOT_TRADE_GRADE, no Telegram sent
+   - dev fixture: blocked DEV_ENV_BLOCKED, no Telegram sent
+   - duplicate fixture: blocked DUPLICATE_EVENT, no duplicate send
+
+4. Run replay:
+   - latest notification_delivery_log Swing records
+   - latest notification_delivery_log F&O records
+   - report parity OK/mismatches
+   - do not send Telegram during replay
+
+5. Verify Infra Health:
+   - Signal / Telegram Parity section visible to owner
+   - latest delivery logs visible
+   - blocked/test/dev counts visible
+   - no public access
+
+6. Verify F&O diagnostics:
+   - /api/fno/no-signal-gap includes additive diagnostics
+   - no existing consumers broken
+
+7. Tests:
+   - parity tests pass
+   - trade lifecycle tests pass
+   - typecheck clean
+   - scanner typecheck clean
+   - LLM index fresh
+
+8. Safety:
+   - no Telegram sent to real trade channel during dry-run/replay
+   - no paper trade created
+   - no real order placed
+   - broker execution remains disabled
+
+Update SIGNAL_DATA_NOTIFICATION_PARITY_FIX_REPORT.md with production verification evidence.
+
+Final verdict must be exactly one:
+
+- SIGNAL_DATA_NOTIFICATION_PARITY_DETERMINISTIC_PROD_VERIFIED_LIVE_SMOKE_PENDING
+- SIGNAL_DATA_NOTIFICATION_PARITY_PROD_VERIFIED
+- SIGNAL_DATA_NOTIFICATION_PARITY_PARTIAL_SOURCE_GAP_REMAINS
+- SIGNAL_DATA_NOTIFICATION_PARITY_BUILD_NOT_DEPLOYED
+- ROLLBACK_REQUIRED

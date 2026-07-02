@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-02T11:14:41.686Z",
+  "generatedAt": "2026-07-02T13:12:22.244Z",
   "generatorVersion": "1.0.0",
   "files": {
     "artifacts/api-server/src/routes/admin.ts": {
@@ -58,9 +58,9 @@
       "mtime": "2026-05-15T11:08:30.153Z"
     },
     "artifacts/api-server/src/routes/fno.ts": {
-      "hash": "8036c6874cd494ce",
-      "lines": 491,
-      "mtime": "2026-06-30T12:52:17.263Z"
+      "hash": "04173d913ca1269f",
+      "lines": 543,
+      "mtime": "2026-07-02T11:45:03.520Z"
     },
     "artifacts/api-server/src/routes/global/index.ts": {
       "hash": "8ea9c9ca35ff43bb",
@@ -78,9 +78,9 @@
       "mtime": "2026-06-17T03:43:06.668Z"
     },
     "artifacts/api-server/src/routes/index.ts": {
-      "hash": "4b868cadf8b5aa1d",
-      "lines": 105,
-      "mtime": "2026-07-02T06:29:47.067Z"
+      "hash": "64d2b7f81d041995",
+      "lines": 107,
+      "mtime": "2026-07-02T11:43:42.300Z"
     },
     "artifacts/api-server/src/routes/indices.ts": {
       "hash": "c4053f741bc8676a",
@@ -126,6 +126,11 @@
       "hash": "ce6ef9a7fdbb135d",
       "lines": 117,
       "mtime": "2026-05-13T14:12:53.837Z"
+    },
+    "artifacts/api-server/src/routes/parity.ts": {
+      "hash": "7883689d31c0326a",
+      "lines": 240,
+      "mtime": "2026-07-02T11:53:56.367Z"
     },
     "artifacts/api-server/src/routes/portfolio.ts": {
       "hash": "2a1139cb9fd17235",
@@ -1017,20 +1022,40 @@
       "lines": 363,
       "mtime": "2026-06-09T12:21:06.384Z"
     },
+    "artifacts/api-server/src/lib/tradeLifecycle/compareTradeEventParity.ts": {
+      "hash": "f6ed36d62b91a936",
+      "lines": 334,
+      "mtime": "2026-07-02T11:48:22.675Z"
+    },
     "artifacts/api-server/src/lib/tradeLifecycle/formatTelegramMessage.ts": {
       "hash": "ea71d075678f41f9",
       "lines": 284,
       "mtime": "2026-07-02T09:57:01.434Z"
     },
     "artifacts/api-server/src/lib/tradeLifecycle/index.ts": {
-      "hash": "a0d557de387b964c",
-      "lines": 40,
-      "mtime": "2026-07-02T09:57:58.329Z"
+      "hash": "c04bba5c1b414ffd",
+      "lines": 72,
+      "mtime": "2026-07-02T11:43:31.686Z"
     },
     "artifacts/api-server/src/lib/tradeLifecycle/notificationLog.ts": {
       "hash": "37d796c32432099e",
       "lines": 275,
       "mtime": "2026-07-02T09:57:53.429Z"
+    },
+    "artifacts/api-server/src/lib/tradeLifecycle/parityFixtures.ts": {
+      "hash": "3389edc91b6db291",
+      "lines": 447,
+      "mtime": "2026-07-02T11:53:48.662Z"
+    },
+    "artifacts/api-server/src/lib/tradeLifecycle/parityHarness.ts": {
+      "hash": "f64e84cb2b227a64",
+      "lines": 474,
+      "mtime": "2026-07-02T11:41:47.346Z"
+    },
+    "artifacts/api-server/src/lib/tradeLifecycle/projectTradeEvent.ts": {
+      "hash": "f1dfe780d2b72b1f",
+      "lines": 189,
+      "mtime": "2026-07-02T11:38:52.715Z"
     },
     "artifacts/api-server/src/lib/tradeLifecycle/types.ts": {
       "hash": "33d864cabfde6e88",
@@ -1263,9 +1288,9 @@
       "mtime": "2026-04-27T20:48:10.896Z"
     },
     "artifacts/scanner/src/pages/infra-health.tsx": {
-      "hash": "9a85fa995f987a09",
-      "lines": 2435,
-      "mtime": "2026-06-30T12:54:49.509Z"
+      "hash": "1c5c2587af9e9a4b",
+      "lines": 2631,
+      "mtime": "2026-07-02T11:46:06.558Z"
     },
     "artifacts/scanner/src/pages/kite.tsx": {
       "hash": "e2b41fa997f9ccbc",
