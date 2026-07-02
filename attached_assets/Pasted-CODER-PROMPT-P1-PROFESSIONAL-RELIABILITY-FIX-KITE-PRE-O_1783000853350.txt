@@ -1,0 +1,269 @@
+CODER PROMPT — P1 PROFESSIONAL RELIABILITY FIX: KITE PRE-OPEN RESILIENCE + GLOBAL DATA HEALTH BANNER + NO SILENT DATA DEGRADATION
+
+Current accepted status:
+
+SIGNAL_DATA_NOTIFICATION_PARITY_DETERMINISTIC_PROD_VERIFIED_LIVE_SMOKE_PENDING
+
+Do not reopen the canonical Telegram/parity work unless this task finds a direct regression.
+
+The next priority is platform reliability and source visibility.
+
+The trading platform depends on Kite/trusted data for live, trade-grade operations. If Kite is expired, missing, throttled, disconnected, partially warmed up, or stale, the user must know immediately. The website must never silently look normal while the underlying live/trade-grade data is unavailable.
+
+This task must make Kite/session/data readiness visible and actionable across the whole website.
+
+====================================================
+CORE OBJECTIVE
+====================================================
+
+Build a professional-grade Kite pre-open resilience and global data-health system.
+
+The system must ensure:
+
+1. Kite session expiry/missing login is detected before market open.
+2. Owner is alerted before market open if Kite is not ready.
+3. App shell shows one global data-health banner across all major pages.
+4. Every major tab clearly shows whether data is:
+   - live / trade-grade
+   - market closed but session active
+   - delayed
+   - stale
+   - cached
+   - info-only
+   - unavailable
+   - degraded
+5. F&O, Swing, Paper Trading, Scanner, Home, Option Chain, Portfolio, Watchlist, Charting, Pre/Post Reports, and Infra Health must all agree on the same global data-health state.
+6. No page should appear trade-ready when Kite/trusted data is not trade-ready.
+7. Alerts must be useful and deduped, not spam.
+8. No fake readiness.
+9. No Yahoo/proxy data should be presented as trade-grade.
+10. No trading logic, thresholds, or strategy rules should be changed.
+
+====================================================
+DO NOT DO
+====================================================
+
+Do not change F&O strategy logic.
+
+Do not change Swing scoring logic.
+
+Do not change thresholds.
+
+Do not activate new trade rules.
+
+Do not enable broker execution.
+
+Do not place real orders.
+
+Do not create real trades.
+
+Do not run heavy candle backfill.
+
+Do not delete DB rows.
+
+Do not perform destructive migrations.
+
+Do not hide source warnings.
+
+Do not fake Kite readiness.
+
+Do not treat Yahoo/proxy/cached data as trade-grade.
+
+Do not send repeated Telegram spam.
+
+Do not break existing parity harness.
+
+Do not trim or rewrite `replit.md`.
+
+Do not claim production verified without production evidence.
+
+====================================================
+PHASE 0 — READ CONTEXT FIRST
+====================================================
+
+Before coding, read:
+
+- `AGENT.md`
+- `docs/llm-index/AGENT_START_HERE.md`
+- `docs/llm-index/CRITICAL_FLOWS.md`
+- `docs/llm-index/API_ROUTES_INDEX.md`
+- `docs/llm-index/DATABASE_INDEX.md`
+- `docs/llm-index/DATA_SOURCES_AND_PROVENANCE.md`
+- `docs/llm-index/TEST_AND_VERIFICATION_INDEX.md`
+- `FULL_WEBSITE_DEEP_AUDIT_REPORT.md`
+- `LIVE_VS_PROD_DEEP_AUDIT_REPORT.md`
+- `SIGNAL_DATA_NOTIFICATION_PARITY_FIX_REPORT.md`
+- existing market data health files
+- existing Kite auth/session files
+- existing alert/Telegram/system alert files
+- existing Infra Health page/API
+- existing App shell/layout/header components
+
+Then provide a short implementation note before coding:
+
+1. Which current APIs expose Kite/session state?
+2. Which current APIs expose market-data/backbone state?
+3. Which pages currently show Kite/data health?
+4. Which pages do not show global data health?
+5. Which code sends Kite/session/data alerts today?
+6. Which schedulers already run around market open?
+7. Which alert dedup windows exist?
+8. Which pages can currently look “live” while Kite is degraded?
+9. Where is the correct place to add an app-wide banner?
+10. What will be changed and what will not be changed?
+
+====================================================
+PHASE 1 — DEFINE CANONICAL GLOBAL DATA HEALTH CONTRACT
+====================================================
+
+Create or extend a single global data-health contract.
+
+Use existing files if already present, such as:
+
+- `marketDataHealth.ts`
+- `backboneHealth.ts`
+- `dataHealth.ts`
+
+Do not create duplicate competing systems if one already exists.
+
+The canonical object must include at least:
+
+```ts
+type GlobalDataHealthStatus =
+  | "TRADE_GRADE_LIVE"
+  | "SESSION_ACTIVE_MARKET_CLOSED"
+  | "KITE_SESSION_MISSING"
+  | "KITE_SESSION_EXPIRED"
+  | "KITE_FEED_DISCONNECTED"
+  | "KITE_PARTIAL"
+  | "KITE_THROTTLED"
+  | "STALE_DATA"
+  | "DELAYED_DATA"
+  | "INFO_ONLY"
+  | "CACHED_ONLY"
+  | "UNAVAILABLE"
+  | "ERROR";
+
+type GlobalDataHealthSeverity =
+  | "green"
+  | "amber"
+  | "orange"
+  | "red";
+
+type GlobalDataHealth = {
+  checkedAt: string;
+  environment: "production" | "development" | "test";
+  marketSession: "preopen" | "open" | "closed" | "holiday" | "unknown";
+
+  overallStatus: GlobalDataHealthStatus;
+  severity: GlobalDataHealthSeverity;
+  badge: string;
+  headline: string;
+  explanation: string;
+
+  kite: {
+    sessionStatus:
+      | "ACTIVE"
+      | "MISSING"
+      | "EXPIRED"
+      | "ERROR"
+      | "UNKNOWN";
+    loginTime: string | null;
+    expiresAt: string | null;
+    expiresInSec: number | null;
+    isExpired: boolean;
+    accessTokenPresent: boolean;
+    websocketStatus:
+      | "CONNECTED"
+      | "DISCONNECTED"
+      | "CONNECTING"
+      | "ERROR"
+      | "UNKNOWN";
+    subscribedTokens: number | null;
+    liveQuotesCount: number | null;
+    lastTickAt: string | null;
+    quoteStatus:
+      | "LIVE_TICKS"
+      | "MARKET_CLOSED_SESSION_ACTIVE"
+      | "NO_TICKS"
+      | "STALE_TICKS"
+      | "ERROR"
+      | "UNKNOWN";
+    tradeGrade: boolean;
+    canDriveSignals: boolean;
+    canDrivePaperTrading: boolean;
+    canDriveTelegramTradeAlerts: boolean;
+  };
+
+  modules: {
+    home: ModuleHealth;
+    scanner: ModuleHealth;
+    deepScan: ModuleHealth;
+    fno: ModuleHealth;
+    swing: ModuleHealth;
+    optionChain: ModuleHealth;
+    portfolio: ModuleHealth;
+    watchlist: ModuleHealth;
+    charting: ModuleHealth;
+    prePost: ModuleHealth;
+    paperTrading: ModuleHealth;
+    reports: ModuleHealth;
+  };
+
+  fallback: {
+    yahooStatus:
+      | "NOT_USED"
+      | "DISPLAY_ONLY"
+      | "DELAYED"
+      | "FAILING"
+      | "BLOCKED"
+      | "UNKNOWN";
+    nseStatus:
+      | "OK"
+      | "DELAYED"
+      | "BLOCKED"
+      | "FAILING"
+      | "UNKNOWN";
+    cachedPayloadActive: boolean;
+    cachedPayloadReason: string | null;
+  };
+
+  alerts: {
+    shouldAlertOwner: boolean;
+    alertType: string | null;
+    dedupKey: string | null;
+    nextAllowedAt: string | null;
+    lastAlertAt: string | null;
+  };
+
+  userAction: {
+    required: boolean;
+    label: string | null;
+    href: string | null;
+    priority: "none" | "low" | "medium" | "high" | "critical";
+  };
+
+  warnings: string[];
+  blockers: string[];
+};
+
+type ModuleHealth = {
+  status:
+    | "TRADE_GRADE"
+    | "INFO_ONLY"
+    | "DELAYED"
+    | "STALE"
+    | "CACHED"
+    | "PARTIAL"
+    | "BLOCKED"
+    | "UNAVAILABLE"
+    | "ERROR";
+  source: string;
+  sourceAsOf: string | null;
+  freshnessSec: number | null;
+  canDriveSignals: boolean;
+  canDrivePaperTrading: boolean;
+  canDriveTelegramTradeAlerts: boolean;
+  reason: string | null;
+  warning: string | null;
+};
