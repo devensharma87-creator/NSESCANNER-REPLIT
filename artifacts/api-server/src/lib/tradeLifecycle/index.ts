@@ -37,3 +37,35 @@ export {
   markDeliveryFailed,
   gateAndLogDedup,
 } from "./notificationLog";
+
+export { projectTradeEventForUi, type TradeEventUiProjection } from "./projectTradeEvent";
+
+export {
+  compareTradeEventParity,
+  type ParityResult,
+  type ParityMismatch,
+  type ParityCompareInput,
+  type DbNotificationSnapshot,
+  type PaperTradeSnapshot,
+} from "./compareTradeEventParity";
+
+export {
+  runDryRunParity,
+  replayFromNotificationLog,
+  loadLatestNotificationLogRecords,
+  buildParityStatusSummary,
+  runAllFixtureParity,
+  type ParityMode,
+  type ParityRunResult,
+  type ReplayRecord,
+  type ReplayResult,
+  type ParityStatusSummary,
+} from "./parityHarness";
+
+export {
+  ALL_FIXTURES,
+  FIXTURE_SWING_ENTRY_READY,
+  FIXTURE_FNO_ENTRY_OPENED,
+  type Fixture,
+  type FixtureMetadata,
+} from "./parityFixtures";

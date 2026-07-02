@@ -28,6 +28,7 @@ import swingStagingRouter from "./swingStaging";
 import alertsRouter from "./alerts";
 import dailyAnalysisRouter from "./dailyAnalysis";
 import dataHealthRouter from "./dataHealth";
+import parityRouter from "./parity";
 import { startInstFlowsRefresher } from "../lib/instFlows";
 import { triggerKiteWarmup } from "../lib/kiteWarmup";
 import { scheduleBootJob, BOOT_STAGGER_MS } from "../lib/bootScheduler";
@@ -68,6 +69,7 @@ router.use(swingStagingRouter);         // /swing/* — Phase 2 Swing CASH live-
 router.use(alertsRouter);               // /alerts/* — owner-only alert diagnostics (GET /alerts/status, includes lastFnoSignalAlert) + test endpoints (test-telegram, test-swing-staged-order, test-fno-trade-signal)
 router.use(dailyAnalysisRouter);        // /daily-analysis/* — owner-only pre/post market daily analysis report management (PREPOST bot, DB dedup, history)
 router.use(dataHealthRouter);           // /data-health/market — PUBLIC canonical market data health (session+feed+market-session, no secrets)
+router.use(parityRouter);               // /parity/* — owner-only Deterministic Parity Verification Harness (dry_run, replay, status — no Telegram to real channel)
 
 // Kick off background fetcher (FII/DII + participant OI) on first router import.
 // W6-P4A: staggered to the back of the cold-start window (heaviest boot job —

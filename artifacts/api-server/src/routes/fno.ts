@@ -466,6 +466,53 @@ router.get("/fno/no-signal-gap", requireOwner, async (_req, res, next) => {
       );
     }
 
+    // Part G: Read-only cycle diagnostics — notification delivery stats +
+    // recent signal counts. Additive, does NOT change signal generation logic.
+    let notificationStats: {
+      sentLast7d: number;
+      blockedLast7d: number;
+      duplicateLast7d: number;
+      failedLast7d: number;
+      lastSentAt: string | null;
+    } = { sentLast7d: 0, blockedLast7d: 0, duplicateLast7d: 0, failedLast7d: 0, lastSentAt: null };
+
+    try {
+      const notifRows = await db.execute(sql`
+        SELECT
+          COUNT(*) FILTER (WHERE status = 'SENT')      AS sent_count,
+          COUNT(*) FILTER (WHERE status = 'BLOCKED')   AS blocked_count,
+          COUNT(*) FILTER (WHERE status = 'DUPLICATE') AS dup_count,
+          COUNT(*) FILTER (WHERE status = 'FAILED')    AS fail_count,
+          MAX(sent_at)                                  AS last_sent_at
+        FROM notification_delivery_log
+        WHERE created_at >= NOW() - INTERVAL '7 days'
+      `);
+      const nr = (notifRows.rows[0] ?? {}) as Record<string, unknown>;
+      notificationStats = {
+        sentLast7d:      Number(nr["sent_count"]    ?? 0),
+        blockedLast7d:   Number(nr["blocked_count"] ?? 0),
+        duplicateLast7d: Number(nr["dup_count"]     ?? 0),
+        failedLast7d:    Number(nr["fail_count"]    ?? 0),
+        lastSentAt:      nr["last_sent_at"] ? new Date(nr["last_sent_at"] as string).toISOString() : null,
+      };
+    } catch {
+      // Non-fatal — table may not exist yet; stats remain at zero defaults
+    }
+
+    // Recent signal count for context (last 7 days)
+    let recentSignalCount = 0;
+    try {
+      const scRows = await db.execute(sql`
+        SELECT COUNT(*) AS cnt FROM option_signal_history
+        WHERE generated_at >= NOW() - INTERVAL '7 days'
+      `);
+      recentSignalCount = Number(((scRows.rows[0] ?? {}) as Record<string, unknown>)["cnt"] ?? 0);
+    } catch {
+      // Non-fatal
+    }
+
+    const environment = process.env["REPLIT_DEPLOYMENT"] === "1" ? "production" : "development";
+
     return res.json({
       generatedAt: now.toISOString(),
       lastSignal: {
@@ -481,6 +528,11 @@ router.get("/fno/no-signal-gap", requireOwner, async (_req, res, next) => {
         reasonCode: r["reason_code"] as string,
         count:      Number(r["cnt"]),
       })),
+      diagnostics: {
+        environment,
+        recentSignalCount,
+        notificationStats,
+      },
     });
   } catch (err) {
     return next(err);

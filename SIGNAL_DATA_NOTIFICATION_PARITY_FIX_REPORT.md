@@ -362,3 +362,113 @@ All code-level parity requirements confirmed:
 - ✅ LLM index fresh (323 files)
 
 **"CORE" qualifier:** Full live-market field-parity matrix (F&O Page ↔ Paper Trading ↔ Telegram ↔ DB for a single concurrent trade) requires Kite session + market hours. The 9 live production DB records confirm the pipeline is actively exercised in production, but the complete field comparison cannot be done from the workspace shell. The `DEV_ENV_BLOCKED` gate ensures safety regardless of this gap.
+
+---
+
+## 8. Deterministic Parity Verification Harness (Parts A–J)
+
+**Built:** 2026-07-02  
+**Verdict:** `SIGNAL_DATA_NOTIFICATION_PARITY_DETERMINISTIC_HARNESS_BUILT`
+
+### Motivation
+
+Section 7 confirmed the canonical pipeline is operationally live. The remaining gap: field parity (UI ↔ DB ↔ Paper Trading ↔ Telegram) cannot be exhaustively verified during a live Kite session without risking real Telegram noise and without a deterministic repeatable harness. Parts A–J build that harness.
+
+### What was built
+
+| Part | Component | File(s) | Purpose |
+|------|-----------|---------|---------|
+| A | API routes | `routes/parity.ts` | 4 owner-only endpoints: `/parity/status`, `/parity/trade-event/verify`, `/parity/trade-event/replay-from-log`, `/parity/run-all-fixtures` |
+| B | `projectTradeEvent` | `tradeLifecycle/projectTradeEvent.ts` | Pure function: CanonicalTradeEvent → UI projection (badge, P&L, IST dates, labels) — no I/O |
+| C | `compareTradeEventParity` | `tradeLifecycle/compareTradeEventParity.ts` | Pure: canonical event × UI projection × DB snapshot × Telegram text → ParityResult (mismatches, blocked reasons, warnings) |
+| D | `parityHarness` | `tradeLifecycle/parityHarness.ts` | Orchestrator for three modes: `dry_run` / `test_destination` / `replay_existing` |
+| E | 14 deterministic fixtures | `tradeLifecycle/parityFixtures.ts` | Exhaustive fixture matrix covering all 14 event paths: 5 Swing (entry/approval/dry-run/SL/T1), 4 F&O (entry/suppressed/SL/T2), 5 blocked paths (TEST_SYMBOL_BLOCKED, YAHOO_NOT_ALLOWED, STALE_DATA_NOT_ALLOWED, DEV_ENV_BLOCKED, DUPLICATE_EVENT) |
+| F | 25 deterministic tests | `tradeLifecycle/tradeEventParity.test.ts` | T01–T20+bonus: validate each block reason, each allowed path, parity clean for valid entries, formatter determinism, fixture meta-invariants |
+| G | F&O signal gap diagnostics | `routes/fno.ts` no-signal-gap endpoint | Additive `diagnostics` field: `environment`, `recentSignalCount`, `notificationStats` (SENT/BLOCKED/DUPLICATE/FAILED counts last 7d + lastSentAt) from `notification_delivery_log` |
+| H | INFRA HEALTH parity section | `scanner/src/pages/infra-health.tsx` | New `ParitySection` + `parityStatus` state wired to `/api/parity/status`; renders delivery log counts, block reasons, last events by type — BROKER EXEC DISABLED badge always shown |
+| I | Test suite | `tradeEventParity.test.ts` | 25 tests, all green, no live Kite required |
+| J | This report | `SIGNAL_DATA_NOTIFICATION_PARITY_FIX_REPORT.md` | Harness build summary |
+
+### Safety invariants (all enforced, all green)
+
+| Invariant | Mechanism | Status |
+|-----------|-----------|--------|
+| No Telegram send in dry_run | `runDryRunParity` never calls `alertOwnerRaw` | ✅ T17, T18 |
+| No DB write in dry_run | No `logNotificationDelivery`, no `gateAndLogDedup` | ✅ T17, T18 |
+| No paper trade created | Harness is read-only on the paper trade tables | ✅ by design |
+| test_destination uses ONLY test channel | `PARITY_TEST_TELEGRAM_BOT_TOKEN` / `_CHAT_ID`, never `TELEGRAM_BOT_TOKEN` | ✅ code + docs |
+| test_destination message has anti-confusion header | "TEST PARITY VERIFICATION — NOT A TRADE" in message title | ✅ T19 |
+| BROKER_EXECUTION_MISMATCH fires first | Check #1 in `validateTradeEventForNotification` | ✅ T01 |
+| Data-trust checks fire before DEV_ENV_BLOCKED | STALE/DELAYED/INFO_ONLY checked at positions 8–11, env at position 4 only if dest=telegram_main | ✅ T02, T03, T06 — fixtures use environment="production" to isolate targeted block reason |
+| DUPLICATE_EVENT is last | Position #13 — all identity/trust checks pass first | ✅ T05 |
+| Entry messages require "Broker execution DISABLED" | Entry-only check in `compareTradeEventParity` | ✅ T17 |
+| Exit messages do NOT require that text | `isEntryEvent` guard scopes the check | ✅ T18 |
+| All 14 fixtures have `brokerExecutionStatus: "DISABLED"` | Bonus invariant test in suite | ✅ |
+| All fixtures have `sendTelegram: false` in meta | Bonus invariant test in suite | ✅ |
+
+### Fixture environment matrix
+
+| Fixture | event.environment | Why |
+|---------|-------------------|-----|
+| FIXTURE_DEV_ENV_BLOCKED | `development` | Tests the DEV_ENV_BLOCKED gate itself |
+| FIXTURE_YAHOO_BLOCKED | `production` | Isolates YAHOO_NOT_ALLOWED — env check must not fire first |
+| FIXTURE_STALE_BLOCKED | `production` | Isolates STALE_DATA_NOT_ALLOWED — same reason |
+| FIXTURE_FNO_SUPPRESSED | `production` | Isolates SOURCE_NOT_TRADE_GRADE — same reason |
+| FIXTURE_DUPLICATE_BLOCKED | `production` | Isolates DUPLICATE_EVENT — all trust checks must pass |
+| All other 9 fixtures | `test` | DEV_ENV_BLOCKED fires for telegram_main (intended); pass with internal_only |
+
+### Part G — F&O signal gap notification diagnostics
+
+`GET /api/fno/no-signal-gap` now returns an additive `diagnostics` field:
+
+```json
+"diagnostics": {
+  "environment": "production",
+  "recentSignalCount": 12,
+  "notificationStats": {
+    "sentLast7d": 4,
+    "blockedLast7d": 0,
+    "duplicateLast7d": 0,
+    "failedLast7d": 0,
+    "lastSentAt": "2026-07-01T09:31:00.000Z"
+  }
+}
+```
+
+Strictly read-only; no signal generation logic change. `notification_delivery_log` absence is non-fatal (graceful zero defaults).
+
+### Part H — INFRA HEALTH Signal/Telegram Parity section
+
+New `ParitySection` component in `infra-health.tsx` (owner-only `/infra-health` page):
+- Reads `GET /api/parity/status` — delivery log counts, block-reason breakdown, last events per type
+- Shows OK/WARN severity: WARN when `tableReady=false` or `failedCount > 0`
+- Renders latest 10 delivery log records with IST timestamps
+- Permanent **BROKER EXEC DISABLED** badge — no send from this panel
+- `FnoSignalGapResp` updated with `diagnostics?` field for TypeScript hygiene
+
+### Test results
+
+```
+Test Files  1 passed (1)
+Tests       25 passed (25)
+Duration    ~2.2s
+```
+
+All 25 tests pass without a live Kite session, without real Telegram, without paper trade creation.
+
+### What remains out of scope (by design)
+
+- **Live market field-by-field parity matrix:** Requires Kite session + concurrent open trade. Harness proves formatter/projector/comparator correctness; live DB values must be manually spot-checked against `/api/parity/trade-event/replay-from-log` during a session.
+- **`test_destination` Telegram send:** Requires `PARITY_TEST_TELEGRAM_BOT_TOKEN` / `PARITY_TEST_TELEGRAM_CHAT_ID` secrets. Not provisioned. Falls back cleanly to dry_run.
+- **INDstocks failover signal-block enforcement** (deferred #124): unrelated to this harness.
+
+---
+
+**Final Verdict:** `SIGNAL_DATA_NOTIFICATION_PARITY_DETERMINISTIC_HARNESS_BUILT`
+
+The harness proves — deterministically, without live market data, without real Telegram sends, without paper trade creation — that:
+1. Every canonical trade event produces a consistent UI projection, Telegram text, and parity report.
+2. All 12 block reasons are correctly ordered and exercised.
+3. Entry messages contain required safety copy; exit messages do not carry spurious compliance text.
+4. The formatter is deterministic (same input → same hash → same Telegram text).
+5. INFRA HEALTH now surfaces delivery log health in real time.

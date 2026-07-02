@@ -221,6 +221,52 @@ interface FnoSignalGapResp {
   gapReason: string;
   isDataRelatedGap: boolean;
   suppressionReasonDistribution: Array<{ reasonCode: string; count: number }>;
+  diagnostics?: {
+    environment: string;
+    recentSignalCount: number;
+    notificationStats: {
+      sentLast7d: number;
+      blockedLast7d: number;
+      duplicateLast7d: number;
+      failedLast7d: number;
+      lastSentAt: string | null;
+    };
+  };
+}
+
+interface ParityLogRecord {
+  id: string;
+  eventId: string;
+  domain: string;
+  eventType: string;
+  symbol: string;
+  exchange: string;
+  orderId: string | null;
+  signalId: string | null;
+  paperTradeId: string | null;
+  messageHash: string;
+  status: string;
+  environment: string;
+  destination: string;
+  sentAt: string | null;
+  createdAt: string;
+}
+
+interface ParityStatusResp {
+  ok: boolean;
+  summary: {
+    tableReady: boolean;
+    latestLogRecords: ParityLogRecord[];
+    sentCount: number;
+    blockedCount: number;
+    duplicateCount: number;
+    failedCount: number;
+    blocksByReason: Record<string, number>;
+    lastSwingEntry: ParityLogRecord | null;
+    lastFnoEntry: ParityLogRecord | null;
+    lastExit: ParityLogRecord | null;
+    retrievedAt: string;
+  };
 }
 
 // ── helpers ─────────────────────────────────────────────────────────────────
@@ -2288,6 +2334,152 @@ function IndstocksTokenSection({
   );
 }
 
+// ── Part H: Signal / Telegram Parity Section ─────────────────────────────────
+
+function ParitySection({ data, error, loading }: FetchState<ParityStatusResp>): React.ReactElement {
+  const s = data?.summary;
+  let severity: Severity = "ok";
+  if (loading && !data) severity = "disabled";
+  else if (error) severity = "warn";
+  else if (s) {
+    if (!s.tableReady) severity = "warn";
+    else if (s.failedCount > 0) severity = "warn";
+    else severity = "ok";
+  }
+
+  function fmtIst(iso: string | null | undefined): string {
+    if (!iso) return "—";
+    return new Date(iso).toLocaleString("en-IN", {
+      timeZone: "Asia/Kolkata",
+      day: "2-digit", month: "short", year: "numeric",
+      hour: "2-digit", minute: "2-digit",
+    });
+  }
+
+  function statusColor(st: string): string {
+    if (st === "SENT") return "text-emerald-400";
+    if (st === "BLOCKED") return "text-amber-400";
+    if (st === "DUPLICATE") return "text-blue-400";
+    if (st === "FAILED") return "text-rose-400";
+    return "text-muted-foreground";
+  }
+
+  function eventLabel(domain: string, eventType: string): string {
+    if (domain === "SWING_CASH" && eventType === "ENTRY_READY") return "Swing Entry";
+    if (domain === "FNO_INTRADAY" && eventType === "ENTRY_OPENED") return "F&O Entry";
+    if (eventType.startsWith("EXIT_")) return `Exit ${eventType.replace("EXIT_", "").toLowerCase()}`;
+    return eventType;
+  }
+
+  return (
+    <SectionShell
+      title="Signal / Telegram Parity"
+      icon={Signal}
+      severity={severity}
+      description="Notification delivery log — tracks every trade alert dispatched (or blocked) across the Telegram pipeline. BROKER EXECUTION DISABLED. No Telegram send happens from this panel."
+      testId="section-parity-status"
+    >
+      {error && <div className="text-sm text-rose-500">Failed to load: {error}</div>}
+      {loading && !data && <div className="text-sm text-muted-foreground">Loading…</div>}
+      {s && (
+        <div className="space-y-4">
+          {/* Table ready + broker execution badge */}
+          <div className="flex items-center gap-2 flex-wrap">
+            <SeverityIcon s={s.tableReady ? "ok" : "warn"} />
+            <span className="text-xs font-mono text-muted-foreground">
+              {s.tableReady ? "notification_delivery_log ready" : "table not yet created"}
+            </span>
+            <span className="ml-auto px-2 py-0.5 rounded text-[10px] font-mono bg-rose-950 text-rose-300 border border-rose-700">
+              BROKER EXEC DISABLED
+            </span>
+          </div>
+
+          {/* Counts */}
+          <div className="grid grid-cols-4 gap-2 text-center">
+            {([
+              ["SENT",      s.sentCount,      "bg-emerald-950 border-emerald-700 text-emerald-300"],
+              ["BLOCKED",   s.blockedCount,   "bg-amber-950 border-amber-700 text-amber-300"],
+              ["DUPLICATE", s.duplicateCount, "bg-blue-950 border-blue-700 text-blue-300"],
+              ["FAILED",    s.failedCount,    "bg-rose-950 border-rose-700 text-rose-300"],
+            ] as const).map(([label, count, cls]) => (
+              <div key={label} className={`rounded border px-2 py-1.5 ${cls}`}>
+                <div className="text-lg font-bold">{count}</div>
+                <div className="text-[10px] font-mono">{label}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Block reasons */}
+          {Object.keys(s.blocksByReason).length > 0 && (
+            <div>
+              <div className="text-xs text-muted-foreground mb-1">Block reasons (last 30 days)</div>
+              <div className="space-y-0.5">
+                {Object.entries(s.blocksByReason).map(([code, cnt]) => (
+                  <div key={code} className="flex justify-between text-xs font-mono">
+                    <span className="text-amber-300">{code}</span>
+                    <span className="text-muted-foreground">{cnt}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Last events */}
+          <div className="space-y-1">
+            <div className="text-xs text-muted-foreground">Last events</div>
+            {([
+              ["Last Swing Entry", s.lastSwingEntry],
+              ["Last F&O Entry",   s.lastFnoEntry],
+              ["Last Exit",        s.lastExit],
+            ] as const).map(([label, rec]) => (
+              <div key={label} className="flex justify-between text-xs">
+                <span className="text-muted-foreground">{label}</span>
+                <span className="font-mono">
+                  {rec ? (
+                    <span>
+                      <span className="text-foreground">{rec.symbol}</span>
+                      <span className="text-muted-foreground mx-1">·</span>
+                      <span className={statusColor(rec.status)}>{rec.status}</span>
+                      <span className="text-muted-foreground mx-1">·</span>
+                      <span className="text-muted-foreground">{fmtIst(rec.sentAt ?? rec.createdAt)}</span>
+                    </span>
+                  ) : "—"}
+                </span>
+              </div>
+            ))}
+          </div>
+
+          {/* Latest 10 log records */}
+          {s.latestLogRecords.length > 0 && (
+            <div>
+              <div className="text-xs text-muted-foreground mb-1">Latest delivery log (last 10)</div>
+              <div className="space-y-0.5 max-h-48 overflow-y-auto">
+                {s.latestLogRecords.map((rec) => (
+                  <div key={rec.id} className="flex items-center gap-2 text-[11px] font-mono">
+                    <span className={`w-16 shrink-0 ${statusColor(rec.status)}`}>{rec.status}</span>
+                    <span className="text-foreground shrink-0">{rec.symbol}</span>
+                    <span className="text-muted-foreground shrink-0 text-[10px]">
+                      {eventLabel(rec.domain, rec.eventType)}
+                    </span>
+                    <span className="ml-auto text-muted-foreground text-[10px] shrink-0">
+                      {fmtIst(rec.sentAt ?? rec.createdAt)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="text-[10px] text-muted-foreground">
+            Retrieved at: {fmtIst(s.retrievedAt)} IST
+            · Use <span className="font-mono">POST /api/parity/trade-event/verify</span> to run fixture parity checks
+          </div>
+        </div>
+      )}
+    </SectionShell>
+  );
+}
+
 export default function InfraHealthPage(): React.ReactElement {
   const [auto, setAuto] = useState(true);
   const [tick, setTick] = useState(0);
@@ -2317,6 +2509,7 @@ export default function InfraHealthPage(): React.ReactElement {
   const shadowCosts = useEndpoint<ShadowCostsResp>("api/paper/analytics/fo/shadow-costs", auto, tick);
   const shadowExits = useEndpoint<ShadowExitsResp>("api/paper/analytics/fo/shadow-exits", auto, tick);
   const fnoGap = useEndpoint<FnoSignalGapResp>("api/fno/no-signal-gap", auto, tick);
+  const parityStatus = useEndpoint<ParityStatusResp>("api/parity/status", auto, tick);
 
   // P16: failure-diagnosis endpoint with an exact-only toggle. The URL changes
   // when the toggle flips, which invalidates the SWR/useEndpoint cache key.
@@ -2427,6 +2620,9 @@ export default function InfraHealthPage(): React.ReactElement {
         </div>
         <div className="md:col-span-2">
           <FnoSignalGapSection {...fnoGap} />
+        </div>
+        <div className="md:col-span-2">
+          <ParitySection {...parityStatus} />
         </div>
       </div>
     </div>
