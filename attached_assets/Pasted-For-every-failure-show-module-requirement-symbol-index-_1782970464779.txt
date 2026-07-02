@@ -1,0 +1,136 @@
+For every failure, show:
+
+* module
+* requirement
+* symbol/index
+* source attempted
+* error code
+* error message
+* last success
+* last failure
+* retry status
+* recovery action
+* blocking or non-blocking
+
+This must be safe:
+
+* no secrets
+* no tokens
+* no API keys
+* no chat IDs
+* no DB URLs
+
+====================================================
+PART H — F&O DATA PATH MUST BE FIXED INSIDE BACKBONE
+
+The immediate production pain is F&O.
+
+Backbone must handle:
+
+* NIFTY daily bars
+* BANKNIFTY daily bars
+* SENSEX daily bars
+* NIFTY intraday bars
+* BANKNIFTY intraday bars
+* SENSEX intraday bars
+* option chain
+* index token resolution
+* post-login retry/warmup
+* per-index isolation
+
+Fix these within the central data layer, not as one-off F&O page patch.
+
+Required behavior:
+
+1. If Kite session missing, F&O says session missing.
+2. If Kite session becomes active, F&O warmup retries automatically.
+3. If NIFTY/BANKNIFTY bars are available, they become ready.
+4. If SENSEX unsupported/unavailable, isolate it.
+5. If daily history fails, show exact reason:
+    * token missing
+    * exchange unsupported
+    * historical unavailable
+    * throttled
+    * date range bug
+    * market just opened
+    * session missing
+6. no_live_kite_intraday must not incorrectly say session expired if session is active.
+7. F&O data alerts must dedupe repeated identical alerts.
+8. F&O must never use Yahoo fallback for tradeable signals.
+
+====================================================
+PART I — PROVIDER IMPORT BURN-DOWN
+
+Audit provider imports.
+
+Any direct provider import outside the central data layer should be classified:
+
+* allowed central provider adapter
+* legacy exception
+* must migrate
+* safe info-only
+* unsafe trade-grade bypass
+
+Specifically review known allowlist/burn-down entries:
+
+* dailyReports.ts
+* marketDataHealth.ts
+* optionSignals.ts
+
+Do not necessarily fix all in this task, but produce migration plan.
+
+Critical rule:
+
+No trade-grade consumer should directly import raw provider modules.
+
+====================================================
+PART J — IMPLEMENTATION SCOPE FOR THIS TASK
+
+This is a large task.
+
+Implement at minimum:
+
+1. Central unified data contract.
+2. Central module data-health/readiness contract.
+3. Central diagnostics endpoint.
+4. F&O requirement mapping into the backbone.
+5. Post-login F&O warmup/retry path, if the root cause is confirmed.
+6. F&O daily/intraday failure classification.
+7. F&O alert dedup hardening if duplicate alerts are confirmed.
+8. Tests proving requirement enforcement.
+
+If the full migration of all modules is too large, do not fake completion.
+
+Instead:
+
+* implement the backbone core
+* migrate F&O first because it is currently failing
+* produce a strict migration checklist for every remaining tab
+
+But final report must clearly say what is migrated and what is still pending.
+
+====================================================
+PART K — TESTS
+
+Add/update tests for:
+
+1. Unified data point contract.
+2. Requirement engine rejects Yahoo for trade-grade.
+3. Requirement engine allows Yahoo for info-only display.
+4. Module declares data requirements.
+5. F&O declares daily/intraday/option-chain requirements.
+6. Kite login active triggers warmup/retry.
+7. NIFTY ready independently.
+8. BANKNIFTY ready independently.
+9. SENSEX failure isolated.
+10. Daily history unavailable classified correctly.
+11. Intraday unavailable classified correctly.
+12. Session active but bars missing does not say session expired.
+13. Repeated identical F&O data alert deduped.
+14. Manual Pre/Post report does not spam duplicate alerts.
+15. Scanner remains KITE_PARTIAL after Phase A.
+16. Home source-honesty remains intact.
+17. No provider direct import into trade-grade consumer.
+18. No secrets in diagnostics endpoint.
+19. No trading mutation.
+20. Broker execution disabled.

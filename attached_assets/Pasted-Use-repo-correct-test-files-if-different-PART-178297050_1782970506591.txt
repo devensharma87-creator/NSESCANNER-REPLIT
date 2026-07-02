@@ -1,0 +1,80 @@
+Use repo-correct test files if different.
+
+====================================================
+PART L — PRODUCTION VERIFICATION
+
+After publish, verify:
+
+1. /api/data-health/market
+2. /api/data-health/backbone
+3. /fno-diagnostics
+4. /api/fno/no-signal-gap
+5. Scanner still shows KITE_PARTIAL after Phase A
+6. Home still source-honest
+7. Pre/Post report reflects true F&O readiness
+8. F&O alerts deduped
+9. Kite session active triggers warmup/retry
+10. NIFTY/BANKNIFTY/SENSEX statuses are separate
+11. No Yahoo fallback for F&O signals
+12. No fake readiness
+13. No secrets exposed
+14. No trading state mutated
+15. Broker execution disabled
+
+If market is closed, verify via tests/mocks and schedule market-hours production recheck.
+
+====================================================
+PART M — FINAL REPORT
+
+Final report must include:
+
+1. Root cause: why data issues kept appearing tab-by-tab.
+2. Current fragmented data paths.
+3. New unified backbone contract.
+4. Requirement engine result.
+5. Central fetcher/access layer result.
+6. F&O migration result.
+7. Post-login warmup/retry result.
+8. Per-index readiness result.
+9. Alert dedup result.
+10. Provider import burn-down result.
+11. Diagnostics endpoint result.
+12. Tests run.
+13. LLM index result.
+14. Production verification result.
+15. What is fully migrated.
+16. What is still pending.
+17. Exact next migration task.
+
+Final verdict must be exactly one:
+
+* UNIFIED_MARKET_DATA_BACKBONE_PROD_VERIFIED
+* UNIFIED_BACKBONE_CORE_FNO_MIGRATED_PROD_VERIFIED
+* UNIFIED_BACKBONE_CORE_FNO_DEV_VERIFIED_MARKET_RECHECK_REQUIRED
+* UNIFIED_BACKBONE_PARTIAL_MIGRATION_SOURCE_GAP_REMAINS
+* UNIFIED_BACKBONE_BUILD_NOT_DEPLOYED
+* ROLLBACK_REQUIRED
+
+====================================================
+ACCEPTANCE CRITERIA
+
+Task is complete only if:
+
+* central data contract exists
+* requirement engine exists
+* diagnostics endpoint exists
+* F&O migrated or explicitly isolated as pending
+* F&O data path recovers after Kite login where possible
+* NIFTY/BANKNIFTY/SENSEX readiness separate
+* no Yahoo fallback for F&O trade-grade signals
+* duplicate F&O alerts deduped
+* scanner Phase A remains intact
+* Home source-honesty remains intact
+* provider import bypasses are audited
+* no secrets exposed
+* no fake readiness
+* no trading state mutated
+* broker execution disabled
+* tests pass
+* LLM index fresh
+* production verification completed or market-hours recheck clearly scheduled

@@ -1,0 +1,221 @@
+CODER PROMPT — MASTER FIX: UNIFIED MARKET DATA BACKBONE, DATA PULLING, FRESHNESS, AND RECOVERY ACROSS ENTIRE WEBSITE
+
+We are repeatedly facing data pulling issues across different tabs.
+
+Examples already seen in production:
+
+1. Topbar says KITE LIVE, but another module says data unavailable.
+2. Kite page shows session active/feed connected, but F&O says:
+    * daily bars unavailable
+    * no live intraday
+    * all indices suppressed
+    * no signals
+3. Scanner was Yahoo/info-only until source-honesty and Kite quote overlay were added.
+4. Home needed separate source-honesty work.
+5. Pre/Post reports are honest but many sections are still unavailable.
+6. F&O alerts are firing because Kite session is active but F&O daily/intraday bars are not fetched.
+7. We cannot keep fixing data issue tab by tab.
+
+This is not acceptable for a professional Indian market analysis platform.
+
+We need a unified market data backbone.
+
+This task is not a UI beautification task.
+
+This task is not a strategy tuning task.
+
+This task is not one-tab repair.
+
+This task is a full data backbone audit and repair plan, with implementation of the central missing pieces required to stop data-path fragmentation.
+
+====================================================
+OWNER REQUIREMENT
+
+Data must not be compromised for any tab.
+
+Every tab must use one reliable, source-honest, freshness-aware data backbone.
+
+The system must never silently show stale, fake, unavailable, or mixed data as live/trade-grade.
+
+But the system also must not become useless by showing everything as unavailable when Kite is active and data can be fetched or recovered.
+
+We need professional-level behavior:
+
+* fetch what can be fetched
+* retry what can be retried
+* isolate unsupported symbols/indices
+* do not let one failed index block everything
+* do not use Yahoo for trade-grade paths
+* show exact reason if data is unavailable
+* provide recovery action
+* ensure every page consumes the same backbone
+
+====================================================
+DO NOT DO
+
+Do not add unrelated features.
+
+Do not change F&O strategy logic.
+
+Do not change swing strategy logic.
+
+Do not change scanner scoring formulas.
+
+Do not change thresholds.
+
+Do not enable broker execution.
+
+Do not place real orders.
+
+Do not mutate trading state except safe data cache/diagnostic/backbone metadata if required.
+
+Do not hide warnings.
+
+Do not fake missing data.
+
+Do not use Yahoo fallback for trade-grade signals.
+
+Do not mark data trade-grade unless it is Kite/trusted/local-Kite-derived and fresh.
+
+Do not trim or rewrite replit.md.
+
+Do not fix only one tab and call the problem solved.
+
+====================================================
+OBJECTIVE
+
+Build or formalize a single unified market data backbone for the full website.
+
+The backbone must cover at minimum:
+
+1. Kite session/auth
+2. Kite WebSocket/tick feed
+3. Kite quote batch
+4. Indian index quotes:
+    * NIFTY
+    * BANKNIFTY
+    * FINNIFTY
+    * MIDCPNIFTY
+    * SENSEX
+    * BANKEX
+5. Equity quotes
+6. F&O index quotes
+7. Intraday candles
+8. Daily candles
+9. Option chain
+10. Scanner data
+11. F&O signal data requirements
+12. Swing signal data requirements
+13. Watchlist
+14. Portfolio valuation
+15. Home / Market Pulse
+16. Charting
+17. Pre/Post analysis
+18. Global cues
+19. GIFT Nifty
+20. India VIX
+21. FII/DII
+22. Participant OI
+23. News/events
+24. Data health diagnostics
+25. Telegram report inputs
+
+The goal is not to magically integrate missing paid providers in this task.
+
+The goal is to create one central contract, one central fetch/recovery layer, one central diagnostics layer, and one central enforcement layer.
+
+====================================================
+PART A — USE LLM INDEX FIRST
+
+Read first:
+
+* AGENT.md
+* docs/llm-index/AGENT_START_HERE.md
+* docs/llm-index/CRITICAL_FLOWS.md
+* docs/llm-index/API_ROUTES_INDEX.md
+* docs/llm-index/DATABASE_INDEX.md
+* docs/llm-index/DATA_SOURCES_AND_PROVENANCE.md
+* docs/llm-index/TEST_AND_VERIFICATION_INDEX.md
+* FULL_WEBSITE_DEEP_AUDIT_REPORT.md
+* FULL_WEBSITE_AUDIT_TRIAGE_PLAN.md
+* docs/SCANNER_TRADE_GRADE_UPGRADE_AUDIT.md
+
+Also inspect recent data-backbone files and modules:
+
+* canonical market data health
+* scanner source health
+* home market pulse source map
+* Kite quote helpers
+* Kite feed helpers
+* Kite historical helpers
+* option-chain helpers
+* F&O signal data helpers
+* chart candle helpers
+* portfolio quote helpers
+* watchlist quote helpers
+* pre/post daily report gatherers
+* global/Yahoo helpers
+* NSE archive/FII-DII helpers
+* any compat.ts, trusted, dataLayer, marketData, provenance, source, health, diagnostics files
+
+Report which files currently form the “data backbone.”
+
+====================================================
+PART B — CURRENT DATA PATH INVENTORY — ENTIRE WEBSITE
+
+Create a complete data path inventory.
+
+For every module/page, list:
+
+* page/route
+* API route
+* backend function
+* data source used
+* fallback source
+* cache source
+* freshness/as-of
+* trade-grade status
+* source-honesty status
+* current failure mode
+* whether it bypasses the central backbone
+* whether it directly imports a provider
+* whether it has retry/recovery
+* whether it can recover after Kite login
+* whether it can show data if market is closed
+* whether it can block signals
+* whether it can create false “unavailable”
+
+Cover at least:
+
+1. Home / Market Pulse
+2. Scanner
+3. Deep Scan
+4. Watchlist
+5. Portfolio
+6. Charting
+7. Option Chain
+8. OI Lab
+9. F&O Intraday Trade page
+10. F&O diagnostics
+11. F&O signal cycle
+12. Swing Cash
+13. Swing staging
+14. Backtest Lab
+15. Pre/Post Analysis
+16. Global cues
+17. Flows / FII-DII
+18. Sectors
+19. Infra Health
+20. Data Health
+21. Telegram alerts/reports
+
+====================================================
+PART C — DEFINE THE UNIFIED DATA CONTRACT
+
+Create one central data contract.
+
+Suggested name:
+
+UnifiedMarketDataBackbone
+
+or use repo naming conventions.
