@@ -14,6 +14,7 @@ import { startGlobalDataPump } from "./lib/global/dataLayer";
 import { startScreenerPresetScheduler } from "./lib/global/presetScheduler";
 import { startSwingTtlSweepScheduler } from "./lib/swingTtlSweep";
 import { scheduleBootJob, BOOT_STAGGER_MS, scheduleDbPoolStatsLog, POOL_STATS_LOG_DELAYS_MS } from "./lib/bootScheduler";
+import { runSystemAlertDedupSelfTest } from "./lib/systemAlertDedupSelfTest";
 import { getDbPoolStats } from "@workspace/db";
 
 const app: Express = express();
@@ -236,6 +237,19 @@ scheduleBootJob("preset-scheduler", BOOT_STAGGER_MS.presetScheduler, startScreen
 // then every 10 min. Fail-open: tick errors are logged, never propagated.
 // Boot delay is after the instFlows refresher (60s) so pool pressure subsides.
 scheduleBootJob("swing-ttl-sweep", 90_000, startSwingTtlSweepScheduler);
+
+// Production-safe self-test for the DB-backed system-alert dedup/CAS layer
+// (systemAlertDedup.ts) — self-heals both tables via the same idempotent
+// CREATE TABLE IF NOT EXISTS path a real alert would use, then proves
+// claim/duplicate/CAS-transition logic against synthetic SYSTEM_SELFTEST::*
+// keys that can never collide with a real alert's dedup key. Runs on every
+// boot (including autoscale cold starts) so schema self-heal is proven
+// deterministically instead of waiting for a random natural alert. Sends no
+// Telegram, touches no trade/strategy state — see systemAlertDedupSelfTest.ts
+// for the full safety contract. Fail-open inside scheduleBootJob.
+scheduleBootJob("system-alert-dedup-selftest", 5_000, async () => {
+  await runSystemAlertDedupSelfTest();
+});
 
 // W6-P4B5 observability only: read-only post-boot DB pool utilization snapshots
 // that bracket the W6-P4A stagger window. These ONLY read the pg pool's

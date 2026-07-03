@@ -32,6 +32,7 @@ import {
   sendPostMarketReport,
 } from "../lib/dailyReports";
 import { listRecentSystemAlertClaims, listSystemAlertStates } from "../lib/systemAlertDedup";
+import { getLastSystemAlertDedupSelfTestResult } from "../lib/systemAlertDedupSelfTest";
 
 const router: IRouter = Router();
 
@@ -70,6 +71,7 @@ router.get("/alerts/system-health", requireOwnerStrict, async (_req, res, next) 
       states,
       recentClaims,
       skipped: getSkippedAlertStats(),
+      selfTest: getLastSystemAlertDedupSelfTestResult(),
     });
   } catch (err) {
     next(err);
