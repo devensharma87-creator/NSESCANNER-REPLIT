@@ -1,0 +1,65 @@
+POST-MARKET SUMMARY
+Date: 03 Jul 2026 15:45 IST
+
+── INDEX PERFORMANCE ──
+Index performance: Available (Kite) — see /premarket page
+Today's OHLC (Nifty, BankNifty, Sensex): Active when Kite session is connected
+
+── MARKET BREADTH ──
+Market breadth (adv/dec): Unavailable — data source not integrated yet
+(NSE advance/decline, 52-week highs/lows, DMA breadth not tracked)
+
+── FII / DII ACTIVITY ──
+FII/DII cash flows: Info-only (NSE archive) — see /flows page
+F&O participant data: Unavailable — data source not integrated yet
+
+── PARTICIPANT OI CHANGE ──
+FII / DII / Pro / Client OI: Unavailable — data source not integrated yet
+(NSE participant OI CSV: info-only, see /flows page)
+
+── OPTION CHAIN EOD ──
+Option chain EOD change: Available (Kite) — see /option-chain
+OI changes, PCR shift, Max Pain shift: From Kite option chain snapshots
+
+── LEVEL VALIDATION ──
+Level validation (CPR/VWAP): Unavailable — data source not integrated yet
+(Intraday VWAP tracking not implemented)
+
+── SECTOR MOVES ──
+Sector moves: Info-only (scanner) — see /sectors page
+(Not trade-grade; delayed data)
+
+── NEWS RECAP ──
+News recap: Unavailable — data source not integrated yet
+(No news provider configured)
+
+── GLOBAL STATUS CHECK ──
+Global status check: Info-only (Yahoo Finance delayed)
+US futures / Europe close: see /global for reference (not trade-grade)
+
+── F&O PAPER TRADES (today) ──
+Opened: 0 (HC: 0, BASELINE: 0)
+Closed: 0
+Signals generated: 8
+Realized P&L today: ₹+0
+
+── SWING STAGING ──
+Active (staged/pending/approved): 0
+Expired today: 0
+
+── ALERT HISTORY ──
+Last F&O data alert: FNO_DATA_RECOVERED at 09:34 IST
+Last tradeable signal: None today
+Last swing alert: None today
+
+── TRADE JOURNAL TIE-IN ──
+No F&O paper trades opened today
+
+── TOMORROW SETUP ──
+F&O signals generated today: 8
+Key levels / option chain: Available (Kite) — check /premarket and /option-chain
+Expiry / news events: See /fno-diagnostics
+(Preliminary bias not automated — based on available data above)
+
+Broker execution: DISABLED — no real orders placed.
+Source: DB paper trade records + in-process state.

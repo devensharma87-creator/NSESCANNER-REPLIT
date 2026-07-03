@@ -24,7 +24,12 @@
  * Source-honesty contract:
  *   – Missing data is shown as "Unavailable — not tracked yet" or
  *     "Unavailable — data source not integrated yet", never as 0.
- *   – No Kite API calls are made during gathering (uses in-process state only).
+ *   – The only Kite calls made during gathering are the cached, fail-open
+ *     `getKiteIndexQuotes()` batch (post-market INDEX PERFORMANCE) and a
+ *     read of already-captured `option_chain_snapshot` DB rows (post-market
+ *     OPTION CHAIN EOD, via `computeAnalytics` — no live Kite call). Both
+ *     resolve to `null` on any failure/missing session rather than showing
+ *     partial or stale data as if it were live.
  *   – No trading logic, signals, paper-trade creation, or broker execution.
  *   – Telegram secrets are NEVER logged or returned from any function here.
  *
@@ -43,6 +48,9 @@ import { computeDailySummaryFo } from "./paperDailySummaryFo";
 import { getLastAlertRecord } from "./alerting";
 import { getLastSwingAlertRecord } from "./swingAlerts";
 import { getLastFnoSignalAlertRecord } from "./fnoSignalAlerts";
+import { getKiteIndexQuotes } from "./kiteIndexQuotes";
+import { computeAnalytics, type AnalyticsRowInput } from "./optionSnapshotAnalytics";
+import { SNAPSHOT_INDICES } from "./optionChainSnapshotIngestor";
 import {
   sendPrePostTelegramMessage,
   getPrePostTelegramStatus,
@@ -487,6 +495,34 @@ export interface PostMarketAlerts {
   lastSwingAlertIst: string | null;
 }
 
+export interface PostMarketIndexRow {
+  name: string;
+  close: number;
+  changePct: number;
+  high: number | null;
+  low: number | null;
+}
+
+export interface PostMarketIndexPerformance {
+  rows: PostMarketIndexRow[];
+  /** HH:mm IST of the freshest row included — null if unavailable. */
+  asOfIst: string | null;
+}
+
+export interface PostMarketOptionChainRow {
+  underlying: string;
+  expiry: string;          // ISO date (YYYY-MM-DD)
+  pcr: number | null;
+  maxPainStrike: number | null;
+  ceOiChange: number | null;
+  peOiChange: number | null;
+  capturedAtIst: string;   // HH:mm IST of the snapshot used
+}
+
+export interface PostMarketOptionChainEod {
+  rows: PostMarketOptionChainRow[];
+}
+
 export interface PostMarketReportData {
   isManualTest: boolean;
   istDate: string;         // ISO YYYY-MM-DD — used for API/status/history/dedup
@@ -495,6 +531,8 @@ export interface PostMarketReportData {
   fno: PostMarketFno | null;
   swing: PostMarketSwing | null;
   alerts: PostMarketAlerts;
+  indexPerformance: PostMarketIndexPerformance | null;
+  optionChainEod: PostMarketOptionChainEod | null;
 }
 
 // ── Post-market builder (pure) ────────────────────────────────────────────────
@@ -516,8 +554,22 @@ export function buildPostMarketReport(data: PostMarketReportData): string {
   // ── ANALYSIS SECTIONS (data availability honest labels) ──
 
   lines.push("── INDEX PERFORMANCE ──");
-  lines.push("Index performance: Available (Kite) — see /premarket page");
-  lines.push("Today's OHLC (Nifty, BankNifty, Sensex): Active when Kite session is connected");
+  if (data.indexPerformance != null && data.indexPerformance.rows.length > 0) {
+    for (const r of data.indexPerformance.rows) {
+      const sign = r.changePct >= 0 ? "+" : "";
+      const hi = r.high != null ? r.high.toLocaleString("en-IN", { maximumFractionDigits: 2 }) : "—";
+      const lo = r.low != null ? r.low.toLocaleString("en-IN", { maximumFractionDigits: 2 }) : "—";
+      lines.push(
+        `${r.name}: ${r.close.toLocaleString("en-IN", { maximumFractionDigits: 2 })} ` +
+          `(${sign}${r.changePct.toFixed(2)}%) H ${hi} L ${lo}`,
+      );
+    }
+    if (data.indexPerformance.asOfIst != null) {
+      lines.push(`(Kite, as of ${data.indexPerformance.asOfIst} IST)`);
+    }
+  } else {
+    lines.push("Index performance: Unavailable — Kite session not active");
+  }
 
   lines.push("");
   lines.push("── MARKET BREADTH ──");
@@ -536,8 +588,20 @@ export function buildPostMarketReport(data: PostMarketReportData): string {
 
   lines.push("");
   lines.push("── OPTION CHAIN EOD ──");
-  lines.push("Option chain EOD change: Available (Kite) — see /option-chain");
-  lines.push("OI changes, PCR shift, Max Pain shift: From Kite option chain snapshots");
+  if (data.optionChainEod != null && data.optionChainEod.rows.length > 0) {
+    for (const r of data.optionChainEod.rows) {
+      const pcr = r.pcr != null ? r.pcr.toFixed(2) : "—";
+      const maxPain = r.maxPainStrike != null ? r.maxPainStrike.toLocaleString("en-IN") : "—";
+      const ceOi = r.ceOiChange != null ? r.ceOiChange.toLocaleString("en-IN") : "—";
+      const peOi = r.peOiChange != null ? r.peOiChange.toLocaleString("en-IN") : "—";
+      lines.push(
+        `${r.underlying} (${r.expiry}): PCR ${pcr} | Max Pain ${maxPain} | ` +
+          `ΔOI CE ${ceOi} / PE ${peOi} · ${r.capturedAtIst} IST`,
+      );
+    }
+  } else {
+    lines.push("Option chain EOD: Unavailable — no option-chain snapshots captured today");
+  }
 
   lines.push("");
   lines.push("── LEVEL VALIDATION ──");
@@ -824,6 +888,126 @@ export async function gatherPostMarketData(
     logger.warn({ err: (err as Error).message }, "dailyReports: gatherPostMarketData fno section failed");
   }
 
+  const INDEX_PERFORMANCE_KEYS: Array<{ yahoo: string; name: string }> = [
+    { yahoo: "^NSEI", name: "NIFTY 50" },
+    { yahoo: "^NSEBANK", name: "NIFTY BANK" },
+    { yahoo: "^BSESN", name: "SENSEX" },
+  ];
+
+  let indexPerformance: PostMarketIndexPerformance | null = null;
+  try {
+    const quotes = await getKiteIndexQuotes();
+    if (quotes != null) {
+      const rows: PostMarketIndexRow[] = [];
+      let latestAsOf: number | null = null;
+      for (const k of INDEX_PERFORMANCE_KEYS) {
+        const q = quotes.get(k.yahoo);
+        if (q == null) continue; // never fabricate a missing row
+        rows.push({
+          name: k.name,
+          close: q.price,
+          changePct: q.changePercent,
+          high: q.high ?? null,
+          low: q.low ?? null,
+        });
+        if (latestAsOf == null || q.asOf > latestAsOf) latestAsOf = q.asOf;
+      }
+      if (rows.length > 0) {
+        indexPerformance = { rows, asOfIst: latestAsOf != null ? formatIstHM(latestAsOf) : null };
+      }
+    }
+  } catch (err) {
+    logger.warn(
+      { err: (err as Error).message },
+      "dailyReports: gatherPostMarketData index performance section failed",
+    );
+  }
+
+  let optionChainEod: PostMarketOptionChainEod | null = null;
+  try {
+    // IST-day boundary — same pattern as routes/optionChainSnapshot.ts diagnostics.
+    const istNowMs = nowMs + 5.5 * 60 * 60_000;
+    const istDayStart = new Date(Math.floor(istNowMs / 86_400_000) * 86_400_000 - 5.5 * 60 * 60_000);
+
+    const groups = (await db.execute(sql`
+      WITH today_snaps AS (
+        SELECT underlying, expiry, captured_at
+        FROM option_chain_snapshot
+        WHERE underlying = ANY(ARRAY[${sql.join(SNAPSHOT_INDICES.map((u) => sql`${u}`), sql`, `)}])
+          AND captured_at >= ${istDayStart.toISOString()}
+      ),
+      front_expiry AS (
+        SELECT underlying, MIN(expiry) AS expiry
+        FROM today_snaps
+        GROUP BY underlying
+      ),
+      latest_capture AS (
+        SELECT t.underlying, t.expiry, MAX(t.captured_at) AS captured_at
+        FROM today_snaps t
+        JOIN front_expiry f ON f.underlying = t.underlying AND f.expiry = t.expiry
+        GROUP BY t.underlying, t.expiry
+      )
+      SELECT underlying, expiry::text AS expiry, captured_at
+      FROM latest_capture
+      ORDER BY underlying;
+    `)) as unknown as { rows: Array<{ underlying: string; expiry: string; captured_at: string }> };
+
+    const rows: PostMarketOptionChainRow[] = [];
+    for (const g of groups.rows) {
+      const legs = (await db.execute(sql`
+        SELECT strike, opt_type, oi, oi_change, ltp, iv, bid, ask, spot, atm_strike
+        FROM option_chain_snapshot
+        WHERE underlying = ${g.underlying}
+          AND expiry = ${g.expiry}
+          AND captured_at = ${g.captured_at}
+      `)) as unknown as {
+        rows: Array<{
+          strike: string | number;
+          opt_type: "CE" | "PE";
+          oi: string | number | null;
+          oi_change: string | number | null;
+          ltp: string | number | null;
+          iv: string | number | null;
+          bid: string | number | null;
+          ask: string | number | null;
+          spot: string | number | null;
+          atm_strike: string | number | null;
+        }>;
+      };
+      if (legs.rows.length === 0) continue;
+
+      const toNum = (v: string | number | null): number | null => (v == null ? null : Number(v));
+      const inputs: AnalyticsRowInput[] = legs.rows.map((r) => ({
+        strike: Number(r.strike),
+        optType: r.opt_type,
+        oi: toNum(r.oi),
+        oiChange: toNum(r.oi_change),
+        ltp: toNum(r.ltp),
+        iv: toNum(r.iv),
+        bid: toNum(r.bid),
+        ask: toNum(r.ask),
+        spot: toNum(r.spot),
+        atmStrike: toNum(r.atm_strike),
+      }));
+      const analytics = computeAnalytics(inputs);
+      rows.push({
+        underlying: g.underlying,
+        expiry: g.expiry,
+        pcr: analytics.pcr,
+        maxPainStrike: analytics.maxPainStrike,
+        ceOiChange: analytics.ceOiChange,
+        peOiChange: analytics.peOiChange,
+        capturedAtIst: formatIstHM(new Date(g.captured_at).getTime()),
+      });
+    }
+    if (rows.length > 0) optionChainEod = { rows };
+  } catch (err) {
+    logger.warn(
+      { err: (err as Error).message },
+      "dailyReports: gatherPostMarketData option chain EOD section failed",
+    );
+  }
+
   let swing: PostMarketSwing | null = null;
   try {
     const rows = (await db.execute(sql`
@@ -858,7 +1042,17 @@ export async function gatherPostMarketData(
     lastSwingAlertIst: swingAlert ? formatIstHM(swingAlert.at) : null,
   };
 
-  return { isManualTest, istDate: date, datetimeStr, isWeekend, fno, swing, alerts };
+  return {
+    isManualTest,
+    istDate: date,
+    datetimeStr,
+    isWeekend,
+    fno,
+    swing,
+    alerts,
+    indexPerformance,
+    optionChainEod,
+  };
 }
 
 // ── Send helpers (gather + build + PREPOST bot send + DB dedup) ───────────────

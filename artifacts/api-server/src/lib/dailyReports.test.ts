@@ -386,6 +386,29 @@ const noPostAlerts: PostMarketReportData["alerts"] = {
   lastSwingAlertIst: null,
 };
 
+const healthyPostIndexPerformance: PostMarketReportData["indexPerformance"] = {
+  rows: [
+    { name: "NIFTY 50", close: 24821.4, changePct: 0.62, high: 24860.1, low: 24655.3 },
+    { name: "NIFTY BANK", close: 51234.5, changePct: -0.15, high: 51500, low: 51000 },
+    { name: "SENSEX", close: 81234.6, changePct: 0.41, high: 81500, low: 80900 },
+  ],
+  asOfIst: "15:30",
+};
+
+const healthyPostOptionChainEod: PostMarketReportData["optionChainEod"] = {
+  rows: [
+    {
+      underlying: "NIFTY",
+      expiry: "2026-07-10",
+      pcr: 0.92,
+      maxPainStrike: 24800,
+      ceOiChange: 1210000,
+      peOiChange: 930000,
+      capturedAtIst: "15:25",
+    },
+  ],
+};
+
 function makePostMarket(overrides: Partial<PostMarketReportData> = {}): PostMarketReportData {
   return {
     isManualTest: false,
@@ -394,6 +417,8 @@ function makePostMarket(overrides: Partial<PostMarketReportData> = {}): PostMark
     fno: healthyPostFno,
     swing: healthyPostSwing,
     alerts: healthyPostAlerts,
+    indexPerformance: null,
+    optionChainEod: null,
     ...overrides,
   };
 }
@@ -656,14 +681,53 @@ describe("buildPostMarketReport — data coverage section", () => {
     expect(text).toContain("Level validation (CPR/VWAP): Unavailable — data source not integrated yet");
   });
 
-  it("shows index performance as available (Kite)", () => {
-    const text = buildPostMarketReport(makePostMarket());
-    expect(text).toContain("Index performance: Available (Kite)");
+  it("shows real index performance numbers when Kite data is present", () => {
+    const text = buildPostMarketReport(
+      makePostMarket({ indexPerformance: healthyPostIndexPerformance }),
+    );
+    expect(text).toContain("NIFTY 50: 24,821.4 (+0.62%) H 24,860.1 L 24,655.3");
+    expect(text).toContain("NIFTY BANK: 51,234.5 (-0.15%)");
+    expect(text).toContain("SENSEX: 81,234.6 (+0.41%)");
+    expect(text).toContain("(Kite, as of 15:30 IST)");
   });
 
-  it("shows option chain EOD as available (Kite)", () => {
-    const text = buildPostMarketReport(makePostMarket());
-    expect(text).toContain("Option chain EOD change: Available (Kite)");
+  it("shows index performance as unavailable when Kite session is not active", () => {
+    const text = buildPostMarketReport(makePostMarket({ indexPerformance: null }));
+    expect(text).toContain("Index performance: Unavailable — Kite session not active");
+  });
+
+  it("shows real option chain EOD numbers when a snapshot was captured today", () => {
+    const text = buildPostMarketReport(
+      makePostMarket({ optionChainEod: healthyPostOptionChainEod }),
+    );
+    expect(text).toContain("NIFTY (2026-07-10): PCR 0.92 | Max Pain 24,800 | ΔOI CE 12,10,000 / PE 9,30,000 · 15:25 IST");
+  });
+
+  it("shows option chain EOD as unavailable when no snapshot was captured today", () => {
+    const text = buildPostMarketReport(makePostMarket({ optionChainEod: null }));
+    expect(text).toContain("Option chain EOD: Unavailable — no option-chain snapshots captured today");
+  });
+
+  it("never fabricates a zero for a null PCR/max pain field", () => {
+    const text = buildPostMarketReport(
+      makePostMarket({
+        optionChainEod: {
+          rows: [
+            {
+              underlying: "BANKNIFTY",
+              expiry: "2026-07-10",
+              pcr: null,
+              maxPainStrike: null,
+              ceOiChange: null,
+              peOiChange: null,
+              capturedAtIst: "15:25",
+            },
+          ],
+        },
+      }),
+    );
+    expect(text).toContain("BANKNIFTY (2026-07-10): PCR — | Max Pain — | ΔOI CE — / PE — · 15:25 IST");
+    expect(text).not.toContain("PCR 0");
   });
 });
 
