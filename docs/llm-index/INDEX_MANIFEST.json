@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-02T17:13:33.469Z",
+  "generatedAt": "2026-07-03T11:13:41.245Z",
   "generatorVersion": "1.0.0",
   "files": {
     "artifacts/api-server/src/routes/admin.ts": {
@@ -8,9 +8,9 @@
       "mtime": "2026-05-04T15:59:19.792Z"
     },
     "artifacts/api-server/src/routes/alerts.ts": {
-      "hash": "1ae1a3e93433d7ad",
-      "lines": 274,
-      "mtime": "2026-07-01T10:59:49.321Z"
+      "hash": "88b2b9f41449de30",
+      "lines": 302,
+      "mtime": "2026-07-03T08:06:23.477Z"
     },
     "artifacts/api-server/src/routes/auth.ts": {
       "hash": "796491100d7866e0",
@@ -118,9 +118,9 @@
       "mtime": "2026-05-13T13:57:43.155Z"
     },
     "artifacts/api-server/src/routes/paper.ts": {
-      "hash": "9a7600709eb5b952",
-      "lines": 1657,
-      "mtime": "2026-06-11T11:32:27.022Z"
+      "hash": "e335f3f65a2c4058",
+      "lines": 1878,
+      "mtime": "2026-07-02T20:18:59.373Z"
     },
     "artifacts/api-server/src/routes/paperCombo.ts": {
       "hash": "ce6ef9a7fdbb135d",
@@ -128,9 +128,9 @@
       "mtime": "2026-05-13T14:12:53.837Z"
     },
     "artifacts/api-server/src/routes/parity.ts": {
-      "hash": "7883689d31c0326a",
+      "hash": "1da7ae14d36196ab",
       "lines": 240,
-      "mtime": "2026-07-02T11:53:56.367Z"
+      "mtime": "2026-07-02T19:59:23.564Z"
     },
     "artifacts/api-server/src/routes/portfolio.ts": {
       "hash": "2a1139cb9fd17235",
@@ -168,9 +168,9 @@
       "mtime": "2026-05-05T15:19:11.895Z"
     },
     "artifacts/api-server/src/lib/alerting.ts": {
-      "hash": "1cae0b3334960320",
-      "lines": 363,
-      "mtime": "2026-07-01T10:53:24.012Z"
+      "hash": "d57822e89e5eb227",
+      "lines": 421,
+      "mtime": "2026-07-03T08:05:41.409Z"
     },
     "artifacts/api-server/src/lib/appStateStore.ts": {
       "hash": "184f237bb1929975",
@@ -283,9 +283,9 @@
       "mtime": "2026-04-29T13:07:30.486Z"
     },
     "artifacts/api-server/src/lib/dailyReports.ts": {
-      "hash": "cf9dcd9f9eb3581e",
-      "lines": 1109,
-      "mtime": "2026-07-01T11:49:24.900Z"
+      "hash": "74e865b019c03899",
+      "lines": 1037,
+      "mtime": "2026-07-03T07:58:35.924Z"
     },
     "artifacts/api-server/src/lib/dataProvider.ts": {
       "hash": "f1b97c30a4f41b49",
@@ -327,10 +327,25 @@
       "lines": 256,
       "mtime": "2026-06-04T13:03:56.669Z"
     },
+    "artifacts/api-server/src/lib/fnoDataRecoveryTransition.ts": {
+      "hash": "f0c2350bc0e1eb20",
+      "lines": 51,
+      "mtime": "2026-07-03T07:52:54.812Z"
+    },
     "artifacts/api-server/src/lib/fnoDiagnosticsFacade.ts": {
       "hash": "4e99b9c52ff41bd1",
       "lines": 589,
       "mtime": "2026-06-05T06:57:10.972Z"
+    },
+    "artifacts/api-server/src/lib/fnoExitDecision.ts": {
+      "hash": "28a59ae97ebcb329",
+      "lines": 230,
+      "mtime": "2026-07-02T18:20:52.567Z"
+    },
+    "artifacts/api-server/src/lib/fnoExitMonitorHealth.ts": {
+      "hash": "e4781b7115cfc495",
+      "lines": 408,
+      "mtime": "2026-07-02T19:08:12.620Z"
     },
     "artifacts/api-server/src/lib/fnoFailureDiagnosis.ts": {
       "hash": "55cd083a0fa73c37",
@@ -363,9 +378,9 @@
       "mtime": "2026-05-18T10:37:29.852Z"
     },
     "artifacts/api-server/src/lib/fnoSignalAlerts.ts": {
-      "hash": "fa789634d2f6fce2",
-      "lines": 759,
-      "mtime": "2026-07-02T10:44:11.069Z"
+      "hash": "876b685fc10f61c2",
+      "lines": 956,
+      "mtime": "2026-07-03T07:50:07.346Z"
     },
     "artifacts/api-server/src/lib/fnoSignalReasoningLogger.ts": {
       "hash": "630723cba908fee6",
@@ -768,9 +783,9 @@
       "mtime": "2026-06-17T03:43:06.660Z"
     },
     "artifacts/api-server/src/lib/optionSignalLifecycle.ts": {
-      "hash": "b032bbf0c657fb79",
-      "lines": 1296,
-      "mtime": "2026-06-17T03:43:06.661Z"
+      "hash": "e38a0fe78d6d16e2",
+      "lines": 1458,
+      "mtime": "2026-07-02T19:14:48.129Z"
     },
     "artifacts/api-server/src/lib/optionSignalVetoes.ts": {
       "hash": "0b76158cacd9eeff",
@@ -783,9 +798,9 @@
       "mtime": "2026-05-06T14:27:23.697Z"
     },
     "artifacts/api-server/src/lib/optionSignals.ts": {
-      "hash": "5718590cf6640d39",
-      "lines": 2817,
-      "mtime": "2026-07-02T09:59:20.282Z"
+      "hash": "d6a8feaf894c8b50",
+      "lines": 2877,
+      "mtime": "2026-07-03T07:53:40.964Z"
     },
     "artifacts/api-server/src/lib/optionSnapshotAnalytics.ts": {
       "hash": "6f46087c9cd95893",
@@ -843,9 +858,9 @@
       "mtime": "2026-06-23T15:04:06.194Z"
     },
     "artifacts/api-server/src/lib/paperTradingFO.ts": {
-      "hash": "316f5e91b1027bf5",
-      "lines": 3021,
-      "mtime": "2026-07-02T10:38:21.098Z"
+      "hash": "d3b05ac1187fb8e9",
+      "lines": 3246,
+      "mtime": "2026-07-02T19:30:50.149Z"
     },
     "artifacts/api-server/src/lib/preMarket.ts": {
       "hash": "77d19a892b79c49f",
@@ -1027,6 +1042,11 @@
       "lines": 256,
       "mtime": "2026-06-17T03:43:06.666Z"
     },
+    "artifacts/api-server/src/lib/systemAlertDedup.ts": {
+      "hash": "832d6ad043c16721",
+      "lines": 286,
+      "mtime": "2026-07-03T07:41:27.612Z"
+    },
     "artifacts/api-server/src/lib/systemStatus.ts": {
       "hash": "8f7c708f9fb65303",
       "lines": 363,
@@ -1038,9 +1058,9 @@
       "mtime": "2026-07-02T11:48:22.675Z"
     },
     "artifacts/api-server/src/lib/tradeLifecycle/formatTelegramMessage.ts": {
-      "hash": "ea71d075678f41f9",
-      "lines": 284,
-      "mtime": "2026-07-02T09:57:01.434Z"
+      "hash": "b75edb052ea4a4e8",
+      "lines": 290,
+      "mtime": "2026-07-02T20:41:22.997Z"
     },
     "artifacts/api-server/src/lib/tradeLifecycle/index.ts": {
       "hash": "c04bba5c1b414ffd",
@@ -1053,9 +1073,9 @@
       "mtime": "2026-07-02T09:57:53.429Z"
     },
     "artifacts/api-server/src/lib/tradeLifecycle/parityFixtures.ts": {
-      "hash": "3389edc91b6db291",
-      "lines": 447,
-      "mtime": "2026-07-02T11:53:48.662Z"
+      "hash": "a78a0e310549c849",
+      "lines": 497,
+      "mtime": "2026-07-02T19:58:47.328Z"
     },
     "artifacts/api-server/src/lib/tradeLifecycle/parityHarness.ts": {
       "hash": "f64e84cb2b227a64",
@@ -1073,9 +1093,9 @@
       "mtime": "2026-07-02T09:55:42.062Z"
     },
     "artifacts/api-server/src/lib/tradeLifecycle/validateTradeEvent.ts": {
-      "hash": "b1c83118f5045104",
-      "lines": 235,
-      "mtime": "2026-07-02T09:56:16.861Z"
+      "hash": "785e96cd22d43ee7",
+      "lines": 262,
+      "mtime": "2026-07-02T19:52:28.029Z"
     },
     "artifacts/api-server/src/lib/tradeSetups.ts": {
       "hash": "090afc9f21653b24",
@@ -1203,9 +1223,9 @@
       "mtime": "2026-05-13T14:18:21.895Z"
     },
     "lib/db/src/schema/paperTrading.ts": {
-      "hash": "3a239c9ce8aa5e27",
-      "lines": 392,
-      "mtime": "2026-06-11T11:31:11.404Z"
+      "hash": "be0fdecbce0e14e8",
+      "lines": 421,
+      "mtime": "2026-07-02T18:23:26.506Z"
     },
     "lib/db/src/schema/portfolio.ts": {
       "hash": "879a6a7b938e6570",
@@ -1238,9 +1258,9 @@
       "mtime": "2026-06-05T12:55:17.075Z"
     },
     "lib/api-spec/openapi.yaml": {
-      "hash": "9fe97eb0446793d3",
-      "lines": 6829,
-      "mtime": "2026-07-02T16:21:48.714Z"
+      "hash": "19382c5be03fb0da",
+      "lines": 6845,
+      "mtime": "2026-07-02T20:16:25.521Z"
     },
     "artifacts/scanner/src/pages/admin.tsx": {
       "hash": "4a6ea1da8bb56b02",
@@ -1298,9 +1318,9 @@
       "mtime": "2026-04-27T20:48:10.896Z"
     },
     "artifacts/scanner/src/pages/infra-health.tsx": {
-      "hash": "66bc8118f99bc381",
-      "lines": 2778,
-      "mtime": "2026-07-02T14:27:03.136Z"
+      "hash": "a354bc99d3cf3304",
+      "lines": 3046,
+      "mtime": "2026-07-03T08:11:03.164Z"
     },
     "artifacts/scanner/src/pages/kite.tsx": {
       "hash": "e2b41fa997f9ccbc",
@@ -1368,9 +1388,9 @@
       "mtime": "2026-06-05T10:47:11.422Z"
     },
     "artifacts/scanner/src/pages/paper-trading.tsx": {
-      "hash": "5c403d63fa619ccf",
-      "lines": 2797,
-      "mtime": "2026-06-11T07:55:33.266Z"
+      "hash": "cf3992fc6babf0cd",
+      "lines": 2890,
+      "mtime": "2026-07-02T20:26:24.573Z"
     },
     "artifacts/scanner/src/pages/portfolio-analyser.tsx": {
       "hash": "819b4da47ae05fcd",
@@ -1498,9 +1518,9 @@
       "mtime": "2026-07-01T14:10:17.486Z"
     },
     "artifacts/scanner/src/lib/infraHealth.ts": {
-      "hash": "e1e787fb7dbc4675",
-      "lines": 397,
-      "mtime": "2026-05-31T11:00:48.696Z"
+      "hash": "fcf9b4dfb6799410",
+      "lines": 536,
+      "mtime": "2026-07-03T08:08:37.750Z"
     },
     "artifacts/scanner/src/lib/optionChainFilters.ts": {
       "hash": "be66fb2e4800c522",

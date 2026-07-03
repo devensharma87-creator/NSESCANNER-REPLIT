@@ -26,19 +26,21 @@
   {
     "path": "artifacts/api-server/src/lib/alerting.test.ts",
     "purpose": "test",
-    "lines": 254,
+    "lines": 326,
     "exports": [],
     "externalImports": [
       "vitest"
     ],
     "routes": [],
-    "hash": "6968e874007a4daf"
+    "hash": "f97feb9a99d941aa"
   },
   {
     "path": "artifacts/api-server/src/lib/alerting.ts",
     "purpose": "alerting",
-    "lines": 363,
+    "lines": 421,
     "exports": [
+      "getSkippedAlertStats",
+      "resetSkippedAlertStatsForTest",
       "TelegramConfigStatus",
       "getTelegramStatus",
       "TelegramDeliveryStatus",
@@ -57,7 +59,7 @@
     ],
     "externalImports": [],
     "routes": [],
-    "hash": "1cae0b3334960320"
+    "hash": "d57822e89e5eb227"
   },
   {
     "path": "artifacts/api-server/src/lib/appStateStore.ts",
@@ -865,18 +867,18 @@
   {
     "path": "artifacts/api-server/src/lib/dailyReports.test.ts",
     "purpose": "test",
-    "lines": 878,
+    "lines": 892,
     "exports": [],
     "externalImports": [
       "vitest"
     ],
     "routes": [],
-    "hash": "b39aac94eeb77200"
+    "hash": "2f874689e227f019"
   },
   {
     "path": "artifacts/api-server/src/lib/dailyReports.ts",
     "purpose": "lib",
-    "lines": 1109,
+    "lines": 1037,
     "exports": [
       "ensureDailyReportRunsTable",
       "tryClaimScheduledReport",
@@ -904,7 +906,7 @@
       "@workspace/db"
     ],
     "routes": [],
-    "hash": "cf9dcd9f9eb3581e"
+    "hash": "74e865b019c03899"
   },
   {
     "path": "artifacts/api-server/src/lib/dailyReportsDedupContract.test.ts",
@@ -1108,13 +1110,35 @@
   {
     "path": "artifacts/api-server/src/lib/fnoDataHealthAlerts.test.ts",
     "purpose": "test",
-    "lines": 193,
+    "lines": 233,
     "exports": [],
     "externalImports": [
       "vitest"
     ],
     "routes": [],
-    "hash": "982f2d1fa5bc7a8a"
+    "hash": "f02d3a2c5f48c4b1"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/fnoDataRecoveryTransition.test.ts",
+    "purpose": "test",
+    "lines": 114,
+    "exports": [],
+    "externalImports": [
+      "vitest"
+    ],
+    "routes": [],
+    "hash": "0225297c8d724036"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/fnoDataRecoveryTransition.ts",
+    "purpose": "fno-engine",
+    "lines": 51,
+    "exports": [
+      "handleFnoDataSuppressionTransition"
+    ],
+    "externalImports": [],
+    "routes": [],
+    "hash": "f0c2350bc0e1eb20"
   },
   {
     "path": "artifacts/api-server/src/lib/fnoDiagnosticsFacade.test.ts",
@@ -1156,6 +1180,76 @@
     "externalImports": [],
     "routes": [],
     "hash": "4e99b9c52ff41bd1"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/fnoExitDecision.test.ts",
+    "purpose": "test",
+    "lines": 172,
+    "exports": [],
+    "externalImports": [
+      "vitest"
+    ],
+    "routes": [],
+    "hash": "7be5c94dc19531d9"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/fnoExitDecision.ts",
+    "purpose": "fno-engine",
+    "lines": 230,
+    "exports": [
+      "SPOT_EXIT_FRESHNESS_WINDOW_MS",
+      "FNO_EXIT_PRIORITY_RULE",
+      "FnoExitBlockedReason",
+      "FnoExitQuoteProvenance",
+      "FnoExitDecisionInput",
+      "FnoExitDecisionExit",
+      "FnoExitDecisionHold",
+      "FnoExitDecisionBlocked",
+      "FnoExitDecision",
+      "evaluateFnoPaperTradeExit"
+    ],
+    "externalImports": [],
+    "routes": [],
+    "hash": "28a59ae97ebcb329"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/fnoExitMonitorHealth.test.ts",
+    "purpose": "test",
+    "lines": 260,
+    "exports": [],
+    "externalImports": [
+      "vitest"
+    ],
+    "routes": [],
+    "hash": "24516dfeba11d6bd"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/fnoExitMonitorHealth.ts",
+    "purpose": "fno-engine",
+    "lines": 408,
+    "exports": [
+      "applyFnoExitMonitorSchemaColumns",
+      "ensureFnoExitMonitorSchemaColumns",
+      "__resetFnoExitMonitorSchemaGuardForTests",
+      "FnoExitTradeKey",
+      "recordFnoExitCheck",
+      "FnoExitMonitorCycleAccumulator",
+      "beginFnoExitMonitorCycle",
+      "noteFnoExitMonitorScan",
+      "noteFnoExitMonitorDecision",
+      "noteFnoExitMonitorError",
+      "FnoExitMonitorCycleStats",
+      "FnoExitMonitorHealth",
+      "finalizeFnoExitMonitorCycle",
+      "getFnoExitMonitorHealth",
+      "__resetFnoExitMonitorHealthForTests"
+    ],
+    "externalImports": [
+      "drizzle-orm",
+      "@workspace/db"
+    ],
+    "routes": [],
+    "hash": "e4781b7115cfc495"
   },
   {
     "path": "artifacts/api-server/src/lib/fnoFailureDiagnosis.test.ts",
@@ -1384,18 +1478,18 @@
   {
     "path": "artifacts/api-server/src/lib/fnoSignalAlerts.test.ts",
     "purpose": "test",
-    "lines": 367,
+    "lines": 541,
     "exports": [],
     "externalImports": [
       "vitest"
     ],
     "routes": [],
-    "hash": "69418168750466eb"
+    "hash": "929b88d4ec586f82"
   },
   {
     "path": "artifacts/api-server/src/lib/fnoSignalAlerts.ts",
     "purpose": "alerting",
-    "lines": 759,
+    "lines": 956,
     "exports": [
       "FNO_SIGNAL_ALERT_NEW_OPEN_MAX_MS",
       "FNO_SIGNAL_DEDUP_MS",
@@ -1406,6 +1500,7 @@
       "resetFnoSignalAlertState",
       "shouldSendFnoTradeAlert",
       "buildFnoSignalAlertText",
+      "buildFnoExitCanonicalEvent",
       "buildFnoExitAlertText",
       "alertFnoTradeableSignal",
       "alertFnoExitSignal",
@@ -1414,13 +1509,14 @@
       "FnoDataHealthAlertType",
       "FnoDataHealthAlertInput",
       "alertFnoDataHealth",
+      "FNO_WARMUP_DIGEST_DEDUP_MS",
       "alertWarmupFailures"
     ],
     "externalImports": [
       "crypto"
     ],
     "routes": [],
-    "hash": "fa789634d2f6fce2"
+    "hash": "876b685fc10f61c2"
   },
   {
     "path": "artifacts/api-server/src/lib/fnoSignalReasoningFingerprint.test.ts",
@@ -3338,7 +3434,7 @@
   {
     "path": "artifacts/api-server/src/lib/optionSignalLifecycle.ts",
     "purpose": "fno-engine",
-    "lines": 1296,
+    "lines": 1458,
     "exports": [
       "LifecycleStatus",
       "LifecycleExitReason",
@@ -3365,7 +3461,7 @@
       "drizzle-orm"
     ],
     "routes": [],
-    "hash": "b032bbf0c657fb79"
+    "hash": "e38a0fe78d6d16e2"
   },
   {
     "path": "artifacts/api-server/src/lib/optionSignals.legacyEmit.bak.ts",
@@ -3392,7 +3488,7 @@
   {
     "path": "artifacts/api-server/src/lib/optionSignals.ts",
     "purpose": "fno-engine",
-    "lines": 2817,
+    "lines": 2877,
     "exports": [
       "IndexCfg",
       "OPTION_INDICES",
@@ -3405,7 +3501,7 @@
       "@workspace/api-zod"
     ],
     "routes": [],
-    "hash": "5718590cf6640d39"
+    "hash": "d6a8feaf894c8b50"
   },
   {
     "path": "artifacts/api-server/src/lib/optionSignals.vwapLabel.test.ts",
@@ -3814,7 +3910,7 @@
   {
     "path": "artifacts/api-server/src/lib/paperTradingFO.ts",
     "purpose": "paper-trading",
-    "lines": 3021,
+    "lines": 3246,
     "exports": [
       "TradeTier",
       "LifecycleHookInput",
@@ -3835,7 +3931,7 @@
       "getTimeExit1520Health",
       "__resetTimeExit1520HealthForTests",
       "evaluateOrphanedOpenTrades",
-      "closePaperTradeForSignal"
+      "FnoExitEvaluationStatus"
     ],
     "externalImports": [
       "@workspace/db",
@@ -3843,7 +3939,20 @@
       "@workspace/api-zod"
     ],
     "routes": [],
-    "hash": "316f5e91b1027bf5"
+    "hash": "d3b05ac1187fb8e9"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/paperTradingFoExitMonitorApi.test.ts",
+    "purpose": "test",
+    "lines": 221,
+    "exports": [],
+    "externalImports": [
+      "vitest",
+      "drizzle-orm/errors",
+      "@workspace/db"
+    ],
+    "routes": [],
+    "hash": "02699826739ace1d"
   },
   {
     "path": "artifacts/api-server/src/lib/paperTradingFoMtmSweep.test.ts",
@@ -3862,7 +3971,7 @@
   {
     "path": "artifacts/api-server/src/lib/paperTradingFoOrphanExit.test.ts",
     "purpose": "test",
-    "lines": 906,
+    "lines": 918,
     "exports": [],
     "externalImports": [
       "vitest",
@@ -3871,7 +3980,7 @@
       "@workspace/db"
     ],
     "routes": [],
-    "hash": "c1c73042800ea6e8"
+    "hash": "2bcf3f809b2bc4df"
   },
   {
     "path": "artifacts/api-server/src/lib/preMarket.test.ts",
@@ -4842,6 +4951,42 @@
     "hash": "f0a968f08fcaaa2e"
   },
   {
+    "path": "artifacts/api-server/src/lib/systemAlertDedup.test.ts",
+    "purpose": "test",
+    "lines": 179,
+    "exports": [],
+    "externalImports": [
+      "vitest"
+    ],
+    "routes": [],
+    "hash": "9c121bbfeb7529c8"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/systemAlertDedup.ts",
+    "purpose": "alerting",
+    "lines": 286,
+    "exports": [
+      "ensureSystemAlertDedupTables",
+      "resetSystemAlertDedupTablesReadyForTest",
+      "claimSystemAlert",
+      "resetSystemAlertDedupForTest",
+      "SystemAlertState",
+      "TransitionResult",
+      "transitionSystemAlertState",
+      "getSystemAlertState",
+      "resetSystemAlertStateForTest",
+      "SystemAlertDedupDiagnosticRow",
+      "listRecentSystemAlertClaims",
+      "listSystemAlertStates"
+    ],
+    "externalImports": [
+      "drizzle-orm",
+      "@workspace/db"
+    ],
+    "routes": [],
+    "hash": "832d6ad043c16721"
+  },
+  {
     "path": "artifacts/api-server/src/lib/systemStatus.ts",
     "purpose": "lib",
     "lines": 363,
@@ -4877,13 +5022,13 @@
   {
     "path": "artifacts/api-server/src/lib/tradeLifecycle/formatTelegramMessage.ts",
     "purpose": "lib",
-    "lines": 284,
+    "lines": 290,
     "exports": [
       "formatTradeTelegramMessage"
     ],
     "externalImports": [],
     "routes": [],
-    "hash": "ea71d075678f41f9"
+    "hash": "b75edb052ea4a4e8"
   },
   {
     "path": "artifacts/api-server/src/lib/tradeLifecycle/index.ts",
@@ -4918,7 +5063,7 @@
   {
     "path": "artifacts/api-server/src/lib/tradeLifecycle/parityFixtures.ts",
     "purpose": "lib",
-    "lines": 447,
+    "lines": 497,
     "exports": [
       "FixtureMetadata",
       "Fixture",
@@ -4931,6 +5076,7 @@
       "FIXTURE_FNO_SUPPRESSED",
       "FIXTURE_FNO_EXIT_SL",
       "FIXTURE_FNO_EXIT_TARGET",
+      "FIXTURE_FNO_EXIT_MANUAL",
       "FIXTURE_TESTSTK_BLOCKED",
       "FIXTURE_YAHOO_BLOCKED",
       "FIXTURE_STALE_BLOCKED",
@@ -4940,7 +5086,7 @@
     ],
     "externalImports": [],
     "routes": [],
-    "hash": "3389edc91b6db291"
+    "hash": "a78a0e310549c849"
   },
   {
     "path": "artifacts/api-server/src/lib/tradeLifecycle/parityHarness.ts",
@@ -4981,13 +5127,13 @@
   {
     "path": "artifacts/api-server/src/lib/tradeLifecycle/tradeEventParity.test.ts",
     "purpose": "test",
-    "lines": 328,
+    "lines": 355,
     "exports": [],
     "externalImports": [
       "vitest"
     ],
     "routes": [],
-    "hash": "de2c4fbc12f16cca"
+    "hash": "d28ad1281b010aa9"
   },
   {
     "path": "artifacts/api-server/src/lib/tradeLifecycle/tradeLifecycle.test.ts",
@@ -5021,7 +5167,7 @@
   {
     "path": "artifacts/api-server/src/lib/tradeLifecycle/validateTradeEvent.ts",
     "purpose": "lib",
-    "lines": 235,
+    "lines": 262,
     "exports": [
       "ValidationContext",
       "validateTradeEventForNotification",
@@ -5029,7 +5175,7 @@
     ],
     "externalImports": [],
     "routes": [],
-    "hash": "b1c83118f5045104"
+    "hash": "785e96cd22d43ee7"
   },
   {
     "path": "artifacts/api-server/src/lib/tradeLifecycleParity.test.ts",
@@ -5415,6 +5561,25 @@
     "hash": "fcb17e904426d7e7"
   },
   {
+    "path": "artifacts/api-server/src/routes/__tests__/exitMonitorApiRoute.test.ts",
+    "purpose": "api-route",
+    "lines": 519,
+    "exports": [],
+    "externalImports": [
+      "vitest",
+      "express",
+      "cookie-parser",
+      "node:http",
+      "node:crypto",
+      "node:fs",
+      "node:path",
+      "node:url",
+      "node:net"
+    ],
+    "routes": [],
+    "hash": "70d1993b39f5c3c9"
+  },
+  {
     "path": "artifacts/api-server/src/routes/__tests__/exitSafetyDiagnosticRoute.test.ts",
     "purpose": "api-route",
     "lines": 390,
@@ -5556,20 +5721,21 @@
   {
     "path": "artifacts/api-server/src/routes/alerts.ts",
     "purpose": "api-route",
-    "lines": 274,
+    "lines": 302,
     "exports": [],
     "externalImports": [
       "express"
     ],
     "routes": [
       "GET /alerts/status",
+      "GET /alerts/system-health",
       "POST /alerts/test-telegram",
       "POST /alerts/test-swing-staged-order",
       "POST /alerts/test-fno-trade-signal",
       "POST /alerts/test-pre-market-report",
       "POST /alerts/test-post-market-report"
     ],
-    "hash": "1ae1a3e93433d7ad"
+    "hash": "88b2b9f41449de30"
   },
   {
     "path": "artifacts/api-server/src/routes/auth.ts",
@@ -5956,7 +6122,7 @@
   {
     "path": "artifacts/api-server/src/routes/paper.ts",
     "purpose": "api-route",
-    "lines": 1657,
+    "lines": 1878,
     "exports": [],
     "externalImports": [
       "express",
@@ -5983,9 +6149,9 @@
       "GET /paper/diagnostics/daily-summary/fo/history",
       "GET /paper/diagnostics/fo/mtm-sweep",
       "GET /paper/diagnostics/fo/exit-safety",
-      "GET /paper/analytics/fo"
+      "GET /paper/diagnostics/fo/exit-monitor/status"
     ],
-    "hash": "9a7600709eb5b952"
+    "hash": "e335f3f65a2c4058"
   },
   {
     "path": "artifacts/api-server/src/routes/paperCombo.ts",
@@ -6019,7 +6185,7 @@
       "GET /parity/trade-event/latest",
       "GET /parity/trade-event/replay/:id"
     ],
-    "hash": "7883689d31c0326a"
+    "hash": "1da7ae14d36196ab"
   },
   {
     "path": "artifacts/api-server/src/routes/portfolio.ts",
@@ -6596,18 +6762,18 @@
   {
     "path": "artifacts/scanner/src/lib/infraHealth.test.ts",
     "purpose": "test",
-    "lines": 339,
+    "lines": 515,
     "exports": [],
     "externalImports": [
       "vitest"
     ],
     "routes": [],
-    "hash": "3edfd8789112b359"
+    "hash": "5b4d2387f9e3578f"
   },
   {
     "path": "artifacts/scanner/src/lib/infraHealth.ts",
     "purpose": "lib",
-    "lines": 397,
+    "lines": 536,
     "exports": [
       "Severity",
       "SEVERITY_LABEL",
@@ -6632,7 +6798,7 @@
     ],
     "externalImports": [],
     "routes": [],
-    "hash": "e1e787fb7dbc4675"
+    "hash": "fcf9b4dfb6799410"
   },
   {
     "path": "artifacts/scanner/src/lib/optionChainFilters.test.ts",
@@ -7460,7 +7626,7 @@
   {
     "path": "artifacts/scanner/src/pages/infra-health.tsx",
     "purpose": "ui-page",
-    "lines": 2778,
+    "lines": 3046,
     "exports": [],
     "externalImports": [
       "react",
@@ -7475,7 +7641,7 @@
       "@/components/infra/ShadowDiagnosticsPanel"
     ],
     "routes": [],
-    "hash": "66bc8118f99bc381"
+    "hash": "a354bc99d3cf3304"
   },
   {
     "path": "artifacts/scanner/src/pages/kite.tsx",
@@ -7678,7 +7844,7 @@
   {
     "path": "artifacts/scanner/src/pages/paper-trading.tsx",
     "purpose": "ui-page",
-    "lines": 2797,
+    "lines": 2890,
     "exports": [],
     "externalImports": [
       "react",
@@ -7693,7 +7859,7 @@
       "@/lib/fno/targetStatus"
     ],
     "routes": [],
-    "hash": "5c403d63fa619ccf"
+    "hash": "cf3992fc6babf0cd"
   },
   {
     "path": "artifacts/scanner/src/pages/portfolio-analyser.tsx",
@@ -8161,7 +8327,7 @@
   {
     "path": "lib/db/src/schema/paperTrading.ts",
     "purpose": "db-schema",
-    "lines": 392,
+    "lines": 421,
     "exports": [
       "paperAccountTable",
       "PaperAccountRow",
@@ -8186,7 +8352,7 @@
       "drizzle-orm"
     ],
     "routes": [],
-    "hash": "3a239c9ce8aa5e27"
+    "hash": "be0fdecbce0e14e8"
   },
   {
     "path": "lib/db/src/schema/portfolio.ts",

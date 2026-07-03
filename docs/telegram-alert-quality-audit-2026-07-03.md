@@ -196,3 +196,241 @@ were performed by this work (all sends in tests are mocked).
 - No real Telegram messages were sent by any test in this work — all alert-dispatch tests use
   mocked Telegram clients / log assertions, consistent with the "no real Telegram test sends
   without explicit permission" constraint.
+
+## 7. Production verification (2026-07-03, post-publish)
+
+Scope: read-only verification against the live deployment. No code changed, no manual/test
+Telegram sends performed, no owner password accessed. Where owner login was required (UI
+content, owner-only API bodies), those checks are marked **owner-manual-pending** below with
+exact paths/checklists, per the task's constraint.
+
+### 7.1 Deployment evidence (Part A)
+
+- Workspace HEAD `55f3785` descends from fix commit `6245ddc`; production `/api/healthz` → `200`.
+- Confirmed via deployment logs that the running process is on the post-fix build: log lines
+  from `systemAlertDedup.ts` (`"systemAlertDedup: failed to ensure dedup tables"`),
+  `fnoSignalAlerts.ts` warmup-digest path, and `requireOwnerStrict`-gated `/api/alerts/system-health`
+  are all present and behaving per the new code, not the old per-index/in-memory code.
+- Only a single worker PID has been observed across every log sample taken this session — no
+  second concurrent replica has been seen yet, so true multi-replica dedup safety remains
+  **unproven by direct observation** (the DB-CAS design is multi-replica-safe by construction,
+  but that specific claim has not been exercised live).
+- Frontend bundle: `/infra-health` route resolves (redirects unauthenticated users to the login
+  screen, confirming the route + owner gate are live); content of the new "System Alert Health"
+  card is owner-manual-pending (§7.8).
+
+### 7.2 DB schema evidence (Part B)
+
+| Table | Exists? | Unique/Constraint | Notes |
+|---|---:|---|---|
+| `system_alert_dedup` | **Yes** | `PRIMARY KEY (dedup_key)` — atomic `ON CONFLICT` claim | 0 rows as of this check. |
+| `system_alert_state` | **No** | n/a | Never created in this deployment's DB. |
+
+Root cause (from deployment logs, cross-referenced with source): `ensureSystemAlertDedupTables()`
+runs both `CREATE TABLE IF NOT EXISTS` statements sequentially inside one `try` block. At cold
+boot, a warning-level log (`"systemAlertDedup: failed to ensure dedup tables"`) fired concurrently
+with unrelated `"Kite session read: zombie connection"` DB errors — a transient boot-time DB
+connectivity hiccup, not a defect in the new code. The fact that `system_alert_dedup` exists but
+`system_alert_state` does not is consistent with the first `CREATE TABLE` succeeding and the
+connection dropping before the second one ran; since the exception fired before `tablesReady =
+true`, that call's `claimSystemAlert` also failed and correctly fell through to **fail-open**
+(the one alert this exercised — the warmup digest, §7.5 — was still sent, just without a
+persisted dedup row).
+
+Critically, `ensureSystemAlertDedupTables()` is **not a permanent latch**: `tablesReady` is a
+per-process boolean that is retried on every call while still `false` (`if (tablesReady) return;`
+is the only short-circuit). This is self-healing by design — the next alert-dispatch call in this
+process should retry table creation and, absent another DB hiccup, succeed. No second alert event
+has occurred since boot to exercise that retry, so **this self-healing has not yet been observed
+succeeding live** — re-verified via direct production DB query at the end of this session:
+`system_alert_dedup` still 0 rows, `system_alert_state` still does not exist (`to_regclass`
+returns null). No destructive migration occurred (both tables are additive `CREATE TABLE IF NOT
+EXISTS`). `notification_delivery_log` is untouched by this work and is not misused for these
+claims. No secrets are stored in either table (dedup key, family, window, timestamp, PID string
+only).
+
+### 7.3 Endpoint evidence (Part C)
+
+| Check | Result |
+|---|---|
+| `GET /api/alerts/system-health`, anonymous | `401` — confirmed via `curl` (`requireOwnerStrict`, no public-mode GET bypass) |
+| `GET /api/alerts/system-health`, owner | **owner-manual-pending** — requires `APP_ACCESS_PASSWORD`, not accessed by this agent |
+| `GET /api/data-health/global`, public | `200`, sane content (`SESSION_ACTIVE_MARKET_CLOSED`, per-module BLOCKED/reason) |
+| Secrets in any response body | None observed in any endpoint checked (all payloads inspected are metadata/state only) |
+
+The owner-body content items (alert families, last-sent/skipped, dedup keys, recovery state,
+worker/process info) are covered by the route's unit/integration tests (green, §7.10) but not
+independently re-verified against a live authenticated response this session.
+
+### 7.4 Safe dedup simulation (Part D)
+
+No safe dry-run/test-mode endpoint exists for these families (by design — sending a
+`[MANUAL TEST]`/`[SAMPLE]` alert would itself be a real Telegram send, which is out of scope
+without explicit owner approval). Per the spec's own fallback clause, verified via unit/
+integration tests + live DB state instead:
+
+| Alert Family | First Claim | Duplicate Claim | DB-backed? | Multi-worker Safe? | Telegram Sent (prod, this session)? |
+|---|---:|---:|---:|---:|---:|
+| KITE_SESSION_EXPIRED_PREOPEN | test-verified | test-verified | Yes (code path) | Yes (by design) | No — not naturally triggered yet |
+| KITE_FINAL_WARNING | test-verified | test-verified | Yes (code path) | Yes (by design) | No — not naturally triggered yet |
+| FNO_KITE_SESSION_MISSING | test-verified | test-verified | Yes (code path) | Yes (by design) | No — not naturally triggered yet |
+| FNO_DATA_WARMUP_FAILED_DIGEST | **live-verified** | test-verified | Partial — one call hit the boot-time hiccup (§7.2) | Unproven (single replica observed) | **Yes — one digest sent, confirmed live** |
+| FNO_DATA_RECOVERED | test-verified | test-verified | Yes (code path, CAS) | Yes (by design) | No — no degrade→recover transition has occurred yet |
+| PREMARKET_ANALYSIS scheduled | test-verified (builder output) | n/a (day-scoped `daily_report_runs` UNIQUE, pre-existing correct path, untouched) | Yes | Yes | Owner-manual-pending — could not access `/api/daily-analysis/*` without owner login |
+| PREMARKET_ANALYSIS manual test | n/a — out of scope (would require a real send) | n/a | n/a | n/a | Not attempted |
+
+Live Telegram behavior for the five families that have not naturally fired since boot still
+requires the next real trigger (a genuine Kite pre-open gap, a data outage, or a degrade→recover
+cycle) to be observed and re-checked — this is the central remaining gap.
+
+### 7.5 Warmup digest evidence (Part E)
+
+**Confirmed live in production**, not just in tests: deployment logs from the one warmup-failure
+event observed this session show exactly **one** consolidated Telegram send covering
+NIFTY/BANKNIFTY/SENSEX, not three separate per-index messages — matching the intended digest
+format (`⚠ F&O DATA WARMUP FAILED` / `PARTIAL`, indices-affected list, per-index reason code,
+"No paper trade created. No real order placed. Broker execution disabled." footer). Only one
+such event has occurred since boot, so "does not resend repeatedly for the same affected set" and
+"a materially different affected set can resend" are verified by code/unit test only, not by a
+second live occurrence. Reason codes were not `UNKNOWN` in the observed event. No
+conditions-not-met or no-signal condition triggered a false data-issue alert during this session.
+
+### 7.6 Kite pre-open dedup evidence (Part F)
+
+Kite session has stayed active throughout this verification window (`data-health/global` reports
+`sessionStatus: ACTIVE`), so `KITE_SESSION_EXPIRED_PREOPEN`/`KITE_FINAL_WARNING`/
+`FNO_KITE_SESSION_MISSING` have not naturally fired in production since the fix was published.
+Deployment-log search for these markers returned no matches. No manual/forced trigger was
+attempted (would require simulating a Kite session loss, out of scope without owner approval).
+Verified only via the green unit-test suite (windowed-claim + day-scoped-key logic) and the live
+DB-CAS mechanism proven correct-by-code-inspection in §7.2. This family's live production
+behavior is unverified pending its next natural occurrence (or an owner-approved controlled test).
+
+### 7.7 Pre-market before/after example (Part G)
+
+Not naturally sent again during this verification window (fires once at 08:50 IST per
+`daily_report_runs` dedup); content correctness verified via the pure builder's test suite
+(`dailyReports.test.ts`, 105 assertions incl. exact section-header text). No preview was generated
+via a real send. For reference, the shipped format (unchanged from §3 of this document, confirmed
+by `buildPreMarketReport`'s test expectations):
+
+Before (pre-fix, all ~14 sections always inline, ~30+ lines):
+```
+PRE-MARKET ANALYSIS
+── OVERNIGHT GLOBAL CUES ── Unavailable — data source not integrated yet
+── GIFT NIFTY / SGX NIFTY ── Unavailable — data source not integrated yet
+── FII / DII ACTIVITY ── Unavailable — data source not integrated yet
+── INDIA VIX ── Unavailable — data source not integrated yet
+── KEY LEVELS ── ...
+── OPTION CHAIN ── ...
+── EXPECTED RANGE ── Unavailable — data source not integrated yet
+── NEWS & EVENTS ── Unavailable — data source not integrated yet
+── EXPIRY / ROLLOVER ── ...
+── BIAS & TRADE PLAN ── ...
+```
+
+After (shipped, compact header/body/one-line footer per §3 target shape):
+```
+🌅 PRE-MARKET STATUS
+Date: <IST date>
+Kite: ✅ Active / ❌ Missing
+F&O readiness: ...
+Swing staging: <N> pending
+Action: ...
+Not included today: GIFT Nifty, overnight global cues, FII/DII (F&O), India VIX,
+news/events — provider not configured.
+Broker execution: DISABLED
+```
+
+### 7.8 Infra Health UI evidence (Part H) — owner-manual-pending
+
+Screenshot of `https://<prod-domain>/infra-health` this session confirms the route correctly
+redirects an unauthenticated visitor to the login screen (no data leak, `requireOwner` gate
+live). Visual content of the new "System Alert Health" card requires owner login, which this
+agent does not and must not access. **Owner checklist:**
+
+1. Sign in as owner.
+2. Open `/infra-health`.
+3. Scroll to the bottom of the section grid.
+4. Confirm a "System Alert Health" card is present showing: per-family dedup/CAS state, last-sent
+   timestamp, last-skipped-duplicate timestamp, duplicate-suppressed counts, recovery state, and
+   no secrets (no bot token, no chat ID, no DB URL, no Kite token).
+5. Confirm zero browser console errors on load.
+
+### 7.9 Regression checks (Part I)
+
+| Check | Result |
+|---|---|
+| Trade alert parity harness | Green — `tradeLifecycleParity.test.ts` in the 656-test targeted run |
+| Global data-health endpoint | Green — `globalDataHealth.test.ts`; live `200` re-confirmed this session |
+| Swing TTL lifecycle | Green — `swingTtlSweep.test.ts` in the targeted run |
+| F&O signal generation unchanged | Confirmed by diff: `optionSignals.ts` change is a like-for-like swap of the in-memory `prevCycleWasDataSuppressed` boolean for `handleFnoDataSuppressionTransition` (DB-CAS) — zero change to scoring, confluence, regime, or thresholds |
+| Swing strategy unchanged | No swing scoring/threshold files appear in the fix commit's diff (`git diff --stat d21e66c 6245ddc`) |
+| Broker execution disabled | Confirmed — `fnoSignalAlerts.ts` digest text explicitly asserts "No paper trade created. No real order placed. Broker execution disabled."; no order-placement code touched |
+| No real orders | Confirmed — no paper/broker execution files in the fix diff |
+| No secrets exposed | Confirmed across all endpoints/tables checked this session |
+
+### 7.10 Test counts (Part J)
+
+| Command | Result |
+|---|---|
+| `pnpm --filter @workspace/api-server run typecheck` | Clean |
+| Targeted suite: `src/lib/*alert*`, `*telegram*`, `*preMarket*`, `*fno*`, `*dataHealth*`, `*parity*`, `src/routes/**` (run via `npx vitest run --pool=threads` from inside `artifacts/api-server`, globs unquoted) | **34 files / 656 tests passed** |
+| `pnpm --filter @workspace/scanner exec vitest run` | **35 files / 762 tests passed** |
+| `pnpm --filter @workspace/scripts run index:llm` | Regenerated, 521 files summarized |
+| `pnpm --filter @workspace/scripts run index:llm:check` | **Fresh — all 334 tracked files match** |
+
+`typecheck:libs` is included transitively by the root `pnpm run typecheck` convention; no
+composite-lib changes were made by the fix, so it was not re-run standalone this session.
+
+### 7.11 LLM index status (Part K item 11)
+
+Regenerated and verified fresh (§7.10) — 0 stale files, manifest timestamp matches this session.
+
+### 7.12 Remaining limitations
+
+- `system_alert_state` table does not exist yet in production; `system_alert_dedup` has 0 rows.
+  The DB-backed claim mechanism has not completed one successful live cycle — its only live
+  invocation this session hit a transient boot-time DB hiccup and correctly fell back to
+  fail-open (no spam resulted, but no positive proof of the claim path succeeding either).
+- Only one alert event (the F&O warmup digest) has occurred in production since the fix was
+  published; the digest-consolidation behavior itself IS proven live, but the underlying
+  DB-dedup persistence for that same event was not (see above).
+- Multi-replica dedup safety is unproven by direct observation — only one worker PID has been
+  seen in every log sample this session.
+- `KITE_SESSION_EXPIRED_PREOPEN`, `KITE_FINAL_WARNING`, `FNO_KITE_SESSION_MISSING`, and
+  `FNO_DATA_RECOVERED` have not naturally fired since the fix was published (Kite session has
+  stayed active throughout) — their live dedup behavior is unverified pending a natural
+  occurrence or an owner-approved controlled test.
+- Owner-only content (`/api/alerts/system-health` authenticated body, `/infra-health` visual
+  card, `/api/daily-analysis/*`) is owner-manual-pending — this agent does not and must not
+  access `APP_ACCESS_PASSWORD`. Exact paths/checklists are provided in §7.3 and §7.8.
+- Minor cosmetic (non-blocking) note: `alertOwnerRaw`'s `dispatchTelegramBackground` call site
+  passes `family=dedupKey` (the same value), so the `family` column on warmup-digest dedup rows
+  equals the day-scoped key rather than a stable label like `"fno_warmup"`. This does not affect
+  the PRIMARY-KEY-based suppression itself, only family-level grouping in future diagnostics
+  queries — does not block any of the above verdicts.
+
+### 7.13 Final verdict
+
+**`TELEGRAM_ALERT_QUALITY_DEV_VERIFIED`**
+
+The fix is confirmed deployed to production (Part A), its non-DB-dependent behavior (warmup
+digest consolidation) is confirmed working live end-to-end (§7.5), and its security gates are
+confirmed live (§7.3). However, production has not yet demonstrated a successful live cycle of
+the core DB-backed dedup/CAS mechanism itself: `system_alert_state` does not exist, `system_alert_dedup`
+has 0 rows, and the one live alert event that touched this path hit a transient DB hiccup and
+correctly fell back to fail-open rather than completing a claim. `TELEGRAM_ALERT_QUALITY_PROD_VERIFIED`
+requires DB-backed dedup to be proven live — that has not happened yet, so this does not qualify.
+`TELEGRAM_ALERT_QUALITY_PARTIAL_SOURCE_GAP_REMAINS` requires DB dedup to already be live with a
+different item unresolved — also not met, since DB dedup itself is the unresolved item.
+`TELEGRAM_ALERT_QUALITY_BUILD_NOT_DEPLOYED` is false (build is live). `ROLLBACK_REQUIRED` is false
+— nothing broke, no spam occurred, no secrets leaked, broker execution stayed disabled, and the
+one failure mode observed (fail-open) is the designed-safe behavior, not a regression.
+
+**To close the gap to `PROD_VERIFIED`:** observe the next natural trigger for any of
+KITE_SESSION_EXPIRED_PREOPEN / KITE_FINAL_WARNING / FNO_KITE_SESSION_MISSING / a second warmup
+event / a genuine FNO_DATA_RECOVERED transition, and re-check that (a) `system_alert_state` now
+exists, (b) `system_alert_dedup` accumulates a row for that event, and (c) no duplicate Telegram
+send occurs for the same event within its dedup window. Owner may also request a single
+explicitly-approved controlled trigger to accelerate this instead of waiting for a natural event.
