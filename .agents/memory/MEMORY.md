@@ -40,3 +40,4 @@
 - [DDL lock deadlock in tx-rollback tests](fno-exit-monitor-ddl-lock-deadlock.md) — pre-warm MEMOIZED ensureXSchemaColumns in beforeAll outside the tx, or it self-deadlocks silently.
 - [Canonical formatter per-branch audit](canonical-formatter-per-branch-audit.md) — diff each build* branch vs legacy on migration; buildFnoExit shipped missing broker-disabled line, buildSwingExit has the same latent gap (not yet live).
 - [Full api-server suite needs file-chunking](api-server-full-suite-chunking.md) — 146-file/2782-test suite exceeds the 120s bash-tool window even backgrounded/detached; split test file list into ~4 chunks and run each as its own vitest invocation.
+- [System alert dedup is in-memory-only](system-alert-dedup-architecture-gap.md) — data-health/Kite/session Telegram alerts dedup via a plain Map, duplicating under autoscale restarts/replicas; trade alerts + daily reports already use the correct DB-backed pattern to copy.

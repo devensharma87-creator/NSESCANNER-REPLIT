@@ -1,0 +1,519 @@
+CODER PROMPT — P0 TELEGRAM ALERT QUALITY AUDIT + DEDUP FIX + USEFUL PRE-MARKET MESSAGE REBUILD
+
+Current production milestones:
+
+1. SIGNAL_DATA_NOTIFICATION_PARITY_DETERMINISTIC_PROD_VERIFIED_LIVE_SMOKE_PENDING
+2. GLOBAL_DATA_HEALTH_KITE_RESILIENCE_PROD_VERIFIED
+3. SWING_TTL_LIFECYCLE_PROD_VERIFIED
+
+Despite these milestones, the owner is still receiving poor Telegram output.
+
+The latest Telegram evidence shows:
+
+- repeated F&O DATA WARMUP FAILED alerts for NIFTY, BANKNIFTY, and SENSEX
+- repeated warmup failure alerts across the same session
+- duplicate KITE FINAL WARNING alerts
+- duplicate FNO_KITE_SESSION_MISSING alerts
+- duplicate FNO_DATA_RECOVERED alerts
+- pre-market analysis filled with “Unavailable — data source not integrated yet”
+- messages are technically safe but practically not useful for trading decisions
+
+This is now a P0 user-facing reliability issue.
+
+The goal is not to add another big feature.
+
+The goal is to make Telegram alerts professional, deduped, actionable, and worth reading.
+
+====================================================
+ABSOLUTE RULES
+====================================================
+
+Do not change F&O strategy logic.
+
+Do not change Swing strategy logic.
+
+Do not change thresholds.
+
+Do not enable broker execution.
+
+Do not place real orders.
+
+Do not send test/sample/dev alerts to real Telegram.
+
+Do not send duplicate alerts.
+
+Do not send noisy per-index repeated data-health messages.
+
+Do not hide true data problems.
+
+Do not pretend unavailable data is available.
+
+Do not use Yahoo/proxy/cache as trade-grade data.
+
+Do not trim, rewrite, reorganize, or mention replit.md again unless specifically asked.
+
+Do not continue large feature work until this Telegram alert-quality issue is fixed.
+
+====================================================
+PHASE 0 — ROOT CAUSE AUDIT FIRST
+====================================================
+
+Before coding, produce a root-cause table for every Telegram alert type sent today.
+
+Audit these alert families:
+
+1. Pre-market analysis
+2. Kite pre-open action required
+3. Kite final warning
+4. F&O data warmup failed
+5. F&O Kite session missing
+6. F&O data recovered
+7. F&O tradeable signal alerts
+8. Swing staged-order alerts
+9. Swing TTL expiry/system alerts
+10. F&O exit alerts if already built
+11. Manual test alerts
+
+For each alert type, report:
+
+| Alert Type | File/Function | Scheduler/Trigger | Dedup Key | Dedup Store | Per-worker Safe? | DB-backed? | Current Problem |
+|---|---|---|---|---|---:|---:|---|
+
+Specifically answer:
+
+1. Which function sent the repeated F&O warmup failed messages?
+2. Why were NIFTY/BANKNIFTY/SENSEX sent repeatedly instead of one digest?
+3. Why did the same alert repeat many times?
+4. Why was Kite final warning duplicated?
+5. Why was FNO_KITE_SESSION_MISSING duplicated?
+6. Why was FNO_DATA_RECOVERED duplicated?
+7. Are two production workers sending the same alert?
+8. Are in-memory dedup maps duplicated per worker?
+9. Are system alerts using notification_delivery_log or only in-process dedup?
+10. Is there a DB-level idempotency key for system/data-health alerts?
+11. Which alerts are owner-actionable and which are noise?
+12. Which Telegram messages should be disabled, digested, or moved to Infra Health?
+
+Do not code before answering this.
+
+====================================================
+PHASE 1 — CREATE ONE SYSTEM ALERT DEDUP LAYER
+====================================================
+
+Create or harden a single DB-backed system alert dedup layer.
+
+This is separate from trade alert parity but can reuse notification_delivery_log if appropriate.
+
+Required:
+
+1. DB-backed dedup.
+2. Multi-worker safe.
+3. Per trading-day dedup.
+4. Per alert-family dedup.
+5. Per severity dedup.
+6. Recovery-alert dedup.
+7. Digest support.
+8. In-memory dedup may be used only as optimization, never as the only protection.
+
+Required dedup keys:
+
+```text
+KITE_SESSION_EXPIRED_PREOPEN::<YYYY-MM-DD>
+KITE_FINAL_WARNING::<YYYY-MM-DD>
+FNO_KITE_SESSION_MISSING::<YYYY-MM-DD>
+FNO_DATA_WARMUP_FAILED_DIGEST::<YYYY-MM-DD>::<cycleBucket>
+FNO_DATA_RECOVERED::<YYYY-MM-DD>
+PREMARKET_ANALYSIS::<YYYY-MM-DD>::<scheduled|manual>
+POSTMARKET_ANALYSIS::<YYYY-MM-DD>::<scheduled|manual>
+GLOBAL_DATA_DEGRADED::<YYYY-MM-DD>::<severity>
+
+Rules:
+
+Same critical pre-open alert: max once per day, plus one final warning.
+F&O warmup failure: never send per-index spam repeatedly.
+F&O warmup failure must be a digest, not 3 separate index messages repeated.
+Recovery alert: send once when state transitions from degraded to recovered.
+Manual test alert must clearly say MANUAL TEST and should not pollute production dedup.
+Multiple workers must not send duplicates.
+Retry must not duplicate if already sent.
+====================================================
+PHASE 2 — F&O DATA WARMUP ALERT REBUILD
+
+Current behavior is unacceptable.
+
+Replace repeated per-index alerts with one digest.
+
+Instead of sending:
+
+NIFTY failed
+BANKNIFTY failed
+SENSEX failed
+repeated again
+repeated again
+
+Send one message:
+
+⚠ F&O DATA WARMUP DEGRADED
+
+Affected: NIFTY, BANKNIFTY, SENSEX
+Reason: Live intraday bars missing despite active Kite session.
+Status: Signals suppressed until fresh Kite intraday bars recover.
+
+Action:
+- Check /fno-diagnostics
+- No paper trade created
+- No real order placed
+- Broker execution disabled
+
+Next alert: only if state changes or after configured dedup window.
+
+Rules:
+
+Digest affected indices into one alert.
+Dedup by trading day + reason + affected set.
+Do not repeat every cycle.
+If only one index fails, show one index.
+If all three fail, clearly say all three.
+Do not call it UNKNOWN if the detail is already known.
+Use useful reason codes:
+KITE_SESSION_MISSING
+KITE_SESSION_EXPIRED
+INTRADAY_BARS_MISSING
+DAILY_BARS_MISSING
+OPTION_CHAIN_STALE
+KITE_RATE_LIMITED
+WEBSOCKET_NO_TICKS
+MARKET_CLOSED
+Recovery alert sends once after recovery.
+====================================================
+PHASE 3 — KITE PRE-OPEN ALERT FIX
+
+Fix duplicate Kite final warning.
+
+Rules:
+
+One early action-required alert per day.
+One final warning per day.
+No duplicate from multiple workers.
+If owner reconnects, optional recovery alert once.
+If already recovered before 09:15, do not continue warning.
+If market holiday/weekend, do not warn.
+Message must remain system-health, not trade alert.
+
+Required:
+
+DB-backed dedup key.
+Worker-safe insert or advisory lock.
+Report whether current duplicate came from multi-worker or separate code paths.
+====================================================
+PHASE 4 — PRE-MARKET MESSAGE QUALITY REBUILD
+
+The pre-market message must become useful.
+
+Current problem:
+
+Too many sections say:
+
+Unavailable — data source not integrated yet
+
+That is honest, but not useful.
+
+New rule:
+
+The Telegram pre-market message should include only:
+
+Kite session status.
+F&O readiness.
+Key levels available from Kite.
+Option-chain readiness.
+FII/DII if available from NSE archive and current enough.
+Swing staging summary.
+Alert status.
+Clear action required.
+Broker execution disabled.
+Short data-quality note.
+
+Do not include large unavailable sections by default.
+
+Move unavailable sections to a small footer:
+
+Not included today: GIFT Nifty, live global cues, India VIX, news/events — provider not configured.
+
+If Kite is missing before market open, message should be short and actionable:
+
+🌅 PRE-MARKET STATUS — ACTION REQUIRED
+Date: ...
+
+Kite: ❌ Missing/Expired
+F&O readiness: Blocked
+Scanner/Paper Trading: Not trade-grade
+Swing staging: 0 pending
+
+Action: Reconnect Kite before market open.
+
+Not included today: GIFT Nifty, live global cues, India VIX, news/events — provider not configured.
+
+Broker execution: DISABLED
+
+If Kite is active and F&O is ready:
+
+🌅 PRE-MARKET STATUS
+Date: ...
+
+Kite: ✅ Active
+F&O readiness: ✅ Daily bars, option chain, signal cycle available
+Signals: 0 tradeable / 3 suppressed
+Reason: No valid setup yet, not data failure
+
+Key levels: Available on /premarket
+Option chain: Available on /option-chain
+Swing staging: 0 pending
+
+Bias: Not auto-derived unless all required data available
+Action: Monitor /fno-diagnostics and /option-chain
+
+Broker execution: DISABLED
+
+Rules:
+
+No 20-section essay.
+No repeated “Unavailable” blocks.
+No fake bias.
+No trading recommendation.
+Use clear “Data issue” vs “No setup” distinction.
+Manual test must be labelled and optionally sent only to test/admin destination.
+====================================================
+PHASE 5 — ALERT SEVERITY POLICY
+
+Classify alerts:
+
+P0/P1 Telegram-worthy:
+
+Kite session missing before market open.
+Kite final warning.
+F&O all indices blocked due to data issue.
+F&O data recovered after being blocked.
+Tradeable signal entry/exit.
+Swing actionable staged entry if configured.
+
+Digest-only / low priority:
+
+One index temporarily missing bars.
+Warmup not complete within first few cycles.
+Scanner cached-only.
+Global data degraded.
+TTL sweep summary.
+
+Infra Health only, no Telegram:
+
+repeated same warmup failure
+normal no-signal condition
+conditions not met
+suppressed due to strategy gates
+unavailable provider sections
+market closed normal state
+owner-only diagnostics
+
+Implement this policy in code.
+
+====================================================
+PHASE 6 — MANUAL TEST SAFETY
+
+Manual test messages must not pollute real trading channel unless explicitly intended.
+
+Rules:
+
+Manual test message title must say MANUAL TEST.
+Manual test should use test destination if configured.
+Manual test must not update “last real alert” state.
+Manual test must not reset recovery/dedup state.
+Manual test must not appear like a real pre-market alert.
+Manual test must be excluded from production trading analytics.
+====================================================
+PHASE 7 — TELEGRAM STATUS / DIAGNOSTICS ENDPOINT
+
+Add owner-only diagnostics:
+
+GET /api/alerts/system-health
+
+Return:
+
+alert families
+last sent time
+last skipped time
+dedup key
+skipped duplicate count
+last reason
+active degraded state
+recovery state
+Telegram destination type
+last send error
+worker id / process id if useful
+
+No secrets.
+
+No tokens.
+
+No chat IDs unless masked.
+
+====================================================
+PHASE 8 — INFRA HEALTH UI
+
+Add or update Infra Health section:
+
+“System Alert Health”
+
+Show:
+
+Kite pre-open alert state
+F&O data alert state
+pre-market message state
+duplicate suppressed count
+last sent alert
+last skipped duplicate
+recovery state
+system alert DB dedup status
+Telegram send health
+
+No secrets.
+
+No action that places orders.
+
+====================================================
+PHASE 9 — TESTS REQUIRED
+
+Add/update tests:
+
+F&O warmup failures for 3 indices produce one digest.
+Repeated same warmup failure does not resend.
+Different affected set can send if material.
+Recovery sends once.
+Recovery does not duplicate.
+Kite pre-open action alert sends once.
+Kite final warning sends once.
+Two workers cannot duplicate same alert.
+Manual test is labelled MANUAL TEST.
+Manual test does not update real alert state.
+Premarket with Kite missing is short and actionable.
+Premarket with Kite ready excludes unavailable sections from main body.
+Unavailable providers appear only in compact footer.
+Conditions-not-met does not trigger data issue alert.
+No-signal market condition does not trigger data issue alert.
+FNO_KITE_SESSION_MISSING dedups.
+FNO_DATA_RECOVERED dedups.
+notification/system alert log has unique dedup.
+Telegram payload contains Broker execution disabled.
+No trade alert formatter used for system alerts.
+No secrets exposed in diagnostics endpoint.
+Existing trade alert parity remains green.
+Existing global data-health remains green.
+Existing Swing TTL remains green.
+Broker execution remains disabled.
+No real orders.
+
+Run:
+
+pnpm --filter @workspace/api-server run typecheck
+pnpm --filter @workspace/api-server run typecheck:libs
+pnpm --filter @workspace/api-server exec vitest run src/lib/alert.test.ts src/lib/telegram.test.ts src/lib/preMarket.test.ts src/lib/fno.test.ts src/lib/dataHealth.test.ts src/lib/parity.test.ts src/routes/**/*.test.ts
+pnpm --filter @workspace/scanner exec vitest run
+pnpm --filter @workspace/scripts run index:llm
+pnpm --filter @workspace/scripts run index:llm:check
+
+If full suite times out, run batches and report every batch with counts.
+
+====================================================
+PHASE 10 — PRODUCTION VERIFICATION
+
+After publish, verify:
+
+No repeated F&O warmup failed spam.
+One digest message instead of per-index spam.
+Kite final warning sends once only.
+FNO_KITE_SESSION_MISSING sends once only.
+FNO_DATA_RECOVERED sends once only.
+Pre-market message is short and useful.
+Unavailable sections are collapsed to footer.
+Manual test is clearly labelled.
+System alert diagnostics endpoint works.
+Infra Health alert section works.
+No secrets exposed.
+Trade alert parity remains green.
+Global data-health remains green.
+Swing TTL remains green.
+Broker execution disabled.
+No real orders placed.
+No Telegram spam.
+
+Production evidence must include before/after Telegram examples.
+
+====================================================
+REPORT REQUIRED
+
+Create:
+
+TELEGRAM_ALERT_QUALITY_AND_DEDUP_REPORT.md
+
+Report must include:
+
+Root cause of duplicate alerts.
+Alert inventory table.
+Dedup design.
+Multi-worker safety mechanism.
+Pre-market message redesign.
+Files touched.
+Tests and counts.
+Production verification evidence.
+Before/after Telegram examples.
+Remaining unavailable providers.
+Final verdict.
+Exact next action.
+====================================================
+FINAL VERDICT
+
+Final verdict must be exactly one:
+
+TELEGRAM_ALERT_QUALITY_PROD_VERIFIED
+TELEGRAM_ALERT_QUALITY_DEV_VERIFIED
+TELEGRAM_ALERT_QUALITY_PARTIAL_SOURCE_GAP_REMAINS
+TELEGRAM_ALERT_QUALITY_BUILD_NOT_DEPLOYED
+ROLLBACK_REQUIRED
+
+Use TELEGRAM_ALERT_QUALITY_PROD_VERIFIED only if production is published and duplicate Telegram spam is proven fixed.
+
+Use TELEGRAM_ALERT_QUALITY_PARTIAL_SOURCE_GAP_REMAINS if some alerts are deduped but pre-market remains poor or duplicates remain.
+
+Use ROLLBACK_REQUIRED if trade alerts break, secrets leak, broker execution turns on, or real orders are placed.
+
+====================================================
+ACCEPTANCE CRITERIA
+
+Accepted only if:
+
+repeated F&O warmup failed spam is gone
+per-index failure spam is replaced by digest
+Kite final warning dedups
+FNO_KITE_SESSION_MISSING dedups
+FNO_DATA_RECOVERED dedups
+pre-market Telegram becomes short and useful
+unavailable provider sections are not spammed in main body
+manual test is clearly labelled
+system alert dedup is DB-backed or multi-worker safe
+diagnostics show alert dedup state
+no trade-alert pipeline regression
+no global data-health regression
+no Swing TTL regression
+broker execution remains disabled
+no real orders
+tests pass
+LLM index fresh
+production verification completed
+
+## What to answer the coder’s password question
+
+Do **not** paste your admin password.
+
+Choose this option:
+
+```text
+I'll eyeball the pages myself in the preview. You skip automated e2e for these, but provide exact page paths and what I should visually confirm. Finish backend/unit/integration verification and report visual verification as owner-manual pending.
