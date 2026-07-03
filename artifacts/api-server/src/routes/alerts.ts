@@ -7,9 +7,10 @@
  * POST /alerts/test-fno-trade-signal    — Send a sample F&O tradeable signal alert; rate-limited to 1/30s.
  * POST /alerts/test-pre-market-report   — Send a manual pre-market readiness report; rate-limited to 1/30s.
  * POST /alerts/test-post-market-report  — Send a manual post-market summary report; rate-limited to 1/30s.
+ * GET  /alerts/system-health            — Owner-strict: DB-backed alert claim/state diagnostics (no secrets).
  */
 import { Router, type IRouter } from "express";
-import { requireOwner } from "../lib/userAuth";
+import { requireOwner, requireOwnerStrict } from "../lib/userAuth";
 import {
   getTelegramStatus,
   getPrePostTelegramStatus,
@@ -17,6 +18,7 @@ import {
   sendTestTelegramMessage,
   alertOwnerRaw,
   resetAlertDedup,
+  getSkippedAlertStats,
 } from "../lib/alerting";
 import { getLastSwingAlertRecord } from "../lib/swingAlerts";
 import {
@@ -29,6 +31,7 @@ import {
   sendPreMarketReport,
   sendPostMarketReport,
 } from "../lib/dailyReports";
+import { listRecentSystemAlertClaims, listSystemAlertStates } from "../lib/systemAlertDedup";
 
 const router: IRouter = Router();
 
@@ -42,6 +45,31 @@ router.get("/alerts/status", requireOwner, (_req, res, next) => {
       lastFnoSignalAlert: getLastFnoSignalAlertRecord(),
       lastPreMarketReport: getLastPreMarketReportRecord(),
       lastPostMarketReport: getLastPostMarketReportRecord(),
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /alerts/system-health
+ *
+ * Owner-strict, read-only diagnostics for the DB-backed system-alert dedup/
+ * claim layer (systemAlertDedup.ts). Surfaces the cross-process source of
+ * truth (recent claims + per-family state) plus this process's in-memory
+ * skip counter, so the owner can see dedup/CAS-state health without reading
+ * server logs. No secrets, no trading state, no writes.
+ */
+router.get("/alerts/system-health", requireOwnerStrict, async (_req, res, next) => {
+  try {
+    const [recentClaims, states] = await Promise.all([
+      listRecentSystemAlertClaims(50),
+      listSystemAlertStates(),
+    ]);
+    res.json({
+      states,
+      recentClaims,
+      skipped: getSkippedAlertStats(),
     });
   } catch (err) {
     next(err);

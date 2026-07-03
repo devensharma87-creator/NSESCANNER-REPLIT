@@ -6,6 +6,7 @@ import {
   deriveCandleSeverity,
   deriveSnapshotSectionSeverity,
   deriveExitMonitorSeverity,
+  deriveSystemAlertHealthSeverity,
   formatAge,
   rollUp,
   deriveP25Gate,
@@ -17,6 +18,7 @@ import {
   type SnapshotDiagnostics,
   type ExitMonitorHealthLite,
   type SubsystemHealthLite,
+  type SystemAlertHealthDiag,
 } from "./infraHealth";
 
 const NOW = Date.parse("2026-05-15T13:00:00Z");
@@ -471,5 +473,42 @@ describe("deriveExitMonitorSeverity", () => {
     ];
     const r = deriveExitMonitorSeverity(deadExitMonitor, subsWithRecentError, NOW);
     expect(r.severity).toBe("fail");
+  });
+});
+
+describe("deriveSystemAlertHealthSeverity", () => {
+  it("returns fail when the diagnostics payload is missing (endpoint unreachable)", () => {
+    const r = deriveSystemAlertHealthSeverity(null);
+    expect(r.severity).toBe("fail");
+    expect(r.reasons.join(" ")).toMatch(/unavailable/i);
+  });
+
+  it("returns ok when there are no families in DEGRADED state", () => {
+    const d: SystemAlertHealthDiag = {
+      states: [{ family: "FNO_WARMUP_FAILED", state: "OK", incidentId: null, transitionedAt: "2026-07-03T03:00:00Z" }],
+      recentClaims: [],
+      skipped: { totalSkipped: 0, lastSkipped: null },
+    };
+    const r = deriveSystemAlertHealthSeverity(d);
+    expect(r.severity).toBe("ok");
+  });
+
+  it("returns warn (never fail) when a family has an active DEGRADED incident", () => {
+    const d: SystemAlertHealthDiag = {
+      states: [
+        { family: "FNO_DATA_RECOVERED", state: "DEGRADED", incidentId: "abc123", transitionedAt: "2026-07-03T03:00:00Z" },
+        { family: "FNO_WARMUP_FAILED", state: "OK", incidentId: null, transitionedAt: "2026-07-03T03:00:00Z" },
+      ],
+      recentClaims: [],
+      skipped: { totalSkipped: 3, lastSkipped: { dedupKey: "X", family: "X", at: Date.now() } },
+    };
+    const r = deriveSystemAlertHealthSeverity(d);
+    expect(r.severity).toBe("warn");
+    expect(r.reasons.join(" ")).toMatch(/FNO_DATA_RECOVERED/);
+  });
+
+  it("returns ok for an empty diagnostics payload (no alerts fired yet)", () => {
+    const d: SystemAlertHealthDiag = { states: [], recentClaims: [], skipped: { totalSkipped: 0, lastSkipped: null } };
+    expect(deriveSystemAlertHealthSeverity(d).severity).toBe("ok");
   });
 });

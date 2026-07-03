@@ -1,0 +1,55 @@
+Yes, proceed with the architect review.
+
+Do not change code yet until the architect confirms the implementation design.
+
+The audit is accepted. The root cause is now clear:
+
+1. System/data-health alerts use in-memory Map dedup only.
+2. Autoscale cold starts reset the map.
+3. Concurrent replicas each have their own map.
+4. Warmup failure is sent per index instead of one digest.
+5. FNO_DATA_RECOVERED dedup is too weak and not trading-day scoped.
+6. Pre-market message is honest but low-value because unavailable sections dominate the body.
+
+Now propose the implementation design to the architect.
+
+The design must include:
+
+- DB-backed system alert dedup
+- multi-worker-safe insert/upsert
+- one digest for F&O warmup failure instead of per-index spam
+- one Kite final warning per trading day
+- one FNO_KITE_SESSION_MISSING per trading day
+- one FNO_DATA_RECOVERED per degraded→recovered transition
+- compact pre-market Telegram format
+- manual test isolation
+- diagnostics endpoint
+- Infra Health alert section
+- tests and production verification
+
+Do not touch F&O strategy logic.
+Do not touch Swing strategy logic.
+Do not change thresholds.
+Do not enable broker execution.
+Do not place real orders.
+Do not send real Telegram test messages without explicit permission.
+Do not trim or mention replit.md again.
+
+After architect approval, implement in small phases:
+
+Phase 1: DB-backed system alert dedup table or reuse notification_delivery_log safely.
+Phase 2: Replace in-memory-only system alerts with DB-backed dedup.
+Phase 3: Convert F&O warmup failure to one digest.
+Phase 4: Fix Kite final warning / session missing / recovered dedup.
+Phase 5: Rebuild pre-market Telegram into short useful format.
+Phase 6: Add diagnostics endpoint and Infra Health section.
+Phase 7: Tests.
+Phase 8: Production verification.
+
+Final verdict must be one of:
+
+- TELEGRAM_ALERT_QUALITY_PROD_VERIFIED
+- TELEGRAM_ALERT_QUALITY_DEV_VERIFIED
+- TELEGRAM_ALERT_QUALITY_PARTIAL_SOURCE_GAP_REMAINS
+- TELEGRAM_ALERT_QUALITY_BUILD_NOT_DEPLOYED
+- ROLLBACK_REQUIRED

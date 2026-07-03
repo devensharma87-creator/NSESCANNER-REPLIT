@@ -462,6 +462,57 @@ export function deriveExitMonitorSeverity(
   return { severity: rollUp([cycleSev, errSev, subSev]), reasons };
 }
 
+// ───────────────────────────────────────────────────────────────────────────
+// T005 (2026-07-03): System Alert Health — pure severity for the owner-only
+// GET /api/alerts/system-health diagnostics (DB-backed alert dedup/state,
+// see systemAlertDedup.ts). Purely informational: an active DEGRADED family
+// state means the dedup layer is correctly tracking a real data-health
+// incident for its eventual recovery alert — NOT a failure of the alerting
+// system itself, so it maps to "warn", never "fail". Only an unreachable/
+// errored endpoint is "fail". Read-only; no trading/signal/broker touch.
+// ───────────────────────────────────────────────────────────────────────────
+
+export interface SystemAlertClaimRow {
+  dedupKey: string;
+  family: string;
+  windowMs: number;
+  sentAt: string;
+}
+
+export interface SystemAlertStateRow {
+  family: string;
+  state: "OK" | "DEGRADED";
+  incidentId: string | null;
+  transitionedAt: string;
+}
+
+export interface SkippedAlertStatsLite {
+  totalSkipped: number;
+  lastSkipped: { dedupKey: string; family: string; at: number } | null;
+}
+
+export interface SystemAlertHealthDiag {
+  states: SystemAlertStateRow[];
+  recentClaims: SystemAlertClaimRow[];
+  skipped: SkippedAlertStatsLite;
+}
+
+export function deriveSystemAlertHealthSeverity(
+  d: SystemAlertHealthDiag | null | undefined,
+): { severity: Severity; reasons: string[] } {
+  const reasons: string[] = [];
+  if (!d) {
+    reasons.push("System alert health diagnostics unavailable.");
+    return { severity: "fail", reasons };
+  }
+  const degraded = d.states.filter((s) => s.state === "DEGRADED");
+  if (degraded.length > 0) {
+    reasons.push(`Active incident tracked for: ${degraded.map((s) => s.family).join(", ")}`);
+    return { severity: "warn", reasons };
+  }
+  return { severity: "ok", reasons };
+}
+
 export function derivePublicFreshness(
   input: { scanDate: string | null; intradayTimestamps: Array<string | null | undefined> },
   nowMs: number,

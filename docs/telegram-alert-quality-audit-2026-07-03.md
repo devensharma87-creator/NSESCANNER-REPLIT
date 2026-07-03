@@ -155,3 +155,44 @@ footer. Full detail for every section remains available on the `/daily-analysis`
   full `/daily-analysis` page, only condensed in the Telegram message body.
 - Manual test alert plumbing (`[MANUAL TEST]`/`[SAMPLE]`, rate limits, DB-dedup bypass) —
   already correct per Phase 6 requirements.
+
+## 6. Implementation verdict (2026-07-03)
+
+**Status: SHIPPED.** All five fix work-items from §4 are implemented, tested, and verified.
+No F&O/Swing strategy/threshold/broker-execution changes were made; no real Telegram sends
+were performed by this work (all sends in tests are mocked).
+
+| Item | Verdict | Evidence |
+|---|---|---|
+| DB-backed dedup/claim layer (`systemAlertDedup.ts`) | **DONE** | `system_alert_dedup` (windowed CAS claim) + `system_alert_state` (OK/DEGRADED CAS) tables; `claimSystemAlert`/`transitionSystemAlertState`; fail-open on DB error; `dedupWindowMs=0` bypass preserved for `[MANUAL TEST]`/`[SAMPLE]`. |
+| `alerting.ts` wired to claim layer | **DONE** | `dispatchTelegramBackground` claims before send; in-memory `lastAlerted` kept as same-process fast path; new in-memory skip-counter (`getSkippedAlertStats`) records every claim-denied duplicate. |
+| Warmup digest (one message, not per-index) | **DONE** | `alertWarmupFailures` rewritten to one digest per 60-min window, key `FNO_WARMUP_FAILED::<istDay>`. |
+| `FNO_DATA_RECOVERED` CAS transition (day-scoped, no repeat resends) | **DONE** | Extracted to `fnoDataRecoveryTransition.ts`; degrade/recover via `transitionSystemAlertState`; two same-day flaps produce two distinct incident alerts, not zero/duplicate. |
+| Compact pre-market Telegram format | **DONE** | `buildPreMarketReport` matches the §3 target shape (header/body/one-line "Not included today" footer); `buildPostMarketReport` intentionally untouched (out of scope per audit). |
+| Owner-only diagnostics (`GET /api/alerts/system-health`) | **DONE** | `requireOwnerStrict`-gated (no public-mode GET bypass); returns per-family CAS state, recent DB claims, in-process skipped-duplicate counter; no secrets in payload. Verified via `curl`: unauthenticated request → `401 {"error":"unauthorized","code":"AUTH_REQUIRED"}`. |
+| Infra Health "System Alert Health" section | **DONE** | `infraHealth.tsx` new `SectionShell` + `deriveSystemAlertHealthSeverity` (fail if endpoint unreachable, warn if any family DEGRADED, else ok); wired into the page's `useEndpoint`/header-severity roll-up. |
+
+**Regression coverage:**
+- `artifacts/api-server`: full suite green — 2,806 tests / 148 files (`--pool=threads`, run in
+  4 chunks to fit tool time limits: 888 + 525 + 759 + 634, all passing). Includes
+  `fnoDataRecoveryTransition.test.ts` (7/7), `dailyReports.test.ts` (105/105),
+  `alerting.test.ts` (22/22, incl. 2 new skip-counter tests), plus every pre-existing
+  trade-alert/global-data-health/Swing-TTL suite unchanged and green.
+- `artifacts/scanner`: full suite green — 762/762 tests (35 files), incl. 4 new
+  `deriveSystemAlertHealthSeverity` cases in `infraHealth.test.ts`.
+- `pnpm run typecheck`: clean across all packages (libs + every leaf artifact).
+- Manual verification: unauthenticated `curl` against the new diagnostics route confirms the
+  owner gate (401, no data leak); HMR live-reload of `infra-health.tsx` produced zero browser
+  console errors.
+- **Scope note on e2e:** a full authenticated browser walkthrough of `/infra-health` (owner
+  login → visually inspect the new section with live data) was not run, because owner login
+  requires the `APP_ACCESS_PASSWORD` secret value, which this agent does not and must not
+  access. This is a purely additive, read-only section built with the same `SectionShell` /
+  `useEndpoint` pattern as every other diagnostics section already on that page (all of which
+  render correctly today), so the risk is judged low; the pure logic and route wiring are
+  fully covered by the unit/integration tests above. If a visual check is wanted, sign in as
+  owner and open `/infra-health` — the new "System Alert Health" card should appear at the
+  bottom of the section grid.
+- No real Telegram messages were sent by any test in this work — all alert-dispatch tests use
+  mocked Telegram clients / log assertions, consistent with the "no real Telegram test sends
+  without explicit permission" constraint.

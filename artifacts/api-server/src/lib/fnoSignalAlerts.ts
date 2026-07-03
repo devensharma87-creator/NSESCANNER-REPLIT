@@ -864,10 +864,56 @@ export function alertFnoDataHealth(input: FnoDataHealthAlertInput): void {
 }
 
 /**
- * Inspect a completed warmup run and fire at most one alert per FAILED index.
+ * Dedup window for the consolidated warmup-failure digest: at most one digest
+ * Telegram message per IST calendar day (was: one message PER FAILING INDEX
+ * every FNO_DATA_HEALTH_DEDUP_MS — see
+ * docs/telegram-alert-quality-audit-2026-07-03.md, "F&O data warmup failed"
+ * row). Multi-hour outages now resurface once/hour instead of once/10min/index.
+ */
+export const FNO_WARMUP_DIGEST_DEDUP_MS = 60 * 60 * 1000;
+
+const FNO_WARMUP_DIGEST_IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+
+function fnoWarmupDigestIstDay(now: number = Date.now()): string {
+  return new Date(now + FNO_WARMUP_DIGEST_IST_OFFSET_MS).toISOString().slice(0, 10);
+}
+
+interface FnoWarmupFailingIndex {
+  index: string;
+  code: string | null;
+  detail: string;
+}
+
+function buildFnoWarmupDigestText(
+  alertType: FnoDataHealthAlertType,
+  failing: FnoWarmupFailingIndex[],
+): string {
+  const title =
+    alertType === "WARMUP_FAILED" ? "⚠ F&O DATA WARMUP FAILED" : "⚠ F&O DATA WARMUP PARTIAL";
+  const lines = [
+    title,
+    "",
+    `Indices affected: ${failing.length}`,
+    ...failing.map((f) => `• ${f.index}: ${f.code ?? "UNKNOWN"} — ${f.detail}`),
+    "",
+    "Kite data did not warm up after login. F&O signals for the affected index(es)",
+    "may be suppressed until data recovers. This is a data-health notice, not a signal.",
+    "",
+    "No paper trade created. No real order placed. Broker execution disabled.",
+  ];
+  return lines.join("\n");
+}
+
+/**
+ * Inspect a completed warmup run and fire at most one CONSOLIDATED digest
+ * alert covering every failing index (was: one alert per failing index,
+ * every 10 minutes each — see docs/telegram-alert-quality-audit-2026-07-03.md).
  *
  * - Never alerts on OK or any SKIPPED_* outcome.
  * - Never alerts on SESSION_MISSING / TOKEN_MISSING — benign/expected state.
+ * - Dedup key is scoped to the IST calendar day (`FNO_WARMUP_FAILED::<istDay>`),
+ *   not per-index, with a 60-min window — so a multi-hour outage produces at
+ *   most one digest per hour instead of a message storm per index per retry.
  */
 export function alertWarmupFailures(result: {
   outcome: string;
@@ -879,18 +925,27 @@ export function alertWarmupFailures(result: {
 }): void {
   try {
     if (result.outcome === "OK" || result.outcome.startsWith("SKIPPED")) return;
+    const failing: FnoWarmupFailingIndex[] = [];
     for (const idx of result.indices) {
       if (idx.ok) continue;
       const firstFail = idx.steps.find((s) => !s.ok);
       if (!firstFail) continue;
       if (firstFail.code === "SESSION_MISSING" || firstFail.code === "TOKEN_MISSING") continue;
-      alertFnoDataHealth({
-        alertType: result.outcome === "FAILED" ? "WARMUP_FAILED" : "WARMUP_PARTIAL",
+      failing.push({
         index: idx.index,
         code: firstFail.code,
         detail: firstFail.message ? `${firstFail.step}: ${firstFail.message}` : firstFail.step,
       });
     }
+    if (failing.length === 0) return;
+
+    const alertType: FnoDataHealthAlertType =
+      result.outcome === "FAILED" ? "WARMUP_FAILED" : "WARMUP_PARTIAL";
+    const dedupKey = `FNO_WARMUP_FAILED::${fnoWarmupDigestIstDay()}`;
+    const logMsg = `F&O data-health digest: ${alertType} across ${failing.length} index(es) — ${failing
+      .map((f) => f.index)
+      .join(", ")}`;
+    alertOwnerRaw(dedupKey, logMsg, buildFnoWarmupDigestText(alertType, failing), FNO_WARMUP_DIGEST_DEDUP_MS);
   } catch (err) {
     logger.warn(
       { err: (err as Error)?.message },

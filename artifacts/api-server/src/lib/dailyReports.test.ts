@@ -114,7 +114,8 @@ function makePreMarket(overrides: Partial<PreMarketReportData> = {}): PreMarketR
 describe("buildPreMarketReport — healthy system", () => {
   it("includes the header", () => {
     const text = buildPreMarketReport(makePreMarket());
-    expect(text).toContain("🌅 PRE-MARKET ANALYSIS");
+    expect(text).toContain("🌅 PRE-MARKET STATUS");
+    expect(text).not.toContain("ACTION REQUIRED");
   });
 
   it("does NOT include [MANUAL TEST] when isManualTest=false", () => {
@@ -129,7 +130,7 @@ describe("buildPreMarketReport — healthy system", () => {
 
   it("shows Kite active status", () => {
     const text = buildPreMarketReport(makePreMarket());
-    expect(text).toContain("✅ Active");
+    expect(text).toContain("Kite: ✅ Active");
   });
 
   it("shows feed connected", () => {
@@ -138,14 +139,9 @@ describe("buildPreMarketReport — healthy system", () => {
     expect(text).toContain("75 tokens");
   });
 
-  it("shows daily bars available (3/3)", () => {
+  it("shows F&O readiness ready (3/3)", () => {
     const text = buildPreMarketReport(makePreMarket());
-    expect(text).toContain("✅ Available (3/3 indices)");
-  });
-
-  it("shows signal cycle ready", () => {
-    const text = buildPreMarketReport(makePreMarket());
-    expect(text).toContain("Signal cycle: ✅ Ready");
+    expect(text).toContain("F&O readiness: ✅ Ready (3/3 indices");
   });
 
   it("shows signal count", () => {
@@ -153,9 +149,9 @@ describe("buildPreMarketReport — healthy system", () => {
     expect(text).toContain("Signals emitted: 2");
   });
 
-  it("shows swing pending count", () => {
+  it("shows swing staging count", () => {
     const text = buildPreMarketReport(makePreMarket());
-    expect(text).toContain("Pending approval: 3");
+    expect(text).toContain("Swing staging: 3 pending");
   });
 
   it("shows broker execution disabled", () => {
@@ -177,6 +173,25 @@ describe("buildPreMarketReport — healthy system", () => {
     const text = buildPreMarketReport(makePreMarket());
     expect(text).toContain("Last tradeable signal:");
   });
+
+  it("shows action to monitor diagnostics when everything is ready", () => {
+    const text = buildPreMarketReport(makePreMarket());
+    expect(text).toContain("Action: Monitor /fno-diagnostics and /option-chain");
+  });
+
+  it("shows key levels and option chain available when Kite is live", () => {
+    const text = buildPreMarketReport(makePreMarket());
+    expect(text).toContain("Key levels: Available on /premarket");
+    expect(text).toContain("Option chain: Available on /option-chain");
+  });
+
+  it("collapses unavailable sections to one footer line", () => {
+    const text = buildPreMarketReport(makePreMarket());
+    expect(text).toContain(
+      "Not included today: GIFT Nifty, overnight global cues, FII/DII (F&O), India VIX",
+    );
+    expect(text).toContain("provider not configured");
+  });
 });
 
 // ── Pre-market builder — Kite session missing ─────────────────────────────────
@@ -189,6 +204,11 @@ describe("buildPreMarketReport — Kite session missing", () => {
     expect(text).toContain("❌ MISSING — login required");
   });
 
+  it("shows ACTION REQUIRED in the header", () => {
+    const text = buildPreMarketReport(data);
+    expect(text).toContain("🌅 PRE-MARKET STATUS — ACTION REQUIRED");
+  });
+
   it("shows reconnect action", () => {
     const text = buildPreMarketReport(data);
     expect(text).toContain("Reconnect Kite/Zerodha");
@@ -198,6 +218,12 @@ describe("buildPreMarketReport — Kite session missing", () => {
     const text = buildPreMarketReport(data);
     expect(text).not.toContain("Kite session is active");
   });
+
+  it("does not claim key levels / option chain are available", () => {
+    const text = buildPreMarketReport(data);
+    expect(text).not.toContain("Key levels: Available");
+    expect(text).not.toContain("Option chain: Available on /option-chain");
+  });
 });
 
 // ── Pre-market builder — daily bars unavailable (session may be live) ─────────
@@ -205,12 +231,12 @@ describe("buildPreMarketReport — Kite session missing", () => {
 describe("buildPreMarketReport — daily bars unavailable, Kite session active", () => {
   const data = makePreMarket({ fno: barsUnavailableFno });
 
-  it("shows bars UNAVAILABLE", () => {
+  it("shows readiness suppressed with index count", () => {
     const text = buildPreMarketReport(data);
-    expect(text).toContain("❌ UNAVAILABLE (0/3 indices)");
+    expect(text).toContain("F&O readiness: ⚠ SUPPRESSED (0/3 indices)");
   });
 
-  it("shows signal cycle suppressed", () => {
+  it("shows signal cycle suppressed reason", () => {
     const text = buildPreMarketReport(data);
     expect(text).toContain("SUPPRESSED");
     expect(text).toContain("DAILY_HISTORY_UNAVAILABLE");
@@ -293,8 +319,8 @@ describe("buildPreMarketReport — weekend", () => {
 
   it("does not show F&O data sections on weekend", () => {
     const text = buildPreMarketReport(data);
-    expect(text).not.toContain("── F&O DATA READINESS");
-    expect(text).not.toContain("── KITE SESSION");
+    expect(text).not.toContain("F&O readiness:");
+    expect(text).not.toContain("Kite: ");
   });
 });
 
@@ -584,40 +610,33 @@ describe("buildPostMarketReport — PREPOST telegram secrets not in output", () 
 
 // ── Data coverage section in builder output ───────────────────────────────────
 
-describe("buildPreMarketReport — data coverage section", () => {
-  it("shows 'Unavailable — data source not integrated yet' for global cues", () => {
+describe("buildPreMarketReport — data coverage section (compact footer)", () => {
+  it("collapses global cues, GIFT Nifty, FII/DII (F&O), India VIX, news/events into one footer line", () => {
     const text = buildPreMarketReport(makePreMarket());
-    expect(text).toContain("Global cues: Unavailable — data source not integrated yet");
+    expect(text).toContain(
+      "Not included today: GIFT Nifty, overnight global cues, FII/DII (F&O), India VIX, " +
+        "news/events — provider not configured.",
+    );
+    // Full inline per-section headers must NOT appear anymore (moved to /daily-analysis).
+    expect(text).not.toContain("Global cues: Unavailable");
+    expect(text).not.toContain("GIFT Nifty: Unavailable");
+    expect(text).not.toContain("News & events: Unavailable");
+    expect(text).not.toContain("India VIX: Unavailable");
   });
 
-  it("shows 'Unavailable — data source not integrated yet' for GIFT Nifty", () => {
-    const text = buildPreMarketReport(makePreMarket());
-    expect(text).toContain("GIFT Nifty: Unavailable — data source not integrated yet");
-  });
-
-  it("shows FII/DII as Info-only (not trade-grade, not fake)", () => {
+  it("shows FII/DII cash as Info-only in the body (not trade-grade, not fake, not hidden)", () => {
     const text = buildPreMarketReport(makePreMarket());
     expect(text).toContain("FII/DII cash: Info-only");
   });
 
-  it("shows news & events as unavailable", () => {
+  it("shows key levels as available on /premarket when Kite is live", () => {
     const text = buildPreMarketReport(makePreMarket());
-    expect(text).toContain("News & events: Unavailable — data source not integrated yet");
+    expect(text).toContain("Key levels: Available on /premarket");
   });
 
-  it("shows India VIX as unavailable", () => {
+  it("shows option chain as available on /option-chain when Kite is live", () => {
     const text = buildPreMarketReport(makePreMarket());
-    expect(text).toContain("India VIX: Unavailable — data source not integrated yet");
-  });
-
-  it("shows key levels as available (Kite)", () => {
-    const text = buildPreMarketReport(makePreMarket());
-    expect(text).toContain("Key levels / CPR: Available (Kite)");
-  });
-
-  it("shows option chain analytics as available (Kite)", () => {
-    const text = buildPreMarketReport(makePreMarket());
-    expect(text).toContain("Option chain analytics: Available (Kite)");
+    expect(text).toContain("Option chain: Available on /option-chain");
   });
 });
 
@@ -718,61 +737,50 @@ describe("istDate format regression — must be ISO YYYY-MM-DD", () => {
 
 // ── Pre-market builder — analysis section headers present ──────────────────────
 
-describe("buildPreMarketReport — analysis section headers present", () => {
-  it("shows OVERNIGHT GLOBAL CUES section header", () => {
+// NOTE (2026-07-03 compaction, docs/telegram-alert-quality-audit-2026-07-03.md §3):
+// the pre-market builder no longer prints one "── SECTION ──" header per data domain.
+// SOURCE_NOT_INTEGRATED domains (overnight cues, GIFT Nifty, FII/DII F&O, India VIX,
+// VIX-implied range, news/events) are now a single footer line; live domains (Kite,
+// F&O readiness, key levels, option chain, swing staging, alerts, action) are compact
+// body lines. Full per-section detail remains on /daily-analysis and /premarket.
+describe("buildPreMarketReport — compact body retains every live domain", () => {
+  it("retains Kite session status", () => {
     const text = buildPreMarketReport(makePreMarket());
-    expect(text).toContain("── OVERNIGHT GLOBAL CUES ──");
+    expect(text).toContain("Kite: ✅ Active");
   });
 
-  it("shows GIFT NIFTY section header", () => {
+  it("retains F&O readiness (readiness + signal count)", () => {
     const text = buildPreMarketReport(makePreMarket());
-    expect(text).toContain("── GIFT NIFTY / SGX NIFTY ──");
+    expect(text).toContain("F&O readiness:");
+    expect(text).toContain("Signals emitted:");
   });
 
-  it("shows FII / DII ACTIVITY section header", () => {
+  it("retains key levels and option chain references", () => {
     const text = buildPreMarketReport(makePreMarket());
-    expect(text).toContain("── FII / DII ACTIVITY ──");
+    expect(text).toContain("Key levels: Available on /premarket");
+    expect(text).toContain("Option chain: Available on /option-chain");
   });
 
-  it("shows INDIA VIX section header", () => {
+  it("retains swing staging count", () => {
     const text = buildPreMarketReport(makePreMarket());
-    expect(text).toContain("── INDIA VIX ──");
+    expect(text).toContain("Swing staging:");
   });
 
-  it("shows KEY LEVELS section header", () => {
+  it("retains the actionable next step", () => {
     const text = buildPreMarketReport(makePreMarket());
-    expect(text).toContain("── KEY LEVELS (NIFTY / BANKNIFTY / SENSEX) ──");
+    expect(text).toContain("Action:");
   });
 
-  it("shows OPTION CHAIN section header", () => {
+  it("retains the one-line SOURCE_NOT_INTEGRATED footer, not per-section headers", () => {
     const text = buildPreMarketReport(makePreMarket());
-    expect(text).toContain("── OPTION CHAIN ──");
+    expect(text).toContain("Not included today:");
+    expect(text).not.toMatch(/── .+ ──/);
   });
 
-  it("shows EXPECTED RANGE section header", () => {
-    const text = buildPreMarketReport(makePreMarket());
-    expect(text).toContain("── EXPECTED RANGE ──");
-  });
-
-  it("shows NEWS & EVENTS section header", () => {
-    const text = buildPreMarketReport(makePreMarket());
-    expect(text).toContain("── NEWS & EVENTS ──");
-  });
-
-  it("shows EXPIRY / ROLLOVER section header", () => {
-    const text = buildPreMarketReport(makePreMarket());
-    expect(text).toContain("── EXPIRY / ROLLOVER ──");
-  });
-
-  it("shows BIAS & TRADE PLAN section header", () => {
-    const text = buildPreMarketReport(makePreMarket());
-    expect(text).toContain("── BIAS & TRADE PLAN ──");
-  });
-
-  it("does not show section headers on weekend", () => {
+  it("does not show any live domain lines on weekend", () => {
     const text = buildPreMarketReport(makePreMarket({ isWeekend: true }));
-    expect(text).not.toContain("── OVERNIGHT GLOBAL CUES ──");
-    expect(text).not.toContain("── OPTION CHAIN ──");
+    expect(text).not.toContain("Kite:");
+    expect(text).not.toContain("Option chain:");
   });
 });
 
@@ -864,10 +872,16 @@ describe("buildPostMarketReport — datetimeStr display", () => {
 
 // ── Pre-market builder — ANALYSIS title vs old READINESS ──────────────────────
 
-describe("buildPreMarketReport — title is ANALYSIS not READINESS", () => {
-  it("title is PRE-MARKET ANALYSIS", () => {
+describe("buildPreMarketReport — title is compact STATUS (2026-07-03)", () => {
+  it("title is PRE-MARKET STATUS when Kite is live", () => {
     const text = buildPreMarketReport(makePreMarket());
-    expect(text).toContain("PRE-MARKET ANALYSIS");
+    expect(text).toContain("PRE-MARKET STATUS");
+    expect(text).not.toContain("ACTION REQUIRED");
+  });
+
+  it("title is PRE-MARKET STATUS — ACTION REQUIRED when Kite is missing", () => {
+    const text = buildPreMarketReport(makePreMarket({ kite: missingKite }));
+    expect(text).toContain("PRE-MARKET STATUS — ACTION REQUIRED");
   });
 
   it("title is NOT PRE-MARKET READINESS", () => {

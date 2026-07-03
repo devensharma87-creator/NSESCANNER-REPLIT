@@ -5,6 +5,15 @@
  * and vi.stubGlobal for fetch mocking.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+
+// The DB-backed cross-process claim (systemAlertDedup.ts) has its own dedicated
+// test file with real ON CONFLICT / CAS coverage. Mocking it here keeps these
+// Telegram-delivery tests fast and hermetic (no real DB round-trip, no writes
+// to the dev database from unit tests) — always "claims" so delivery proceeds.
+vi.mock("./systemAlertDedup", () => ({
+  claimSystemAlert: vi.fn().mockResolvedValue(true),
+}));
+
 import {
   getTelegramStatus,
   alertOwner,
@@ -13,6 +22,8 @@ import {
   resetAlertDedup,
   resetLastAlertRecord,
   getLastAlertRecord,
+  getSkippedAlertStats,
+  resetSkippedAlertStatsForTest,
 } from "./alerting";
 
 beforeEach(() => {
@@ -20,6 +31,7 @@ beforeEach(() => {
   vi.unstubAllGlobals();
   resetAlertDedup();
   resetLastAlertRecord();
+  resetSkippedAlertStatsForTest();
 });
 
 afterEach(() => {
@@ -90,6 +102,66 @@ describe("alertOwner — dedup prevents spam", () => {
 
     await new Promise(r => setTimeout(r, 50));
     expect(mockFetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("passes (dedupKey, windowMs, family) to the DB claim layer for cross-process dedup", async () => {
+    const { claimSystemAlert } = await import("./systemAlertDedup");
+    vi.mocked(claimSystemAlert).mockClear();
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true }));
+    vi.stubEnv("TELEGRAM_BOT_TOKEN", "bot:t");
+    vi.stubEnv("TELEGRAM_CHAT_ID", "1");
+
+    alertOwner("CLAIM_WIRING_TEST", "msg", undefined, 12345, "CLAIM_WIRING_TEST::2026-07-03");
+    await new Promise(r => setTimeout(r, 20));
+
+    expect(claimSystemAlert).toHaveBeenCalledWith(
+      "CLAIM_WIRING_TEST::2026-07-03",
+      12345,
+      "CLAIM_WIRING_TEST",
+    );
+  });
+
+  it("does not send Telegram when the DB claim layer reports another worker already claimed it", async () => {
+    const { claimSystemAlert } = await import("./systemAlertDedup");
+    vi.mocked(claimSystemAlert).mockResolvedValueOnce(false);
+    const mockFetch = vi.fn().mockResolvedValue({ ok: true });
+    vi.stubGlobal("fetch", mockFetch);
+    vi.stubEnv("TELEGRAM_BOT_TOKEN", "bot:t");
+    vi.stubEnv("TELEGRAM_CHAT_ID", "1");
+
+    alertOwner("CROSS_PROCESS_DEDUP_TEST", "msg");
+    await new Promise(r => setTimeout(r, 20));
+
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(getLastAlertRecord()?.event).not.toBe("CROSS_PROCESS_DEDUP_TEST");
+  });
+
+  it("records a skipped-alert stat when the DB claim layer reports another worker already claimed it", async () => {
+    const { claimSystemAlert } = await import("./systemAlertDedup");
+    vi.mocked(claimSystemAlert).mockResolvedValueOnce(false);
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true }));
+    vi.stubEnv("TELEGRAM_BOT_TOKEN", "bot:t");
+    vi.stubEnv("TELEGRAM_CHAT_ID", "1");
+
+    expect(getSkippedAlertStats().totalSkipped).toBe(0);
+    alertOwner("SKIP_STAT_TEST", "msg");
+    await new Promise(r => setTimeout(r, 20));
+
+    const stats = getSkippedAlertStats();
+    expect(stats.totalSkipped).toBe(1);
+    expect(stats.lastSkipped?.dedupKey).toBe("SKIP_STAT_TEST");
+    expect(stats.lastSkipped?.family).toBe("SKIP_STAT_TEST");
+  });
+
+  it("does not record a skipped-alert stat on a successful (claimed) send", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true }));
+    vi.stubEnv("TELEGRAM_BOT_TOKEN", "bot:t");
+    vi.stubEnv("TELEGRAM_CHAT_ID", "1");
+
+    alertOwner("NO_SKIP_STAT_TEST", "msg");
+    await new Promise(r => setTimeout(r, 20));
+
+    expect(getSkippedAlertStats().totalSkipped).toBe(0);
   });
 });
 

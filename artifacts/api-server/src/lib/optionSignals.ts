@@ -3,6 +3,7 @@ import type { YahooChart } from "./yahoo";
 import { centralIndexCandles, centralHasIndexCoverage, centralIndexQuotes } from "./marketData/compat";
 import { getActiveSessionStatus } from "./kiteAuth";
 import { alertOwner } from "./alerting";
+import { handleFnoDataSuppressionTransition } from "./fnoDataRecoveryTransition";
 import { scoreConfluence, type ConfluenceInputs } from "./confluenceEngine";
 import { ema, rsi, sessionVwap, volumeProfile, pivots, atr } from "./indicators";
 import { classifyRegime, type RegimeResult } from "./regimeClassifier";
@@ -1707,11 +1708,15 @@ interface FnoCycleMeta {
 let lastCycleMeta: FnoCycleMeta | null = null;
 
 /**
- * Recovery alert tracking (process-local).
- * Set true when all indices are suppressed due to a data/session issue.
- * Cleared (and FNO_DATA_RECOVERED fired) when the suppression lifts.
+ * FNO_DATA_RECOVERED degrade/recover tracking now lives in the DB-backed
+ * system_alert_state table (family "fno_data") via transitionSystemAlertState
+ * — see systemAlertDedup.ts. This replaces a process-local boolean that reset
+ * on autoscale cold starts / multi-replica deploys, which could either miss
+ * the recovery alert (new process never saw the "was suppressed" flag) or
+ * double-send it (two replicas both flip false->true independently). The
+ * CAS transition + alert itself lives in fnoDataRecoveryTransition.ts so it
+ * is unit-testable without this module's heavy dependency chain.
  */
-let prevCycleWasDataSuppressed = false;
 
 /**
  * Returns the metadata from the most recent completed F&O signal cycle,
@@ -2793,21 +2798,12 @@ export async function getOptionSignals(): Promise<OptionSignalsResult> {
       }
     }
 
-    // Recovery: previous cycle was data-suppressed, this cycle is not → alert cleared.
-    if (prevCycleWasDataSuppressed && !isAllDataSuppressed) {
-      const recoveredIndices = OPTION_INDICES.map(c => c.symbol);
-      alertOwner(
-        "FNO_DATA_RECOVERED",
-        `F&O data connection restored. Signal cycle resumed. Indices: ${recoveredIndices.join(", ")}.`,
-        {
-          affectedIndices: recoveredIndices,
-          recoveredAt: new Date().toISOString(),
-          dashboardPath: "/fno-diagnostics",
-          isDataIssue: false,
-        },
-      );
-    }
-    prevCycleWasDataSuppressed = isAllDataSuppressed;
+    // Degrade/recover tracking via DB-backed CAS state (family "fno_data") — see
+    // systemAlertDedup.ts and handleFnoDataSuppressionTransition above.
+    await handleFnoDataSuppressionTransition(
+      isAllDataSuppressed,
+      OPTION_INDICES.map(c => c.symbol),
+    );
   }
   // Stamp the last-cycle metadata so /fno/data-health can surface intraday bar
   // readiness without needing to call getOptionSignals() (which would trigger

@@ -363,9 +363,9 @@ export interface PreMarketReportData {
 // ── Pre-market builder (pure — no async, no imports, fully testable) ──────────
 
 export function buildPreMarketReport(data: PreMarketReportData): string {
-  const header = data.isManualTest
-    ? "🌅 PRE-MARKET ANALYSIS [MANUAL TEST]"
-    : "🌅 PRE-MARKET ANALYSIS";
+  const kiteOk = data.kite.sessionPresent;
+  const headline = kiteOk ? "🌅 PRE-MARKET STATUS" : "🌅 PRE-MARKET STATUS — ACTION REQUIRED";
+  const header = data.isManualTest ? `${headline} [MANUAL TEST]` : headline;
   const lines: string[] = [header, `Date: ${data.istDatetime} IST`, ""];
 
   if (data.isWeekend) {
@@ -375,123 +375,46 @@ export function buildPreMarketReport(data: PreMarketReportData): string {
     return lines.join("\n");
   }
 
-  // ── ANALYSIS SECTIONS (data availability honest labels) ──
+  // ── Compact operational status (docs/telegram-alert-quality-audit-2026-07-03.md §3) ──
+  // Every SOURCE_NOT_INTEGRATED section (overnight cues, GIFT Nifty, FII/DII F&O, India
+  // VIX, VIX-implied range, news/events) is collapsed to one footer line below instead of
+  // a full inline header per section — same honesty, far less noise. Full per-section
+  // detail remains on /daily-analysis and /premarket; Telegram is a notification, not the
+  // full report.
 
-  lines.push("── OVERNIGHT GLOBAL CUES ──");
-  lines.push("Global cues: Unavailable — data source not integrated yet");
-  lines.push("(No real-time global provider configured; /global shows Yahoo-delayed reference)");
-
-  lines.push("");
-  lines.push("── GIFT NIFTY / SGX NIFTY ──");
-  lines.push("GIFT Nifty: Unavailable — data source not integrated yet");
-  lines.push("(No NSE IFSC / CME integration)");
-
-  lines.push("");
-  lines.push("── FII / DII ACTIVITY ──");
-  lines.push("FII/DII cash: Info-only (NSE archive) — see /flows page");
-  lines.push("Participant OI: Info-only (NSE archive) — see /flows page");
-  lines.push("FII F&O index futures / options: Unavailable — data source not integrated yet");
-
-  lines.push("");
-  lines.push("── INDIA VIX ──");
-  lines.push("India VIX: Unavailable — data source not integrated yet");
-  lines.push("ATM IV: Available via option chain snapshot — see /option-chain");
-
-  lines.push("");
-  lines.push("── KEY LEVELS (NIFTY / BANKNIFTY / SENSEX) ──");
-  lines.push("Key levels / CPR: Available (Kite) — see /premarket page");
-  lines.push("Previous OHLC, CPR, floor pivots: Active when Kite session is connected");
-
-  lines.push("");
-  lines.push("── OPTION CHAIN ──");
-  lines.push("Option chain analytics: Available (Kite) — see /option-chain");
-  lines.push("PCR, Max Pain, OI walls: From Kite option chain snapshots");
-
-  lines.push("");
-  lines.push("── EXPECTED RANGE ──");
-  lines.push("ATM straddle range: Available (Kite) — see /option-chain");
-  lines.push("VIX-implied range: Unavailable — India VIX not separately tracked");
-
-  lines.push("");
-  lines.push("── NEWS & EVENTS ──");
-  lines.push("News & events: Unavailable — data source not integrated yet");
-  lines.push("(No domestic/global news provider configured)");
-
-  // ── OPERATIONAL SECTIONS (live Kite/F&O/swing state) ──
-
-  lines.push("");
-  lines.push("── KITE SESSION ──");
-  if (data.kite.sessionPresent) {
-    lines.push(`Status: ✅ Active${data.kite.user ? ` (${data.kite.user})` : ""}`);
-    if (data.kite.expiresAt != null && data.kite.minsToExpiry != null) {
-      const h = Math.floor(data.kite.minsToExpiry / 60);
-      const m = data.kite.minsToExpiry % 60;
-      lines.push(`Expires: ${formatIstHM(new Date(data.kite.expiresAt).getTime())} IST (${h}h ${m}m)`);
-    }
+  if (kiteOk) {
+    lines.push(`Kite: ✅ Active${data.kite.user ? ` (${data.kite.user})` : ""}`);
     lines.push(`Feed: ${data.kite.feedConnected ? "✅ Connected" : "⚠ Disconnected"} (${data.kite.feedSubscribed} tokens)`);
   } else {
-    lines.push("Status: ❌ MISSING — login required");
-    lines.push("Action: Reconnect Kite/Zerodha at /kite-login");
+    lines.push("Kite: ❌ MISSING — login required");
   }
 
-  lines.push("");
-  lines.push("── F&O DATA READINESS ──");
-  if (data.fno != null) {
+  if (data.fno == null) {
+    lines.push("F&O readiness: Unavailable — not tracked yet");
+  } else {
     const { indicesWithBars: bars, indicesConfigured: cfg } = data.fno;
-    const barsStr =
-      bars === cfg
-        ? `✅ Available (${bars}/${cfg} indices)`
-        : bars > 0
-          ? `⚠ Partial (${bars}/${cfg} indices)`
-          : `❌ UNAVAILABLE (0/${cfg} indices)`;
-    lines.push(`Daily bars: ${barsStr}`);
-
-    if (data.fno.lastCycleAt != null) {
-      const agoStr = data.fno.cycleMinsAgo != null ? ` (${data.fno.cycleMinsAgo}m ago)` : "";
-      lines.push(`Last F&O cycle: ${formatIstHM(new Date(data.fno.lastCycleAt).getTime())} IST${agoStr}`);
-      lines.push(`Signals emitted: ${data.fno.signalCount}`);
-    } else {
-      lines.push("Last F&O cycle: None since server start");
-    }
-
     if (data.fno.suppressed) {
       const reason = data.fno.suppressedSummary ? ` — ${data.fno.suppressedSummary}` : "";
-      lines.push(`Signal cycle: ⚠ SUPPRESSED${reason}`);
-      lines.push("Action: Check /fno-diagnostics");
+      lines.push(`F&O readiness: ⚠ SUPPRESSED (${bars}/${cfg} indices)${reason}`);
     } else if (bars === cfg) {
-      lines.push("Signal cycle: ✅ Ready");
-    } else if (!data.kite.sessionPresent) {
-      lines.push("Signal cycle: ❌ NOT READY — Kite session missing");
+      lines.push(`F&O readiness: ✅ Ready (${bars}/${cfg} indices, daily bars + option chain)`);
+    } else if (bars > 0) {
+      lines.push(`F&O readiness: ⚠ Partial (${bars}/${cfg} indices)`);
     } else {
-      lines.push("Signal cycle: ⚠ NOT READY — daily bars unavailable");
-      lines.push("Action: Check /fno-diagnostics");
+      lines.push(`F&O readiness: ❌ Blocked (0/${cfg} indices)`);
     }
-  } else {
-    lines.push("Daily bars: Unavailable — not tracked yet");
-    lines.push("Signal cycle: Unavailable — not tracked yet");
+    if (data.fno.lastCycleAt != null) {
+      lines.push(`Signals emitted: ${data.fno.signalCount}`);
+    }
   }
 
-  lines.push("");
-  lines.push("── EXPIRY / ROLLOVER ──");
-  if (data.fno != null && data.fno.indicesWithBars > 0) {
-    lines.push("Expiry check: Active (Kite F&O instruments — DTE tracked per index)");
-    lines.push("Details: See /fno-diagnostics for expiry dates and DTE");
-  } else {
-    lines.push("Expiry check: Unavailable — Kite session or daily bars required");
-  }
-
-  lines.push("");
-  lines.push("── SWING STAGING ──");
   if (data.swing != null) {
-    lines.push(`Pending approval: ${data.swing.pending + data.swing.approvalRequired}`);
-    lines.push(`Approved: ${data.swing.approved}`);
-    lines.push(`Expired: ${data.swing.expired}`);
+    lines.push(`Swing staging: ${data.swing.pending + data.swing.approvalRequired} pending`);
   } else {
-    lines.push("Unavailable — not tracked yet");
+    lines.push("Swing staging: Unavailable — not tracked yet");
   }
 
   lines.push("");
-  lines.push("── ALERT STATUS ──");
   if (data.alerts.lastDataAlertEvent != null) {
     const agoStr = data.alerts.lastDataAlertMinsAgo != null
       ? ` (${minsAgoLabel(data.alerts.lastDataAlertMinsAgo)})`
@@ -505,27 +428,32 @@ export function buildPreMarketReport(data: PreMarketReportData): string {
   } else {
     lines.push("Last tradeable signal: None");
   }
-  if (data.alerts.lastSwingAlertMinsAgo != null) {
-    lines.push(`Last swing alert: ${minsAgoLabel(data.alerts.lastSwingAlertMinsAgo)}`);
-  } else {
-    lines.push("Last swing alert: None");
+
+  lines.push("");
+  // FII/DII cash + participant OI is real (INFO_ONLY, NSE-archive) data — stays in the
+  // body per §3. Key levels / option chain need a live Kite session, so only claim
+  // availability when Kite is actually up (data-authenticity: don't imply live data from
+  // a dead session).
+  lines.push("FII/DII cash: Info-only (NSE archive) — see /flows page");
+  if (kiteOk) {
+    lines.push("Key levels: Available on /premarket");
+    lines.push("Option chain: Available on /option-chain");
   }
 
   lines.push("");
-  lines.push("── BIAS & TRADE PLAN ──");
-  const kiteOk = data.kite.sessionPresent;
-  const barsOk = data.fno != null && data.fno.indicesWithBars === data.fno.indicesConfigured;
   if (!kiteOk) {
-    lines.push("Bias: Cannot derive — Kite session missing");
-    lines.push("Action: Reconnect Kite before market open");
-  } else if (!barsOk) {
-    lines.push("Bias: Cannot derive — F&O daily bars unavailable");
+    lines.push("Action: Reconnect Kite/Zerodha at /kite-login before market open.");
+  } else if (data.fno != null && (data.fno.suppressed || data.fno.indicesWithBars < data.fno.indicesConfigured)) {
     lines.push("Action: Check /fno-diagnostics");
   } else {
-    lines.push("Data ready for pre-market session (Kite ✅, F&O bars ✅)");
-    lines.push("Bias / key levels / option chain: See /premarket and /option-chain");
-    lines.push("(Automated bias not computed — see /option-chain for PCR / Max Pain confluence)");
+    lines.push("Action: Monitor /fno-diagnostics and /option-chain");
   }
+
+  lines.push("");
+  lines.push(
+    "Not included today: GIFT Nifty, overnight global cues, FII/DII (F&O), India VIX, " +
+      "news/events — provider not configured.",
+  );
 
   lines.push("");
   lines.push("Broker execution: DISABLED");

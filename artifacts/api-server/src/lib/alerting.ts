@@ -9,6 +9,36 @@
  * Alert delivery is best-effort and MUST NOT crash the F&O signal cycle.
  */
 import { logger } from "./logger";
+import { claimSystemAlert } from "./systemAlertDedup";
+
+// ── Skip diagnostics (T005: /alerts/system-health) ──────────────────────────
+// In-memory only (per-process, resets on restart) — a lightweight companion
+// to the DB-backed claim log so the diagnostics endpoint can show how often
+// THIS worker's dedup is actually suppressing duplicates, not just the last
+// successful send. Never persisted, never used for any dedup decision.
+
+interface SkippedAlertStats {
+  totalSkipped: number;
+  lastSkipped: { dedupKey: string; family: string; at: number } | null;
+}
+
+const skippedAlertStats: SkippedAlertStats = { totalSkipped: 0, lastSkipped: null };
+
+function recordSkippedAlert(dedupKey: string, family: string): void {
+  skippedAlertStats.totalSkipped += 1;
+  skippedAlertStats.lastSkipped = { dedupKey, family, at: Date.now() };
+}
+
+/** Owner-diagnostics snapshot of skipped (already-claimed-elsewhere) alerts. Test-resettable. */
+export function getSkippedAlertStats(): SkippedAlertStats {
+  return { totalSkipped: skippedAlertStats.totalSkipped, lastSkipped: skippedAlertStats.lastSkipped };
+}
+
+/** Reset in-memory skip counter — test-only. */
+export function resetSkippedAlertStatsForTest(): void {
+  skippedAlertStats.totalSkipped = 0;
+  skippedAlertStats.lastSkipped = null;
+}
 
 // ── Telegram config ──────────────────────────────────────────────────────────
 
@@ -214,8 +244,38 @@ async function sendTelegramText(text: string): Promise<string> {
   }
 }
 
-function dispatchTelegramBackground(event: string, text: string): void {
-  void sendTelegramText(text).then(result => {
+/**
+ * Fire the actual WARN log + Telegram send, gated on a DB-backed claim so
+ * multiple replicas/workers racing the same in-memory dedup key still send
+ * at most one Telegram message per (dedupKey, windowMs) — see systemAlertDedup.ts.
+ *
+ * The in-memory `lastAlerted` check in alertOwner/alertOwnerRaw remains the
+ * same-process fast path (avoids spawning this async claim at all for calls
+ * this process already knows are within-window); the DB claim here is the
+ * cross-process source of truth. The WARN log is intentionally emitted AFTER
+ * the claim succeeds (not before), so logs never claim a send that the claim
+ * layer actually suppressed.
+ */
+function dispatchTelegramBackground(
+  event: string,
+  text: string,
+  dedupKey: string,
+  dedupWindowMs: number,
+  family: string,
+  logMessage: string,
+): void {
+  void (async () => {
+    const claimed = await claimSystemAlert(dedupKey, dedupWindowMs, family);
+    if (!claimed) {
+      recordSkippedAlert(dedupKey, family);
+      logger.info(
+        { alertEvent: event, dedupKey, family },
+        "OWNER_ALERT skipped — already claimed by another worker/replica within dedup window",
+      );
+      return;
+    }
+    logger.warn({ alertEvent: event }, `OWNER_ALERT [${event}]: ${logMessage}`);
+    const result = await sendTelegramText(text);
     const status: TelegramDeliveryStatus =
       result === "SENT"
         ? "SENT"
@@ -236,7 +296,7 @@ function dispatchTelegramBackground(event: string, text: string): void {
     } else if (status === "SENT") {
       logger.info({ alertEvent: event, telegramStatus: "SENT" }, "Telegram alert delivered");
     }
-  });
+  })();
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
@@ -256,8 +316,7 @@ export function alertOwnerRaw(
   const now = Date.now();
   if (now - (lastAlerted.get(dedupKey) ?? 0) < dedupWindowMs) return;
   lastAlerted.set(dedupKey, now);
-  logger.warn({ alertEvent: dedupKey }, `OWNER_ALERT [${dedupKey}]: ${logMessage}`);
-  dispatchTelegramBackground(dedupKey, telegramText);
+  dispatchTelegramBackground(dedupKey, telegramText, dedupKey, dedupWindowMs, dedupKey, logMessage);
 }
 
 /**
@@ -282,9 +341,8 @@ export function alertOwner(
   const now = Date.now();
   if (now - (lastAlerted.get(key) ?? 0) < dedupWindowMs) return;
   lastAlerted.set(key, now);
-  logger.warn({ alertEvent: event }, `OWNER_ALERT [${event}]: ${message}`);
   const text = buildTelegramText(event, message, metadata);
-  dispatchTelegramBackground(event, text);
+  dispatchTelegramBackground(event, text, key, dedupWindowMs, event, message);
 }
 
 /**

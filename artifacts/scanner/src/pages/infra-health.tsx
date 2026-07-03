@@ -51,6 +51,7 @@ import {
   deriveExitMonitorSeverity,
   deriveSnapshotSectionSeverity,
   deriveSnapshotSeverity,
+  deriveSystemAlertHealthSeverity,
   formatAge,
   rollUp,
   SEVERITY_LABEL,
@@ -59,6 +60,7 @@ import {
   type CandleIntervalRow,
   type ExitMonitorHealthLite,
   type SubsystemHealthLite,
+  type SystemAlertHealthDiag,
 } from "@/lib/infraHealth";
 import { GateStatusPanel } from "@/components/infra/GateStatusPanel";
 import { SwingFreshnessPanel } from "@/components/infra/SwingFreshnessPanel";
@@ -2796,6 +2798,79 @@ function GlobalHealthSection({ data, error, loading }: FetchState<GlobalDataHeal
   );
 }
 
+// ── T005 (2026-07-03): System Alert Health ──────────────────────────────────
+// Read-only diagnostics for the DB-backed alert-dedup/claim layer
+// (systemAlertDedup.ts, wired via alerting.ts). Shows per-family CAS state,
+// the most recent windowed-dedup claims, and this process's in-memory
+// skipped-as-duplicate counter. Purely observational — no button here
+// triggers a Telegram send, ingestion, or trading action.
+function SystemAlertHealthSection({ data, error, loading }: FetchState<SystemAlertHealthDiag>): React.ReactElement {
+  const { severity, reasons } = deriveSystemAlertHealthSeverity(error ? null : data ?? null);
+  return (
+    <SectionShell
+      title="System Alert Health"
+      icon={Signal}
+      severity={severity}
+      description="DB-backed Telegram alert dedup/state (warmup digest, data-recovery CAS transitions)."
+      testId="section-system-alert-health"
+    >
+      {error && <div className="text-sm text-rose-500">Failed: {error}</div>}
+      {loading && !data && <div className="text-sm text-muted-foreground">Loading…</div>}
+      {data && (
+        <div className="space-y-3">
+          {reasons.length > 0 && (
+            <ul className="space-y-1 text-xs text-amber-500">
+              {reasons.map((r) => <li key={r}>{r}</li>)}
+            </ul>
+          )}
+          <div className="grid grid-cols-2 gap-3 text-xs">
+            <Kv label="Tracked families" value={num(data.states.length)} />
+            <Kv label="Recent claims (DB)" value={num(data.recentClaims.length)} />
+            <Kv label="Skipped as duplicate (this process)" value={num(data.skipped.totalSkipped)} tone={data.skipped.totalSkipped > 0 ? "warn" : "ok"} />
+            <Kv
+              label="Last skipped"
+              value={data.skipped.lastSkipped ? `${data.skipped.lastSkipped.family} · ${formatAge(new Date(data.skipped.lastSkipped.at).toISOString(), Date.now())}` : "—"}
+            />
+          </div>
+          {data.states.length > 0 && (
+            <div>
+              <div className="text-xs font-medium text-muted-foreground mb-1">Per-family state</div>
+              <ul className="space-y-1">
+                {data.states.map((s) => (
+                  <li key={s.family} className="flex items-center justify-between text-xs border-b border-border/30 py-1">
+                    <span className="font-mono">{s.family}</span>
+                    <span className={s.state === "DEGRADED" ? "text-amber-500" : "text-emerald-500"}>
+                      {s.state}
+                      {s.incidentId ? ` (${s.incidentId.slice(0, 8)})` : ""}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {data.recentClaims.length > 0 && (
+            <details className="text-xs">
+              <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
+                Recent claims ({data.recentClaims.length})
+              </summary>
+              <ul className="mt-2 space-y-1 font-mono text-[11px]">
+                {data.recentClaims.slice(0, 20).map((c, i) => (
+                  <li key={`${c.dedupKey}-${i}`} className="text-muted-foreground break-words">
+                    {c.family} · {c.dedupKey} · sent {c.sentAt}
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
+          {data.states.length === 0 && data.recentClaims.length === 0 && (
+            <div className="text-xs text-muted-foreground">No system alerts claimed yet.</div>
+          )}
+        </div>
+      )}
+    </SectionShell>
+  );
+}
+
 export default function InfraHealthPage(): React.ReactElement {
   const [auto, setAuto] = useState(true);
   const [tick, setTick] = useState(0);
@@ -2828,6 +2903,7 @@ export default function InfraHealthPage(): React.ReactElement {
   const parityStatus = useEndpoint<ParityStatusResp>("api/parity/status", auto, tick);
   const globalHealth = useEndpoint<GlobalDataHealthResp>("api/data-health/global", auto, tick);
   const exitMonitor = useEndpoint<ExitMonitorStatusResp>("api/paper/diagnostics/fo/exit-monitor/status", auto, tick);
+  const systemAlertHealth = useEndpoint<SystemAlertHealthDiag>("api/alerts/system-health", auto, tick);
 
   // P16: failure-diagnosis endpoint with an exact-only toggle. The URL changes
   // when the toggle flips, which invalidates the SWR/useEndpoint cache key.
@@ -2866,8 +2942,11 @@ export default function InfraHealthPage(): React.ReactElement {
         ).severity,
       );
     } else if (exitMonitor.error) severities.push("fail");
+    if (systemAlertHealth.data || systemAlertHealth.error) {
+      severities.push(deriveSystemAlertHealthSeverity(systemAlertHealth.error ? null : systemAlertHealth.data).severity);
+    }
     return rollUp(severities);
-  }, [security, sector, snapshot, analytics, candle, fnoGap, exitMonitor, nowMs]);
+  }, [security, sector, snapshot, analytics, candle, fnoGap, exitMonitor, systemAlertHealth, nowMs]);
 
   const anyLoading = security.loading || sector.loading || snapshot.loading || analytics.loading || candle.loading || candidates.loading;
 
@@ -2956,6 +3035,9 @@ export default function InfraHealthPage(): React.ReactElement {
         </div>
         <div className="md:col-span-2">
           <ExitMonitorSection {...exitMonitor} nowMs={nowMs} />
+        </div>
+        <div className="md:col-span-2">
+          <SystemAlertHealthSection {...systemAlertHealth} />
         </div>
       </div>
     </div>

@@ -16,6 +16,7 @@ import {
   alertFnoDataHealth,
   alertWarmupFailures,
   FNO_DATA_HEALTH_DEDUP_MS,
+  FNO_WARMUP_DIGEST_DEDUP_MS,
 } from "./fnoSignalAlerts";
 import { alertOwnerRaw } from "./alerting";
 
@@ -61,8 +62,9 @@ describe("alertFnoDataHealth", () => {
   });
 });
 
-describe("alertWarmupFailures", () => {
+describe("alertWarmupFailures — consolidated digest (2026-07-03 spam fix)", () => {
   const step = (s: string, ok: boolean, code: string | null = null) => ({ step: s, ok, code, message: null });
+  const DAY_KEY_RE = /^FNO_WARMUP_FAILED::\d{4}-\d{2}-\d{2}$/;
 
   it("does NOT alert on an OK outcome", () => {
     alertWarmupFailures({
@@ -88,7 +90,7 @@ describe("alertWarmupFailures", () => {
     expect(mockAlert).not.toHaveBeenCalled();
   });
 
-  it("fires ONE WARMUP_PARTIAL alert for the single failed index", () => {
+  it("fires ONE digest alert (not per-index) for a PARTIAL outcome with a single failed index", () => {
     alertWarmupFailures({
       outcome: "PARTIAL",
       indices: [
@@ -97,10 +99,17 @@ describe("alertWarmupFailures", () => {
       ],
     });
     expect(mockAlert).toHaveBeenCalledTimes(1);
-    expect(mockAlert.mock.calls[0]![0]).toBe("FNO_DATA_HEALTH::WARMUP_PARTIAL::NIFTY");
+    const [dedupKey, , text, windowMs] = mockAlert.mock.calls[0]!;
+    expect(dedupKey).toMatch(DAY_KEY_RE);
+    expect(windowMs).toBe(FNO_WARMUP_DIGEST_DEDUP_MS);
+    expect(windowMs).toBe(60 * 60 * 1000);
+    expect(text).toMatch(/WARMUP PARTIAL/);
+    expect(text).toMatch(/NIFTY/);
+    expect(text).toMatch(/Indices affected: 1/);
+    expect(text).not.toMatch(/BANKNIFTY/);
   });
 
-  it("fires one WARMUP_FAILED alert per failed index on a FAILED outcome", () => {
+  it("fires ONE digest alert covering ALL failed indices on a FAILED outcome (was: one per index)", () => {
     alertWarmupFailures({
       outcome: "FAILED",
       indices: [
@@ -108,17 +117,49 @@ describe("alertWarmupFailures", () => {
         { index: "SENSEX", ok: false, steps: [step("optionChain", false, "EXCHANGE_ERROR")] },
       ],
     });
-    expect(mockAlert).toHaveBeenCalledTimes(2);
-    const keys = mockAlert.mock.calls.map((c) => c[0]);
-    expect(keys).toContain("FNO_DATA_HEALTH::WARMUP_FAILED::NIFTY");
-    expect(keys).toContain("FNO_DATA_HEALTH::WARMUP_FAILED::SENSEX");
+    expect(mockAlert).toHaveBeenCalledTimes(1);
+    const [dedupKey, , text] = mockAlert.mock.calls[0]!;
+    expect(dedupKey).toMatch(DAY_KEY_RE);
+    expect(text).toMatch(/WARMUP FAILED/);
+    expect(text).toMatch(/NIFTY/);
+    expect(text).toMatch(/SENSEX/);
+    expect(text).toMatch(/Indices affected: 2/);
+  });
+
+  it("digest key is day-scoped, not per-index — repeated failing runs the same day share one key", () => {
+    alertWarmupFailures({
+      outcome: "FAILED",
+      indices: [{ index: "NIFTY", ok: false, steps: [step("optionChain", false, "EXCHANGE_ERROR")] }],
+    });
+    const firstKey = mockAlert.mock.calls[0]![0];
+    mockAlert.mockReset();
+
+    alertWarmupFailures({
+      outcome: "FAILED",
+      indices: [{ index: "SENSEX", ok: false, steps: [step("optionChain", false, "EXCHANGE_ERROR")] }],
+    });
+    const secondKey = mockAlert.mock.calls[0]![0];
+
+    expect(firstKey).toBe(secondKey);
+  });
+
+  it("is safe-fail — never throws even if delivery throws", () => {
+    mockAlert.mockImplementationOnce(() => {
+      throw new Error("telegram down");
+    });
+    expect(() =>
+      alertWarmupFailures({
+        outcome: "FAILED",
+        indices: [{ index: "NIFTY", ok: false, steps: [step("optionChain", false, "EXCHANGE_ERROR")] }],
+      }),
+    ).not.toThrow();
   });
 });
 
-describe("alertWarmupFailures — recovery and dedup (2026-07-02 readiness cleanup)", () => {
+describe("alertWarmupFailures — recovery and content (2026-07-03 digest rewrite)", () => {
   const step = (s: string, ok: boolean, code: string | null = null) => ({ step: s, ok, code, message: null });
 
-  it("RECOVERY: successful warmup after a partial fires NO failure alerts (dedup expires naturally)", () => {
+  it("RECOVERY: successful warmup after a partial fires NO failure alerts", () => {
     // Simulate the sequence: SENSEX timeout at boot → recovery warmup all OK.
     alertWarmupFailures({
       outcome: "PARTIAL",
@@ -129,7 +170,7 @@ describe("alertWarmupFailures — recovery and dedup (2026-07-02 readiness clean
       ],
     });
     expect(mockAlert).toHaveBeenCalledTimes(1);
-    expect(mockAlert.mock.calls[0]![0]).toBe("FNO_DATA_HEALTH::WARMUP_PARTIAL::SENSEX");
+    expect(mockAlert.mock.calls[0]![2]).toMatch(/SENSEX/);
 
     mockAlert.mockReset();
 
@@ -145,7 +186,7 @@ describe("alertWarmupFailures — recovery and dedup (2026-07-02 readiness clean
     expect(mockAlert).not.toHaveBeenCalled();
   });
 
-  it("dedup: NIFTY/BANKNIFTY success in same run as SENSEX failure → only SENSEX alert fires", () => {
+  it("only lists the actually-failing index(es) in the digest — passing indices are omitted", () => {
     alertWarmupFailures({
       outcome: "PARTIAL",
       indices: [
@@ -155,15 +196,14 @@ describe("alertWarmupFailures — recovery and dedup (2026-07-02 readiness clean
       ],
     });
     expect(mockAlert).toHaveBeenCalledTimes(1);
-    const [key] = mockAlert.mock.calls[0]!;
-    expect(key).toBe("FNO_DATA_HEALTH::WARMUP_PARTIAL::SENSEX");
-    // NIFTY and BANKNIFTY must NOT have fired alerts.
-    const allKeys = mockAlert.mock.calls.map((c) => c[0]);
-    expect(allKeys).not.toContain("FNO_DATA_HEALTH::WARMUP_PARTIAL::NIFTY");
-    expect(allKeys).not.toContain("FNO_DATA_HEALTH::WARMUP_PARTIAL::BANKNIFTY");
+    const text = mockAlert.mock.calls[0]![2];
+    expect(text).toMatch(/SENSEX/);
+    expect(text).not.toMatch(/NIFTY/);
+    expect(text).not.toMatch(/BANKNIFTY/);
+    expect(text).toMatch(/Indices affected: 1/);
   });
 
-  it("dedup key is per-index and per-alertType (separate keys for PARTIAL vs FAILED)", () => {
+  it("dedup key is per-index and per-alertType for the low-level alertFnoDataHealth (separate keys for PARTIAL vs FAILED)", () => {
     alertFnoDataHealth({ alertType: "WARMUP_PARTIAL", index: "SENSEX", code: "UNKNOWN" });
     alertFnoDataHealth({ alertType: "WARMUP_FAILED",  index: "SENSEX", code: "UNKNOWN" });
     expect(mockAlert).toHaveBeenCalledTimes(2);
