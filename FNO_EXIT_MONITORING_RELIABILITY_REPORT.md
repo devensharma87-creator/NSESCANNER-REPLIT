@@ -98,6 +98,27 @@ The following require a human owner to log in and visually confirm; they were **
 
 No companion report (`docs/data-infrastructure.md` parity notes, global-data-health report, swing-TTL report, Telegram alert-quality report) required updates — none of their described behaviors changed as part of this verification. `replit.md` already documents the "F&O Exit Monitoring Reliability" audit columns under the Combo/data-infrastructure section from the 2026-07-02 build.
 
-## 6. Recommended next step
+## 6. Pending production evidence checklist — gates the upgrade to `FNO_EXIT_MONITORING_PROD_VERIFIED`
 
-No code action is required. Re-run Phase 10's production DB check the next time an F&O paper trade opens and cycles through the exit monitor in production (i.e. `last_exit_check_at` becomes non-NULL on a live row) to capture positive stamp evidence and upgrade this verdict to `FNO_EXIT_MONITORING_PROD_VERIFIED`.
+**Status: accepted by owner on 2026-07-03.** No code action is required now; do not rebuild or refactor this module in the meantime. The `DEV_VERIFIED` verdict stands until every item below is confirmed against a real production `paper_trade_fo` row the next time an F&O paper trade actually opens in production. This is a data-availability wait, not an open defect.
+
+When the next F&O trade opens in production, re-run Phase 10 (prod DB query + log check) and confirm, in order:
+
+1. **Trade opens** — the new row transitions to `status = 'OPEN'` in production `paper_trade_fo`.
+2. **Check cadence** — `last_exit_check_at` is stamped (non-NULL, advancing) after each exit-monitor cycle while the trade is OPEN.
+3. **Outcome class** — `exit_monitor_status` is populated (`MONITORED` / `BLOCKED` / `UNMONITORED`) on every check, never left NULL while OPEN.
+4. **Source honesty** — `exit_quote_source` reflects a Kite/trusted data-quality label, never Yahoo or an untrusted fallback silently powering an exit decision.
+5. **Quote timestamp present** — `exit_quote_as_of` is populated for every evaluated check (not just successful ones).
+6. **Trade-grade gating** — `exit_trade_grade` is `true` only when the underlying quote is fresh and trade-grade; confirm at least one BLOCKED example where it is `false`/absent, if the market conditions produce one.
+7. **Fail-closed on bad data** — when a check hits stale/missing data, confirm the outcome is `BLOCKED` (trade stays OPEN, no premature close) rather than the trade being force-closed off bad data.
+8. **Single close** — if SL/target is hit, confirm the DB row closes exactly once (`status` flips `OPEN → CLOSED` a single time, no duplicate close writes or double-decrement of capital/heat).
+9. **Single Telegram send** — confirm the exit Telegram notification for that trade fires exactly once, not duplicated across retries/redundant cycles.
+10. **Notification dedup** — confirm the notification-log dedup mechanism (canonical `tradeLifecycle` formatter / dedup key) correctly suppresses a second send attempt for the same exit event.
+11. **No real order** — confirm zero broker order-placement calls were made for this trade (paper-only, as designed).
+12. **Broker execution still disabled** — confirm the broker-execution kill switch/flag is still off in production after this trade's full lifecycle.
+
+Only once all 12 are confirmed with evidence (query results / log lines) should the verdict in this report be updated to:
+
+```
+FNO_EXIT_MONITORING_PROD_VERIFIED
+```
