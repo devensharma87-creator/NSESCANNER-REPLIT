@@ -4987,6 +4987,33 @@
     "hash": "832d6ad043c16721"
   },
   {
+    "path": "artifacts/api-server/src/lib/systemAlertDedupSelfTest.test.ts",
+    "purpose": "test",
+    "lines": 173,
+    "exports": [],
+    "externalImports": [
+      "vitest"
+    ],
+    "routes": [],
+    "hash": "1757c30d1c000d73"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/systemAlertDedupSelfTest.ts",
+    "purpose": "test",
+    "lines": 173,
+    "exports": [
+      "SystemAlertDedupSelfTestResult",
+      "getLastSystemAlertDedupSelfTestResult",
+      "runSystemAlertDedupSelfTest"
+    ],
+    "externalImports": [
+      "@workspace/db",
+      "drizzle-orm"
+    ],
+    "routes": [],
+    "hash": "424f22208b03c782"
+  },
+  {
     "path": "artifacts/api-server/src/lib/systemStatus.ts",
     "purpose": "lib",
     "lines": 363,
@@ -5721,7 +5748,7 @@
   {
     "path": "artifacts/api-server/src/routes/alerts.ts",
     "purpose": "api-route",
-    "lines": 302,
+    "lines": 304,
     "exports": [],
     "externalImports": [
       "express"
@@ -5735,7 +5762,7 @@
       "POST /alerts/test-pre-market-report",
       "POST /alerts/test-post-market-report"
     ],
-    "hash": "88b2b9f41449de30"
+    "hash": "7b6d228d554093c0"
   },
   {
     "path": "artifacts/api-server/src/routes/auth.ts",

@@ -1,0 +1,637 @@
+CODER PROMPT — RESUME + COMPLETE P1 F&O EXIT MONITORING RELIABILITY PROPERLY
+
+Current accepted production milestones:
+
+1. SIGNAL_DATA_NOTIFICATION_PARITY_DETERMINISTIC_PROD_VERIFIED_LIVE_SMOKE_PENDING
+2. GLOBAL_DATA_HEALTH_KITE_RESILIENCE_PROD_VERIFIED
+3. SWING_TTL_LIFECYCLE_PROD_VERIFIED
+4. TELEGRAM_ALERT_QUALITY_PROD_VERIFIED
+
+Now resume and properly close the F&O Exit Monitoring Reliability task.
+
+Important context:
+
+A previous F&O exit-monitoring implementation was started, but it was interrupted by the Telegram alert-quality P0 issue. Do not start from zero blindly. First audit the current workspace state and identify what is already implemented, what is merged, what is only dev-tested, what is missing, and what still needs production verification.
+
+The owner will not share the admin password. Do not ask for it. For owner-only UI pages, provide an exact manual verification checklist and mark visual verification as OWNER-MANUAL-PENDING if needed.
+
+====================================================
+CORE OBJECTIVE
+====================================================
+
+Open F&O paper trades must be monitored reliably for stop-loss and target exits using fresh trusted Kite data only.
+
+The system must ensure:
+
+1. F&O paper trade exits are monitored by backend scheduler, not by page open.
+2. Stop-loss and target exits use fresh trusted Kite data only.
+3. Stale, missing, Yahoo, cached, delayed, or synthetic data never closes a trade.
+4. Exit detection fails closed if data is not trade-grade.
+5. DB close is atomic and idempotent.
+6. Duplicate close is impossible.
+7. Telegram exit sends once only after successful close.
+8. Paper Trading UI, DB, Telegram, notification log, reports, and parity harness agree.
+9. Monitoring health is visible in Infra Health.
+10. Broker execution remains disabled.
+11. No real order is placed.
+
+====================================================
+ABSOLUTE DO-NOT-DO RULES
+====================================================
+
+Do not change F&O entry strategy logic.
+
+Do not change F&O signal thresholds.
+
+Do not change stop-loss or target formulas unless you find a clear bug and report it separately before changing.
+
+Do not change Swing strategy logic.
+
+Do not enable broker execution.
+
+Do not place real orders.
+
+Do not create fake trades.
+
+Do not use Yahoo/proxy/cache/stale data for F&O exits.
+
+Do not send duplicate Telegram exit alerts.
+
+Do not send test/dev/sample exits to real Telegram.
+
+Do not silently close trades without audit trail.
+
+Do not delete DB rows.
+
+Do not perform destructive migrations.
+
+Do not run candle backfill.
+
+Do not hide source warnings.
+
+Do not fake Kite readiness.
+
+Do not break global data-health.
+
+Do not break Swing TTL lifecycle.
+
+Do not break Telegram alert dedup.
+
+Do not break the parity harness.
+
+Do not ask for the owner/admin password.
+
+Do not trim, rewrite, reorganize, or mention replit.md.
+
+Do not work on Global Scanner screener preset in this task. That is separate and out of scope.
+
+====================================================
+PHASE 0 — CURRENT STATE AUDIT BEFORE CODING
+====================================================
+
+Before writing code, inspect the current workspace and report:
+
+1. Which F&O exit-monitoring files already exist?
+2. Which DB columns/tables were already added?
+3. Which tests already exist and pass?
+4. Which endpoints already exist?
+5. Which scheduler code already exists?
+6. Which UI changes already exist?
+7. Which Infra Health changes already exist?
+8. Which report file exists?
+9. Was anything already committed/merged?
+10. What is still missing?
+11. What is dev verified?
+12. What is not production verified?
+13. What exact files will be changed now?
+14. What will not be touched?
+
+Read:
+
+- AGENT.md
+- docs/llm-index/AGENT_START_HERE.md
+- docs/llm-index/CRITICAL_FLOWS.md
+- docs/llm-index/API_ROUTES_INDEX.md
+- docs/llm-index/DATABASE_INDEX.md
+- docs/llm-index/DATA_SOURCES_AND_PROVENANCE.md
+- docs/llm-index/TEST_AND_VERIFICATION_INDEX.md
+- SIGNAL_DATA_NOTIFICATION_PARITY_FIX_REPORT.md
+- GLOBAL_DATA_HEALTH_AND_KITE_RESILIENCE_REPORT.md
+- SWING_TTL_STAGED_ORDER_LIFECYCLE_REPORT.md
+- docs/telegram-alert-quality-audit-2026-07-03.md
+- FNO_EXIT_MONITORING_RELIABILITY_REPORT.md if it already exists
+
+Then inspect:
+
+- F&O paper trading schema/table
+- F&O paper trading routes
+- F&O signal generation files
+- option-chain quote files
+- Kite quote functions
+- paperTradeFo / paper trading F&O code
+- canonical trade lifecycle
+- notification_delivery_log
+- Telegram F&O alert functions
+- Paper Trading UI
+- Paper Trading Reports
+- Infra Health page
+- scheduler files
+- global data-health files
+- parity harness fixtures/comparator
+- existing F&O exit tests
+
+Do not code before this audit is complete.
+
+====================================================
+PHASE 1 — VERIFY OR COMPLETE EXIT DECISION CONTRACT
+====================================================
+
+There must be a pure deterministic decision function for F&O exits.
+
+Expected function:
+
+evaluateFnoPaperTradeExit(input): FnoExitDecision
+
+It must return:
+
+- shouldExit
+- exitReason
+- exitPrice
+- quoteSource
+- quoteAsOf
+- quoteFreshnessSec
+- tradeGrade
+- blocked
+- blockedReason
+- priorityRuleApplied
+
+Required rules:
+
+1. Use fresh trusted Kite quote only.
+2. No Yahoo/proxy/cache/synthetic exit.
+3. Stale quote blocks exit.
+4. Missing quote blocks exit.
+5. Invalid contract blocks exit.
+6. If price is between SL and target, return NO_EXIT.
+7. If target crossed, return TARGET_HIT.
+8. If stop-loss crossed, return STOP_LOSS_HIT.
+9. If both SL and target appear crossed in same check, use conservative deterministic rule and document it.
+10. Market closed should not create fake exits.
+11. Quote timestamp must be captured.
+12. Exit price must be the quote price actually used.
+
+If this already exists, verify it. If incomplete, complete it.
+
+====================================================
+PHASE 2 — VERIFY OR COMPLETE EXIT MONITOR SCHEDULER
+====================================================
+
+There must be backend monitoring for open F&O paper trades.
+
+Scheduler requirements:
+
+1. Runs during market hours.
+2. Does not depend on user opening Paper Trading page.
+3. Uses global data-health gate.
+4. Uses fresh Kite/trade-grade quote only.
+5. Fails closed when Kite is missing/expired/stale.
+6. Uses safe batching.
+7. Multi-worker safe.
+8. Does not double close.
+9. Does not duplicate Telegram.
+10. Logs summary.
+
+Scheduler summary must record:
+
+- checkedAt
+- openTradesScanned
+- quotesFetched
+- exitedCount
+- blockedCount
+- skippedCount
+- duplicateSkippedCount
+- staleDataCount
+- kiteUnavailableCount
+- errors
+- durationMs
+- nextRunAt
+
+If scheduler already exists, harden/verify it instead of creating a duplicate.
+
+====================================================
+PHASE 3 — VERIFY OR COMPLETE DB IDEMPOTENCY
+====================================================
+
+Closing a paper trade must be atomic.
+
+Use actual schema/table names, but the pattern must be equivalent to:
+
+UPDATE paper_trade_fo
+SET status = 'CLOSED',
+    exit_reason = ...,
+    exit_price = ...,
+    closed_at = now(),
+    updated_at = now()
+WHERE id = ?
+  AND status = 'OPEN'
+RETURNING *
+
+Required:
+
+1. Only OPEN trades can close.
+2. Already closed trades cannot close again.
+3. Concurrent monitors cannot double close.
+4. Failed Telegram does not reopen trade.
+5. Retry does not duplicate Telegram.
+6. Every close has audit fields.
+
+Audit fields should include, if not already present:
+
+- exit_detected_at
+- exit_quote_source
+- exit_quote_as_of
+- exit_quote_freshness_sec
+- exit_trade_grade
+- exit_monitor_status
+- last_exit_check_at
+- last_exit_check_error
+- exit_notification_status
+
+Use safe additive schema changes only.
+
+No destructive migration.
+
+====================================================
+PHASE 4 — VERIFY OR COMPLETE TELEGRAM EXIT CONSISTENCY
+====================================================
+
+F&O exit Telegram must be canonical and one-time.
+
+Rules:
+
+1. Telegram exit sends only after DB close succeeds.
+2. Telegram exit sends once only.
+3. notification_delivery_log must dedup.
+4. Telegram exit must include:
+   - underlying/index
+   - option contract
+   - side CALL/PUT
+   - entry price
+   - exit price
+   - stop-loss
+   - target
+   - P&L if available
+   - exit reason
+   - quote source
+   - quote as-of
+   - paper trade ID
+   - broker execution disabled
+5. Telegram must not send for:
+   - stale quote
+   - missing quote
+   - blocked monitoring attempt
+   - test event
+   - dev event
+   - duplicate exit
+   - non-trade-grade source
+
+Important:
+
+If a previous implementation changed PUT P&L logic, verify it carefully. This platform trades long option premium. For long CALL and long PUT option paper trades, premium P&L is generally:
+
+exitPremium - entryPremium
+
+Do not calculate long PUT premium P&L backwards.
+
+====================================================
+PHASE 5 — VERIFY OR COMPLETE API ENDPOINTS
+====================================================
+
+Required owner-only endpoints:
+
+1. GET /api/paper-trading/fno/exit-monitor/status
+
+Returns:
+
+- scheduler running
+- last run time
+- last run duration
+- open trades scanned
+- exited count
+- blocked count
+- stale count
+- kite unavailable count
+- duplicate skipped count
+- last error
+- next run estimate
+
+2. POST /api/paper-trading/fno/exit-monitor/run-dry
+
+Must:
+
+- evaluate open trades
+- not close DB rows
+- not send Telegram
+- not create orders
+- return what would happen
+
+3. POST /api/paper-trading/fno/exit-monitor/run-now
+
+Must:
+
+- be owner-only strict
+- close only eligible OPEN trades
+- not place real broker order
+- send Telegram only for successfully closed trades
+- use dedup
+
+All endpoints:
+
+- anonymous blocked
+- no secrets exposed
+- no tokens exposed
+- no DB URLs
+- no Telegram bot/chat IDs
+
+Use existing route conventions if path differs, but document exact final paths.
+
+====================================================
+PHASE 6 — VERIFY OR COMPLETE UI AND OWNER MANUAL CHECKLIST
+====================================================
+
+Paper Trading UI should show:
+
+For open F&O paper trades:
+
+- current monitored quote
+- quote source
+- quote as-of
+- quote freshness
+- monitoring status
+- last checked time
+- stop-loss distance
+- target distance
+- whether exit monitoring is active
+- blocked reason if monitoring is blocked
+
+For closed F&O paper trades:
+
+- exit reason
+- exit price
+- closedAt
+- quote source/as-of used for exit
+- Telegram delivery status if available
+
+Add/verify Exit Monitor widget:
+
+- scheduler status
+- last run
+- open trades scanned
+- exited count
+- blocked count
+- stale count
+- last error
+- Run Dry button
+- Run Now button only owner-confirmed if added
+
+Owner-only pages require password. Do not ask for password.
+
+If automated visual verification is blocked, provide:
+
+- exact page paths
+- exact elements the owner must verify
+- expected wording
+- expected screenshots/checkpoints
+
+Mark visual verification as:
+
+OWNER_MANUAL_VISUAL_VERIFICATION_PENDING
+
+Do not block backend/API production verification because of missing password.
+
+====================================================
+PHASE 7 — VERIFY OR COMPLETE REPORTS CONSISTENCY
+====================================================
+
+Paper Trading reports must be consistent.
+
+Required:
+
+1. Closed exits counted once.
+2. Duplicate close impossible.
+3. Blocked monitoring attempts not counted as trades.
+4. Stale data blocks not counted as losses/wins.
+5. P&L calculated from entry and actual exit price.
+6. Source/as-of visible where relevant.
+7. Telegram failed/pending does not change trade result.
+8. Manual close and automatic SL/target close are distinguishable.
+9. Parity harness can replay exit event.
+
+====================================================
+PHASE 8 — VERIFY OR COMPLETE INFRA HEALTH
+====================================================
+
+Infra Health must show F&O Exit Monitor section.
+
+Show:
+
+- scheduler running
+- last run time
+- last run duration
+- open trades scanned
+- exited count
+- blocked count
+- stale data count
+- Kite unavailable count
+- duplicate skipped count
+- last error
+- next run estimate
+- last closed trade ID
+- last Telegram exit delivery status
+- current global data-health gate
+
+No secrets.
+
+No order placement.
+
+No broker action.
+
+If visual auth is blocked, provide owner-manual checklist.
+
+====================================================
+PHASE 9 — TESTS REQUIRED
+====================================================
+
+Run or add tests for:
+
+1. Exit decision returns NO_EXIT when price between SL and target.
+2. Exit decision returns TARGET_HIT when target crossed.
+3. Exit decision returns STOP_LOSS_HIT when SL crossed.
+4. Both SL and target crossed uses documented priority rule.
+5. Stale quote blocks exit.
+6. Yahoo/proxy/cache source blocks exit.
+7. Missing Kite quote blocks exit.
+8. Invalid contract blocks exit.
+9. Market closed blocks automatic monitoring or marks inactive.
+10. Scheduler scans open trades.
+11. Scheduler does not close already closed trades.
+12. Scheduler closes eligible target hit once.
+13. Scheduler closes eligible stop-loss hit once.
+14. Concurrent scheduler cannot double close.
+15. Dry-run does not mutate DB.
+16. Run-now mutates only eligible OPEN rows.
+17. Telegram exit sent once after successful close.
+18. Telegram not sent for blocked/stale decision.
+19. Telegram duplicate blocked.
+20. notification_delivery_log dedups exit.
+21. Paper Trading UI receives monitor status.
+22. Reports count closed exit once.
+23. Blocked monitor attempts not counted as trade result.
+24. Parity harness can replay F&O exit event.
+25. TESTSTK/dev/test blocked from production Telegram.
+26. Global data-health gate blocks exit when not trade-grade.
+27. Broker execution remains disabled.
+28. No real order path touched.
+29. Infra Health exit monitor section renders.
+
+Run:
+
+pnpm --filter @workspace/api-server run typecheck
+pnpm --filter @workspace/api-server run typecheck:libs
+pnpm --filter @workspace/api-server exec vitest run src/lib/*fno*.test.ts src/lib/*paper*.test.ts src/lib/*exit*.test.ts src/lib/*option*.test.ts src/lib/*kite*.test.ts src/lib/*trade*.test.ts src/lib/*parity*.test.ts src/lib/*notification*.test.ts src/routes/**/*.test.ts
+pnpm --filter @workspace/scanner exec vitest run
+pnpm --filter @workspace/scripts run index:llm
+pnpm --filter @workspace/scripts run index:llm:check
+
+If full suite times out, run in batches and report:
+
+- batch name
+- files
+- pass count
+- fail count
+- exit code
+
+====================================================
+PHASE 10 — PRODUCTION VERIFICATION
+====================================================
+
+After publish, verify production.
+
+Required:
+
+1. Exit monitor endpoints are live.
+2. Endpoints are owner-only.
+3. Anonymous access blocked.
+4. No secrets exposed.
+5. DB schema exists.
+6. Dry-run works with open trades or clean no-open-trades state.
+7. Dry-run does not close trades.
+8. Dry-run does not send Telegram.
+9. Confirmed run closes only eligible open trades if safe eligible test/open trade exists.
+10. No duplicate close.
+11. No duplicate Telegram.
+12. Existing closed trades unchanged.
+13. Paper Trading UI has owner-manual checklist.
+14. Infra Health has owner-manual checklist.
+15. Reports remain consistent.
+16. Parity harness remains green.
+17. Global data-health remains accurate.
+18. Telegram alert quality remains green.
+19. Swing TTL remains green.
+20. Broker execution disabled.
+21. No real orders placed.
+22. Tests pass.
+23. LLM index fresh.
+
+Production report table:
+
+| Check | Result | Evidence |
+|---|---|---|
+
+====================================================
+PHASE 11 — REPORT REQUIRED
+====================================================
+
+Create or update:
+
+FNO_EXIT_MONITORING_RELIABILITY_REPORT.md
+
+Report must include:
+
+1. Current state audit.
+2. What already existed before this resume task.
+3. What was added/fixed now.
+4. Exit decision contract.
+5. Source/trade-grade rules.
+6. Scheduler behavior.
+7. DB idempotency mechanism.
+8. Multi-worker safety.
+9. Telegram exit policy.
+10. API endpoints.
+11. UI changes and owner-manual checklist.
+12. Reports consistency.
+13. Infra Health integration and owner-manual checklist.
+14. Tests run with counts.
+15. LLM index result.
+16. Production verification evidence.
+17. Remaining blockers.
+18. Exact next action.
+19. Final verdict.
+
+Also update:
+
+- SIGNAL_DATA_NOTIFICATION_PARITY_FIX_REPORT.md only if parity behavior changed.
+- GLOBAL_DATA_HEALTH_AND_KITE_RESILIENCE_REPORT.md only if global health behavior changed.
+- SWING_TTL_STAGED_ORDER_LIFECYCLE_REPORT.md only if Swing TTL behavior changed.
+- docs/telegram-alert-quality-audit-2026-07-03.md only if alert-quality behavior changed.
+
+====================================================
+FINAL VERDICT
+====================================================
+
+Final verdict must be exactly one:
+
+- FNO_EXIT_MONITORING_PROD_VERIFIED
+- FNO_EXIT_MONITORING_DEV_VERIFIED
+- FNO_EXIT_MONITORING_PARTIAL_SOURCE_GAP_REMAINS
+- FNO_EXIT_MONITORING_BUILD_NOT_DEPLOYED
+- ROLLBACK_REQUIRED
+
+Use FNO_EXIT_MONITORING_PROD_VERIFIED only if production is published and verified.
+
+Use FNO_EXIT_MONITORING_DEV_VERIFIED if implementation/tests pass but production publish/verification is pending.
+
+Use FNO_EXIT_MONITORING_PARTIAL_SOURCE_GAP_REMAINS if exit monitoring exists but can still miss exits, duplicate exits, use stale data, or show inconsistent state.
+
+Use ROLLBACK_REQUIRED if broker execution turns on, real orders are placed, secrets leak, stale data can close trades, or Telegram exit alerts become unsafe.
+
+====================================================
+ACCEPTANCE CRITERIA
+====================================================
+
+This task is accepted only if:
+
+- current implementation state is audited first
+- open F&O paper trades are monitored by backend scheduler
+- monitoring does not depend on user opening the page
+- exits use fresh trusted Kite data only
+- stale/Yahoo/cache/proxy data cannot close trades
+- stop-loss/target decision is deterministic
+- DB close is idempotent
+- duplicate close is impossible
+- Telegram exit sends once only
+- blocked monitor attempts do not send trade alerts
+- Paper Trading UI has monitor state
+- Infra Health has exit monitor state
+- owner-only visual verification checklist is provided if password blocks automated UI
+- reports count exits correctly
+- parity harness remains green
+- global data-health remains accurate
+- Telegram alert quality remains green
+- Swing TTL remains green
+- broker execution remains disabled
+- no real orders are placed
+- no secrets exposed
+- tests pass
+- LLM index fresh
+- production verification completed

@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-03T11:13:41.245Z",
+  "generatedAt": "2026-07-03T13:21:54.768Z",
   "generatorVersion": "1.0.0",
   "files": {
     "artifacts/api-server/src/routes/admin.ts": {
@@ -8,9 +8,9 @@
       "mtime": "2026-05-04T15:59:19.792Z"
     },
     "artifacts/api-server/src/routes/alerts.ts": {
-      "hash": "88b2b9f41449de30",
-      "lines": 302,
-      "mtime": "2026-07-03T08:06:23.477Z"
+      "hash": "7b6d228d554093c0",
+      "lines": 304,
+      "mtime": "2026-07-03T11:29:02.346Z"
     },
     "artifacts/api-server/src/routes/auth.ts": {
       "hash": "796491100d7866e0",
@@ -1046,6 +1046,11 @@
       "hash": "832d6ad043c16721",
       "lines": 286,
       "mtime": "2026-07-03T07:41:27.612Z"
+    },
+    "artifacts/api-server/src/lib/systemAlertDedupSelfTest.ts": {
+      "hash": "424f22208b03c782",
+      "lines": 173,
+      "mtime": "2026-07-03T11:28:29.548Z"
     },
     "artifacts/api-server/src/lib/systemStatus.ts": {
       "hash": "8f7c708f9fb65303",
