@@ -1,0 +1,84 @@
+Accepted as CANONICAL_DATA_CHECKPOINT_1_DEV_VERIFIED.
+
+Now publish and run production verification for Checkpoint 1 only.
+
+Do not start Checkpoint 2 yet.
+Do not work on scanner migration.
+Do not work on charting migration.
+Do not work on option-chain/OI Lab migration yet.
+Do not touch F&O strategy logic.
+Do not touch Swing strategy logic.
+Do not change thresholds.
+Do not enable broker execution.
+Do not place real orders.
+Do not send real Telegram test messages.
+Do not ask for owner/admin password.
+Do not trim, rewrite, reorganize, or mention replit.md.
+
+Production verification checklist:
+
+1. Confirm production build contains commit 70ae0b7 or later.
+2. Confirm /api/healthz returns 200.
+3. Confirm preview endpoint exists:
+   GET /api/daily-analysis/telegram/preview?type=pre
+   GET /api/daily-analysis/telegram/preview?type=post
+
+4. Confirm anonymous access is blocked with 401.
+5. Confirm owner-auth preview works if possible.
+6. If owner auth cannot be used, confirm route exists through bundle/API registration and provide owner manual checklist.
+
+7. Confirm preview does not send Telegram.
+8. Confirm preview does not mutate dedup state.
+9. Confirm no secrets are exposed.
+
+10. Pre-market preview must show:
+   - Kite status
+   - Feed status
+   - F&O readiness from CanonicalFnoReadiness
+   - Daily bars readiness
+   - Intraday bars readiness
+   - Option-chain readiness
+   - Signal counts
+   - Swing staging counts
+   - unavailable providers collapsed into footer
+   - no “F&O readiness: Unavailable — not tracked yet” if readiness data exists
+
+11. Post-market preview must show:
+   - compact format
+   - F&O signal counts
+   - paper-trade counts
+   - Swing counts
+   - data-health summary
+   - unavailable providers collapsed into footer
+   - no long placeholder sections
+
+12. Confirm F&O warmup known issue no longer maps to UNKNOWN:
+   - intraday missing => INTRADAY_BARS_MISSING
+   - daily missing => DAILY_BARS_MISSING
+   - expired session => KITE_SESSION_EXPIRED
+   - no ticks/feed issue => WEBSOCKET_NO_TICKS or KITE_FEED_NO_TICKS
+   - market closed => MARKET_CLOSED, not critical
+
+13. Confirm F&O warmup remains one digest, not per-index spam.
+14. Confirm broker execution remains disabled.
+15. Confirm no real orders placed.
+16. Confirm no Telegram spam.
+17. Confirm /api/data-health/global still works.
+18. Confirm Telegram alert dedup still works.
+19. Confirm Swing TTL remains green.
+20. Confirm F&O exit monitoring remains DEV_VERIFIED.
+21. Run tests and report counts:
+   - relevant api-server report/F&O/alert/data-health tests
+   - scanner tests
+   - typecheck
+   - LLM index check
+
+Update WEBSITE_CANONICAL_DATA_INTEGRATION_REPORT.md with production verification evidence.
+
+Final verdict must be exactly one:
+
+- CANONICAL_DATA_CHECKPOINT_1_PROD_VERIFIED
+- CANONICAL_DATA_CHECKPOINT_1_DEV_VERIFIED
+- CANONICAL_DATA_CHECKPOINT_1_PARTIAL_SOURCE_GAP_REMAINS
+- CANONICAL_DATA_CHECKPOINT_1_BUILD_NOT_DEPLOYED
+- ROLLBACK_REQUIRED
