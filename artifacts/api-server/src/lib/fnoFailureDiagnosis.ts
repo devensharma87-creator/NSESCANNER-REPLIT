@@ -1126,21 +1126,41 @@ function buildRecommendations(hyps: HypothesisFinding[]): RecommendedNextStep[] 
 
 export type DataFailureCode =
   | "SESSION_MISSING"
+  | "KITE_SESSION_EXPIRED"
   | "TOKEN_MISSING"
   | "EXCHANGE_UNSUPPORTED"
   | "THROTTLED"
   | "DATE_RANGE"
   | "MARKET_JUST_OPENED"
+  | "MARKET_CLOSED"
+  | "DAILY_BARS_MISSING"
+  | "INTRADAY_BARS_MISSING"
+  | "WEBSOCKET_NO_TICKS"
+  | "OPTION_CHAIN_STALE"
   | "WARMUP"
   | "UNKNOWN";
 
 export interface DataFailureContext {
   /** Kite session validity at the time, when known. */
   sessionValid?: boolean;
+  /**
+   * True when the session is KNOWN to be present but expired (distinct from
+   * never having had one). Callers with an explicit expiry signal (e.g. a
+   * TTL check) should set this instead of relying on message-text sniffing.
+   */
+  sessionExpired?: boolean;
   /** Market phase at the time, when known. */
   marketSession?: "open" | "closed" | "pre_open";
   /** Seconds since the 09:15 IST open (null/undefined when unknown). */
   secondsSinceOpen?: number | null;
+  /**
+   * Which warmup step produced this failure, when known — lets the
+   * classifier attribute a known-cause step failure instead of falling back
+   * to UNKNOWN.
+   */
+  failedStep?: "quote" | "dailyBars" | "intradayBars" | "optionChain";
+  /** Live tick feed (KiteTicker WebSocket) connectivity, when known. */
+  feedConnected?: boolean;
 }
 
 export interface DataFailureDiagnosis {
@@ -1153,11 +1173,17 @@ export interface DataFailureDiagnosis {
 
 const RECOVERY: Record<DataFailureCode, string> = {
   SESSION_MISSING: "Reconnect Zerodha (Kite session expired or missing).",
+  KITE_SESSION_EXPIRED: "Reconnect Zerodha (Kite session expired).",
   TOKEN_MISSING: "Configure Kite API credentials (api_key / access_token).",
   EXCHANGE_UNSUPPORTED: "Instrument/exchange not covered — verify the instrument mapping.",
   THROTTLED: "Kite rate-limited or timed out — retries automatically next cycle.",
   DATE_RANGE: "Invalid historical date range — check the requested from/to window.",
   MARKET_JUST_OPENED: "Market just opened — first bars form shortly; retries automatically.",
+  MARKET_CLOSED: "Market is closed — data refreshes automatically next session.",
+  DAILY_BARS_MISSING: "Daily historical bars unavailable — trigger a Kite warmup or check /fno-diagnostics.",
+  INTRADAY_BARS_MISSING: "Intraday historical bars unavailable — trigger a Kite warmup or check /fno-diagnostics.",
+  WEBSOCKET_NO_TICKS: "Live tick feed (KiteTicker WebSocket) disconnected — check the feed connection; retries automatically.",
+  OPTION_CHAIN_STALE: "Option-chain data is stale or unavailable — display-only, does not block signals; check /option-chain.",
   WARMUP: "Kite historical API is warming up after login — retries automatically next cycle.",
   UNKNOWN: "Check /fno-diagnostics data-health; trigger a Kite warmup if the session is active.",
 };
@@ -1207,10 +1233,21 @@ export function classifyDataFailure(
     return mk("TOKEN_MISSING");
   }
 
-  // 3) Session expired / unauthorised.
+  // 3) Explicit session-expiry signal — either a caller-known TTL expiry or
+  // an explicit "expired" in the error text. Distinct from a session that is
+  // simply missing/never established.
   if (
-    has(hay, "tokenexception", "session expired", "no session", "logged out", "unauthor", "401", "403") ||
-    (has(hay, "session") && has(hay, "expired", "missing", "invalid", "unreachable"))
+    context.sessionExpired === true ||
+    has(hay, "session expired") ||
+    (has(hay, "session") && has(hay, "expired"))
+  ) {
+    return mk("KITE_SESSION_EXPIRED");
+  }
+
+  // 3b) Session missing / unauthorised (never established, or generically invalid).
+  if (
+    has(hay, "tokenexception", "no session", "logged out", "unauthor", "401", "403") ||
+    (has(hay, "session") && has(hay, "missing", "invalid", "unreachable"))
   ) {
     return mk("SESSION_MISSING");
   }
@@ -1234,9 +1271,41 @@ export function classifyDataFailure(
     return mk("EXCHANGE_UNSUPPORTED");
   }
 
+  // 6.5) Option-chain step failure — the option chain surface has its own
+  // failure vocabulary (staleness / empty chain) rather than a fixed message
+  // string, so this is keyed on the caller-supplied step, not `hay`.
+  // Option-chain data is display-only reporting; it never feeds trade
+  // decisions, so this classification cannot change any signal path.
+  if (context.failedStep === "optionChain") {
+    // Note: KITE_SESSION_EXPIRED is already handled above (branch 3) before
+    // any hay/step-based classification runs, so it never reaches here.
+    if (context.sessionValid === false) return mk("SESSION_MISSING");
+    if (context.marketSession === "closed") {
+      return mk(
+        "MARKET_CLOSED",
+        "Market is closed — option chain will refresh next session.",
+        true,
+      );
+    }
+    return mk(
+      "OPTION_CHAIN_STALE",
+      raw || "Kite session active but option-chain data is stale or unavailable.",
+      false,
+    );
+  }
+
   // 7) `no_live_kite_intraday` — ambiguous by design; refine with context.
   if (has(hay, "no_live_kite_intraday", "no live kite intraday")) {
+    // Note: KITE_SESSION_EXPIRED is already handled above (branch 3) before
+    // any hay/step-based classification runs, so it never reaches here.
     if (context.sessionValid === false) return mk("SESSION_MISSING");
+    if (context.marketSession === "closed") {
+      return mk(
+        "MARKET_CLOSED",
+        "Market is closed — intraday bars will resume next session.",
+        true,
+      );
+    }
     if (
       context.secondsSinceOpen != null &&
       context.secondsSinceOpen >= 0 &&
@@ -1244,7 +1313,21 @@ export function classifyDataFailure(
     ) {
       return mk("MARKET_JUST_OPENED");
     }
+    if (context.feedConnected === false || context.failedStep === "quote") {
+      return mk(
+        "WEBSOCKET_NO_TICKS",
+        "Kite session active but the live tick feed (KiteTicker WebSocket) is disconnected — no ticks received.",
+        false,
+      );
+    }
     if (context.sessionValid === true) {
+      if (context.failedStep === "intradayBars") {
+        return mk(
+          "INTRADAY_BARS_MISSING",
+          "Kite session active but intraday bars are unavailable for this instrument.",
+          false,
+        );
+      }
       // Session is KNOWN active — claiming SESSION_MISSING here would be a
       // false diagnosis. Honest UNKNOWN with the real observation instead.
       return mk(
@@ -1259,9 +1342,18 @@ export function classifyDataFailure(
 
   // 8) `daily_history_unavailable_kite` — session active but no daily bars.
   if (has(hay, "daily_history_unavailable", "daily history unavailable")) {
+    // Note: KITE_SESSION_EXPIRED is already handled above (branch 3) before
+    // any hay/step-based classification runs, so it never reaches here.
     if (context.sessionValid === false) return mk("SESSION_MISSING");
+    if (context.marketSession === "closed") {
+      return mk(
+        "MARKET_CLOSED",
+        "Market is closed — daily bars will refresh next session.",
+        true,
+      );
+    }
     return mk(
-      "UNKNOWN",
+      "DAILY_BARS_MISSING",
       "Kite session active but daily bars unavailable — history not yet fetched or upstream returned empty.",
       false,
     );

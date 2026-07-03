@@ -207,3 +207,12 @@ export {
  */
 export { getActiveSession as centralActiveSession } from "../kiteAuth";
 export type { ActiveSession } from "../kiteAuth";
+
+/**
+ * Central Kite readiness accessor (wraps `kiteReadiness.getKiteReadiness`).
+ * Exposed here so consumers (e.g. `kiteWarmup`) can read market-session /
+ * feed-connected context for diagnostics WITHOUT importing the raw
+ * `kiteFeed`/`kiteAuth` providers directly.
+ */
+export { getKiteReadiness as centralKiteReadiness } from "../kiteReadiness";
+export type { KiteReadiness } from "../kiteReadiness";

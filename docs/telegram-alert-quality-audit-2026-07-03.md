@@ -540,3 +540,21 @@ live (schema, constraints, claim, CAS, cleanup); it does not claim to have obser
 four specific alert families fire and dedup naturally. Should the owner want that additional layer
 of proof, it will happen automatically the next time any of those conditions occurs — no further
 action is required to enable it.
+
+## 10. Addendum (2026-07-03) — Checkpoint 1 content-only change to row "F&O data warmup failed"
+
+Canonical-data Checkpoint 1 (see `WEBSITE_CANONICAL_DATA_INTEGRATION_REPORT.md`) changed the
+**message content** of the "F&O data warmup failed" row (§1, row 15): the reason string now
+distinguishes `INTRADAY_BARS_MISSING` / `DAILY_BARS_MISSING` / `WEBSOCKET_NO_TICKS` /
+`KITE_FEED_NO_TICKS` / `KITE_SESSION_EXPIRED` / `MARKET_CLOSED` instead of a generic `UNKNOWN`.
+It also added a new owner-only, `requireOwnerStrict`-gated preview endpoint
+(`GET /api/daily-analysis/telegram/preview?type=pre|post`) that renders pre-/post-market report
+text without sending Telegram or mutating dedup state.
+
+**Nothing in this audit's root-cause analysis changes as a result.** The dedup key
+(`FNO_DATA_HEALTH::<TYPE>::<INDEX>`), the in-memory `Map` primitive, the per-index (not digested)
+call site, the 10-minute window, and the single-digest-per-cycle framing are all unchanged — only
+the human-readable reason text inside the message changed. Rows 1–2 (pre/post-market DB-backed
+dedup) are likewise unaffected: the reports' *content* got more informative, their scheduling and
+`daily_report_runs` dedup mechanism did not change. No new alert family, scheduler, or dedup
+primitive was introduced by Checkpoint 1.

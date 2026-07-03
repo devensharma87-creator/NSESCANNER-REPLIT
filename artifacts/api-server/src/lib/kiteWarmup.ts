@@ -28,6 +28,7 @@ import {
   centralIndexQuotes,
   centralIndexCandles,
   centralHasIndexCoverage,
+  centralKiteReadiness,
   type ActiveSession,
 } from "./marketData/compat";
 import { getOptionChain } from "./marketData";
@@ -191,6 +192,22 @@ async function runWarmup(trigger: WarmupTrigger, loginTime: string | null): Prom
     quoteErr = err;
   }
 
+  // Diagnostics-only context (market session / feed-connected) so a failure's
+  // classification can be precise (e.g. MARKET_CLOSED vs WEBSOCKET_NO_TICKS)
+  // instead of falling through to UNKNOWN. Read-only, fail-open: a failure
+  // here never blocks or alters the warmup itself, it only degrades the
+  // classifier back to its prior (less specific) behavior.
+  let classifyCtx: { marketSession?: "open" | "closed" | "pre_open"; feedConnected?: boolean } = {};
+  try {
+    const readiness = await centralKiteReadiness();
+    classifyCtx = { marketSession: readiness.marketSession, feedConnected: readiness.feedConnected };
+  } catch (err) {
+    logger.warn(
+      { err: (err as Error)?.message },
+      "kiteWarmup: readiness context read failed (diagnostics only, warmup continues)",
+    );
+  }
+
   const indices: IndexWarmupResult[] = [];
   // Sequential per index AND per step — Kite's historical API is rate-limited
   // (~3 req/s) and warmup fires exactly as the ticker is (re)starting.
@@ -199,39 +216,55 @@ async function runWarmup(trigger: WarmupTrigger, loginTime: string | null): Prom
 
     // quote
     steps.push(
-      await timedStep("quote", async () => {
-        if (quoteErr) throw quoteErr instanceof Error ? quoteErr : new Error(String(quoteErr));
-        if (!quoteMap || !quoteMap.has(cfg.yahoo)) {
-          throw new Error(`no_live_kite_intraday (no quote for ${cfg.symbol})`);
-        }
-      }),
+      await timedStep(
+        "quote",
+        async () => {
+          if (quoteErr) throw quoteErr instanceof Error ? quoteErr : new Error(String(quoteErr));
+          if (!quoteMap || !quoteMap.has(cfg.yahoo)) {
+            throw new Error(`no_live_kite_intraday (no quote for ${cfg.symbol})`);
+          }
+        },
+        classifyCtx,
+      ),
     );
 
     // dailyBars
     steps.push(
-      await timedStep("dailyBars", async () => {
-        if (!centralHasIndexCoverage(cfg.yahoo)) {
-          throw new Error(`EXCHANGE_UNSUPPORTED (no Kite index coverage for ${cfg.symbol})`);
-        }
-        const daily = await centralIndexCandles(cfg.yahoo, "day", WARMUP_DAILY_DAYS);
-        if (!daily) throw new Error("daily_history_unavailable_kite");
-      }),
+      await timedStep(
+        "dailyBars",
+        async () => {
+          if (!centralHasIndexCoverage(cfg.yahoo)) {
+            throw new Error(`EXCHANGE_UNSUPPORTED (no Kite index coverage for ${cfg.symbol})`);
+          }
+          const daily = await centralIndexCandles(cfg.yahoo, "day", WARMUP_DAILY_DAYS);
+          if (!daily) throw new Error("daily_history_unavailable_kite");
+        },
+        classifyCtx,
+      ),
     );
 
     // intradayBars
     steps.push(
-      await timedStep("intradayBars", async () => {
-        const intra = await centralIndexCandles(cfg.yahoo, "15minute", WARMUP_INTRADAY_DAYS);
-        if (!intra) throw new Error("no_live_kite_intraday");
-      }),
+      await timedStep(
+        "intradayBars",
+        async () => {
+          const intra = await centralIndexCandles(cfg.yahoo, "15minute", WARMUP_INTRADAY_DAYS);
+          if (!intra) throw new Error("no_live_kite_intraday");
+        },
+        classifyCtx,
+      ),
     );
 
     // optionChain (DISPLAY mode — priming only, does not feed any trade decision)
     steps.push(
-      await timedStep("optionChain", async () => {
-        const res = await getOptionChain(cfg.symbol);
-        if (!res.ok || !res.data) throw new Error(res.reason ?? "option chain unavailable");
-      }),
+      await timedStep(
+        "optionChain",
+        async () => {
+          const res = await getOptionChain(cfg.symbol);
+          if (!res.ok || !res.data) throw new Error(res.reason ?? "option chain unavailable");
+        },
+        classifyCtx,
+      ),
     );
 
     indices.push({ index: cfg.symbol, ok: steps.every((s) => s.ok), steps });
@@ -266,7 +299,11 @@ async function runWarmup(trigger: WarmupTrigger, loginTime: string | null): Prom
 }
 
 /** Run a single warmup step, timing it and classifying any failure. */
-async function timedStep(step: WarmupStep, fn: () => Promise<void>): Promise<WarmupStepResult> {
+async function timedStep(
+  step: WarmupStep,
+  fn: () => Promise<void>,
+  classifyCtx: { marketSession?: "open" | "closed" | "pre_open"; feedConnected?: boolean } = {},
+): Promise<WarmupStepResult> {
   const t0 = Date.now();
   try {
     await fn();
@@ -275,7 +312,15 @@ async function timedStep(step: WarmupStep, fn: () => Promise<void>): Promise<War
     // Warmup only runs AFTER the fail-closed active-session check, so the
     // session is known valid here — pass that so the classifier never emits a
     // false SESSION_MISSING for ambiguous reasons like `no_live_kite_intraday`.
-    const diag = classifyDataFailure(err, { sessionValid: true });
+    // `failedStep` + `marketSession` + `feedConnected` let the classifier
+    // return a precise code (MARKET_CLOSED, WEBSOCKET_NO_TICKS,
+    // INTRADAY_BARS_MISSING, OPTION_CHAIN_STALE, …) instead of UNKNOWN.
+    const diag = classifyDataFailure(err, {
+      sessionValid: true,
+      failedStep: step,
+      marketSession: classifyCtx.marketSession,
+      feedConnected: classifyCtx.feedConnected,
+    });
     return { step, ok: false, code: diag.code, message: diag.message, ms: Date.now() - t0 };
   }
 }

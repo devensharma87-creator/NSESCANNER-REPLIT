@@ -373,3 +373,69 @@ describe("classifyDataFailure — `no_live_kite_intraday` branch honesty", () =>
     expect(d.code).toBe("SESSION_MISSING");
   });
 });
+
+describe("classifyDataFailure — Checkpoint 1 new failure codes", () => {
+  it("explicit session-expired text → KITE_SESSION_EXPIRED (distinct from SESSION_MISSING)", () => {
+    const d = classifyDataFailure("TokenException: session expired", { sessionValid: true });
+    expect(d.code).toBe("KITE_SESSION_EXPIRED");
+  });
+
+  it("caller-known sessionExpired context flag → KITE_SESSION_EXPIRED even with an ambiguous message", () => {
+    const d = classifyDataFailure("no_live_kite_intraday", { sessionExpired: true });
+    expect(d.code).toBe("KITE_SESSION_EXPIRED");
+  });
+
+  it("`daily_history_unavailable_kite` with an active session → DAILY_BARS_MISSING (was UNKNOWN)", () => {
+    const d = classifyDataFailure("daily_history_unavailable_kite", { sessionValid: true });
+    expect(d.code).toBe("DAILY_BARS_MISSING");
+  });
+
+  it("`no_live_kite_intraday` attributed to the intradayBars warmup step → INTRADAY_BARS_MISSING", () => {
+    const d = classifyDataFailure("no_live_kite_intraday", {
+      sessionValid: true,
+      failedStep: "intradayBars",
+    });
+    expect(d.code).toBe("INTRADAY_BARS_MISSING");
+  });
+
+  it("`no_live_kite_intraday` attributed to the quote warmup step → WEBSOCKET_NO_TICKS", () => {
+    const d = classifyDataFailure("no_live_kite_intraday", {
+      sessionValid: true,
+      failedStep: "quote",
+    });
+    expect(d.code).toBe("WEBSOCKET_NO_TICKS");
+  });
+
+  it("feedConnected=false → WEBSOCKET_NO_TICKS regardless of failedStep", () => {
+    const d = classifyDataFailure("no_live_kite_intraday", {
+      sessionValid: true,
+      feedConnected: false,
+    });
+    expect(d.code).toBe("WEBSOCKET_NO_TICKS");
+  });
+
+  it("market known closed → MARKET_CLOSED, not a false SESSION_MISSING/UNKNOWN", () => {
+    const d = classifyDataFailure("no_live_kite_intraday", {
+      sessionValid: true,
+      marketSession: "closed",
+    });
+    expect(d.code).toBe("MARKET_CLOSED");
+    expect(d.transient).toBe(true);
+  });
+
+  it("option-chain step failure → OPTION_CHAIN_STALE (display-only, never a trade-signal code)", () => {
+    const d = classifyDataFailure("chain unavailable", {
+      sessionValid: true,
+      failedStep: "optionChain",
+    });
+    expect(d.code).toBe("OPTION_CHAIN_STALE");
+  });
+
+  it("option-chain step failure with no session → SESSION_MISSING wins over OPTION_CHAIN_STALE", () => {
+    const d = classifyDataFailure("chain unavailable", {
+      sessionValid: false,
+      failedStep: "optionChain",
+    });
+    expect(d.code).toBe("SESSION_MISSING");
+  });
+});

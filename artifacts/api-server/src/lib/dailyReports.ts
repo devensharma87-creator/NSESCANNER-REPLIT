@@ -43,19 +43,24 @@ import { db } from "@workspace/db";
 import { logger } from "./logger";
 import { getActiveSessionStatus } from "./kiteAuth";
 import { feedStatus } from "./kiteFeed";
-import { getLastFnoCycleState, OPTION_INDICES } from "./optionSignals";
 import { computeDailySummaryFo } from "./paperDailySummaryFo";
-import { getLastAlertRecord } from "./alerting";
-import { getLastSwingAlertRecord } from "./swingAlerts";
-import { getLastFnoSignalAlertRecord } from "./fnoSignalAlerts";
 import { getKiteIndexQuotes } from "./kiteIndexQuotes";
 import { computeAnalytics, type AnalyticsRowInput } from "./optionSnapshotAnalytics";
 import { SNAPSHOT_INDICES } from "./optionChainSnapshotIngestor";
+import {
+  getCanonicalFnoReadiness,
+  deriveFnoReadinessLabel,
+  type CanonicalFnoReadiness,
+} from "./canonicalFnoReadiness";
+import { getFnoExitMonitorHealth } from "./fnoExitMonitorHealth";
 import {
   sendPrePostTelegramMessage,
   getPrePostTelegramStatus,
   type PrePostTelegramConfigStatus,
 } from "./alerting";
+
+// Re-export for use by routes / tests
+export type { CanonicalFnoReadiness };
 
 // Re-export for use by routes
 export type { PrePostTelegramConfigStatus };
@@ -334,16 +339,6 @@ export interface PreMarketKite {
   feedSubscribed: number;
 }
 
-export interface PreMarketFno {
-  lastCycleAt: string | null;
-  cycleMinsAgo: number | null;
-  indicesWithBars: number;
-  indicesConfigured: number;
-  signalCount: number;
-  suppressed: boolean;
-  suppressedSummary: string;
-}
-
 export interface PreMarketSwing {
   pending: number;
   approvalRequired: number;
@@ -351,148 +346,128 @@ export interface PreMarketSwing {
   expired: number;
 }
 
-export interface PreMarketAlerts {
-  lastDataAlertEvent: string | null;
-  lastDataAlertMinsAgo: number | null;
-  lastSignalAlertMinsAgo: number | null;
-  lastSwingAlertMinsAgo: number | null;
-}
-
 export interface PreMarketReportData {
   isManualTest: boolean;
   istDatetime: string;
   isWeekend: boolean;
   kite: PreMarketKite;
-  fno: PreMarketFno | null;
+  /** Checkpoint 1 Part C — replaces the old ad-hoc `fno` cycle summary. Single
+   *  honest source of truth for F&O data readiness; null only if the async
+   *  gatherer itself failed (fail-open — never fabricated). */
+  canonicalFno: CanonicalFnoReadiness | null;
   swing: PreMarketSwing | null;
-  alerts: PreMarketAlerts;
 }
 
 // ── Pre-market builder (pure — no async, no imports, fully testable) ──────────
 
 export function buildPreMarketReport(data: PreMarketReportData): string {
-  const kiteOk = data.kite.sessionPresent;
-  const headline = kiteOk ? "🌅 PRE-MARKET STATUS" : "🌅 PRE-MARKET STATUS — ACTION REQUIRED";
-  const header = data.isManualTest ? `${headline} [MANUAL TEST]` : headline;
+  const header = data.isManualTest ? "PRE-MARKET STATUS [MANUAL TEST]" : "PRE-MARKET STATUS";
   const lines: string[] = [header, `Date: ${data.istDatetime} IST`, ""];
 
   if (data.isWeekend) {
-    lines.push("⚠ Weekend — markets closed today.");
+    lines.push("Weekend — markets closed today.");
     lines.push("No F&O or swing activity expected.");
-    lines.push("", "Source: Kite session + in-process state. Not a trading recommendation.");
+    lines.push("", "Broker execution: DISABLED");
     return lines.join("\n");
   }
 
-  // ── Compact operational status (docs/telegram-alert-quality-audit-2026-07-03.md §3) ──
-  // Every SOURCE_NOT_INTEGRATED section (overnight cues, GIFT Nifty, FII/DII F&O, India
-  // VIX, VIX-implied range, news/events) is collapsed to one footer line below instead of
-  // a full inline header per section — same honesty, far less noise. Full per-section
-  // detail remains on /daily-analysis and /premarket; Telegram is a notification, not the
-  // full report.
+  // ── Checkpoint 1 Part C ──────────────────────────────────────────────────
+  // F&O readiness is sourced ENTIRELY from CanonicalFnoReadiness (Part B) —
+  // never fabricated, never "not tracked yet" when readiness actually exists.
+  // SOURCE_NOT_INTEGRATED providers (GIFT Nifty, live global cues, India VIX,
+  // news/events) are collapsed into the single "Not included" footer instead
+  // of full inline sections. Full per-section detail stays on /daily-analysis
+  // and /premarket — Telegram is a notification, not the full report.
+  const r = data.canonicalFno;
+  let readinessLabel: ReturnType<typeof deriveFnoReadinessLabel> | null = null;
 
-  if (kiteOk) {
-    lines.push(`Kite: ✅ Active${data.kite.user ? ` (${data.kite.user})` : ""}`);
-    lines.push(`Feed: ${data.kite.feedConnected ? "✅ Connected" : "⚠ Disconnected"} (${data.kite.feedSubscribed} tokens)`);
+  if (r == null) {
+    lines.push(`Kite: ${data.kite.sessionPresent ? "ACTIVE" : "MISSING"}`);
+    lines.push(`Feed: ${data.kite.feedConnected ? "CONNECTED" : "DISCONNECTED"}`);
+    lines.push("F&O readiness: UNKNOWN — canonical readiness check failed this run");
   } else {
-    lines.push("Kite: ❌ MISSING — login required");
+    readinessLabel = deriveFnoReadinessLabel(r);
+    lines.push(`Kite: ${r.kiteSession}`);
+    lines.push(`Feed: ${r.feedStatus}`);
+    lines.push(`Market mode: ${r.marketSession}`);
+    lines.push(`F&O readiness: ${readinessLabel}`);
+    lines.push(`Daily bars: ${r.dailyBars.readyCount}/${r.dailyBars.totalCount}`);
+    const intradayReason = r.intradayBars.reason ? ` — ${r.intradayBars.reason}` : "";
+    lines.push(`Intraday bars: ${r.intradayBars.readyCount}/${r.intradayBars.totalCount}${intradayReason}`);
+    lines.push(`Option chain: ${r.optionChain.status}`);
+    lines.push(
+      `Signals: ${r.signalCycle.generatedSignals} generated | ${r.signalCycle.tradeableSignals} tradeable | ${r.signalCycle.suppressedSignals} suppressed`,
+    );
+    if (readinessLabel === "DATA_BLOCKED" || readinessLabel === "NO_SETUP") {
+      lines.push(`Status: ${readinessLabel} — ${deriveReadinessStatusReason(r, readinessLabel)}`);
+    }
   }
 
-  if (data.fno == null) {
-    lines.push("F&O readiness: Unavailable — not tracked yet");
-  } else {
-    const { indicesWithBars: bars, indicesConfigured: cfg } = data.fno;
-    if (data.fno.suppressed) {
-      const reason = data.fno.suppressedSummary ? ` — ${data.fno.suppressedSummary}` : "";
-      lines.push(`F&O readiness: ⚠ SUPPRESSED (${bars}/${cfg} indices)${reason}`);
-    } else if (bars === cfg) {
-      lines.push(`F&O readiness: ✅ Ready (${bars}/${cfg} indices, daily bars + option chain)`);
-    } else if (bars > 0) {
-      lines.push(`F&O readiness: ⚠ Partial (${bars}/${cfg} indices)`);
-    } else {
-      lines.push(`F&O readiness: ❌ Blocked (0/${cfg} indices)`);
-    }
-    if (data.fno.lastCycleAt != null) {
-      lines.push(`Signals emitted: ${data.fno.signalCount}`);
-    }
-  }
-
+  lines.push("");
+  lines.push("Swing staging:");
   if (data.swing != null) {
-    lines.push(`Swing staging: ${data.swing.pending + data.swing.approvalRequired} pending`);
+    // Compact 3-field template (Part C) — APPROVAL_REQUIRED rows are still
+    // awaiting action, same as STAGED, so both fold into "Pending" here; the
+    // full 4-way breakdown remains available via the JSON preview contract.
+    lines.push(
+      `Pending ${data.swing.pending + data.swing.approvalRequired} | Approved ${data.swing.approved} | Expired ${data.swing.expired}`,
+    );
   } else {
-    lines.push("Swing staging: Unavailable — not tracked yet");
+    lines.push("Pending 0 | Approved 0 | Expired 0 (unavailable this run)");
+  }
+
+  const actions: string[] = [];
+  if (r == null || r.kiteSession !== "ACTIVE") {
+    actions.push("- Reconnect Kite if session missing/expired");
+  }
+  if (r != null && readinessLabel === "DATA_BLOCKED") {
+    actions.push("- Check /fno-diagnostics if data blocked");
+  }
+  if (r != null && readinessLabel === "READY") {
+    actions.push("- Monitor /option-chain if data ready");
+  }
+  if (actions.length > 0) {
+    lines.push("");
+    lines.push("Action:");
+    lines.push(...actions);
   }
 
   lines.push("");
-  if (data.alerts.lastDataAlertEvent != null) {
-    const agoStr = data.alerts.lastDataAlertMinsAgo != null
-      ? ` (${minsAgoLabel(data.alerts.lastDataAlertMinsAgo)})`
-      : "";
-    lines.push(`Last F&O data alert: ${data.alerts.lastDataAlertEvent}${agoStr}`);
-  } else {
-    lines.push("Last F&O data alert: None");
-  }
-  if (data.alerts.lastSignalAlertMinsAgo != null) {
-    lines.push(`Last tradeable signal: ${minsAgoLabel(data.alerts.lastSignalAlertMinsAgo)}`);
-  } else {
-    lines.push("Last tradeable signal: None");
-  }
-
-  lines.push("");
-  // FII/DII cash + participant OI is real (INFO_ONLY, NSE-archive) data — stays in the
-  // body per §3. Key levels / option chain need a live Kite session, so only claim
-  // availability when Kite is actually up (data-authenticity: don't imply live data from
-  // a dead session).
-  lines.push("FII/DII cash: Info-only (NSE archive) — see /flows page");
-  if (kiteOk) {
-    lines.push("Key levels: Available on /premarket");
-    lines.push("Option chain: Available on /option-chain");
-  }
-
-  lines.push("");
-  if (!kiteOk) {
-    lines.push("Action: Reconnect Kite/Zerodha at /kite-login before market open.");
-  } else if (data.fno != null && (data.fno.suppressed || data.fno.indicesWithBars < data.fno.indicesConfigured)) {
-    lines.push("Action: Check /fno-diagnostics");
-  } else {
-    lines.push("Action: Monitor /fno-diagnostics and /option-chain");
-  }
-
-  lines.push("");
-  lines.push(
-    "Not included today: GIFT Nifty, overnight global cues, FII/DII (F&O), India VIX, " +
-      "news/events — provider not configured.",
-  );
+  lines.push("Not included: GIFT Nifty, live global cues, India VIX, news/events — provider not configured.");
 
   lines.push("");
   lines.push("Broker execution: DISABLED");
-  lines.push("Source: Kite session + in-process state. Not a trading recommendation.");
   return lines.join("\n");
+}
+
+/** Human-readable reason line for the "Status: DATA_BLOCKED/NO_SETUP" row. */
+function deriveReadinessStatusReason(
+  r: CanonicalFnoReadiness,
+  label: "DATA_BLOCKED" | "NO_SETUP",
+): string {
+  if (label === "NO_SETUP") {
+    return "data ready, no signal met the confidence threshold today";
+  }
+  if (r.kiteSession !== "ACTIVE") return `Kite session ${r.kiteSession.toLowerCase()}`;
+  if (r.feedStatus === "DISCONNECTED") return "Kite feed disconnected";
+  if (r.dailyBars.status === "MISSING") return r.dailyBars.reason ?? "daily bars missing";
+  if (r.intradayBars.status === "MISSING") return r.intradayBars.reason ?? "intraday bars missing";
+  return r.signalCycle.reasons[0] ?? "see /fno-diagnostics for detail";
 }
 
 // ── Post-market data interfaces ───────────────────────────────────────────────
 
 export interface PostMarketFno {
   tradesOpened: number;
-  hcOpened: number;
-  baselineOpened: number;
   tradesClosed: number;
+  openCount: number;
   totalPnl: number | null;
-  signalsGenerated: number;
 }
 
 export interface PostMarketSwing {
-  pendingCount: number;
-  approvedCount: number;
-  expiredCount: number;
-  stagedCount: number;
-  approvalRequiredCount: number;
-}
-
-export interface PostMarketAlerts {
-  lastDataAlertEvent: string | null;
-  lastDataAlertIst: string | null;
-  lastSignalAlertIst: string | null;
-  lastSwingAlertIst: string | null;
+  pending: number;
+  approved: number;
+  expired: number;
 }
 
 export interface PostMarketIndexRow {
@@ -514,8 +489,8 @@ export interface PostMarketOptionChainRow {
   expiry: string;          // ISO date (YYYY-MM-DD)
   pcr: number | null;
   maxPainStrike: number | null;
-  ceOiChange: number | null;
-  peOiChange: number | null;
+  atmStrike: number | null;
+  atmStraddleTotal: number | null;
   capturedAtIst: string;   // HH:mm IST of the snapshot used
 }
 
@@ -528,176 +503,155 @@ export interface PostMarketReportData {
   istDate: string;         // ISO YYYY-MM-DD — used for API/status/history/dedup
   datetimeStr?: string;    // DD MMM YYYY HH:mm — Telegram display (optional; falls back to istDate)
   isWeekend: boolean;
+  /** Checkpoint 1 Part D — single honest source of truth for F&O readiness +
+   *  signal counts, shared with the pre-market report (Part C). Null only if
+   *  the async gatherer itself failed (fail-open — never fabricated). */
+  canonicalFno: CanonicalFnoReadiness | null;
   fno: PostMarketFno | null;
   swing: PostMarketSwing | null;
-  alerts: PostMarketAlerts;
   indexPerformance: PostMarketIndexPerformance | null;
   optionChainEod: PostMarketOptionChainEod | null;
+  /** True once the exit-monitor trust-gate has recorded at least one EXIT
+   *  this process lifetime (`getFnoExitMonitorHealth().exitedTotal > 0`). */
+  exitMonitorVerified: boolean;
 }
 
 // ── Post-market builder (pure) ────────────────────────────────────────────────
 
 export function buildPostMarketReport(data: PostMarketReportData): string {
   const header = data.isManualTest
-    ? "🌇 POST-MARKET SUMMARY [MANUAL TEST]"
-    : "🌇 POST-MARKET SUMMARY";
+    ? "POST-MARKET SUMMARY [MANUAL TEST]"
+    : "POST-MARKET SUMMARY";
   // Telegram shows human-readable datetime; API/status/history always use ISO istDate
   const displayDate = data.datetimeStr != null ? `${data.datetimeStr} IST` : data.istDate;
   const lines: string[] = [header, `Date: ${displayDate}`, ""];
 
   if (data.isWeekend) {
-    lines.push("⚠ Weekend — no market session today.");
-    lines.push("", "Source: DB paper trade records + in-process state.");
+    lines.push("Weekend — no market session today.");
+    lines.push("", "Broker execution: DISABLED");
     return lines.join("\n");
   }
 
-  // ── ANALYSIS SECTIONS (data availability honest labels) ──
+  const r = data.canonicalFno;
 
-  lines.push("── INDEX PERFORMANCE ──");
+  // ── Checkpoint 1 Part D ──────────────────────────────────────────────────
+  // Compact, useful format: only sections with real data get printed in
+  // full; every SOURCE_NOT_INTEGRATED provider collapses into one footer
+  // instead of ten placeholder sections.
+
+  lines.push("Market close:");
   if (data.indexPerformance != null && data.indexPerformance.rows.length > 0) {
-    for (const r of data.indexPerformance.rows) {
-      const sign = r.changePct >= 0 ? "+" : "";
-      const hi = r.high != null ? r.high.toLocaleString("en-IN", { maximumFractionDigits: 2 }) : "—";
-      const lo = r.low != null ? r.low.toLocaleString("en-IN", { maximumFractionDigits: 2 }) : "—";
+    for (const row of data.indexPerformance.rows) {
+      const sign = row.changePct >= 0 ? "+" : "";
+      const hi = row.high != null ? row.high.toLocaleString("en-IN", { maximumFractionDigits: 2 }) : "—";
+      const lo = row.low != null ? row.low.toLocaleString("en-IN", { maximumFractionDigits: 2 }) : "—";
       lines.push(
-        `${r.name}: ${r.close.toLocaleString("en-IN", { maximumFractionDigits: 2 })} ` +
-          `(${sign}${r.changePct.toFixed(2)}%) H ${hi} L ${lo}`,
+        `${row.name}: ${row.close.toLocaleString("en-IN", { maximumFractionDigits: 2 })} ` +
+          `(${sign}${row.changePct.toFixed(2)}%) H ${hi} L ${lo}`,
       );
     }
     if (data.indexPerformance.asOfIst != null) {
       lines.push(`(Kite, as of ${data.indexPerformance.asOfIst} IST)`);
     }
   } else {
-    lines.push("Index performance: Unavailable — Kite session not active");
+    lines.push("Unavailable — Kite session not active");
   }
 
   lines.push("");
-  lines.push("── MARKET BREADTH ──");
-  lines.push("Market breadth (adv/dec): Unavailable — data source not integrated yet");
-  lines.push("(NSE advance/decline, 52-week highs/lows, DMA breadth not tracked)");
+  lines.push("F&O:");
+  if (r != null) {
+    lines.push(
+      `Signals: generated ${r.signalCycle.generatedSignals} | tradeable ${r.signalCycle.tradeableSignals} | suppressed ${r.signalCycle.suppressedSignals}`,
+    );
+  } else {
+    lines.push("Signals: Unavailable — canonical readiness check failed this run");
+  }
+  if (data.fno != null) {
+    if (data.fno.tradesOpened === 0 && data.fno.tradesClosed === 0 && data.fno.openCount === 0) {
+      lines.push("Paper trades: none today");
+    } else {
+      lines.push(`Paper trades: opened ${data.fno.tradesOpened} | closed ${data.fno.tradesClosed} | open ${data.fno.openCount}`);
+      if (data.fno.totalPnl != null) {
+        const sign = data.fno.totalPnl >= 0 ? "+" : "";
+        lines.push(`Realized P&L: ₹${sign}${data.fno.totalPnl.toLocaleString("en-IN")}`);
+      } else {
+        lines.push("Realized P&L: Unavailable");
+      }
+    }
+  } else {
+    lines.push("Paper trades: Unavailable — not tracked yet");
+  }
+  lines.push(`Exit monitor: ${data.exitMonitorVerified ? "DEV_VERIFIED" : "waiting for live open trade evidence"}`);
 
   lines.push("");
-  lines.push("── FII / DII ACTIVITY ──");
-  lines.push("FII/DII cash flows: Info-only (NSE archive) — see /flows page");
-  lines.push("F&O participant data: Unavailable — data source not integrated yet");
-
-  lines.push("");
-  lines.push("── PARTICIPANT OI CHANGE ──");
-  lines.push("FII / DII / Pro / Client OI: Unavailable — data source not integrated yet");
-  lines.push("(NSE participant OI CSV: info-only, see /flows page)");
-
-  lines.push("");
-  lines.push("── OPTION CHAIN EOD ──");
+  lines.push("Option chain:");
   if (data.optionChainEod != null && data.optionChainEod.rows.length > 0) {
-    for (const r of data.optionChainEod.rows) {
-      const pcr = r.pcr != null ? r.pcr.toFixed(2) : "—";
-      const maxPain = r.maxPainStrike != null ? r.maxPainStrike.toLocaleString("en-IN") : "—";
-      const ceOi = r.ceOiChange != null ? r.ceOiChange.toLocaleString("en-IN") : "—";
-      const peOi = r.peOiChange != null ? r.peOiChange.toLocaleString("en-IN") : "—";
-      lines.push(
-        `${r.underlying} (${r.expiry}): PCR ${pcr} | Max Pain ${maxPain} | ` +
-          `ΔOI CE ${ceOi} / PE ${peOi} · ${r.capturedAtIst} IST`,
-      );
+    for (const row of data.optionChainEod.rows) {
+      const pcr = row.pcr != null ? row.pcr.toFixed(2) : "—";
+      const maxPain = row.maxPainStrike != null ? row.maxPainStrike.toLocaleString("en-IN") : "—";
+      const atm =
+        row.atmStrike != null
+          ? `ATM ${row.atmStrike.toLocaleString("en-IN")}${row.atmStraddleTotal != null ? ` straddle ₹${row.atmStraddleTotal.toLocaleString("en-IN")}` : ""}`
+          : "ATM —";
+      lines.push(`${row.underlying}: PCR ${pcr} | Max Pain ${maxPain} | ${atm}`);
     }
   } else {
-    lines.push("Option chain EOD: Unavailable — no option-chain snapshots captured today");
+    lines.push("Unavailable — no option-chain snapshots captured today");
   }
 
   lines.push("");
-  lines.push("── LEVEL VALIDATION ──");
-  lines.push("Level validation (CPR/VWAP): Unavailable — data source not integrated yet");
-  lines.push("(Intraday VWAP tracking not implemented)");
-
-  lines.push("");
-  lines.push("── SECTOR MOVES ──");
-  lines.push("Sector moves: Info-only (scanner) — see /sectors page");
-  lines.push("(Not trade-grade; delayed data)");
-
-  lines.push("");
-  lines.push("── NEWS RECAP ──");
-  lines.push("News recap: Unavailable — data source not integrated yet");
-  lines.push("(No news provider configured)");
-
-  lines.push("");
-  lines.push("── GLOBAL STATUS CHECK ──");
-  lines.push("Global status check: Info-only (Yahoo Finance delayed)");
-  lines.push("US futures / Europe close: see /global for reference (not trade-grade)");
-
-  // ── OPERATIONAL SECTIONS (live DB / in-process state) ──
-
-  lines.push("");
-  lines.push("── F&O PAPER TRADES (today) ──");
-  if (data.fno != null) {
-    lines.push(`Opened: ${data.fno.tradesOpened} (HC: ${data.fno.hcOpened}, BASELINE: ${data.fno.baselineOpened})`);
-    lines.push(`Closed: ${data.fno.tradesClosed}`);
-    lines.push(`Signals generated: ${data.fno.signalsGenerated}`);
-    if (data.fno.totalPnl != null) {
-      const sign = data.fno.totalPnl >= 0 ? "+" : "";
-      lines.push(`Realized P&L today: ₹${sign}${data.fno.totalPnl.toLocaleString("en-IN")}`);
-    } else {
-      lines.push("Realized P&L today: Unavailable — not tracked yet");
-    }
-  } else {
-    lines.push("Unavailable — not tracked yet");
-  }
-
-  lines.push("");
-  lines.push("── SWING STAGING ──");
+  lines.push("Swing:");
   if (data.swing != null) {
-    const totalActive = data.swing.stagedCount + data.swing.approvalRequiredCount + data.swing.approvedCount;
-    lines.push(`Active (staged/pending/approved): ${totalActive}`);
-    lines.push(`Expired today: ${data.swing.expiredCount}`);
+    lines.push(`Pending ${data.swing.pending} | Approved ${data.swing.approved} | Expired ${data.swing.expired}`);
   } else {
-    lines.push("Unavailable — not tracked yet");
+    lines.push("Pending 0 | Approved 0 | Expired 0 (unavailable this run)");
   }
 
   lines.push("");
-  lines.push("── ALERT HISTORY ──");
-  if (data.alerts.lastDataAlertEvent != null) {
-    lines.push(`Last F&O data alert: ${data.alerts.lastDataAlertEvent}${data.alerts.lastDataAlertIst ? ` at ${data.alerts.lastDataAlertIst} IST` : ""}`);
-  } else {
-    lines.push("Last F&O data alert: None");
-  }
-  if (data.alerts.lastSignalAlertIst != null) {
-    lines.push(`Last tradeable signal: ${data.alerts.lastSignalAlertIst} IST`);
-  } else {
-    lines.push("Last tradeable signal: None today");
-  }
-  if (data.alerts.lastSwingAlertIst != null) {
-    lines.push(`Last swing alert: ${data.alerts.lastSwingAlertIst} IST`);
-  } else {
-    lines.push("Last swing alert: None today");
-  }
-
-  lines.push("");
-  lines.push("── TRADE JOURNAL TIE-IN ──");
-  if (data.fno != null) {
-    if (data.fno.tradesOpened > 0) {
-      const pnlStr = data.fno.totalPnl != null
-        ? `₹${data.fno.totalPnl >= 0 ? "+" : ""}${data.fno.totalPnl.toLocaleString("en-IN")}`
-        : "P&L unavailable";
-      lines.push(`Session: ${data.fno.tradesOpened} trade(s) opened, ${data.fno.tradesClosed} closed`);
-      lines.push(`Realized P&L: ${pnlStr}`);
-    } else {
-      lines.push("No F&O paper trades opened today");
+  lines.push("Data health:");
+  if (r != null) {
+    lines.push(`Kite: ${r.kiteSession}`);
+    const modules = deriveTradeGradeModules(r);
+    lines.push(`Trade-grade modules: ${modules.ready}/${modules.total}`);
+    if (modules.blocked.length > 0) {
+      lines.push(`Blocked: ${modules.blocked.join(", ")}`);
     }
   } else {
-    lines.push("Trade data: Unavailable — not tracked yet");
+    lines.push("Unavailable — canonical readiness check failed this run");
   }
 
   lines.push("");
-  lines.push("── TOMORROW SETUP ──");
-  if (data.fno != null && data.fno.signalsGenerated > 0) {
-    lines.push(`F&O signals generated today: ${data.fno.signalsGenerated}`);
+  lines.push("Tomorrow prep:");
+  if (r != null) {
+    lines.push(`Key levels ready: ${r.dailyBars.status === "READY" ? "Yes" : "No"}`);
+    lines.push(`Option chain ready: ${r.optionChain.status === "READY" ? "Yes" : "No"}`);
+    lines.push(`Kite reconnect required tomorrow: ${r.kiteSession !== "ACTIVE" ? "Yes" : "No"}`);
+  } else {
+    lines.push("Unavailable — canonical readiness check failed this run");
   }
-  lines.push("Key levels / option chain: Available (Kite) — check /premarket and /option-chain");
-  lines.push("Expiry / news events: See /fno-diagnostics");
-  lines.push("(Preliminary bias not automated — based on available data above)");
 
   lines.push("");
-  lines.push("Broker execution: DISABLED — no real orders placed.");
-  lines.push("Source: DB paper trade records + in-process state.");
+  lines.push(
+    "Not included: Market breadth, live news, India VIX, participant OI, global close — provider not configured.",
+  );
+
+  lines.push("");
+  lines.push("Broker execution: DISABLED");
   return lines.join("\n");
+}
+
+/** Trade-grade module roll-up for the post-market "Data health" section —
+ *  reuses CanonicalFnoReadiness fields only, no new data fetch. */
+function deriveTradeGradeModules(r: CanonicalFnoReadiness): { ready: number; total: number; blocked: string[] } {
+  const modules: Array<{ name: string; ready: boolean }> = [
+    { name: "Feed", ready: r.feedStatus === "CONNECTED" },
+    { name: "Daily bars", ready: r.dailyBars.status === "READY" },
+    { name: "Intraday bars", ready: r.intradayBars.status === "READY" },
+    { name: "Option chain", ready: r.optionChain.status === "READY" },
+  ];
+  const ready = modules.filter((m) => m.ready).length;
+  const blocked = modules.filter((m) => !m.ready).map((m) => m.name);
+  return { ready, total: modules.length, blocked };
 }
 
 // ── Last report records (no secrets, safe for status endpoints) ───────────────
@@ -800,24 +754,14 @@ export async function gatherPreMarketData(
     };
   }
 
-  let fno: PreMarketFno | null = null;
+  let canonicalFno: CanonicalFnoReadiness | null = null;
   try {
-    const cycle = getLastFnoCycleState();
-    if (cycle != null) {
-      const cycleMinsAgo = Math.round((nowMs - cycle.ts) / 60_000);
-      const isSuppressed = cycle.suppressed.length > 0 && cycle.suppressed.length === OPTION_INDICES.length;
-      fno = {
-        lastCycleAt: new Date(cycle.ts).toISOString(),
-        cycleMinsAgo,
-        indicesWithBars: cycle.indicesWithBars,
-        indicesConfigured: OPTION_INDICES.length,
-        signalCount: cycle.signalCount,
-        suppressed: isSuppressed,
-        suppressedSummary: cycle.suppressedSummary ?? "",
-      };
-    }
+    canonicalFno = await getCanonicalFnoReadiness(new Date(nowMs));
   } catch (err) {
-    logger.warn({ err: (err as Error).message }, "dailyReports: gatherPreMarketData fno section failed");
+    logger.warn(
+      { err: (err as Error).message },
+      "dailyReports: gatherPreMarketData canonical F&O readiness section failed",
+    );
   }
 
   let swing: PreMarketSwing | null = null;
@@ -852,18 +796,7 @@ export async function gatherPreMarketData(
     logger.warn({ err: (err as Error).message }, "dailyReports: gatherPreMarketData swing section failed");
   }
 
-  const dataAlert = getLastAlertRecord();
-  const signalAlert = getLastFnoSignalAlertRecord();
-  const swingAlert = getLastSwingAlertRecord();
-
-  const alerts: PreMarketAlerts = {
-    lastDataAlertEvent: dataAlert?.event ?? null,
-    lastDataAlertMinsAgo: dataAlert ? Math.round((nowMs - dataAlert.at) / 60_000) : null,
-    lastSignalAlertMinsAgo: signalAlert ? Math.round((nowMs - signalAlert.at) / 60_000) : null,
-    lastSwingAlertMinsAgo: swingAlert ? Math.round((nowMs - swingAlert.at) / 60_000) : null,
-  };
-
-  return { isManualTest, istDatetime: datetimeStr, isWeekend, kite, fno, swing, alerts };
+  return { isManualTest, istDatetime: datetimeStr, isWeekend, kite, canonicalFno, swing };
 }
 
 export async function gatherPostMarketData(
@@ -873,16 +806,37 @@ export async function gatherPostMarketData(
   const { date, dayOfWeek, datetimeStr } = istInfo(nowMs);
   const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
 
+  let canonicalFno: CanonicalFnoReadiness | null = null;
+  try {
+    canonicalFno = await getCanonicalFnoReadiness(new Date(nowMs));
+  } catch (err) {
+    logger.warn(
+      { err: (err as Error).message },
+      "dailyReports: gatherPostMarketData canonical F&O readiness section failed",
+    );
+  }
+
+  let exitMonitorVerified = false;
+  try {
+    exitMonitorVerified = getFnoExitMonitorHealth().exitedTotal > 0;
+  } catch (err) {
+    logger.warn(
+      { err: (err as Error).message },
+      "dailyReports: gatherPostMarketData exit monitor health section failed",
+    );
+  }
+
   let fno: PostMarketFno | null = null;
   try {
     const summary = await computeDailySummaryFo(date);
+    const openRows = (await db.execute(sql`
+      SELECT COUNT(*)::int AS n FROM paper_trade_fo WHERE status = 'OPEN'
+    `)) as unknown as { rows: Array<{ n: number | string }> };
     fno = {
       tradesOpened: summary.tradesOpened,
-      hcOpened: summary.tradesOpenedByTier.HC,
-      baselineOpened: summary.tradesOpenedByTier.BASELINE,
       tradesClosed: summary.tradesClosed,
+      openCount: Number(openRows.rows[0]?.n ?? 0),
       totalPnl: summary.pnl.total,
-      signalsGenerated: summary.signalsGenerated,
     };
   } catch (err) {
     logger.warn({ err: (err as Error).message }, "dailyReports: gatherPostMarketData fno section failed");
@@ -995,8 +949,8 @@ export async function gatherPostMarketData(
         expiry: g.expiry,
         pcr: analytics.pcr,
         maxPainStrike: analytics.maxPainStrike,
-        ceOiChange: analytics.ceOiChange,
-        peOiChange: analytics.peOiChange,
+        atmStrike: analytics.atmStrike,
+        atmStraddleTotal: analytics.atmStraddle?.total ?? null,
         capturedAtIst: formatIstHM(new Date(g.captured_at).getTime()),
       });
     }
@@ -1011,47 +965,46 @@ export async function gatherPostMarketData(
   let swing: PostMarketSwing | null = null;
   try {
     const rows = (await db.execute(sql`
-      SELECT status, COUNT(*)::int AS n
+      SELECT status, approval_status, COUNT(*)::int AS n
       FROM swing_order_staging
       WHERE owner_key = 'owner'
-        AND created_at >= NOW() - INTERVAL '24 hours'
-      GROUP BY status
-    `)) as unknown as { rows: Array<{ status: string; n: number | string }> };
+        AND expires_at > NOW()
+        AND status NOT IN ('EXPIRED', 'REJECTED')
+      GROUP BY status, approval_status
+    `)) as unknown as { rows: Array<{ status: string; approval_status: string; n: number | string }> };
 
-    const counts: Record<string, number> = {};
-    for (const row of rows.rows) counts[row.status] = Number(row.n);
-    swing = {
-      stagedCount: counts["STAGED"] ?? 0,
-      approvalRequiredCount: counts["APPROVAL_REQUIRED"] ?? 0,
-      approvedCount: counts["APPROVED"] ?? 0,
-      expiredCount: counts["EXPIRED"] ?? 0,
-      pendingCount: counts["PENDING"] ?? 0,
-    };
+    const expiredRows = (await db.execute(sql`
+      SELECT COUNT(*)::int AS n
+      FROM swing_order_staging
+      WHERE owner_key = 'owner'
+        AND status = 'EXPIRED'
+        AND created_at > NOW() - INTERVAL '1 day'
+    `)) as unknown as { rows: Array<{ n: number | string }> };
+
+    let pending = 0, approvalRequired = 0, approved = 0;
+    for (const row of rows.rows) {
+      const n = Number(row.n);
+      if (row.approval_status === "APPROVED") approved += n;
+      else if (row.status === "STAGED") pending += n;
+      else approvalRequired += n;
+    }
+    const expired = Number(expiredRows.rows[0]?.n ?? 0);
+    swing = { pending: pending + approvalRequired, approved, expired };
   } catch (err) {
     logger.warn({ err: (err as Error).message }, "dailyReports: gatherPostMarketData swing section failed");
   }
-
-  const dataAlert = getLastAlertRecord();
-  const signalAlert = getLastFnoSignalAlertRecord();
-  const swingAlert = getLastSwingAlertRecord();
-
-  const alerts: PostMarketAlerts = {
-    lastDataAlertEvent: dataAlert?.event ?? null,
-    lastDataAlertIst: dataAlert ? formatIstHM(dataAlert.at) : null,
-    lastSignalAlertIst: signalAlert ? formatIstHM(signalAlert.at) : null,
-    lastSwingAlertIst: swingAlert ? formatIstHM(swingAlert.at) : null,
-  };
 
   return {
     isManualTest,
     istDate: date,
     datetimeStr,
     isWeekend,
+    canonicalFno,
     fno,
     swing,
-    alerts,
     indexPerformance,
     optionChainEod,
+    exitMonitorVerified,
   };
 }
 

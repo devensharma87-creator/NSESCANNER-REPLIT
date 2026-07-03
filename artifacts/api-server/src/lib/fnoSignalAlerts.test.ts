@@ -15,6 +15,7 @@ import {
   alertFnoTradeableSignal,
   alertFnoExitSignal,
   buildFnoExitCanonicalEvent,
+  alertWarmupFailures,
   getLastFnoSignalAlertRecord,
   resetFnoSignalAlertState,
   FNO_SIGNAL_ALERT_NEW_OPEN_MAX_MS,
@@ -536,5 +537,92 @@ describe("alertFnoExitSignal — canonical pipeline dispatch", () => {
     const call = vi.mocked(alertOwnerRaw).mock.calls[0];
     expect(call?.[2]).toContain("BANKNIFTY");
     expect(call?.[2]?.toUpperCase()).toContain("STOP-LOSS");
+  });
+});
+
+// ── alertWarmupFailures — Checkpoint 1 Part A/F: known reasons, market-closed
+//    suppression, and a single consolidated digest ────────────────────────────
+describe("alertWarmupFailures — Checkpoint 1 known-reason digest", () => {
+  function stepResult(step: string, code: string | null, message: string | null = "detail") {
+    return { step, ok: code === null, code, message: code === null ? null : message };
+  }
+
+  it("does not alert when the outcome is OK", () => {
+    alertWarmupFailures({ outcome: "OK", indices: [{ index: "NIFTY", ok: true, steps: [] }] });
+    expect(vi.mocked(alertOwnerRaw)).not.toHaveBeenCalled();
+  });
+
+  it("does not alert on any SKIPPED_* outcome", () => {
+    alertWarmupFailures({ outcome: "SKIPPED_NO_SESSION", indices: [] });
+    expect(vi.mocked(alertOwnerRaw)).not.toHaveBeenCalled();
+  });
+
+  it("does not alert when the only failure is MARKET_CLOSED (not a data-health problem)", () => {
+    alertWarmupFailures({
+      outcome: "PARTIAL",
+      indices: [
+        {
+          index: "NIFTY",
+          ok: false,
+          steps: [stepResult("dailyBars", "MARKET_CLOSED", "Market is closed.")],
+        },
+      ],
+    });
+    expect(vi.mocked(alertOwnerRaw)).not.toHaveBeenCalled();
+  });
+
+  it("does not alert when the only failure is SESSION_MISSING or TOKEN_MISSING (unchanged)", () => {
+    alertWarmupFailures({
+      outcome: "FAILED",
+      indices: [
+        { index: "NIFTY", ok: false, steps: [stepResult("quote", "SESSION_MISSING", "no session")] },
+        { index: "BANKNIFTY", ok: false, steps: [stepResult("quote", "TOKEN_MISSING", "no token")] },
+      ],
+    });
+    expect(vi.mocked(alertOwnerRaw)).not.toHaveBeenCalled();
+  });
+
+  it("alerts with the KNOWN reason code (e.g. INTRADAY_BARS_MISSING) — never UNKNOWN when the code is known", () => {
+    alertWarmupFailures({
+      outcome: "PARTIAL",
+      indices: [
+        {
+          index: "NIFTY",
+          ok: false,
+          steps: [stepResult("intradayBars", "INTRADAY_BARS_MISSING", "Live intraday bars missing.")],
+        },
+      ],
+    });
+    expect(vi.mocked(alertOwnerRaw)).toHaveBeenCalledTimes(1);
+    const text = vi.mocked(alertOwnerRaw).mock.calls[0]?.[2] as string;
+    expect(text).toContain("INTRADAY_BARS_MISSING");
+    expect(text).not.toContain("UNKNOWN");
+  });
+
+  it("fires exactly ONE digest alert covering all three indices (no per-index spam)", () => {
+    alertWarmupFailures({
+      outcome: "FAILED",
+      indices: [
+        { index: "NIFTY", ok: false, steps: [stepResult("intradayBars", "INTRADAY_BARS_MISSING")] },
+        { index: "BANKNIFTY", ok: false, steps: [stepResult("dailyBars", "DAILY_BARS_MISSING")] },
+        { index: "SENSEX", ok: false, steps: [stepResult("quote", "WEBSOCKET_NO_TICKS")] },
+      ],
+    });
+    expect(vi.mocked(alertOwnerRaw)).toHaveBeenCalledTimes(1);
+    const text = vi.mocked(alertOwnerRaw).mock.calls[0]?.[2] as string;
+    expect(text).toContain("NIFTY");
+    expect(text).toContain("BANKNIFTY");
+    expect(text).toContain("SENSEX");
+    expect(text).toContain("Indices affected: 3");
+  });
+
+  it("does not throw even when alertOwnerRaw throws catastrophically", () => {
+    vi.mocked(alertOwnerRaw).mockImplementationOnce(() => { throw new Error("CATASTROPHIC"); });
+    expect(() =>
+      alertWarmupFailures({
+        outcome: "FAILED",
+        indices: [{ index: "NIFTY", ok: false, steps: [stepResult("quote", "KITE_SESSION_EXPIRED")] }],
+      }),
+    ).not.toThrow();
   });
 });

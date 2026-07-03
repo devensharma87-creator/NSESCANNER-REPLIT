@@ -1,0 +1,450 @@
+Proceed with a scoped Checkpoint 1 implementation now.
+
+The Phase 0 audit is accepted.
+
+Do not attempt the full 11-phase canonical-data initiative in one uninterrupted pass. That is too large and risky.
+
+We will fix this in checkpoints.
+
+Current checkpoint:
+
+CHECKPOINT 1 — F&O READINESS + TELEGRAM REPORT DATA CONNECTION + WARMUP REASON FIX
+
+Objective:
+
+Fix the immediate user-facing data-quality issues without changing trading strategy.
+
+This checkpoint must fix:
+
+1. F&O warmup Telegram should not say UNKNOWN when the actual issue is known.
+2. Pre-market Telegram should not say “F&O readiness: Unavailable — not tracked yet” when F&O diagnostics/global data-health already exist.
+3. Post-market Telegram should stop printing large placeholder sections and should use compact useful format.
+4. Existing F&O readiness sources must be connected into one CanonicalFnoReadiness-style adapter.
+5. No strategy logic, thresholds, broker execution, or trade lifecycle rules should be changed.
+
+====================================================
+STRICT SCOPE FOR THIS CHECKPOINT
+====================================================
+
+Allowed:
+
+- Create or wire CanonicalFnoReadiness adapter.
+- Improve fnoFailureDiagnosis classification.
+- Wire pre-market report to existing global data-health / F&O diagnostics / Kite readiness.
+- Wire post-market report to available existing values.
+- Collapse unavailable providers into footer.
+- Add preview/dry-run tests.
+- Update report documentation.
+
+Not allowed in this checkpoint:
+
+- Do not migrate scanner.
+- Do not migrate charting.
+- Do not migrate option-chain/OI lab provider paths yet.
+- Do not build full website-wide canonical quote migration yet.
+- Do not change Swing strategy.
+- Do not change F&O entry logic.
+- Do not change stop-loss/target formulas.
+- Do not enable broker execution.
+- Do not place real orders.
+- Do not create fake trades.
+- Do not run heavy candle backfill.
+- Do not delete DB rows.
+- Do not perform destructive migrations.
+- Do not ask for owner/admin password.
+- Do not trim, rewrite, reorganize, or mention replit.md.
+
+====================================================
+PART A — FIX F&O WARMUP REASON CLASSIFICATION
+====================================================
+
+Current bad output:
+
+F&O DATA WARMUP FAILED
+Reason: UNKNOWN
+Detail: Live intraday bars missing despite active Kite session.
+
+This is unacceptable.
+
+If the detail is known, the reason must not be UNKNOWN.
+
+Update fnoFailureDiagnosis / related classifier so it receives enough context:
+
+- Kite session status
+- feed status
+- market session
+- daily bars status
+- intraday bars status
+- option-chain status
+- last tick / last candle information if available
+
+Required reason mapping:
+
+- Kite session expired → KITE_SESSION_EXPIRED
+- Kite session missing → KITE_SESSION_MISSING
+- Daily bars missing → DAILY_BARS_MISSING
+- Intraday bars missing → INTRADAY_BARS_MISSING
+- Active session but websocket/ticks missing → WEBSOCKET_NO_TICKS or KITE_FEED_NO_TICKS
+- Option chain stale/missing → OPTION_CHAIN_STALE or OPTION_CHAIN_MISSING
+- Market closed → MARKET_CLOSED, not critical
+- Rate limit → KITE_RATE_LIMITED
+- Only if no branch applies → UNKNOWN
+
+Telegram digest must show:
+
+- affected indices
+- reason code
+- clear detail
+- whether signals are blocked
+- next action
+- broker execution disabled
+
+Keep the digest behavior. Do not return to per-index spam.
+
+Add tests:
+
+1. intraday bars missing returns INTRADAY_BARS_MISSING.
+2. daily bars missing returns DAILY_BARS_MISSING.
+3. active session but no ticks returns WEBSOCKET_NO_TICKS or KITE_FEED_NO_TICKS.
+4. expired session returns KITE_SESSION_EXPIRED.
+5. market closed does not send critical warmup alert.
+6. all three indices remain one digest.
+
+====================================================
+PART B — CREATE / WIRE CANONICAL F&O READINESS ADAPTER
+====================================================
+
+Create or wire a single adapter such as:
+
+getCanonicalFnoReadiness()
+
+Use existing data sources where already available:
+
+- global data-health
+- Kite readiness/session state
+- F&O diagnostics
+- daily bars readiness
+- intraday bars readiness
+- option-chain readiness
+- last F&O cycle state
+- signal counts
+- suppression reasons
+- market session
+
+Expected output shape:
+
+type CanonicalFnoReadiness = {
+  checkedAt: string;
+  kiteSession: "ACTIVE" | "MISSING" | "EXPIRED" | "UNKNOWN";
+  feedStatus: "CONNECTED" | "DISCONNECTED" | "STALE" | "UNKNOWN";
+  marketSession: "preopen" | "open" | "closed" | "holiday" | "unknown";
+  dailyBars: {
+    status: "READY" | "PARTIAL" | "MISSING" | "UNKNOWN";
+    readyCount: number;
+    totalCount: number;
+    reason: string | null;
+  };
+  intradayBars: {
+    status: "READY" | "PARTIAL" | "MISSING" | "UNKNOWN";
+    readyCount: number;
+    totalCount: number;
+    reason: string | null;
+  };
+  optionChain: {
+    status: "READY" | "PARTIAL" | "MISSING" | "STALE" | "UNKNOWN";
+    reason: string | null;
+  };
+  signalCycle: {
+    lastCycleAt: string | null;
+    generatedSignals: number;
+    tradeableSignals: number;
+    suppressedSignals: number;
+    status: "READY" | "NO_SETUP" | "DATA_BLOCKED" | "MARKET_CLOSED" | "UNKNOWN";
+    reasons: string[];
+  };
+  tradeGrade: boolean;
+  canGenerateSignals: boolean;
+  canOpenPaperTrades: boolean;
+  telegramSummary: string;
+};
+
+Rules:
+
+- If diagnostics exist, never say “not tracked yet.”
+- If data is blocked, say DATA_BLOCKED with reason.
+- If data is ready but no strategy setup exists, say NO_SETUP.
+- If market is closed, say MARKET_CLOSED.
+- Do not fabricate readiness.
+- Do not mark Yahoo/cache/display-only as trade-grade.
+
+====================================================
+PART C — FIX PRE-MARKET TELEGRAM DATA CONNECTION
+====================================================
+
+Current bad output:
+
+F&O readiness: Unavailable — not tracked yet
+
+This must be replaced by CanonicalFnoReadiness.
+
+Pre-market Telegram should show:
+
+PRE-MARKET STATUS [MANUAL TEST if applicable]
+Date: ...
+
+Kite: ACTIVE / MISSING / EXPIRED
+Feed: CONNECTED / DISCONNECTED / STALE
+Market mode: preopen / open / closed
+F&O readiness: READY / PARTIAL / DATA_BLOCKED / MARKET_CLOSED / NO_SETUP
+Daily bars: readyCount/totalCount
+Intraday bars: readyCount/totalCount + reason if missing
+Option chain: READY / PARTIAL / MISSING / STALE
+Signals: generated / tradeable / suppressed
+Status: DATA_BLOCKED or NO_SETUP with clear reason
+
+Swing staging:
+Pending X | Approved X | Expired X
+
+Action:
+- Reconnect Kite if session missing/expired
+- Check /fno-diagnostics if data blocked
+- Monitor /option-chain if data ready
+
+Not included:
+GIFT Nifty, live global cues, India VIX, news/events — provider not configured.
+
+Broker execution: DISABLED
+
+Rules:
+
+- Do not say “not tracked yet” when readiness exists.
+- Do not print 20 unavailable sections.
+- Do not fake bias.
+- Do not say “see page” if the value can be shown directly.
+- Manual test must clearly say MANUAL TEST.
+
+====================================================
+PART D — FIX POST-MARKET TELEGRAM FORMAT
+====================================================
+
+Current post-market output is too much placeholder text.
+
+Rebuild it into compact useful format using available data.
+
+Expected format:
+
+POST-MARKET SUMMARY
+Date: ...
+
+Market close:
+NIFTY: close, change %, range, source/as-of if available
+BANKNIFTY: close, change %, range, source/as-of if available
+SENSEX: close, change %, range, source/as-of if available
+
+F&O:
+Signals: generated X | tradeable X | suppressed X
+Paper trades: opened X | closed X | open X
+Realized P&L: ₹X
+Exit monitor: DEV_VERIFIED / waiting for live open trade evidence if still pending
+
+Option chain:
+NIFTY: PCR / Max Pain / ATM range if available
+BANKNIFTY: ...
+SENSEX: ...
+
+Swing:
+Pending X | Approved X | Expired X
+
+Data health:
+Kite: ACTIVE / MISSING / EXPIRED
+Trade-grade modules: X/Y
+Blocked: list if any
+
+Tomorrow prep:
+Key levels ready: Yes/No
+Option chain ready: Yes/No
+Kite reconnect required tomorrow: Yes/No
+
+Not included:
+Market breadth, live news, India VIX, participant OI, global close — provider not configured.
+
+Broker execution: DISABLED
+
+Rules:
+
+- Do not print full unavailable sections.
+- Collapse missing providers into one footer.
+- Do not say “see page” repeatedly.
+- Do not show fake tomorrow bias.
+- If no trades, say once only.
+- Include actual numbers where available.
+
+====================================================
+PART E — ADD PREVIEW / DRY-RUN ENDPOINTS IF MISSING
+====================================================
+
+Add or verify owner-only preview endpoints for Telegram reports.
+
+Use repo-correct route names.
+
+Required behavior:
+
+- preview pre-market report
+- preview post-market report
+- return rendered message text
+- return data contract JSON
+- no Telegram sent
+- no dedup state changed
+- manual test clearly labelled
+- anonymous 401
+- no secrets exposed
+
+Suggested:
+
+GET /api/daily-reports/telegram/preview?type=pre
+GET /api/daily-reports/telegram/preview?type=post
+
+If equivalent routes already exist, use them and document exact names.
+
+====================================================
+PART F — TESTS REQUIRED FOR CHECKPOINT 1
+====================================================
+
+Add/update tests:
+
+1. F&O warmup intraday missing returns INTRADAY_BARS_MISSING.
+2. F&O warmup daily missing returns DAILY_BARS_MISSING.
+3. F&O warmup no ticks returns WEBSOCKET_NO_TICKS or KITE_FEED_NO_TICKS.
+4. F&O warmup session expired returns KITE_SESSION_EXPIRED.
+5. Market closed is not critical warmup failure.
+6. Warmup failure remains one digest.
+7. CanonicalFnoReadiness returns READY when all sources ready.
+8. CanonicalFnoReadiness returns DATA_BLOCKED when intraday missing.
+9. CanonicalFnoReadiness returns MARKET_CLOSED when market closed.
+10. Pre-market report uses CanonicalFnoReadiness.
+11. Pre-market report does not say “not tracked yet” when readiness exists.
+12. Pre-market unavailable providers collapse to footer.
+13. Post-market unavailable providers collapse to footer.
+14. Post-market includes actual F&O signal counts.
+15. Post-market includes paper-trade counts.
+16. Post-market includes Swing staging counts.
+17. Preview endpoint does not send Telegram.
+18. Preview endpoint does not mutate dedup state.
+19. Preview endpoint anonymous access is blocked.
+20. No secrets exposed.
+21. Existing Telegram alert dedup tests remain green.
+22. Existing global data-health tests remain green.
+23. Existing Swing TTL tests remain green.
+24. Existing F&O exit-monitor tests remain green.
+25. Broker execution remains disabled.
+26. No real order path touched.
+
+Run:
+
+pnpm --filter @workspace/api-server run typecheck
+pnpm --filter @workspace/api-server run typecheck:libs
+pnpm --filter @workspace/api-server exec vitest run src/lib/*fno*.test.ts src/lib/*daily*.test.ts src/lib/*report*.test.ts src/lib/*telegram*.test.ts src/lib/*alert*.test.ts src/lib/*dataHealth*.test.ts src/lib/*paper*.test.ts src/lib/*parity*.test.ts src/routes/**/*.test.ts
+pnpm --filter @workspace/scanner exec vitest run
+pnpm --filter @workspace/scripts run index:llm
+pnpm --filter @workspace/scripts run index:llm:check
+
+If full suite times out, run in batches and report counts.
+
+====================================================
+PART G — REPORT REQUIRED
+====================================================
+
+Create or update:
+
+WEBSITE_CANONICAL_DATA_INTEGRATION_REPORT.md
+
+For this checkpoint, add section:
+
+Checkpoint 1 — F&O Readiness + Telegram Report Data Connection
+
+Include:
+
+1. Phase 0 audit summary.
+2. What was fixed now.
+3. What was intentionally deferred.
+4. F&O warmup reason mapping.
+5. CanonicalFnoReadiness contract.
+6. Pre-market before/after example.
+7. Post-market before/after example.
+8. Preview endpoint evidence.
+9. Tests and counts.
+10. LLM index status.
+11. Production verification status if published.
+12. Next checkpoint recommendation.
+
+Also update:
+
+docs/telegram-alert-quality-audit-2026-07-03.md
+
+only if Telegram behavior changed.
+
+Do not duplicate huge report text.
+
+====================================================
+PART H — PRODUCTION VERIFICATION IF PUBLISHED
+====================================================
+
+After publish, verify:
+
+1. F&O warmup alert no longer says UNKNOWN for known intraday missing.
+2. F&O warmup remains one digest.
+3. Pre-market preview shows CanonicalFnoReadiness.
+4. Pre-market preview does not say “not tracked yet.”
+5. Post-market preview is compact.
+6. Post-market unavailable providers collapse into footer.
+7. Preview does not send Telegram.
+8. Preview does not mutate dedup state.
+9. Anonymous preview access blocked.
+10. No secrets exposed.
+11. Broker execution disabled.
+12. No real orders placed.
+13. Existing data-health endpoint works.
+14. Existing Telegram alert dedup works.
+15. Tests pass.
+16. LLM index fresh.
+
+====================================================
+FINAL VERDICT FOR THIS CHECKPOINT
+====================================================
+
+Final verdict must be exactly one:
+
+- CANONICAL_DATA_CHECKPOINT_1_PROD_VERIFIED
+- CANONICAL_DATA_CHECKPOINT_1_DEV_VERIFIED
+- CANONICAL_DATA_CHECKPOINT_1_PARTIAL_SOURCE_GAP_REMAINS
+- CANONICAL_DATA_CHECKPOINT_1_BUILD_NOT_DEPLOYED
+- ROLLBACK_REQUIRED
+
+Use CANONICAL_DATA_CHECKPOINT_1_PROD_VERIFIED only if production is published and verified.
+
+Use CANONICAL_DATA_CHECKPOINT_1_DEV_VERIFIED if implementation/tests pass but production publish/verification is pending.
+
+Use CANONICAL_DATA_CHECKPOINT_1_PARTIAL_SOURCE_GAP_REMAINS if pre/post-market still show placeholder garbage or F&O warmup still says UNKNOWN.
+
+Use ROLLBACK_REQUIRED if secrets leak, broker execution turns on, real orders are placed, Telegram spam returns, or fake data is shown as trade-grade.
+
+====================================================
+ACCEPTANCE CRITERIA
+====================================================
+
+Checkpoint 1 is accepted only if:
+
+- F&O warmup known reasons no longer show UNKNOWN
+- F&O warmup remains a single digest
+- CanonicalFnoReadiness exists or equivalent adapter exists
+- pre-market report consumes F&O readiness
+- pre-market does not say “not tracked yet”
+- post-market report is compact and useful
+- unavailable providers are collapsed into footer
+- preview endpoints do not send Telegram
+- no secrets exposed
+- no strategy logic changed
+- no broker execution
+- no real orders
+- tests pass
+- LLM index fresh

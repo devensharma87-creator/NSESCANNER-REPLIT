@@ -711,6 +711,41 @@
     "hash": "1a4fe4fad0862adf"
   },
   {
+    "path": "artifacts/api-server/src/lib/canonicalFnoReadiness.test.ts",
+    "purpose": "test",
+    "lines": 213,
+    "exports": [],
+    "externalImports": [
+      "vitest"
+    ],
+    "routes": [],
+    "hash": "873518ac43d4d215"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/canonicalFnoReadiness.ts",
+    "purpose": "fno-engine",
+    "lines": 355,
+    "exports": [
+      "KiteSessionState",
+      "FeedConnState",
+      "MarketSessionLabel",
+      "BarsStatus",
+      "OptionChainReadinessStatus",
+      "SignalCycleStatus",
+      "CanonicalFnoReadiness",
+      "FnoCycleMetaLike",
+      "OptionSnapshotRunLike",
+      "CanonicalFnoReadinessInputs",
+      "deriveMarketSessionLabel",
+      "buildCanonicalFnoReadiness",
+      "deriveFnoReadinessLabel",
+      "getCanonicalFnoReadiness"
+    ],
+    "externalImports": [],
+    "routes": [],
+    "hash": "6e591163a8c2c8be"
+  },
+  {
     "path": "artifacts/api-server/src/lib/chart.provenance.test.ts",
     "purpose": "test",
     "lines": 252,
@@ -867,18 +902,18 @@
   {
     "path": "artifacts/api-server/src/lib/dailyReports.test.ts",
     "purpose": "test",
-    "lines": 892,
+    "lines": 844,
     "exports": [],
     "externalImports": [
       "vitest"
     ],
     "routes": [],
-    "hash": "2f874689e227f019"
+    "hash": "780d5ad1b0c6a8b1"
   },
   {
     "path": "artifacts/api-server/src/lib/dailyReports.ts",
     "purpose": "lib",
-    "lines": 1037,
+    "lines": 1184,
     "exports": [
       "ensureDailyReportRunsTable",
       "tryClaimScheduledReport",
@@ -886,27 +921,27 @@
       "DataCoverageEntry",
       "DAILY_ANALYSIS_COVERAGE",
       "PreMarketKite",
-      "PreMarketFno",
       "PreMarketSwing",
-      "PreMarketAlerts",
       "PreMarketReportData",
       "buildPreMarketReport",
       "PostMarketFno",
       "PostMarketSwing",
-      "PostMarketAlerts",
+      "PostMarketIndexRow",
+      "PostMarketIndexPerformance",
+      "PostMarketOptionChainRow",
+      "PostMarketOptionChainEod",
       "PostMarketReportData",
       "buildPostMarketReport",
       "DailyReportRecord",
       "getLastPreMarketReportRecord",
-      "getLastPostMarketReportRecord",
-      "ReportRunRow"
+      "getLastPostMarketReportRecord"
     ],
     "externalImports": [
       "drizzle-orm",
       "@workspace/db"
     ],
     "routes": [],
-    "hash": "74e865b019c03899"
+    "hash": "978e9565f2b13dc5"
   },
   {
     "path": "artifacts/api-server/src/lib/dailyReportsDedupContract.test.ts",
@@ -1254,19 +1289,19 @@
   {
     "path": "artifacts/api-server/src/lib/fnoFailureDiagnosis.test.ts",
     "purpose": "test",
-    "lines": 376,
+    "lines": 442,
     "exports": [],
     "externalImports": [
       "vitest",
       "@workspace/db"
     ],
     "routes": [],
-    "hash": "24de716044995bb4"
+    "hash": "a3bc7722e212a360"
   },
   {
     "path": "artifacts/api-server/src/lib/fnoFailureDiagnosis.ts",
     "purpose": "fno-engine",
-    "lines": 1283,
+    "lines": 1375,
     "exports": [
       "FailureDiagnosisFiltersEcho",
       "SetupFailureRow",
@@ -1292,7 +1327,7 @@
       "@workspace/db"
     ],
     "routes": [],
-    "hash": "55cd083a0fa73c37"
+    "hash": "d79a129ed5830c52"
   },
   {
     "path": "artifacts/api-server/src/lib/fnoObservability.test.ts",
@@ -1478,18 +1513,18 @@
   {
     "path": "artifacts/api-server/src/lib/fnoSignalAlerts.test.ts",
     "purpose": "test",
-    "lines": 541,
+    "lines": 629,
     "exports": [],
     "externalImports": [
       "vitest"
     ],
     "routes": [],
-    "hash": "929b88d4ec586f82"
+    "hash": "22f492e502f89350"
   },
   {
     "path": "artifacts/api-server/src/lib/fnoSignalAlerts.ts",
     "purpose": "alerting",
-    "lines": 956,
+    "lines": 964,
     "exports": [
       "FNO_SIGNAL_ALERT_NEW_OPEN_MAX_MS",
       "FNO_SIGNAL_DEDUP_MS",
@@ -1516,7 +1551,7 @@
       "crypto"
     ],
     "routes": [],
-    "hash": "876b685fc10f61c2"
+    "hash": "b5a0ab33e61504d5"
   },
   {
     "path": "artifacts/api-server/src/lib/fnoSignalReasoningFingerprint.test.ts",
@@ -2416,7 +2451,7 @@
   {
     "path": "artifacts/api-server/src/lib/kiteWarmup.ts",
     "purpose": "data-source",
-    "lines": 300,
+    "lines": 345,
     "exports": [
       "WarmupTrigger",
       "WarmupOutcome",
@@ -2434,7 +2469,7 @@
     ],
     "externalImports": [],
     "routes": [],
-    "hash": "2e10b9aa80410e50"
+    "hash": "367cd22de6d3635e"
   },
   {
     "path": "artifacts/api-server/src/lib/liveBias.ts",
@@ -2542,7 +2577,7 @@
   {
     "path": "artifacts/api-server/src/lib/marketData/compat.ts",
     "purpose": "api-route",
-    "lines": 210,
+    "lines": 219,
     "exports": [
       "centralIndexCandles",
       "centralHasIndexCoverage",
@@ -2552,7 +2587,7 @@
     ],
     "externalImports": [],
     "routes": [],
-    "hash": "be4d20d5f9199a65"
+    "hash": "8e16b92fbd576819"
   },
   {
     "path": "artifacts/api-server/src/lib/marketData/diagnostics.ts",
@@ -5542,6 +5577,22 @@
     "hash": "fc27c7e3499c386e"
   },
   {
+    "path": "artifacts/api-server/src/routes/__tests__/dailyAnalysisTelegramPreviewRoute.test.ts",
+    "purpose": "api-route",
+    "lines": 267,
+    "exports": [],
+    "externalImports": [
+      "vitest",
+      "express",
+      "cookie-parser",
+      "node:http",
+      "node:crypto",
+      "node:net"
+    ],
+    "routes": [],
+    "hash": "b8cefef236e28fd3"
+  },
+  {
     "path": "artifacts/api-server/src/routes/__tests__/diagnosticRouteAuth.test.ts",
     "purpose": "api-route",
     "lines": 598,
@@ -5844,7 +5895,7 @@
   {
     "path": "artifacts/api-server/src/routes/dailyAnalysis.ts",
     "purpose": "api-route",
-    "lines": 188,
+    "lines": 246,
     "exports": [],
     "externalImports": [
       "express"
@@ -5854,10 +5905,11 @@
       "GET /daily-analysis/pre-market/latest",
       "GET /daily-analysis/post-market/latest",
       "GET /daily-analysis/history",
+      "GET /daily-analysis/telegram/preview",
       "POST /daily-analysis/generate-pre-market",
       "POST /daily-analysis/generate-post-market"
     ],
-    "hash": "512b1fae5b720743"
+    "hash": "a94420c0260e3081"
   },
   {
     "path": "artifacts/api-server/src/routes/data.ts",

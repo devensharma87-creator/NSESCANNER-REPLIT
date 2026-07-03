@@ -911,6 +911,9 @@ function buildFnoWarmupDigestText(
  *
  * - Never alerts on OK or any SKIPPED_* outcome.
  * - Never alerts on SESSION_MISSING / TOKEN_MISSING — benign/expected state.
+ * - Never alerts on MARKET_CLOSED — expected outside session hours, not a
+ *   data-health problem (Checkpoint 1 Part A/F: "market closed is not a
+ *   critical warmup failure").
  * - Dedup key is scoped to the IST calendar day (`FNO_WARMUP_FAILED::<istDay>`),
  *   not per-index, with a 60-min window — so a multi-hour outage produces at
  *   most one digest per hour instead of a message storm per index per retry.
@@ -930,7 +933,12 @@ export function alertWarmupFailures(result: {
       if (idx.ok) continue;
       const firstFail = idx.steps.find((s) => !s.ok);
       if (!firstFail) continue;
-      if (firstFail.code === "SESSION_MISSING" || firstFail.code === "TOKEN_MISSING") continue;
+      if (
+        firstFail.code === "SESSION_MISSING" ||
+        firstFail.code === "TOKEN_MISSING" ||
+        firstFail.code === "MARKET_CLOSED"
+      )
+        continue;
       failing.push({
         index: idx.index,
         code: firstFail.code,
