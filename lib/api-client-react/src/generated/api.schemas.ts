@@ -4117,6 +4117,20 @@ export const PaperTradeEqPositionStatus = {
   OPEN: "OPEN",
 } as const;
 
+/**
+ * How this trade was opened. LEGACY_UNKNOWN = predates provenance tracking (2026-07-03).
+ */
+export type PaperTradeEqPositionSource =
+  | (typeof PaperTradeEqPositionSource)[keyof typeof PaperTradeEqPositionSource]
+  | null;
+
+export const PaperTradeEqPositionSource = {
+  AUTO_STRONG_BUY: "AUTO_STRONG_BUY",
+  SWING_STAGED_APPROVAL: "SWING_STAGED_APPROVAL",
+  MANUAL_BUY: "MANUAL_BUY",
+  LEGACY_UNKNOWN: "LEGACY_UNKNOWN",
+} as const;
+
 export interface PaperTradeEqPosition {
   id: string;
   symbol: string;
@@ -4153,6 +4167,10 @@ export interface PaperTradeEqPosition {
   openedAt: string;
   lastEvaluatedAt: string;
   status: PaperTradeEqPositionStatus;
+  /** How this trade was opened. LEGACY_UNKNOWN = predates provenance tracking (2026-07-03). */
+  source?: PaperTradeEqPositionSource;
+  /** Links back to swing_order_staging.id when opened via the staged-approval path. Null today — that path never opens trades yet. */
+  stagedOrderId?: string | null;
 }
 
 export type PaperTradeEqClosedExitReason =
@@ -4165,6 +4183,20 @@ export const PaperTradeEqClosedExitReason = {
   TIME_STOP: "TIME_STOP",
   SIGNAL_FLIP: "SIGNAL_FLIP",
   MANUAL_OVERRIDE: "MANUAL_OVERRIDE",
+} as const;
+
+/**
+ * How this trade was opened. LEGACY_UNKNOWN = predates provenance tracking (2026-07-03).
+ */
+export type PaperTradeEqClosedSource =
+  | (typeof PaperTradeEqClosedSource)[keyof typeof PaperTradeEqClosedSource]
+  | null;
+
+export const PaperTradeEqClosedSource = {
+  AUTO_STRONG_BUY: "AUTO_STRONG_BUY",
+  SWING_STAGED_APPROVAL: "SWING_STAGED_APPROVAL",
+  MANUAL_BUY: "MANUAL_BUY",
+  LEGACY_UNKNOWN: "LEGACY_UNKNOWN",
 } as const;
 
 export interface PaperTradeEqClosed {
@@ -4183,6 +4215,10 @@ export interface PaperTradeEqClosed {
   exitedAt: string;
   journal?: string | null;
   tags?: string[] | null;
+  /** How this trade was opened. LEGACY_UNKNOWN = predates provenance tracking (2026-07-03). */
+  source?: PaperTradeEqClosedSource;
+  /** Links back to swing_order_staging.id when opened via the staged-approval path. Null today — that path never opens trades yet. */
+  stagedOrderId?: string | null;
 }
 
 export interface PaperPositionsEqResponse {

@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { PaperTradeEqClosedExitReason } from "./paperTradeEqClosedExitReason";
+import type { PaperTradeEqClosedSource } from "./paperTradeEqClosedSource";
 
 export interface PaperTradeEqClosed {
   id: string;
@@ -23,4 +24,8 @@ export interface PaperTradeEqClosed {
   exitedAt: Date;
   journal?: string | null;
   tags?: string[] | null;
+  /** How this trade was opened. LEGACY_UNKNOWN = predates provenance tracking (2026-07-03). */
+  source?: PaperTradeEqClosedSource;
+  /** Links back to swing_order_staging.id when opened via the staged-approval path. Null today — that path never opens trades yet. */
+  stagedOrderId?: string | null;
 }

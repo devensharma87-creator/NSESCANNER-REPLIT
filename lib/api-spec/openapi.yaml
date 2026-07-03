@@ -5266,6 +5266,15 @@ components:
         openedAt:          { type: string, format: date-time }
         lastEvaluatedAt:   { type: string, format: date-time }
         status:            { type: string, enum: [OPEN] }
+        source:
+          type: string
+          nullable: true
+          enum: [AUTO_STRONG_BUY, SWING_STAGED_APPROVAL, MANUAL_BUY, LEGACY_UNKNOWN]
+          description: "How this trade was opened. LEGACY_UNKNOWN = predates provenance tracking (2026-07-03)."
+        stagedOrderId:
+          type: string
+          nullable: true
+          description: "Links back to swing_order_staging.id when opened via the staged-approval path. Null today — that path never opens trades yet."
 
     PaperTradeEqClosed:
       type: object
@@ -5302,6 +5311,15 @@ components:
           type: array
           nullable: true
           items: { type: string }
+        source:
+          type: string
+          nullable: true
+          enum: [AUTO_STRONG_BUY, SWING_STAGED_APPROVAL, MANUAL_BUY, LEGACY_UNKNOWN]
+          description: "How this trade was opened. LEGACY_UNKNOWN = predates provenance tracking (2026-07-03)."
+        stagedOrderId:
+          type: string
+          nullable: true
+          description: "Links back to swing_order_staging.id when opened via the staged-approval path. Null today — that path never opens trades yet."
 
     PaperPositionsEqResponse:
       type: object

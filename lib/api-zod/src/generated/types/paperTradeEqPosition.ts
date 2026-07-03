@@ -5,6 +5,7 @@
  * NSE Stock Scanner API
  * OpenAPI spec version: 0.1.0
  */
+import type { PaperTradeEqPositionSource } from "./paperTradeEqPositionSource";
 import type { PaperTradeEqPositionStatus } from "./paperTradeEqPositionStatus";
 
 export interface PaperTradeEqPosition {
@@ -43,4 +44,8 @@ export interface PaperTradeEqPosition {
   openedAt: Date;
   lastEvaluatedAt: Date;
   status: PaperTradeEqPositionStatus;
+  /** How this trade was opened. LEGACY_UNKNOWN = predates provenance tracking (2026-07-03). */
+  source?: PaperTradeEqPositionSource;
+  /** Links back to swing_order_staging.id when opened via the staged-approval path. Null today — that path never opens trades yet. */
+  stagedOrderId?: string | null;
 }

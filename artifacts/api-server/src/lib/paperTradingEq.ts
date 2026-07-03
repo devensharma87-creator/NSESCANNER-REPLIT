@@ -33,7 +33,7 @@ import {
   paperAccountTable,
   paperTradeEqTable,
 } from "@workspace/db";
-import type { PaperTradeEqRow } from "@workspace/db";
+import type { PaperTradeEqRow, PaperTradeEqSource } from "@workspace/db";
 import { and, eq, ne, sql } from "drizzle-orm";
 import {
   ensureDailyReset,
@@ -76,6 +76,101 @@ export type EquityExitReason =
   | "SIGNAL_FLIP"
   | "MANUAL_OVERRIDE";
 
+// ---------------------------------------------------------------------------
+// Lifecycle provenance schema migration (Checkpoint 2, 2026-07-03, additive)
+// ---------------------------------------------------------------------------
+
+/**
+ * Maps the write-path `opts.source` to the richer stored provenance.
+ * `SWING_STAGED_APPROVAL` (in the `PaperTradeEqSource` DB enum) is reserved
+ * for when `approveSwingOrder` — currently a fully separate dry-run pipeline
+ * that never calls this function — is wired to open real paper trades; no
+ * live caller passes anything but AUTO/MANUAL today, so this stays a
+ * 2-way map until that day comes.
+ */
+export function mapWriteSourceToProvenance(source: "AUTO" | "MANUAL" | undefined): PaperTradeEqSource {
+  return source === "MANUAL" ? "MANUAL_BUY" : "AUTO_STRONG_BUY";
+}
+
+/**
+ * Add the lifecycle-provenance columns to `paper_trade_eq` / `paper_eq_audit`
+ * if they do not already exist, then run a one-time idempotent backfill for
+ * rows written before these columns existed. Mirrors the proven
+ * `swingTtlSweep.ts` / `fnoExitMonitorHealth.ts` pattern: raw
+ * `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` — NEVER `drizzle-kit push`,
+ * which wants to drop out-of-schema tables in this DB.
+ *
+ * Backfill steps (each idempotent, safe to re-run):
+ *   1. Correlate `paper_eq_audit` OPENED rows to `paper_trade_eq` by
+ *      (symbol, IST-calendar-day(ts) == signal_date) — the two writes
+ *      happen seconds apart in the same request, and the trade table's
+ *      (symbol, signal_date) uniqueness makes this a safe join key.
+ *      AUTO -> AUTO_STRONG_BUY, MANUAL -> MANUAL_BUY.
+ *   2. Any trade row still without a source after that correlation is
+ *      honestly labelled LEGACY_UNKNOWN — never fabricated as AUTO/MANUAL.
+ *   3. Symmetrically back-link `paper_eq_audit.paper_trade_id` for any
+ *      OPENED row that matches an existing trade row (best-effort; new
+ *      rows are linked directly at write time instead, see
+ *      `openPaperEquityTrade`).
+ */
+export async function applyPaperEqProvenanceColumns(): Promise<void> {
+  await db.execute(sql`
+    ALTER TABLE paper_trade_eq
+      ADD COLUMN IF NOT EXISTS source TEXT,
+      ADD COLUMN IF NOT EXISTS staged_order_id TEXT
+  `);
+  await db.execute(sql`
+    ALTER TABLE paper_eq_audit
+      ADD COLUMN IF NOT EXISTS paper_trade_id TEXT
+  `);
+  await db.execute(sql`
+    UPDATE paper_trade_eq t
+       SET source = CASE a.source WHEN 'MANUAL' THEN 'MANUAL_BUY' ELSE 'AUTO_STRONG_BUY' END
+      FROM paper_eq_audit a
+     WHERE t.source IS NULL
+       AND a.decision = 'OPEN'
+       AND a.symbol = t.symbol
+       AND (a.ts AT TIME ZONE 'Asia/Kolkata')::date = t.signal_date
+  `);
+  await db.execute(sql`
+    UPDATE paper_trade_eq
+       SET source = 'LEGACY_UNKNOWN'
+     WHERE source IS NULL
+  `);
+  await db.execute(sql`
+    UPDATE paper_eq_audit a
+       SET paper_trade_id = t.id
+      FROM paper_trade_eq t
+     WHERE a.paper_trade_id IS NULL
+       AND a.decision = 'OPEN'
+       AND a.symbol = t.symbol
+       AND (a.ts AT TIME ZONE 'Asia/Kolkata')::date = t.signal_date
+  `);
+}
+
+let paperEqProvenanceMigrationPromise: Promise<void> | null = null;
+
+/**
+ * Memoized, idempotent schema-ready gate — first caller triggers the
+ * migration + backfill; every subsequent caller (this process lifetime)
+ * awaits the same resolved promise. On failure the promise is cleared so a
+ * later call can retry (a transient DB blip should not permanently wedge
+ * equity paper trading).
+ */
+export function ensurePaperEqProvenanceColumns(): Promise<void> {
+  if (!paperEqProvenanceMigrationPromise) {
+    paperEqProvenanceMigrationPromise = applyPaperEqProvenanceColumns().catch((err: unknown) => {
+      paperEqProvenanceMigrationPromise = null;
+      logger.warn(
+        { err: err instanceof Error ? err.message : String(err) },
+        "paper eq provenance: schema column migration failed, will retry on next check",
+      );
+      throw err;
+    });
+  }
+  return paperEqProvenanceMigrationPromise;
+}
+
 /**
  * Try to open a paper equity trade for the given SwingSignal. Returns
  * the inserted row on success, or null with a logged reason on every
@@ -97,6 +192,8 @@ export async function openPaperEquityTrade(
 ): Promise<PaperTradeEqRow | null> {
   const sigLabel = opts?.signalLabel ?? "STRONG_BUY";
   const today = signal.signalDate;
+
+  await ensurePaperEqProvenanceColumns();
 
   // Pre-check (lock-free): if a row already exists for this symbol+day,
   // bail out before grabbing the account lock.
@@ -408,6 +505,7 @@ export async function openPaperEquityTrade(
           lastEvaluatedAt: now,
           openedAt: now,
           status: "OPEN",
+          source: mapWriteSourceToProvenance(opts?.source),
         })
         .onConflictDoNothing()
         .returning();
@@ -468,6 +566,7 @@ export async function openPaperEquityTrade(
         entry: signal.entryPrice, stop: signal.stopPrice, qty,
         deploy: capitalDeployed, balance: num(debited[0]!.balance),
         source: isManual ? "MANUAL" : "AUTO",
+        paperTradeId: inserted[0]!.id,
         emitEvent: {
           type: isManual ? "MANUAL_BUY" : "BUY_EXECUTED",
           title: `${isManual ? "Manual buy" : "Buy filled"}: ${signal.symbol}`,
@@ -608,6 +707,7 @@ export async function openManualPaperEquityTrade(
   opts?: { qty?: number },
 ): Promise<{ row: PaperTradeEqRow | null; reason: string | null }> {
   const today = istDateKey();
+  await ensurePaperEqProvenanceColumns();
   // Same-day duplicate guard. The DB has a UNIQUE (symbol, signalDate)
   // index and openPaperEquityTrade short-circuits to the existing row
   // on a hit — but it returns that row regardless of status, which the

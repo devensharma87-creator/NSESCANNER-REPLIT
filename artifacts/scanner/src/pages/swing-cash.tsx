@@ -312,6 +312,12 @@ function OrderCard({ order, invalidate }: { order: SwingStagedOrder, invalidate:
             <span className="text-xs font-semibold uppercase tracking-wider text-rose-500 bg-rose-500/10 px-2 py-0.5 rounded border border-rose-500/20">
               Approval does NOT place a real order
             </span>
+            <span
+              className="text-[10px] text-muted-foreground"
+              title="The Swing Queue approval pipeline is fully separate from the paper-trading ledger — approving here never creates a paper_trade_eq row today."
+            >
+              Paper trade link: not converted (staged-only)
+            </span>
             <span className="text-[10px] text-muted-foreground">ID: {order.id.slice(0, 8)}...</span>
           </div>
         </div>

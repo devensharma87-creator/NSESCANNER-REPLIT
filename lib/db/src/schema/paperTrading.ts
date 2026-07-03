@@ -265,6 +265,36 @@ export const paperTradeEqTable = pgTable(
 
     journal: text("journal"),
     tags: text("tags").array(),
+
+    /**
+     * Lifecycle provenance (additive 2026-07-03, Checkpoint 2, nullable —
+     * pre-change rows are backfilled to LEGACY_UNKNOWN, never fabricated
+     * as AUTO/MANUAL/SWING). One of:
+     *   AUTO_STRONG_BUY       — opened by the swing-scanner auto tick
+     *                           (runEquityPaperTradingTick).
+     *   SWING_STAGED_APPROVAL — opened from an owner-approved
+     *                           swing_order_staging row. NOT YET a live
+     *                           path — approveSwingOrder() does not open
+     *                           paper trades today; reserved for when it
+     *                           does.
+     *   MANUAL_BUY            — opened via the manual buy UI/endpoint
+     *                           (openManualPaperEquityTrade).
+     *   LEGACY_UNKNOWN        — row predates this column; origin was
+     *                           reconstructed from paper_eq_audit where
+     *                           possible, otherwise honestly unknown.
+     * Applied via raw `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` in
+     * `ensurePaperEqProvenanceColumns()` (paperTradingEq.ts), NEVER
+     * `drizzle-kit push` (would attempt to drop out-of-schema tables in
+     * this DB).
+     */
+    source: text("source"),
+    /**
+     * When source = SWING_STAGED_APPROVAL, the originating
+     * swing_order_staging.id (no DB FK — that table's PK is a plain
+     * varchar id and this column predates any caller that sets it).
+     * NULL for every other source.
+     */
+    stagedOrderId: text("staged_order_id"),
   },
   (t) => ({
     // One open trade per symbol per IST day.
@@ -278,8 +308,21 @@ export const paperTradeEqTable = pgTable(
       t.status,
     ),
     exitedAtIdx: index("paper_trade_eq_exited_at_idx").on(t.exitedAt),
+    sourceIdx: index("paper_trade_eq_source_idx").on(t.source),
   }),
 );
+
+/**
+ * TS union for `paper_trade_eq.source`. Enforced at the application layer
+ * only — Postgres has no `ADD CONSTRAINT IF NOT EXISTS`, so a DB-level
+ * CHECK constraint would not be safely idempotent to add via the additive
+ * ALTER path. See `ensurePaperEqProvenanceColumns()` for the backfill.
+ */
+export type PaperTradeEqSource =
+  | "AUTO_STRONG_BUY"
+  | "SWING_STAGED_APPROVAL"
+  | "MANUAL_BUY"
+  | "LEGACY_UNKNOWN";
 
 export type PaperTradeEqRow = typeof paperTradeEqTable.$inferSelect;
 export type NewPaperTradeEqRow = typeof paperTradeEqTable.$inferInsert;
@@ -321,6 +364,16 @@ export const paperEqAuditTable = pgTable(
     accountValue: numeric("account_value", { precision: 18, scale: 2 }),
     /** "AUTO" (swing scanner tick) or "MANUAL" (UI buy click). */
     source: text("source").notNull().default("AUTO"),
+    /**
+     * Link back to the paper_trade_eq row this OPEN decision produced
+     * (additive 2026-07-03, Checkpoint 2, nullable). Only ever set on
+     * decision='OPEN' rows, at the moment the trade insert commits — the
+     * audit write itself stays fail-open/void, so this is populated by
+     * passing the new trade id into `recordEqDecision()`, never by a
+     * separate post-commit UPDATE. NULL for every SKIP row and for rows
+     * written before this column existed.
+     */
+    paperTradeId: text("paper_trade_id"),
   },
   (t) => ({
     tsIdx: index("paper_eq_audit_ts_idx").on(t.ts),

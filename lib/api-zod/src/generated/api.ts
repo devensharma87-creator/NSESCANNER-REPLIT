@@ -5089,6 +5089,23 @@ export const GetPaperPositionsEqResponse = zod.object({
       openedAt: zod.coerce.date(),
       lastEvaluatedAt: zod.coerce.date(),
       status: zod.enum(["OPEN"]),
+      source: zod
+        .enum([
+          "AUTO_STRONG_BUY",
+          "SWING_STAGED_APPROVAL",
+          "MANUAL_BUY",
+          "LEGACY_UNKNOWN",
+        ])
+        .nullish()
+        .describe(
+          "How this trade was opened. LEGACY_UNKNOWN = predates provenance tracking (2026-07-03).",
+        ),
+      stagedOrderId: zod
+        .string()
+        .nullish()
+        .describe(
+          "Links back to swing_order_staging.id when opened via the staged-approval path. Null today — that path never opens trades yet.",
+        ),
     }),
   ),
   generatedAt: zod.coerce.date(),
@@ -5129,6 +5146,23 @@ export const GetPaperTradesEqResponse = zod.object({
       exitedAt: zod.coerce.date(),
       journal: zod.string().nullish(),
       tags: zod.array(zod.string()).nullish(),
+      source: zod
+        .enum([
+          "AUTO_STRONG_BUY",
+          "SWING_STAGED_APPROVAL",
+          "MANUAL_BUY",
+          "LEGACY_UNKNOWN",
+        ])
+        .nullish()
+        .describe(
+          "How this trade was opened. LEGACY_UNKNOWN = predates provenance tracking (2026-07-03).",
+        ),
+      stagedOrderId: zod
+        .string()
+        .nullish()
+        .describe(
+          "Links back to swing_order_staging.id when opened via the staged-approval path. Null today — that path never opens trades yet.",
+        ),
     }),
   ),
   generatedAt: zod.coerce.date(),
@@ -5164,6 +5198,23 @@ export const ClosePaperPositionEqResponse = zod.object({
   exitedAt: zod.coerce.date(),
   journal: zod.string().nullish(),
   tags: zod.array(zod.string()).nullish(),
+  source: zod
+    .enum([
+      "AUTO_STRONG_BUY",
+      "SWING_STAGED_APPROVAL",
+      "MANUAL_BUY",
+      "LEGACY_UNKNOWN",
+    ])
+    .nullish()
+    .describe(
+      "How this trade was opened. LEGACY_UNKNOWN = predates provenance tracking (2026-07-03).",
+    ),
+  stagedOrderId: zod
+    .string()
+    .nullish()
+    .describe(
+      "Links back to swing_order_staging.id when opened via the staged-approval path. Null today — that path never opens trades yet.",
+    ),
 });
 
 /**

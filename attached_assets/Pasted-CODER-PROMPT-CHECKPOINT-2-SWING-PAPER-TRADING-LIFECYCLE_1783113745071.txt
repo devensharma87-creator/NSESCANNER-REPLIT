@@ -1,0 +1,621 @@
+CODER PROMPT — CHECKPOINT 2: SWING ↔ PAPER TRADING LIFECYCLE SOURCE/LINK AUDIT + FIX
+
+Current accepted production milestones:
+
+1. SIGNAL_DATA_NOTIFICATION_PARITY_DETERMINISTIC_PROD_VERIFIED_LIVE_SMOKE_PENDING
+2. GLOBAL_DATA_HEALTH_KITE_RESILIENCE_PROD_VERIFIED
+3. SWING_TTL_LIFECYCLE_PROD_VERIFIED
+4. TELEGRAM_ALERT_QUALITY_PROD_VERIFIED
+5. FNO_EXIT_MONITORING_DEV_VERIFIED
+6. CANONICAL_DATA_CHECKPOINT_1_PROD_VERIFIED
+
+Checkpoint 1 is closed.
+
+Now start Checkpoint 2 only:
+
+SWING ↔ PAPER TRADING LIFECYCLE SOURCE/LINK AUDIT + FIX
+
+====================================================
+OWNER OBSERVATION / REASON FOR THIS TASK
+====================================================
+
+Owner observed:
+
+1. Swing Cash Queue showed RELIANCE as EXPIRED.
+2. Paper Trading showed INDUSINDBK opened as a live paper trade.
+3. Equity decision audit showed INDUSINDBK OPENED from automated logic.
+4. The UI does not clearly explain whether INDUSINDBK came from:
+   - Swing staged approval
+   - Auto Strong Buy scan
+   - Manual Buy button
+   - Legacy/unknown source
+5. Swing Queue and Paper Trading feel disconnected.
+6. The owner needs every paper trade to be traceable from source decision → staged order if any → paper trade → Telegram/event log → report.
+
+The issue may not be a trading bug. It may be a lifecycle-source visibility bug. But right now the product does not clearly prove that.
+
+====================================================
+CORE OBJECTIVE
+====================================================
+
+Make every Equity/Swing-related paper trade clearly traceable.
+
+The platform must answer:
+
+1. Why did this paper trade open?
+2. Which module opened it?
+3. Was it created from a Swing staged order?
+4. Was it created from Auto Strong Buy scan?
+5. Was it created from manual Buy button?
+6. Was it linked to a decision audit row?
+7. Was it linked to a staged order row?
+8. Was Telegram sent or skipped?
+9. Was broker execution disabled?
+10. Should this trade appear in Swing Queue or only Paper Trading?
+11. Should the source be included in reports?
+
+This checkpoint is about lifecycle source clarity and linking.
+
+It is not about changing strategy rules.
+
+====================================================
+ABSOLUTE DO-NOT-DO RULES
+====================================================
+
+Do not change Swing strategy logic.
+
+Do not change Auto Strong Buy logic.
+
+Do not change F&O strategy logic.
+
+Do not change thresholds.
+
+Do not change entry / stop-loss / target formulas.
+
+Do not enable broker execution.
+
+Do not place real orders.
+
+Do not create fake trades.
+
+Do not send test/sample/dev messages to real Telegram.
+
+Do not delete DB rows.
+
+Do not perform destructive migrations.
+
+Do not run candle backfill.
+
+Do not hide source warnings.
+
+Do not fake lifecycle links.
+
+Do not silently rewrite old history.
+
+Do not force all Paper Trading rows into Swing Queue if the correct design says they are separate flows.
+
+Do not ask for owner/admin password.
+
+Do not trim, rewrite, reorganize, or mention replit.md.
+
+Do not start Checkpoint 3 or provider migration in this task.
+
+====================================================
+CHECKPOINT 2 SCOPE
+====================================================
+
+Allowed in this checkpoint:
+
+1. Audit current Swing Queue and Paper Trading equity flows.
+2. Identify all paper trade creation paths.
+3. Add explicit source classification to Paper Trading rows if missing.
+4. Add safe additive DB columns if needed.
+5. Link staged order ID / decision audit ID / signal ID where available.
+6. Display source in Paper Trading UI.
+7. Display linked paper trade in Swing Queue where applicable.
+8. Add lifecycle source to reports.
+9. Add owner-only diagnostics/API if useful.
+10. Add tests.
+11. Update report.
+
+Not allowed in this checkpoint:
+
+1. Full canonical quote migration.
+2. Scanner provider migration.
+3. Charting migration.
+4. Option-chain / OI Lab migration.
+5. F&O exit-monitor rebuild.
+6. Telegram alert dedup rebuild.
+7. New trading strategy features.
+
+====================================================
+PHASE 0 — READ CONTEXT FIRST
+====================================================
+
+Before coding, read:
+
+- AGENT.md
+- docs/llm-index/AGENT_START_HERE.md
+- docs/llm-index/CRITICAL_FLOWS.md
+- docs/llm-index/API_ROUTES_INDEX.md
+- docs/llm-index/DATABASE_INDEX.md
+- docs/llm-index/DATA_SOURCES_AND_PROVENANCE.md
+- docs/llm-index/TEST_AND_VERIFICATION_INDEX.md
+- SIGNAL_DATA_NOTIFICATION_PARITY_FIX_REPORT.md
+- GLOBAL_DATA_HEALTH_AND_KITE_RESILIENCE_REPORT.md
+- SWING_TTL_STAGED_ORDER_LIFECYCLE_REPORT.md
+- docs/telegram-alert-quality-audit-2026-07-03.md
+- FNO_EXIT_MONITORING_RELIABILITY_REPORT.md
+- WEBSITE_CANONICAL_DATA_INTEGRATION_REPORT.md
+- FULL_WEBSITE_DEEP_AUDIT_REPORT.md
+- LIVE_VS_PROD_DEEP_AUDIT_REPORT.md
+
+Then inspect:
+
+- Swing Cash Queue page
+- Paper Trading page
+- paperTradingEq.ts or equivalent equity paper trading file
+- swingOrderStaging.ts
+- swingAlerts.ts
+- equity decision audit code/table
+- paper trade equity table/schema
+- swing_order_staging table/schema
+- notification_delivery_log
+- Telegram swing/equity alert paths
+- report code for paper trading equity
+- API routes for swing and paper trading
+- DB migrations / schema helper patterns
+- existing tests for swing staging / paper trading / alerts
+
+Before coding, produce this audit table:
+
+| Flow | File/Function | Creates Staged Order? | Creates Paper Trade? | Creates Decision Audit? | Sends Telegram? | Current Linkage | Problem |
+|---|---|---:|---:|---:|---:|---|---|
+| Auto Strong Buy |
+| Swing Staged Approval |
+| Manual Buy Button |
+| Manual Stage Candidate |
+| TTL Expiry |
+| Manual Reject |
+| Manual Close |
+| Legacy Existing Rows |
+
+Also produce this concrete production/data audit:
+
+| Symbol | Seen In | Status | Source Known? | Staged Order ID | Paper Trade ID | Decision Audit ID | Telegram ID | Problem |
+|---|---|---|---:|---|---|---|---|---|
+| INDUSINDBK |
+| RELIANCE |
+| Any other active paper equity trade |
+
+Do not code before this audit is complete.
+
+====================================================
+PHASE 1 — DEFINE LIFECYCLE SOURCE CONTRACT
+====================================================
+
+Create or formalize a source contract for equity paper trades.
+
+Required source enum:
+
+```ts
+type EquityPaperTradeSource =
+  | "AUTO_STRONG_BUY"
+  | "SWING_STAGED_APPROVAL"
+  | "MANUAL_BUY"
+  | "MANUAL_STAGE_APPROVAL"
+  | "FNO_SIGNAL"
+  | "IMPORTED"
+  | "LEGACY_UNKNOWN";
+
+Use exact repo-appropriate names if needed, but the meaning must remain clear.
+
+Create or formalize lifecycle link:
+
+type EquityTradeLifecycleLink = {
+  paperTradeId: string;
+  symbol: string;
+  source: EquityPaperTradeSource;
+  decisionAuditId: string | null;
+  stagedOrderId: string | null;
+  signalId: string | null;
+  telegramNotificationId: string | null;
+  createdBy: "AUTO" | "OWNER" | "SYSTEM" | "LEGACY";
+  sourceReason: string | null;
+  sourceScore: number | null;
+  brokerExecution: "DISABLED" | "ENABLED";
+  lifecycleStatus: string;
+  openedAt: string;
+  updatedAt: string;
+};
+
+Rules:
+
+Every new equity paper trade must have a source.
+If source is auto scan, mark AUTO_STRONG_BUY.
+If source is Swing staged approval, link stagedOrderId.
+If source is manual Buy button, mark MANUAL_BUY.
+If source cannot be known for old rows, mark LEGACY_UNKNOWN.
+Do not guess legacy source silently.
+Do not backfill uncertain history as if confirmed.
+Broker execution disabled must remain visible.
+====================================================
+PHASE 2 — SAFE DB ADDITIONS IF NEEDED
+
+If current schema lacks required fields, add safe additive columns only.
+
+Potential columns on equity paper trade table:
+
+source
+source_reason
+source_score
+decision_audit_id
+staged_order_id
+signal_id
+telegram_notification_id
+lifecycle_link_status
+broker_execution_mode
+source_as_of
+source_snapshot_json
+
+Use actual repo table and naming conventions.
+
+Rules:
+
+ALTER TABLE ADD COLUMN IF NOT EXISTS only.
+No destructive migration.
+No dropping columns.
+No rewriting old rows except safe LEGACY_UNKNOWN if explicitly justified.
+Existing rows should remain valid.
+New rows must populate source fields.
+
+If staged order table needs a linked paper trade field, add safely:
+
+paper_trade_id
+paper_trade_opened_at
+conversion_status
+
+Only if needed.
+
+====================================================
+PHASE 3 — FIX PAPER TRADE CREATION PATHS
+
+Update every equity paper trade creation path so source is explicit.
+
+Required:
+
+Auto Strong Buy path:
+source = AUTO_STRONG_BUY
+decisionAuditId linked if available
+sourceScore linked if available
+sourceReason = decision reason, e.g. STRONG_BUY / OPENED
+stagedOrderId = null unless it actually came from staging
+Swing staged approval path:
+source = SWING_STAGED_APPROVAL
+stagedOrderId populated
+decisionAuditId populated if available
+paperTradeId written back to staged order if possible
+staged order status becomes PAPER_OPENED or equivalent
+Manual Buy button:
+source = MANUAL_BUY
+createdBy = OWNER
+stagedOrderId = null unless manual approval flow used
+Legacy/import:
+source = LEGACY_UNKNOWN or IMPORTED
+do not pretend to know source
+Manual stage candidate:
+creates staged order only
+no paper trade unless approved or explicitly auto-opened by existing design
+====================================================
+PHASE 4 — SWING QUEUE DISPLAY RULES
+
+Swing Cash Queue must clearly show lifecycle.
+
+Rules:
+
+Active queue shows only active staged/approval-required orders.
+Expired orders appear archived/expired, not actionable.
+If staged order converted to paper trade:
+status must show PAPER_OPENED / LINKED_TO_PAPER_TRADE
+show linked paperTradeId
+show opened time
+approval button disabled
+If a Paper Trading row came from Auto Strong Buy without staging:
+do not force it into Swing Queue
+Paper Trading must clearly show source = AUTO_STRONG_BUY
+If Swing Queue and Paper Trading are intentionally separate:
+UI must make that clear.
+No expired/stale order may look actionable.
+
+Add text where useful:
+
+“Paper trades from Auto Strong Buy scans appear in Paper Trading, not Swing Queue, unless staged through Swing approval.”
+
+====================================================
+PHASE 5 — PAPER TRADING UI DISPLAY RULES
+
+Paper Trading must show source for every equity trade.
+
+For each equity paper trade row/card/table, show:
+
+Source: AUTO_STRONG_BUY / SWING_STAGED_APPROVAL / MANUAL_BUY / LEGACY_UNKNOWN
+Decision audit ID if available
+Linked staged order ID if available
+Telegram status if available
+Broker execution: DISABLED
+Source score/reason if available
+Opened by: AUTO / OWNER / SYSTEM / LEGACY
+
+For INDUSINDBK-type case, expected clarity:
+
+Source: AUTO_STRONG_BUY
+Decision audit: OPENED
+Linked Swing staged order: None
+Reason: Auto buy filled from equity decision engine
+Broker execution: DISABLED
+
+For Swing approval case:
+
+Source: SWING_STAGED_APPROVAL
+Linked staged order: <id>
+Decision audit: <id if available>
+Broker execution: DISABLED
+
+For legacy unknown:
+
+Source: LEGACY_UNKNOWN
+Reason: Created before lifecycle-source tracking was added
+====================================================
+PHASE 6 — API / DIAGNOSTICS
+
+Update existing APIs or add owner-only diagnostic endpoint.
+
+Suggested:
+
+GET /api/paper-trading/equity/lifecycle/:symbol
+
+or:
+
+GET /api/trade-lifecycle/equity/:symbol
+
+Return:
+
+symbol
+active paper trade if any
+staged order if any
+decision audit rows
+notification log rows
+lifecycle source
+link status
+mismatches
+recommended interpretation
+
+Also add batch endpoint if useful:
+
+POST /api/trade-lifecycle/equity/check
+
+Input:
+
+INDUSINDBK
+RELIANCE
+active equity paper symbols
+
+Return mismatch table.
+
+No secrets.
+
+Anonymous 401 if owner-only.
+
+No order placement.
+
+====================================================
+PHASE 7 — REPORTS CONSISTENCY
+
+Update paper trading reports so they include source.
+
+Required:
+
+Equity performance report groups by source:
+AUTO_STRONG_BUY
+SWING_STAGED_APPROVAL
+MANUAL_BUY
+LEGACY_UNKNOWN
+Expired staged orders are not counted as trades.
+Staged-only rows are not counted as opened trades.
+Paper trades from Auto Strong Buy are counted as paper trades but not falsely counted as Swing staged approvals.
+Source shown in export/report if exports exist.
+Legacy unknown shown honestly.
+====================================================
+PHASE 8 — INFRA HEALTH / DATA INTEGRATION STATUS
+
+Add or update Infra Health section:
+
+“Swing ↔ Paper Trading Lifecycle”
+
+Show:
+
+equity paper trades with known source count
+legacy unknown count
+active paper trades without source count
+staged orders linked to paper trades count
+staged orders expired count
+mismatch count
+last lifecycle audit time
+latest mismatches:
+paper trade has no source
+staged order says approved but no paper trade
+paper trade claims swing approval but no staged order
+expired order still actionable
+Telegram notification missing where expected
+
+No secrets.
+
+No broker action.
+
+No order placement.
+
+If visual auth is not available, provide owner manual checklist.
+
+====================================================
+PHASE 9 — TESTS REQUIRED
+
+Add/update tests:
+
+Auto Strong Buy creates paper trade with source AUTO_STRONG_BUY.
+Auto Strong Buy links decisionAuditId when available.
+Auto Strong Buy does not create fake stagedOrderId.
+Swing staged approval creates paper trade with source SWING_STAGED_APPROVAL.
+Swing staged approval links stagedOrderId.
+Swing staged order gets PAPER_OPENED / linked status after paper trade.
+Manual Buy creates source MANUAL_BUY.
+Legacy rows show LEGACY_UNKNOWN.
+Paper Trading API returns source fields.
+Swing Queue API returns linked paperTradeId for converted staged order.
+Paper Trading UI receives source fields.
+Reports group/count by source.
+Expired staged rows do not count as trades.
+Staged-only rows do not count as opened paper trades.
+Lifecycle diagnostic detects paper trade without source.
+Lifecycle diagnostic detects swing-source trade without stagedOrderId.
+Lifecycle diagnostic treats AUTO_STRONG_BUY without stagedOrderId as valid.
+Lifecycle diagnostic detects expired actionable order.
+Telegram status is linked or clearly unavailable.
+Broker execution remains disabled.
+No real order path touched.
+Existing Swing TTL tests remain green.
+Existing Telegram alert quality tests remain green.
+Existing global data-health tests remain green.
+Existing F&O exit-monitor tests remain green.
+Existing Checkpoint 1 tests remain green.
+
+Run:
+
+pnpm --filter @workspace/api-server run typecheck
+pnpm --filter @workspace/api-server run typecheck:libs
+pnpm --filter @workspace/api-server exec vitest run src/lib/swing.test.ts src/lib/paper.test.ts src/lib/equity.test.ts src/lib/lifecycle.test.ts src/lib/trade.test.ts src/lib/notification.test.ts src/lib/report.test.ts src/lib/dataHealth.test.ts src/routes/**/*.test.ts
+pnpm --filter @workspace/scanner exec vitest run
+pnpm --filter @workspace/scripts run index:llm
+pnpm --filter @workspace/scripts run index:llm:check
+
+If full suite times out, run in batches and report:
+
+batch name
+file count
+pass count
+fail count
+exit code
+====================================================
+PHASE 10 — PRODUCTION VERIFICATION
+
+After publish, verify:
+
+Production DB has safe additive source/link columns if added.
+Existing paper trades remain valid.
+Existing legacy trades show LEGACY_UNKNOWN or honest source.
+INDUSINDBK trade source is clear:
+AUTO_STRONG_BUY / MANUAL_BUY / SWING_STAGED_APPROVAL / LEGACY_UNKNOWN
+RELIANCE expired staged order remains expired and not actionable.
+Swing Queue active list does not show expired actionable order.
+Paper Trading UI/bundle contains source labels.
+Paper Trading API returns source fields.
+Lifecycle diagnostic endpoint works for INDUSINDBK.
+Lifecycle diagnostic endpoint works for RELIANCE.
+No secrets exposed.
+Broker execution disabled.
+No real orders placed.
+No Telegram spam.
+Existing global data-health works.
+Existing Telegram alert dedup works.
+Existing Swing TTL works.
+Existing F&O exit monitoring remains dev verified.
+Checkpoint 1 remains prod verified.
+Tests pass.
+LLM index fresh.
+
+Production report table:
+
+Check	Result	Evidence
+====================================================
+PHASE 11 — REPORT REQUIRED
+
+Update:
+
+WEBSITE_CANONICAL_DATA_INTEGRATION_REPORT.md
+
+Add section:
+
+Checkpoint 2 — Swing ↔ Paper Trading Lifecycle Source/Link Audit
+
+Include:
+
+Root cause summary.
+Current-state audit.
+Source enum/contract.
+DB changes if any.
+Creation paths updated.
+Swing Queue display rules.
+Paper Trading display rules.
+Diagnostic endpoint.
+Report/export changes.
+Infra Health changes.
+INDUSINDBK finding.
+RELIANCE finding.
+Tests and counts.
+Production verification evidence.
+Remaining gaps.
+Next checkpoint recommendation.
+Final verdict.
+
+Update other reports only if behavior changed:
+
+SWING_TTL_STAGED_ORDER_LIFECYCLE_REPORT.md
+FNO_EXIT_MONITORING_RELIABILITY_REPORT.md
+docs/telegram-alert-quality-audit-2026-07-03.md
+GLOBAL_DATA_HEALTH_AND_KITE_RESILIENCE_REPORT.md
+====================================================
+FINAL VERDICT FOR CHECKPOINT 2
+
+Final verdict must be exactly one:
+
+CANONICAL_DATA_CHECKPOINT_2_PROD_VERIFIED
+CANONICAL_DATA_CHECKPOINT_2_DEV_VERIFIED
+CANONICAL_DATA_CHECKPOINT_2_PARTIAL_SOURCE_GAP_REMAINS
+CANONICAL_DATA_CHECKPOINT_2_BUILD_NOT_DEPLOYED
+ROLLBACK_REQUIRED
+
+Use CANONICAL_DATA_CHECKPOINT_2_PROD_VERIFIED only if production is published and verified.
+
+Use CANONICAL_DATA_CHECKPOINT_2_DEV_VERIFIED if implementation/tests pass but production publish/verification is pending.
+
+Use CANONICAL_DATA_CHECKPOINT_2_PARTIAL_SOURCE_GAP_REMAINS if Paper Trading source remains unclear, Swing Queue remains misleading, or lifecycle links are still missing.
+
+Use ROLLBACK_REQUIRED if secrets leak, broker execution turns on, real orders are placed, existing trades are corrupted, Telegram spam returns, or destructive migration happens.
+
+====================================================
+ACCEPTANCE CRITERIA
+
+Checkpoint 2 is accepted only if:
+
+current Swing/Paper lifecycle audit is completed before coding
+every new equity paper trade has explicit source
+existing legacy rows are honestly labelled
+Auto Strong Buy trades do not falsely appear as Swing staged trades
+Swing staged approval trades link stagedOrderId
+Paper Trading shows source
+Swing Queue shows linked paper trade where applicable
+expired staged orders remain non-actionable
+reports include source or do not misclassify source
+lifecycle diagnostic endpoint exists or equivalent diagnostics are available
+INDUSINDBK source is explainable
+RELIANCE expired staged state is explainable
+broker execution remains disabled
+no real orders are placed
+no secrets exposed
+tests pass
+LLM index fresh
+production verification completed
+
+After Checkpoint 2 is closed, the next checkpoint should be:
+
+```text
+Checkpoint 3 — Data Parity API for INDUSINDBK, RELIANCE, NIFTY, BANKNIFTY, SENSEX

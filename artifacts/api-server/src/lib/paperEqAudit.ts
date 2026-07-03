@@ -102,6 +102,13 @@ interface RecordCtx {
   balance?: number | null;
   accountValue?: number | null;
   source?: "AUTO" | "MANUAL";
+  /**
+   * The paper_trade_eq row id this OPEN decision produced (Checkpoint 2,
+   * 2026-07-03). Only ever passed on decision="OPEN" — the trade insert
+   * happens first, so the caller has a real id to hand in. Never set
+   * retroactively; NULL means either a SKIP row or a pre-Checkpoint-2 row.
+   */
+  paperTradeId?: string | null;
   /** When set, ALSO push an EqEvent of this type to the live ring buffer. */
   emitEvent?: {
     type: EqEventType;
@@ -145,6 +152,7 @@ export async function recordEqDecision(ctx: RecordCtx): Promise<void> {
       balance: num(ctx.balance ?? null),
       accountValue: num(ctx.accountValue ?? null),
       source: ctx.source ?? "AUTO",
+      paperTradeId: ctx.paperTradeId ?? null,
     });
   } catch (err) {
     logger.warn(

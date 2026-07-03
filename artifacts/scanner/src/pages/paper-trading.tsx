@@ -250,6 +250,41 @@ interface OpenEqPosition {
   maxDrawdown?: number;
   openedAt: string;
   lastEvaluatedAt: string;
+  source?: EqTradeSource | null;
+  stagedOrderId?: string | null;
+}
+
+type EqTradeSource = "AUTO_STRONG_BUY" | "SWING_STAGED_APPROVAL" | "MANUAL_BUY" | "LEGACY_UNKNOWN";
+
+const EQ_SOURCE_LABEL: Record<EqTradeSource, string> = {
+  AUTO_STRONG_BUY: "AUTO",
+  SWING_STAGED_APPROVAL: "SWING QUEUE",
+  MANUAL_BUY: "MANUAL",
+  LEGACY_UNKNOWN: "LEGACY",
+};
+
+const EQ_SOURCE_TONE: Record<EqTradeSource, string> = {
+  AUTO_STRONG_BUY: "border-sky-400/40 text-sky-300",
+  SWING_STAGED_APPROVAL: "border-violet-400/40 text-violet-300",
+  MANUAL_BUY: "border-amber-400/40 text-amber-300",
+  LEGACY_UNKNOWN: "border-muted-foreground/40 text-muted-foreground",
+};
+
+function EqSourceBadge({ source }: { source?: EqTradeSource | null }) {
+  const key: EqTradeSource = source ?? "LEGACY_UNKNOWN";
+  return (
+    <Badge
+      variant="outline"
+      className={`text-[9px] px-1.5 py-0 font-medium ${EQ_SOURCE_TONE[key]}`}
+      title={
+        key === "LEGACY_UNKNOWN"
+          ? "Opened before source tracking was added — cannot be attributed honestly."
+          : undefined
+      }
+    >
+      {EQ_SOURCE_LABEL[key]}
+    </Badge>
+  );
 }
 
 interface ClosedEqTrade {
@@ -268,6 +303,8 @@ interface ClosedEqTrade {
   exitedAt: string;
   journal?: string | null;
   tags?: string[];
+  source?: EqTradeSource | null;
+  stagedOrderId?: string | null;
 }
 
 const EQ_REASON_TONE: Record<EqExitReason, string> = {
@@ -1116,6 +1153,7 @@ function EqPositionsCard({ positions, loading, error, onBuyClick }: {
               <thead className="text-left text-[11px] uppercase tracking-wider text-muted-foreground border-b border-border">
                 <tr>
                   <th className="py-2 pr-3">Symbol</th>
+                  <th className="py-2 pr-3">Source</th>
                   <th className="py-2 pr-3 text-right">Qty</th>
                   <th className="py-2 pr-3 text-right">LTP</th>
                   <th className="py-2 pr-3 text-right">Entry</th>
@@ -1179,6 +1217,9 @@ function EqPositionRow({ p }: { p: OpenEqPosition }) {
             <span className="ml-2 text-amber-300">stop trailed to T1</span>
           )}
         </div>
+      </td>
+      <td className="py-2 pr-3">
+        <EqSourceBadge source={p.source} />
       </td>
       <td className="py-2 pr-3 text-right tabular-nums">{p.qty}</td>
       <td className="py-2 pr-3 text-right tabular-nums font-medium">{p.lastPrice.toFixed(2)}</td>
@@ -1269,6 +1310,7 @@ function EqTradesCard({ trades, loading, error }: {
               <thead className="text-left text-[11px] uppercase tracking-wider text-muted-foreground border-b border-border">
                 <tr>
                   <th className="py-2 pr-3">Symbol</th>
+                  <th className="py-2 pr-3">Source</th>
                   <th className="py-2 pr-3 text-right">Qty</th>
                   <th className="py-2 pr-3 text-right">Entry</th>
                   <th className="py-2 pr-3 text-right">Exit</th>
@@ -1290,6 +1332,9 @@ function EqTradesCard({ trades, loading, error }: {
                       <td className="py-2 pr-3">
                         <div className="font-medium">{t.symbol}</div>
                         <div className="text-[11px] text-muted-foreground">{t.name}</div>
+                      </td>
+                      <td className="py-2 pr-3">
+                        <EqSourceBadge source={t.source} />
                       </td>
                       <td className="py-2 pr-3 text-right tabular-nums">{t.qty}</td>
                       <td className="py-2 pr-3 text-right tabular-nums">{t.entryPrice.toFixed(2)}</td>

@@ -29,6 +29,8 @@ import {
   db,
   paperTradeFoTable,
   paperTradeEqTable,
+  paperEqAuditTable,
+  swingOrderStagingTable,
 } from "@workspace/db";
 import type { PaperTradeFoRow, PaperTradeEqRow } from "@workspace/db";
 import { and, desc, eq, gte, lt, sql } from "drizzle-orm";
@@ -93,6 +95,7 @@ import {
   getYearlyReport as getEqYearlyReport,
 } from "../lib/paperReportsEq";
 import { forceClosePaperEquityTrade, openManualPaperEquityTrade } from "../lib/paperTradingEq";
+import { computeLifecycleSummary } from "../lib/paperEqLifecycleSummary";
 import { listEqAudit, summarizeEqAudit, getEqEventsSince } from "../lib/paperEqAudit";
 import { getAllScannedRows } from "../lib/fullNseScanner";
 import { logger } from "../lib/logger";
@@ -1547,6 +1550,8 @@ function toEqOpenPosition(r: PaperTradeEqRow, prevClose?: number) {
     openedAt: r.openedAt.toISOString(),
     lastEvaluatedAt: r.lastEvaluatedAt.toISOString(),
     status: "OPEN" as const,
+    source: r.source ?? null,
+    stagedOrderId: r.stagedOrderId ?? null,
   };
 }
 
@@ -1573,6 +1578,8 @@ function toEqClosedTrade(r: PaperTradeEqRow) {
     exitedAt: (r.exitedAt ?? r.openedAt).toISOString(),
     journal: r.journal ?? null,
     tags: r.tags ?? [],
+    source: r.source ?? null,
+    stagedOrderId: r.stagedOrderId ?? null,
   };
 }
 
@@ -1870,6 +1877,93 @@ router.get("/paper/events/eq", requireOwner, (req, res) => {
   const safeSince = Number.isFinite(since) && since >= 0 ? since : 0;
   const { events, latestId } = getEqEventsSince(safeSince);
   return res.json({ events, latestId, generatedAt: new Date().toISOString() });
+});
+
+/**
+ * Lifecycle diagnostic — "why does this symbol look the way it does".
+ *
+ * Owner-only, read-only. Pulls every table that can explain how (or
+ * whether) a symbol became an equity paper trade:
+ *   - paper_trade_eq   — the trade row(s) themselves, incl. `source`/
+ *                         `stagedOrderId` (Checkpoint 2 provenance).
+ *   - paper_eq_audit   — every OPEN/SKIP decision, incl. `paperTradeId`
+ *                         link-back for OPEN rows.
+ *   - swing_order_staging — the separate, currently-unconnected Swing
+ *                         Queue approval pipeline (never opens a paper
+ *                         trade today — see replit.md Checkpoint 2 notes).
+ *   - notification_delivery_log (domain=SWING_CASH) — Telegram delivery
+ *                         history for this symbol, if any.
+ *
+ * Built to answer exactly the class of question the Phase-0 audit asked
+ * of INDUSINDBK/RELIANCE: "was this AUTO, MANUAL, or from the swing
+ * queue, and did it ever actually become a trade?" — without needing a
+ * one-off DB query each time.
+ */
+router.get("/paper/lifecycle/:symbol", requireOwner, async (req, res, next) => {
+  try {
+    const raw = String(req.params.symbol ?? "");
+    if (!/^[A-Z0-9&-]{1,20}$/i.test(raw)) {
+      return res.status(400).json({ error: "Invalid symbol format" });
+    }
+    const symbol = raw.toUpperCase();
+
+    const [trades, auditRows, stagingOrders, notifications] = await Promise.all([
+      db
+        .select()
+        .from(paperTradeEqTable)
+        .where(eq(paperTradeEqTable.symbol, symbol))
+        .orderBy(desc(paperTradeEqTable.openedAt)),
+      db
+        .select()
+        .from(paperEqAuditTable)
+        .where(eq(paperEqAuditTable.symbol, symbol))
+        .orderBy(desc(paperEqAuditTable.ts))
+        .limit(100),
+      db
+        .select()
+        .from(swingOrderStagingTable)
+        .where(eq(swingOrderStagingTable.symbol, symbol))
+        .orderBy(desc(swingOrderStagingTable.createdAt)),
+      (async () => {
+        try {
+          const result = await db.execute(sql`
+            SELECT id, event_type, order_id, paper_trade_id, destination,
+                   status, error_code, sent_at, created_at
+            FROM notification_delivery_log
+            WHERE domain = 'SWING_CASH' AND symbol = ${symbol}
+            ORDER BY created_at DESC
+            LIMIT 50
+          `);
+          return result.rows;
+        } catch (err) {
+          logger.warn(
+            { err: (err as Error).message, symbol },
+            "paper/lifecycle: notification_delivery_log lookup failed (fail-open)",
+          );
+          return [];
+        }
+      })(),
+    ]);
+
+    const summary = computeLifecycleSummary({
+      trades,
+      auditRowCount: auditRows.length,
+      stagingOrders,
+      notificationCount: notifications.length,
+    });
+
+    return res.json({
+      symbol,
+      paperTrades: trades,
+      auditRows,
+      stagingOrders,
+      notifications,
+      summary,
+      generatedAt: new Date().toISOString(),
+    });
+  } catch (err) {
+    return next(err);
+  }
 });
 
 void sql;
