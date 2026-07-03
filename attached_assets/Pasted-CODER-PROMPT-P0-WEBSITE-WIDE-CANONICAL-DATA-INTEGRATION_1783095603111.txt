@@ -1,0 +1,830 @@
+CODER PROMPT — P0 WEBSITE-WIDE CANONICAL DATA INTEGRATION AUDIT + SINGLE SOURCE OF TRUTH FIX
+
+Current owner concern:
+
+The website still behaves like separate tabs are pulling and calculating their own data paths.
+
+This is unacceptable for a professional market/trading platform.
+
+A stock/index must have one canonical identity and one canonical OHLC/quote source per timeframe. The same data point must appear consistently across:
+
+- Home
+- Scanner
+- Deep Scan
+- Stock Intelligence
+- Watchlist
+- Charting
+- Swing Cash Queue
+- Paper Trading
+- F&O / Options
+- Option Chain
+- Pre-market report
+- Post-market report
+- Infra Health
+- Telegram alerts
+- Reports
+- Backtests
+
+The infrastructure is mostly ready, but the app is not yet fully plugged into one truth layer.
+
+This is now a P0 data-integration and data-accuracy task.
+
+====================================================
+CURRENT OBSERVED PROBLEMS
+====================================================
+
+1. Telegram F&O warmup alert still says:
+
+F&O DATA WARMUP FAILED
+NIFTY / BANKNIFTY / SENSEX
+Reason: UNKNOWN
+Detail: Live intraday bars missing despite active Kite session.
+
+This is not professional. If the detail is known, the reason must not be UNKNOWN.
+
+Expected reason should be something like:
+
+INTRADAY_BARS_MISSING
+WEBSOCKET_NO_TICKS
+KITE_HISTORICAL_EMPTY
+KITE_WARMUP_PENDING
+MARKET_CLOSED
+KITE_SESSION_EXPIRED
+
+2. Manual pre-market test says:
+
+F&O readiness: Unavailable — not tracked yet
+
+But we already have F&O diagnostics, global data-health, option-chain readiness, daily bars status, signal cycle status, and warmup alerts.
+
+This means the pre-market Telegram report is not connected to the canonical F&O readiness source.
+
+3. Swing Cash Queue and Paper Trading are not aligned.
+
+Screenshot evidence:
+
+- Swing Cash Queue shows RELIANCE as EXPIRED, broker disabled, approval does not place real order.
+- Paper Trading shows INDUSINDBK opened as an auto paper trade from swing-style rules.
+- Paper Trading has an Equity decision audit showing INDUSINDBK OPENED.
+- Swing Cash Queue does not clearly show the corresponding lifecycle linkage / source / paper-trade connection.
+
+Expected:
+
+If a Swing auto decision opens a paper trade, the source decision, staged order, paper trade row, audit row, Telegram status, and report row must all be linked or clearly separated by design.
+
+4. Pre/post-market Telegram still uses placeholder template sections.
+
+Post-market says many things like:
+
+- Market breadth unavailable
+- Participant OI unavailable
+- Level validation unavailable
+- News unavailable
+- Global status info-only
+- See /page
+
+This is not a professional report.
+
+If data is not integrated, it should be collapsed into a footer. If data is available, actual values must be shown directly.
+
+5. The app still has multiple local truth paths.
+
+That must stop.
+
+There must be canonical data contracts and every tab must either consume them or clearly document why not.
+
+====================================================
+ABSOLUTE DO-NOT-DO RULES
+====================================================
+
+Do not change F&O strategy logic.
+
+Do not change Swing strategy logic.
+
+Do not change thresholds.
+
+Do not change entry / stop-loss / target formulas.
+
+Do not enable broker execution.
+
+Do not place real orders.
+
+Do not create fake trades.
+
+Do not fabricate missing data.
+
+Do not use Yahoo/proxy/cache/stale data as trade-grade.
+
+Do not hide source warnings.
+
+Do not silently fallback.
+
+Do not run heavy candle backfill without explicit owner approval.
+
+Do not delete DB rows.
+
+Do not perform destructive migrations.
+
+Do not send test/sample/dev messages to real Telegram.
+
+Do not ask for owner/admin password.
+
+Do not trim, rewrite, reorganize, or mention replit.md.
+
+Do not work on unrelated UI redesign.
+
+Do not claim production verified without production evidence.
+
+====================================================
+MAIN OBJECTIVE
+====================================================
+
+Build and enforce a canonical data truth layer across the entire website.
+
+The system must guarantee:
+
+1. One canonical instrument identity.
+2. One canonical quote source per symbol.
+3. One canonical OHLC source per symbol/timeframe.
+4. One canonical market-data health state.
+5. One canonical F&O readiness state.
+6. One canonical Swing staged-order lifecycle.
+7. One canonical Paper Trading lifecycle.
+8. One canonical Telegram/report data contract.
+9. One canonical source/freshness/as-of label.
+10. No tab invents or recalculates its own truth.
+
+Every page must either:
+
+- consume canonical data, or
+- be clearly marked display-only/info-only, or
+- be blocked with a reason.
+
+====================================================
+PHASE 0 — STOP AND AUDIT BEFORE CODING
+====================================================
+
+Before writing code, perform a full current-state audit.
+
+Read:
+
+- AGENT.md
+- docs/llm-index/AGENT_START_HERE.md
+- docs/llm-index/CRITICAL_FLOWS.md
+- docs/llm-index/API_ROUTES_INDEX.md
+- docs/llm-index/DATABASE_INDEX.md
+- docs/llm-index/DATA_SOURCES_AND_PROVENANCE.md
+- docs/llm-index/TEST_AND_VERIFICATION_INDEX.md
+- SIGNAL_DATA_NOTIFICATION_PARITY_FIX_REPORT.md
+- GLOBAL_DATA_HEALTH_AND_KITE_RESILIENCE_REPORT.md
+- SWING_TTL_STAGED_ORDER_LIFECYCLE_REPORT.md
+- docs/telegram-alert-quality-audit-2026-07-03.md
+- FNO_EXIT_MONITORING_RELIABILITY_REPORT.md
+- WEEKEND_OFFLINE_RELIABILITY_SPRINT_REPORT.md if it exists
+- FULL_WEBSITE_DEEP_AUDIT_REPORT.md
+- LIVE_VS_PROD_DEEP_AUDIT_REPORT.md
+
+Then inspect all current data entry points:
+
+- Kite quote functions
+- Kite candle functions
+- Kite instrument master
+- scanner cache
+- chart candle functions
+- F&O signal data functions
+- option-chain functions
+- Swing staging functions
+- Paper Trading functions
+- portfolio quote functions
+- pre-market report generator
+- post-market report generator
+- Telegram formatter functions
+- daily report scheduler
+- global data-health endpoint
+- F&O diagnostics endpoint
+- Infra Health endpoint
+- sector/global/flows endpoints
+
+Before coding, produce this table:
+
+| Module/Page | Current API | Current Data Source | Canonical? | Source As-Of? | Trade Grade? | Problem |
+|---|---|---|---:|---:|---:|---|
+| Home |
+| Scanner |
+| Deep Scan |
+| Stock Intelligence |
+| Watchlist |
+| Charting |
+| Swing Cash Queue |
+| Paper Trading Equity |
+| Paper Trading F&O |
+| F&O / Options |
+| Option Chain |
+| OI Lab |
+| Pre-market Telegram |
+| Post-market Telegram |
+| Portfolio |
+| Reports |
+| Infra Health |
+| Telegram alerts |
+
+Also produce this specific issue table:
+
+| Observed Issue | Root Cause File/Function | Data Contract Missing? | Fix Required |
+|---|---|---:|---|
+| F&O warmup reason UNKNOWN |
+| Pre-market F&O readiness not tracked |
+| Post-market placeholder report |
+| Swing Queue vs Paper Trading mismatch |
+| Paper Trading source/lifecycle unclear |
+| “See page” instead of showing values |
+| Multiple modules calculating same OHLC |
+| Yahoo/display-only ambiguity |
+
+Do not code before this audit is complete.
+
+====================================================
+PHASE 1 — DEFINE CANONICAL DATA CONTRACTS
+====================================================
+
+Create or enforce canonical contracts.
+
+Required contracts:
+
+1. CanonicalInstrumentIdentity
+
+```ts
+type CanonicalInstrumentIdentity = {
+  symbol: string;
+  tradingSymbol: string;
+  exchange: "NSE" | "BSE" | "NFO" | "BFO" | "INDEX";
+  instrumentToken: number | null;
+  isin?: string | null;
+  name?: string | null;
+  segment?: string | null;
+  assetType: "equity" | "index" | "option" | "future" | "unknown";
+  canonicalKey: string;
+  aliases: string[];
+};
+CanonicalQuote
+type CanonicalQuote = {
+  canonicalKey: string;
+  symbol: string;
+  exchange: string;
+  ltp: number | null;
+  open: number | null;
+  high: number | null;
+  low: number | null;
+  close: number | null;
+  previousClose: number | null;
+  change: number | null;
+  changePct: number | null;
+  volume: number | null;
+  source: "KITE" | "NSE_ARCHIVE" | "YAHOO_DISPLAY_ONLY" | "CACHE" | "UNAVAILABLE";
+  sourceAsOf: string | null;
+  freshnessSec: number | null;
+  tradeGrade: boolean;
+  canDriveSignals: boolean;
+  canDrivePaperTrading: boolean;
+  canDriveTelegram: boolean;
+  marketSession: string;
+  reason: string | null;
+};
+CanonicalCandleSeries
+type CanonicalCandleSeries = {
+  canonicalKey: string;
+  timeframe: "1m" | "3m" | "5m" | "15m" | "day" | string;
+  candles: Array<{
+    ts: string;
+    open: number;
+    high: number;
+    low: number;
+    close: number;
+    volume: number | null;
+  }>;
+  source: "KITE" | "WAREHOUSE" | "NSE_ARCHIVE" | "YAHOO_DISPLAY_ONLY" | "UNAVAILABLE";
+  sourceAsOf: string | null;
+  freshnessSec: number | null;
+  tradeGrade: boolean;
+  reason: string | null;
+};
+CanonicalFnoReadiness
+type CanonicalFnoReadiness = {
+  checkedAt: string;
+  kiteSession: "ACTIVE" | "MISSING" | "EXPIRED" | "UNKNOWN";
+  feedStatus: "CONNECTED" | "DISCONNECTED" | "STALE" | "UNKNOWN";
+  dailyBars: ModuleReadiness;
+  intradayBars: ModuleReadiness;
+  optionChain: ModuleReadiness;
+  signalCycle: {
+    lastCycleAt: string | null;
+    tradeableSignals: number;
+    suppressedSignals: number;
+    status: "READY" | "NO_SETUP" | "DATA_BLOCKED" | "MARKET_CLOSED" | "UNKNOWN";
+    reasons: string[];
+  };
+  tradeGrade: boolean;
+  canGenerateSignals: boolean;
+  canOpenPaperTrades: boolean;
+  telegramSummary: string;
+};
+CanonicalTradeLifecycleLink
+type CanonicalTradeLifecycleLink = {
+  decisionId: string | null;
+  stagedOrderId: string | null;
+  paperTradeId: string | null;
+  signalId: string | null;
+  telegramNotificationId: string | null;
+  sourceModule: "SWING" | "FNO" | "MANUAL" | "AUTO";
+  lifecycleStatus: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+Rules:
+
+All modules must use these contracts or adapters.
+No tab should parse raw provider response directly if canonical adapter exists.
+Every displayed market number must carry source and as-of.
+Trade-grade decisions must fail closed when canonical data is not trade-grade.
+====================================================
+PHASE 2 — ONE OHLC / QUOTE SOURCE OF TRUTH
+
+Implement or verify one quote/OHLC resolver.
+
+Required function names may differ, but there must be repo-equivalent functions:
+
+resolveCanonicalInstrument(input)
+getCanonicalQuote(canonicalKey)
+getCanonicalCandles(canonicalKey, timeframe)
+getCanonicalFnoReadiness()
+getCanonicalDataHealth()
+
+Rules:
+
+Kite is primary for live/trade-grade data.
+Market-closed active Kite must be labelled correctly.
+Yahoo/display-only never drives signals or paper trades.
+Cache can display with source label but cannot drive trade-grade decisions.
+Every quote/candle includes sourceAsOf.
+Every module must stop creating its own separate OHLC truth.
+
+Audit and migrate these consumers:
+
+Scanner row LTP
+Stock detail / intelligence
+Watchlist
+Portfolio
+Paper Trading Equity
+Paper Trading F&O
+Swing Cash Queue
+Charting
+F&O signals
+Option Chain
+Pre-market report
+Post-market report
+Reports
+
+Produce a migration matrix:
+
+Consumer	Before Source	After Canonical Source	Migrated?	Remaining Risk
+====================================================
+PHASE 3 — FIX F&O WARMUP ALERT REASON QUALITY
+
+Current Telegram:
+
+Reason: UNKNOWN
+Detail: Live intraday bars missing despite active Kite session.
+
+This must be fixed.
+
+Rules:
+
+If intraday bars are missing, reason must be INTRADAY_BARS_MISSING.
+If daily bars missing, reason must be DAILY_BARS_MISSING.
+If Kite session expired, reason must be KITE_SESSION_EXPIRED.
+If Kite active but no ticks, reason must be WEBSOCKET_NO_TICKS or KITE_FEED_NO_TICKS.
+If market closed, reason must be MARKET_CLOSED and should not be critical.
+If option chain stale, reason must be OPTION_CHAIN_STALE.
+UNKNOWN may only be used when no classifier applies.
+F&O warmup alert must remain one digest, not per-index spam.
+Telegram message must show:
+affected indices
+reason code
+source affected
+whether signals are blocked
+next action
+broker execution disabled
+
+Add tests:
+
+intraday missing returns INTRADAY_BARS_MISSING
+daily missing returns DAILY_BARS_MISSING
+no ticks returns WEBSOCKET_NO_TICKS
+session expired returns KITE_SESSION_EXPIRED
+market closed does not send critical warmup alert
+all three indices digest once
+====================================================
+PHASE 4 — FIX PRE-MARKET REPORT DATA CONNECTION
+
+Current manual pre-market test says:
+
+F&O readiness: Unavailable — not tracked yet
+
+This is wrong if the platform already has F&O readiness data.
+
+Pre-market report must consume CanonicalFnoReadiness.
+
+Required:
+
+Show Kite status from global data-health.
+Show feed status.
+Show F&O daily bars status.
+Show F&O intraday bars status.
+Show option-chain status.
+Show signal cycle status.
+Show tradeable/suppressed counts.
+Show “NO SETUP” vs “DATA BLOCKED” clearly.
+Do not say “not tracked yet” if diagnostics exist.
+Collapse missing providers into footer.
+No fake bias.
+No 20-section report.
+
+Expected example:
+
+PRE-MARKET STATUS [MANUAL TEST]
+Date: ...
+
+Kite: ✅ Active
+Feed: ✅ Connected
+F&O readiness: PARTIAL
+Daily bars: ✅ 3/3
+Intraday bars: ⚠ 0/3 — INTRADAY_BARS_MISSING
+Option chain: ✅ Available
+Signals: 0 tradeable / 3 suppressed
+Status: DATA BLOCKED or NO SETUP
+
+Swing staging: 0 pending | 0 approved | 0 expired
+
+Action:
+Reconnect Kite if expired, otherwise check /fno-diagnostics.
+
+Not included:
+GIFT Nifty, live global cues, India VIX, news/events — provider not configured.
+
+Broker execution: DISABLED
+
+====================================================
+PHASE 5 — FIX POST-MARKET REPORT DATA CONNECTION
+
+Current post-market report is mostly placeholders.
+
+Post-market report must consume canonical data contracts.
+
+Required:
+
+Show actual index close / change % / day range if available.
+Show actual F&O signal counts.
+Show actual paper-trade opened/closed/open counts.
+Show actual realized P&L from DB.
+Show actual Swing staging counts.
+Show actual option-chain summary if available.
+Show data-health status.
+Collapse unavailable providers into one footer.
+Do not print full sections for missing providers.
+Do not say “see page” unless data cannot be safely embedded.
+No fake tomorrow bias.
+
+Expected output:
+
+POST-MARKET SUMMARY
+Date: ...
+
+Market close:
+NIFTY: close, change %, range
+BANKNIFTY: close, change %, range
+SENSEX: close, change %, range
+
+F&O:
+Signals: 8 generated | 0 tradeable | 8 suppressed
+Paper trades: opened 0 | closed 0 | open 0
+Realized P&L: ₹0
+
+Option chain:
+NIFTY: PCR / Max Pain / ATM range if available
+BANKNIFTY: ...
+SENSEX: ...
+
+Swing:
+Pending 0 | Approved 0 | Expired 0
+
+Data health:
+Kite: Active / Missing / Expired
+Trade-grade modules: X/Y
+Blocked: list
+
+Tomorrow prep:
+Key levels ready: Yes/No
+Option chain ready: Yes/No
+F&O exit monitor: DEV_VERIFIED, live trade evidence pending if still pending
+
+Not included:
+Market breadth, live news, India VIX, participant OI, global close — provider not configured.
+
+Broker execution: DISABLED
+
+====================================================
+PHASE 6 — FIX SWING CASH QUEUE ↔ PAPER TRADING LIFECYCLE LINK
+
+Observed:
+
+Paper Trading opened INDUSINDBK as an auto paper trade, but Swing Cash Queue does not clearly reflect the linked lifecycle.
+
+Required audit:
+
+Was INDUSINDBK opened from Swing staged order?
+Was it opened from Auto Strong Buy scan without Swing Queue staging?
+Was it opened from manual Buy button?
+Is there a decision audit row?
+Is there a staged order row?
+Is there a paper trade row?
+Is there a lifecycle link between them?
+Is Telegram notification linked?
+Why does Swing Queue show RELIANCE expired while Paper Trading shows active INDUSINDBK?
+Are these intentionally separate flows or accidental split-brain?
+
+Implement:
+
+CanonicalTradeLifecycleLink.
+
+Every paper trade must show source:
+
+AUTO_STRONG_BUY
+SWING_STAGED_APPROVAL
+MANUAL_BUY
+FNO_SIGNAL
+IMPORTED
+UNKNOWN_LEGACY
+
+Paper Trading UI must show:
+
+Source: AUTO_STRONG_BUY / SWING_STAGED_APPROVAL / MANUAL_BUY
+Linked staged order: yes/no
+Decision audit ID: ...
+Telegram status: ...
+Broker execution: disabled
+
+Swing Queue must show:
+
+active staged orders only
+expired orders clearly archived
+if an order converted to paper trade, status should show PAPER_OPENED or LINKED_TO_PAPER_TRADE
+if paper trade came from auto strong buy without staging, Swing Queue should not be expected to show it, but Paper Trading must say source = AUTO_STRONG_BUY
+
+Do not force all paper trades into Swing Queue if the design separates them. But the source/lifecycle must be explicit.
+
+====================================================
+PHASE 7 — WEBSITE-WIDE DATA PARITY HARNESS
+
+Create an offline parity checker that compares the same symbol across modules.
+
+Owner-only API:
+
+GET /api/data-parity/symbol/:symbol
+
+For a given symbol, return:
+
+canonical instrument identity
+canonical quote
+scanner value
+watchlist value
+portfolio value
+paper trading value
+swing queue value
+chart latest candle
+stock intelligence value
+source/as-of for each
+mismatches
+severity
+
+Example:
+
+/api/data-parity/symbol/INDUSINDBK
+/api/data-parity/symbol/RELIANCE
+
+Mismatch severity:
+
+P0:
+
+different LTP for same source/as-of
+different OHLC for same date/timeframe
+trade-grade source mismatch
+stale data shown as fresh
+paper trade using different quote than canonical
+
+P1:
+
+source label missing
+as-of missing
+cache displayed without label
+
+P2:
+
+formatting differences
+
+Add batch endpoint:
+
+POST /api/data-parity/check
+
+Input symbols:
+
+INDUSINDBK
+RELIANCE
+NIFTY
+BANKNIFTY
+SENSEX
+
+This must not fetch heavy data or place orders.
+
+====================================================
+PHASE 8 — INFRA HEALTH: DATA INTEGRATION SECTION
+
+Add Infra Health section:
+
+“Canonical Data Integration”
+
+Show:
+
+canonical quote resolver status
+canonical candle resolver status
+F&O readiness source
+pre-market report source
+post-market report source
+Swing/Paper lifecycle link status
+last data parity check
+P0 mismatches
+P1 mismatches
+missing source labels
+stale modules
+
+No secrets.
+
+No order placement.
+
+No broker action.
+
+====================================================
+PHASE 9 — TESTS REQUIRED
+
+Add/update tests:
+
+canonical instrument resolver returns one key for RELIANCE.
+canonical instrument resolver handles INDUSINDBK.
+canonical quote includes source/as-of/tradeGrade.
+Yahoo quote never canDriveSignals.
+cached scanner quote never canDrivePaperTrading.
+F&O warmup missing intraday maps to INTRADAY_BARS_MISSING.
+F&O warmup unknown is used only when no classifier applies.
+F&O digest sends once.
+pre-market report consumes canonical F&O readiness.
+pre-market does not say “not tracked yet” when readiness exists.
+post-market collapses unavailable sections.
+post-market includes actual paper-trade counts.
+post-market includes actual signal counts.
+Swing paper trade source is explicit.
+Paper trade from auto strong buy is not falsely shown as swing staged order.
+Paper trade from swing staged approval links stagedOrderId.
+data parity detects mismatched LTP.
+data parity detects missing as-of.
+data parity detects stale source.
+Infra Health data integration section renders.
+existing global data-health tests pass.
+existing Telegram alert quality tests pass.
+existing Swing TTL tests pass.
+existing F&O exit monitoring tests pass.
+broker execution remains disabled.
+no real order path touched.
+
+Run:
+
+pnpm --filter @workspace/api-server run typecheck
+pnpm --filter @workspace/api-server run typecheck:libs
+pnpm --filter @workspace/api-server exec vitest run src/lib/canonical.test.ts src/lib/dataParity.test.ts src/lib/quote.test.ts src/lib/candle.test.ts src/lib/daily.test.ts src/lib/report.test.ts src/lib/telegram.test.ts src/lib/swing.test.ts src/lib/paper.test.ts src/lib/fno.test.ts src/lib/dataHealth.test.ts src/lib/parity.test.ts src/routes/**/*.test.ts
+pnpm --filter @workspace/scanner exec vitest run
+pnpm --filter @workspace/scripts run index:llm
+pnpm --filter @workspace/scripts run index:llm:check
+
+If full suite times out, run in batches and report each batch with counts.
+
+====================================================
+PHASE 10 — PRODUCTION VERIFICATION
+
+After publish, verify:
+
+F&O warmup alert no longer says UNKNOWN for known intraday missing reason.
+F&O warmup remains one digest.
+Pre-market preview shows canonical F&O readiness.
+Pre-market preview does not say “not tracked yet” when data exists.
+Post-market preview is compact and useful.
+Post-market preview collapses unavailable providers.
+Paper Trading shows source for INDUSINDBK or any active trade.
+Swing Queue shows expired orders correctly.
+Swing/Paper source relationship is clear.
+/api/data-parity/symbol/INDUSINDBK works.
+/api/data-parity/symbol/RELIANCE works.
+Data parity reports no P0 mismatch or clearly documents one.
+Infra Health canonical data integration section exists.
+No secrets exposed.
+No Telegram spam.
+No real order placed.
+Broker execution disabled.
+Existing global data-health remains green.
+Existing Telegram alert dedup remains green.
+Existing Swing TTL remains green.
+Existing F&O exit monitoring remains dev verified.
+Tests pass.
+LLM index fresh.
+
+Production report table:
+
+Check	Result	Evidence
+====================================================
+PHASE 11 — REPORT REQUIRED
+
+Create:
+
+WEBSITE_CANONICAL_DATA_INTEGRATION_REPORT.md
+
+Report must include:
+
+Root cause summary.
+Current-state data-source matrix.
+Canonical contracts created/verified.
+Consumers migrated.
+Consumers not yet migrated.
+F&O warmup reason fix.
+Pre-market report fix.
+Post-market report fix.
+Swing/Paper lifecycle link audit.
+Data parity API.
+Infra Health integration.
+Tests and counts.
+Production verification evidence.
+Remaining P0/P1 mismatches.
+Exact next action.
+Final verdict.
+
+Update existing reports only if behavior changed:
+
+docs/telegram-alert-quality-audit-2026-07-03.md
+GLOBAL_DATA_HEALTH_AND_KITE_RESILIENCE_REPORT.md
+SWING_TTL_STAGED_ORDER_LIFECYCLE_REPORT.md
+FNO_EXIT_MONITORING_RELIABILITY_REPORT.md
+====================================================
+FINAL VERDICT
+
+Final verdict must be exactly one:
+
+WEBSITE_CANONICAL_DATA_INTEGRATION_PROD_VERIFIED
+WEBSITE_CANONICAL_DATA_INTEGRATION_DEV_VERIFIED
+WEBSITE_CANONICAL_DATA_INTEGRATION_PARTIAL_SOURCE_GAP_REMAINS
+WEBSITE_CANONICAL_DATA_INTEGRATION_BUILD_NOT_DEPLOYED
+ROLLBACK_REQUIRED
+
+Use WEBSITE_CANONICAL_DATA_INTEGRATION_PROD_VERIFIED only if production is published and all production checks pass.
+
+Use WEBSITE_CANONICAL_DATA_INTEGRATION_DEV_VERIFIED if implementation/tests pass but production publish/verification is pending.
+
+Use WEBSITE_CANONICAL_DATA_INTEGRATION_PARTIAL_SOURCE_GAP_REMAINS if some modules still use conflicting data paths or parity API shows P0/P1 mismatches.
+
+Use ROLLBACK_REQUIRED if secrets leak, broker execution turns on, real orders are placed, fake data is shown as trade-grade, or Telegram spam is reintroduced.
+
+====================================================
+ACCEPTANCE CRITERIA
+
+This task is accepted only if:
+
+current data-source audit is completed before coding
+one canonical quote/OHLC contract exists
+every migrated consumer has source/as-of/tradeGrade
+F&O warmup alert uses meaningful reason, not UNKNOWN where known
+pre-market report consumes canonical F&O readiness
+post-market report becomes compact and useful
+unavailable providers are collapsed, not spammed
+Swing/Paper lifecycle source is explicit
+Paper Trading shows source of each trade
+Data parity API exists
+Infra Health shows canonical data integration state
+no tab falsely shows trade-grade stale/proxy data
+global data-health remains production verified
+Telegram alert dedup remains production verified
+Swing TTL remains production verified
+F&O exit monitoring remains dev verified
+broker execution remains disabled
+no real orders are placed
+no secrets exposed
+tests pass
+LLM index fresh
+production verification completed
+
+This should now become the master task. It targets the real root problem: **same stock, same OHLC, same source, same lifecycle across the whole website.**
