@@ -434,3 +434,109 @@ event / a genuine FNO_DATA_RECOVERED transition, and re-check that (a) `system_a
 exists, (b) `system_alert_dedup` accumulates a row for that event, and (c) no duplicate Telegram
 send occurs for the same event within its dedup window. Owner may also request a single
 explicitly-approved controlled trigger to accelerate this instead of waiting for a natural event.
+
+> **Superseded by §8/§9 below.** The owner rejected waiting for a natural trigger and
+> explicitly authorized the controlled-trigger path referenced above. §8 documents that
+> controlled trigger (a boot-time self-test, synthetic keys only) and its live production
+> results; §9 carries the updated final verdict.
+
+## 8. System Alert DB Dedup Self-Test — Production Verification (second pass, 2026-07-03)
+
+### 8.1 Why a self-test instead of waiting
+
+The owner rejected closing this audit on `DEV_VERIFIED` and required proof in production
+without (a) waiting for a natural alert, (b) touching trade/strategy/broker logic, (c) owner
+password/session access, or (d) writing to real dedup keys (which could accidentally suppress a
+genuine safety alert later). Direct production DB access available to this agent is read-only
+(`SELECT` only via the production query tool); every mutating HTTP route requires owner auth.
+The only way to exercise `ensureSystemAlertDedupTables` / `claimSystemAlert` /
+`transitionSystemAlertState` for real, inside the actual production process, without any of the
+above, is to have the production process do it to itself on boot.
+
+### 8.2 What was built
+
+New module `artifacts/api-server/src/lib/systemAlertDedupSelfTest.ts`
+(`runSystemAlertDedupSelfTest` / `getLastSystemAlertDedupSelfTestResult`), wired as a 5-second
+staggered boot job in `app.ts` and surfaced on the existing owner-only
+`GET /alerts/system-health` response (`selfTest` field). Safety properties, all structural (not
+just convention):
+
+- **Never imports any Telegram/alert-dispatch module** — `alerting.ts`, `fnoSignalAlerts.ts`,
+  `swingAlerts.ts`, `dailyReports.ts` do not appear anywhere in its import graph. It is
+  physically incapable of sending a Telegram message.
+- **Synthetic per-run keys only** — dedup key `SYSTEM_SELFTEST::<runId>`, state family
+  `system_selftest_<runId>`, where `runId` is generated fresh on every boot. These namespaces
+  can never collide with a real alert family (`fno_data`, `KITE_SESSION_MISSING_PREOPEN`, etc.).
+- **Self-cleaning** — deletes its own dedup/state rows after asserting on them, in a `finally`,
+  regardless of pass/fail.
+- **Fail-open, non-throwing** — any error is caught, recorded in the result, logged; it never
+  crashes the boot sequence.
+- 6 unit tests in `systemAlertDedupSelfTest.test.ts` (all passing) plus the full existing
+  `systemAlertDedup.test.ts` + route suite (233 tests) re-run with zero regressions.
+
+### 8.3 Live production results (checked this session, post-publish)
+
+Deployed 2026-07-03 (`https://marketscannerbydev.in`, autoscale, 2 concurrent worker PIDs
+observed: 19 and 20). Evidence sources: (i) `fetch_deployment_logs` against the live deployment,
+(ii) direct **read-only SQL against the production database** (`executeSql(..., environment:
+"production")` — not log-inference), (iii) a live HTTP call to the one relevant unauthenticated
+endpoint.
+
+| # | Check | Result | Evidence |
+|---|---|---|---|
+| 1 | Self-test ran after production boot | ✅ Pass | Log line `systemAlertDedup self-test: ALL CHECKS PASSED` on **both** worker PIDs (19 and 20), each ~2.5s after its own boot-job schedule |
+| 2 | Result says ALL CHECKS PASSED | ✅ Pass | Same log line, both PIDs, 9/9 checks `true` |
+| 3 | `system_alert_dedup` exists in production | ✅ Pass | `SELECT to_regclass('system_alert_dedup')` → `system_alert_dedup` (direct prod SQL, not log-inferred) |
+| 4 | `system_alert_state` exists in production | ✅ Pass | `SELECT to_regclass('system_alert_state')` → `system_alert_state` (direct prod SQL) — this table did **not** exist at the time of §7.12; it now does |
+| 5 | Required unique constraints/indexes exist | ✅ Pass | `pg_indexes`: `system_alert_dedup_pkey` UNIQUE btree on `(dedup_key)`; `system_alert_state_pkey` UNIQUE btree on `(family)` — confirmed by direct prod SQL against `pg_index`/`pg_attribute` |
+| 6 | First synthetic claim succeeded | ✅ Pass | `firstClaimSucceeds: true`, both PIDs |
+| 7 | Duplicate synthetic claim skipped | ✅ Pass | `duplicateClaimSkipped: true`, both PIDs |
+| 8 | State transition OK→DEGRADED→OK worked | ✅ Pass | `stateTransitionClaims: true` (OK→DEGRADED) and `recoveryTransitionClaims: true` (DEGRADED→OK), both PIDs |
+| 9 | Duplicate transition skipped | ✅ Pass | `duplicateTransitionSkipped: true`, both PIDs |
+| 10 | Synthetic keys did not collide with real alert keys | ✅ Pass | Direct prod SQL: `system_alert_dedup` and `system_alert_state` both have **0 rows** post-test (self-test cleaned up its own synthetic rows; no real alert has claimed a row yet either — zero possibility of collision, by construction of the `SYSTEM_SELFTEST::`/`system_selftest_` namespace) |
+| 11 | No Telegram was sent by the self-test | ✅ Pass | Structural (§8.2, no import path exists) **and** empirical — zero log lines matching `telegram` anywhere in the deployment window |
+| 12 | No trade alert was sent | ✅ Pass | Same zero-Telegram-log evidence; self-test never calls `fnoSignalAlerts`/`swingAlerts`/`dailyReports` |
+| 13 | Broker execution remains disabled | ✅ Pass | Self-test only calls `systemAlertDedup.ts` primitives — no broker/order code in its import graph; confirmed by source read of `paperAutoTradeFlag.ts` (auto-trading gate untouched by this change) |
+| 14 | No real order was placed | ✅ Pass | Zero log lines matching order-placement patterns in the deployment window |
+| 15 | `/api/alerts/system-health` reflects the latest dedup/self-test state | ✅ Implemented | Code-confirmed: route returns `selfTest: getLastSystemAlertDedupSelfTestResult()`, which is populated after the boot job runs (proven populated by the log line in row 1–2). **Caveat:** this route is `requireOwnerStrict` by design; per the "no owner password access" constraint this agent did not and cannot issue a live authenticated call to see the JSON body directly — verified by code + by the fact that its data source (the self-test result) is proven non-null in production. |
+| 16 | No secrets exposed | ✅ Pass | Self-test only logs table names, a random `runId`, and booleans; `/api/data-health/global` response (row 17) contains no secrets |
+| 17 | `/api/data-health/global` still works | ✅ Pass | Live `curl https://marketscannerbydev.in/api/data-health/global` → `HTTP 200`, well-formed JSON (`overallStatus: SESSION_ACTIVE_MARKET_CLOSED`, all F&O/swing/option-chain/watchlist/charting modules `TRADE_GRADE`) |
+| 18 | Existing parity/global-health/Swing TTL checks remain green | ⚠️ Partial | `data-health/global` fully green (row 17). Swing TTL sweep boot job started and ticked; one fail-open warning during the cold-start DB-pool-warmup window (self-healing, non-fatal, matches the designed fail-open behavior already accepted in §7.13). **Unrelated finding, flagged for transparency, out of this audit's scope:** a pre-existing, recurring `preset scheduler: failed to load presets` error was observed in production logs — this is the Global Multi-Asset Scanner's screener-preset auto-run feature (`global_screener_presets` table), a completely different subsystem with zero code overlap with Telegram alerts, dedup, or trading logic. It was not touched by this change, is not caused by this change (the self-test only touches `system_alert_dedup`/`system_alert_state`), and is not fixed here per the standing "don't touch unrelated systems" scope discipline. Recommended as a **separate follow-up task**, not a blocker for this verdict. |
+
+### 8.4 Conclusion of the controlled-trigger verification
+
+All 9 self-test assertions passed live in production, on both running worker processes, backed
+by direct (not log-inferred) production-database reads for the schema/constraint claims. This is
+the owner-approved controlled-trigger alternative to waiting for a natural alert (§7.13's closing
+paragraph explicitly allowed this path). The one open item from §7.12 — "`system_alert_state`
+does not exist yet in production" — is now resolved: it exists, with the correct primary key, and
+the full claim/CAS lifecycle (first-claim / duplicate-skip / transition / duplicate-transition-skip
+/ recovery-transition) has been exercised live and passed, twice (once per worker PID), without
+sending a single Telegram message, opening a paper trade, or placing a real order.
+
+## 9. Updated final verdict (supersedes §7.13)
+
+**`TELEGRAM_ALERT_QUALITY_PROD_VERIFIED`**
+
+The DB-backed dedup/CAS mechanism — the specific gap that kept §7.13 at `DEV_VERIFIED` — has now
+been proven live in production via an owner-approved controlled trigger: both `system_alert_dedup`
+and `system_alert_state` exist with correct unique constraints (verified by direct production SQL,
+not inference), and a full first-claim / duplicate-skip / OK→DEGRADED→OK transition /
+duplicate-transition-skip / recovery cycle succeeded on both live worker processes, using
+synthetic per-run keys that cannot collide with real alert keys and that were fully cleaned up
+afterward (both tables verified at 0 rows post-test). No Telegram message was sent by this
+verification (structurally impossible, and empirically zero Telegram log lines), no trade alert
+fired, no paper trade opened, no real order placed, broker execution stayed untouched, and no
+secret was exposed at any point. `/api/data-health/global` and the swing-TTL boot job remain
+healthy; the one unrelated issue found (`global_screener_presets` load failures) sits in a
+different subsystem with no code path into Telegram alerts, dedup, or trading, and is logged in
+§8.3 as a separate follow-up rather than folded into this verdict.
+
+**Residual, explicitly out of scope for this verdict:** the families that have not yet fired
+*naturally* in production since the original fix shipped — `KITE_SESSION_EXPIRED_PREOPEN`,
+`KITE_FINAL_WARNING`, `FNO_KITE_SESSION_MISSING`, `FNO_DATA_RECOVERED` — still have no natural-event
+log line. This verdict certifies that the DB-backed dedup *mechanism itself* is proven correct and
+live (schema, constraints, claim, CAS, cleanup); it does not claim to have observed one of those
+four specific alert families fire and dedup naturally. Should the owner want that additional layer
+of proof, it will happen automatically the next time any of those conditions occurs — no further
+action is required to enable it.
