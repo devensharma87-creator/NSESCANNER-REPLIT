@@ -837,17 +837,41 @@ re-run a second time in this pass since no source changed between the two checks
 owner's instruction not to write new code absent a real blocker. Being on an old build is not a
 code defect; it requires a republish, not a fix.
 
+**Attempt 2 (2026-07-04, ~10:57 UTC, after owner reported a second republish) — result unchanged:
+`BUILD_NOT_DEPLOYED`.**
+
+Workspace HEAD at the time of this check was `b3b7a1b` (`2026-07-04T10:51:22Z`, a report-only
+commit; the Checkpoint 3 code commit is still `bba469b` / `2026-07-04T10:31:59Z`). Re-ran the same
+three checks with cache-busting query params and no-cache headers to rule out any client/CDN
+caching artefact:
+
+- Deployment log search for boot events after `1783161119000` (the Checkpoint 3 commit epoch) —
+  still **zero results**.
+- `GET /` and `GET /infra-health` (fresh, `Cache-Control: no-cache, no-store`) both still reference
+  the **identical** bundle filename `/assets/index-DfdVFWMB.js` as before.
+- That bundle's `Last-Modified` header is still `Sat, 04 Jul 2026 09:03:10 GMT` — byte-for-byte
+  unchanged from Attempt 1.
+- `GET /api/healthz` → `200 {"status":"ok"}` (server is up and healthy, just still on the old code).
+
+A byte-identical bundle hash and an unmoved `Last-Modified` timestamp across two independent checks,
+each with explicit cache-busting, is conclusive: **no new deployment has occurred since Attempt 1**,
+despite the app being reported as republished twice. This is most consistent with either the
+publish action not having been completed/confirmed on the platform side, or a build that hasn't
+finished landing yet — not with anything wrong in the Checkpoint 3 source itself.
+
 ### 10. Final verdict (this pass)
 
 **`CANONICAL_DATA_CHECKPOINT_3_BUILD_NOT_DEPLOYED`**
 
 Source on `main` (`bba469b`) remains fully dev-verified — see §7/§8 (13 collectors, classifier, API
 routes, Infra Health frontend section, 31/31 targeted tests, 52/52 infraHealth tests, both
-typechecks clean). However, the live production deployment at `https://marketscannerbydev.in` is
-still serving the build from `2026-07-04 09:03 UTC` (the already-confirmed Checkpoint 2.5 build) —
-no boot event and no frontend-bundle evidence post-dates the Checkpoint 3 commit. This is **not** a
-regression and **not** a code defect (no `ROLLBACK_REQUIRED` trigger was found — no secret leak, no
-broker execution, no stale/report-grade data driving trades, no destructive change). It is purely a
-publish-timing gap: re-run this same verification pass once a fresh deployment boot event
-post-dating `bba469b` (epoch `1783161119000`) appears in deployment logs, or the served JS bundle's
-`Last-Modified` header moves past that same epoch.
+typechecks clean). However, across two independent checks (the second with explicit cache-busting,
+after the owner reported republishing a second time), the live production deployment at
+`https://marketscannerbydev.in` is still serving the exact same build from `2026-07-04 09:03 UTC`
+(the already-confirmed Checkpoint 2.5 build) — no boot event and no frontend-bundle evidence
+post-dates the Checkpoint 3 commit. This is **not** a regression and **not** a code defect (no
+`ROLLBACK_REQUIRED` trigger was found — no secret leak, no broker execution, no stale/report-grade
+data driving trades, no destructive change). It is purely a publish-propagation gap: re-run this
+same verification pass once a fresh deployment boot event post-dating `bba469b` (epoch
+`1783161119000`) appears in deployment logs, or the served JS bundle's filename/`Last-Modified`
+header changes from what is recorded above.
