@@ -906,3 +906,37 @@ Because the required Checkpoint 3 deliverable explicitly includes the Infra Heal
 **frontend** section (Part A item 5), and that is conclusively still absent from the live bundle,
 the verdict for the whole checkpoint remains `BUILD_NOT_DEPLOYED` even allowing for the ambiguous
 backend boot signal.
+
+#### Owner manual deployment-panel checklist (to unblock a true rebuild)
+
+Since this repo has no build-ID/commit-SHA endpoint to prove backend freshness from the outside,
+and the agent cannot trigger a "real" rebuild-vs-restart distinction on its own, closing this out
+requires the owner to confirm the following directly in the Replit Deployments panel:
+
+1. **Build completed after the commit** — open the deployment's build history and confirm the
+   most recent build's timestamp is after `2026-07-04T10:31:59Z` (Checkpoint 3 commit `bba469b`),
+   not before it.
+2. **Deployment ID changed** — a genuine redeploy produces a new deployment ID distinct from the
+   one that shipped Checkpoint 2.5. If the panel shows the same deployment ID still active, no new
+   deploy has actually gone out (a restart of the same deployment does not create a new ID).
+3. **Frontend (Vite) build step actually ran** — check the build logs for a `vite build` step for
+   `artifacts/scanner` in this build, and that it completed without error (not skipped/cached).
+4. **Bundle filename changed** — after confirming (1)–(3), reload
+   `https://marketscannerbydev.in/` with a hard refresh (or curl with `Cache-Control: no-cache`) and
+   check the referenced script tag. It should no longer be `/assets/index-DfdVFWMB.js`.
+5. **Data Parity markers present in the new bundle** — once the filename has changed, the agent can
+   grep the new bundle for `"Data Parity"` / `UNKNOWN_SYMBOL` / `TOO_MANY_SYMBOLS` to confirm the
+   Infra Health section actually built in.
+6. **Backend routes live** — the agent can re-check `GET /api/data-parity/symbol/NIFTY` anonymously
+   (expect `401 AUTH_REQUIRED`, same as any protected route) and, if the owner is willing to check
+   the Infra Health page themselves while logged in as owner, visually confirm the "Data Parity"
+   card renders with a symbol picker and results table.
+7. **If the bundle is still the old one after all of the above**, the verdict stays
+   `CANONICAL_DATA_CHECKPOINT_3_BUILD_NOT_DEPLOYED` — re-run this same production-verification pass
+   only once steps 1–4 are positively confirmed by the owner.
+
+**Verdict is not upgraded to `PROD_VERIFIED` until**: the frontend bundle hash/filename changes
+from `index-DfdVFWMB.js`, the Data Parity section is confirmed present in that new bundle, and the
+Data Parity API routes are confirmed live (auth-gated 401 behavior alone is not sufficient proof, as
+established in Attempt 1 — it requires either an owner-session visual check or bundle-content
+confirmation).
