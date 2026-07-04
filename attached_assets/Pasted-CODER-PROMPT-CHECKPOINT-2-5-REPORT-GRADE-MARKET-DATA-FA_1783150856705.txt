@@ -1,0 +1,380 @@
+CODER PROMPT — CHECKPOINT 2.5: REPORT-GRADE MARKET DATA FACADE FOR DAILY REPORTS
+
+Current accepted milestones:
+
+1. SIGNAL_DATA_NOTIFICATION_PARITY_DETERMINISTIC_PROD_VERIFIED_LIVE_SMOKE_PENDING
+2. GLOBAL_DATA_HEALTH_KITE_RESILIENCE_PROD_VERIFIED
+3. SWING_TTL_LIFECYCLE_PROD_VERIFIED
+4. TELEGRAM_ALERT_QUALITY_PROD_VERIFIED
+5. FNO_EXIT_MONITORING_DEV_VERIFIED
+6. CANONICAL_DATA_CHECKPOINT_1_PROD_VERIFIED
+7. CANONICAL_DATA_CHECKPOINT_2_PROD_VERIFIED
+8. PROVIDER_IMPORT_DAILY_REPORTS_REAL_GAP_DEFERRED
+
+Now fix the narrow provider-import gap before starting Checkpoint 3.
+
+====================================================
+ROOT ISSUE
+====================================================
+
+The remaining failing test is:
+
+artifacts/api-server/src/lib/marketData/providerImportGuard.test.ts
+
+Failure:
+
+dailyReports.ts directly imports kiteIndexQuotes.
+
+This is a real direct-provider bypass.
+
+However, a simple swap to router.getIndexQuotes() is unsafe because router.getIndexQuotes() applies a hard-stale rejection after 10 minutes.
+
+The post-market report runs around 15:45 IST, roughly 15 minutes after market close at 15:30 IST. If dailyReports.ts uses the strict trade-grade quote path, the index-performance section may go blank again.
+
+Therefore the correct fix is not:
+
+1. adding the import to allowlist,
+2. weakening the trade-grade router,
+3. bypassing the marketData layer,
+4. hiding the test failure.
+
+The correct fix is to add a deliberate report-grade facade inside the marketData layer.
+
+====================================================
+OBJECTIVE
+====================================================
+
+Create a trusted marketData-layer path for daily reports that supports post-market/report-grade use cases without weakening trade-decision safety.
+
+The system must clearly separate:
+
+1. trade-grade quote path,
+2. display/report-grade quote path,
+3. unavailable/stale/fallback state.
+
+Daily reports must consume this new marketData facade and stop importing raw provider modules directly.
+
+====================================================
+ABSOLUTE DO-NOT-DO RULES
+====================================================
+
+Do not change F&O strategy logic.
+
+Do not change Swing strategy logic.
+
+Do not change Auto Strong Buy logic.
+
+Do not change thresholds.
+
+Do not change entry/SL/target formulas.
+
+Do not weaken trade-grade stale checks.
+
+Do not allow stale/report-grade data to drive signals.
+
+Do not allow stale/report-grade data to open paper trades.
+
+Do not use Yahoo/proxy/cache/stale data as trade-grade.
+
+Do not fabricate data.
+
+Do not make post-market report blank again.
+
+Do not add dailyReports.ts::kiteIndexQuotes to the allowlist.
+
+Do not grow the provider-import allowlist.
+
+Do not delete rows.
+
+Do not run destructive migrations.
+
+Do not enable broker execution.
+
+Do not place real orders.
+
+Do not send real Telegram test messages.
+
+Do not ask for owner/admin password.
+
+Do not trim, rewrite, reorganize, or mention replit.md.
+
+Do not start Checkpoint 3 in this task.
+
+====================================================
+PHASE 0 — READ-ONLY CONFIRMATION
+====================================================
+
+Before coding, confirm:
+
+1. Exact failing providerImportGuard test.
+2. Exact direct import in dailyReports.ts.
+3. Exact current router.getIndexQuotes() stale threshold.
+4. Why post-market at 15:45 fails strict trade-grade freshness.
+5. Which daily report sections need index quotes.
+6. Whether this affects pre-market or only post-market.
+7. Whether any trade/signal/paper-trading path uses dailyReports.ts output.
+
+Produce this table first:
+
+| Item | Finding |
+|---|---|
+| Failing test |
+| Direct import |
+| Current strict router path |
+| Strict freshness threshold |
+| Post-market run time |
+| Why one-line swap is unsafe |
+| Trade-decision impact |
+| Correct design |
+
+Do not code before this confirmation.
+
+====================================================
+PHASE 1 — DESIGN REPORT-GRADE MARKET DATA CONTRACT
+====================================================
+
+Create a report-grade contract inside the marketData layer.
+
+Suggested type:
+
+type MarketDataUseCase =
+  | "TRADE_DECISION"
+  | "PAPER_TRADE"
+  | "LIVE_ALERT"
+  | "REPORT_POST_MARKET"
+  | "REPORT_PRE_MARKET"
+  | "DISPLAY_ONLY";
+
+Suggested report-grade index quote type:
+
+type ReportGradeIndexQuote = {
+  symbol: "NIFTY" | "BANKNIFTY" | "SENSEX" | string;
+  ltp: number | null;
+  open: number | null;
+  high: number | null;
+  low: number | null;
+  close: number | null;
+  previousClose: number | null;
+  change: number | null;
+  changePct: number | null;
+  source: "KITE" | "WAREHOUSE" | "CACHE" | "UNAVAILABLE";
+  sourceAsOf: string | null;
+  freshnessSec: number | null;
+  tradeGrade: false;
+  reportGrade: boolean;
+  canDriveSignals: false;
+  canDrivePaperTrades: false;
+  canDriveReports: boolean;
+  marketSession: "open" | "closed" | "post_market" | "unknown";
+  reason: string | null;
+};
+
+Rules:
+
+1. Report-grade quote may be acceptable after market close.
+2. Report-grade quote must never be trade-grade.
+3. Report-grade quote must never drive signals or paper trades.
+4. Post-market quote can accept market-close snapshot/tick if sourceAsOf is after or near market close.
+5. It must carry source/as-of/freshness.
+6. If data is too old even for report-grade, return unavailable with reason.
+7. Do not weaken strict router.getIndexQuotes() used for trading.
+
+====================================================
+PHASE 2 — IMPLEMENT MARKETDATA FACADE
+====================================================
+
+Add repo-appropriate function inside marketData layer, for example:
+
+getReportGradeIndexQuotes(input)
+
+or:
+
+getIndexQuotesForReport({ reportType: "POST_MARKET" })
+
+It may internally call the same Kite provider, but dailyReports.ts must import only from the marketData layer, not from raw provider modules.
+
+Expected behavior:
+
+1. During market open:
+   - returns fresh Kite quote
+   - reportGrade true
+   - tradeGrade false unless caller explicitly asks trade path elsewhere
+
+2. Post-market around 15:45:
+   - accepts latest close snapshot even if older than 10 minutes
+   - labels sourceAsOf/freshnessSec
+   - reportGrade true
+   - tradeGrade false
+   - canDriveReports true
+   - canDriveSignals false
+   - canDrivePaperTrades false
+
+3. Too stale / no data:
+   - reportGrade false
+   - canDriveReports false
+   - reason = REPORT_INDEX_QUOTES_STALE or INDEX_QUOTES_UNAVAILABLE
+
+4. Market closed / Saturday:
+   - do not pretend live quote
+   - either return last available report-grade quote with as-of, or unavailable honestly
+   - never fake live data
+
+====================================================
+PHASE 3 — MIGRATE DAILY REPORTS
+====================================================
+
+Update dailyReports.ts:
+
+1. Remove direct raw provider import.
+2. Use the new report-grade marketData facade.
+3. Preserve post-market index-performance section.
+4. Preserve compact Telegram format from Checkpoint 1.
+5. Show source/as-of where useful.
+6. If report-grade data unavailable, collapse that into unavailable footer.
+7. Do not reintroduce placeholder garbage.
+8. Do not make report blank unless no data exists.
+
+Expected post-market behavior:
+
+Market close:
+NIFTY: close/change/range, source/as-of
+BANKNIFTY: close/change/range, source/as-of
+SENSEX: close/change/range, source/as-of
+
+Data status:
+Index quotes: Report-grade Kite close snapshot, not trade-grade
+
+====================================================
+PHASE 4 — UPDATE PROVIDER IMPORT GUARD
+====================================================
+
+After migration:
+
+1. providerImportGuard must pass.
+2. Do not add dailyReports.ts::kiteIndexQuotes to allowlist.
+3. Do not grow the allowlist.
+4. If allowlist changes are needed for deletion/removal only, document it.
+5. The frozen ceiling must remain respected.
+
+====================================================
+PHASE 5 — TESTS REQUIRED
+====================================================
+
+Add/update tests:
+
+1. report-grade index quote accepts post-market 15:45 data when source is Kite and as-of is market close.
+2. report-grade index quote is never tradeGrade.
+3. report-grade index quote cannot drive signals.
+4. report-grade index quote cannot drive paper trades.
+5. report-grade index quote can drive reports.
+6. too-stale quote returns reportGrade false with clear reason.
+7. market-closed/Saturday does not fake live data.
+8. dailyReports.ts no longer imports kiteIndexQuotes directly.
+9. providerImportGuard passes.
+10. post-market report still includes index performance when report-grade data exists.
+11. post-market report collapses unavailable index data cleanly when no report-grade data exists.
+12. Checkpoint 1 report tests remain green.
+13. Checkpoint 2 lifecycle tests remain green.
+14. Global data-health tests remain green.
+15. Telegram alert-quality tests remain green.
+16. Broker execution remains disabled.
+17. No real order path touched.
+
+Run:
+
+pnpm --filter @workspace/api-server run typecheck
+pnpm --filter @workspace/api-server run typecheck:libs
+pnpm --filter @workspace/api-server exec vitest run src/lib/marketData/providerImportGuard.test.ts src/lib/*daily*.test.ts src/lib/*report*.test.ts src/lib/*marketData*.test.ts src/lib/*dataHealth*.test.ts src/lib/*telegram*.test.ts src/lib/*paper*.test.ts src/lib/*swing*.test.ts src/routes/**/*.test.ts
+pnpm --filter @workspace/scanner exec vitest run
+pnpm --filter @workspace/scripts run index:llm
+pnpm --filter @workspace/scripts run index:llm:check
+
+If full suite times out, run in batches and report exact counts.
+
+====================================================
+PHASE 6 — PRODUCTION VERIFICATION
+====================================================
+
+After publish, verify:
+
+1. Production contains the report-grade marketData facade.
+2. dailyReports.ts no longer imports raw kiteIndexQuotes.
+3. providerImportGuard passes.
+4. Post-market preview still shows index performance if report-grade data exists.
+5. Post-market preview does not go blank due to strict 10-minute trade-grade stale cutoff.
+6. Report clearly marks index quotes as report-grade/display/report data, not trade-grade.
+7. No signal/paper-trade path uses report-grade data.
+8. No secrets exposed.
+9. Broker execution disabled.
+10. No real orders placed.
+11. No Telegram spam.
+12. Checkpoint 1 remains prod verified.
+13. Checkpoint 2 remains prod verified.
+
+====================================================
+PHASE 7 — REPORT UPDATE
+====================================================
+
+Update:
+
+WEBSITE_CANONICAL_DATA_INTEGRATION_REPORT.md
+
+Add section:
+
+Checkpoint 2.5 — Report-Grade Market Data Facade for Daily Reports
+
+Include:
+
+1. Root cause.
+2. Why one-line strict-router swap was unsafe.
+3. Report-grade contract.
+4. Files changed.
+5. dailyReports migration.
+6. Provider import guard result.
+7. Tests and counts.
+8. Production verification if published.
+9. Remaining gaps.
+10. Final verdict.
+
+====================================================
+FINAL VERDICT
+====================================================
+
+Final verdict must be exactly one:
+
+- CANONICAL_DATA_CHECKPOINT_2_5_PROD_VERIFIED
+- CANONICAL_DATA_CHECKPOINT_2_5_DEV_VERIFIED
+- CANONICAL_DATA_CHECKPOINT_2_5_PARTIAL_SOURCE_GAP_REMAINS
+- CANONICAL_DATA_CHECKPOINT_2_5_BUILD_NOT_DEPLOYED
+- ROLLBACK_REQUIRED
+
+Use PROD_VERIFIED only if production is published and verified.
+
+Use DEV_VERIFIED if implementation/tests pass but production publish/verification is pending.
+
+Use PARTIAL_SOURCE_GAP_REMAINS if providerImportGuard still fails, dailyReports still bypasses raw provider, or post-market report goes blank.
+
+Use ROLLBACK_REQUIRED if trade-grade checks are weakened, stale data can drive signals/paper trades, secrets leak, broker execution turns on, real orders are placed, or Telegram spam returns.
+
+====================================================
+ACCEPTANCE CRITERIA
+====================================================
+
+Checkpoint 2.5 is accepted only if:
+
+1. dailyReports.ts no longer directly imports kiteIndexQuotes.
+2. providerImportGuard passes.
+3. No allowlist growth.
+4. Report-grade facade exists inside marketData layer.
+5. Report-grade does not weaken trade-grade path.
+6. Report-grade cannot drive signals.
+7. Report-grade cannot drive paper trades.
+8. Post-market report remains useful at 15:45.
+9. Source/as-of is preserved.
+10. Checkpoint 1 remains prod verified.
+11. Checkpoint 2 remains prod verified.
+12. Broker execution remains disabled.
+13. No real orders are placed.
+14. No secrets exposed.
+15. Tests pass.
+16. LLM index fresh.

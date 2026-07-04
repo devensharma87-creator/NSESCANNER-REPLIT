@@ -24,12 +24,18 @@
  * Source-honesty contract:
  *   – Missing data is shown as "Unavailable — not tracked yet" or
  *     "Unavailable — data source not integrated yet", never as 0.
- *   – The only Kite calls made during gathering are the cached, fail-open
- *     `getKiteIndexQuotes()` batch (post-market INDEX PERFORMANCE) and a
+ *   – The only Kite calls made during gathering are the report-grade,
+ *     fail-open `getReportGradeIndexQuotes()` facade (post-market INDEX
+ *     PERFORMANCE — see `lib/marketData/reportGradeIndexQuotes.ts`) and a
  *     read of already-captured `option_chain_snapshot` DB rows (post-market
  *     OPTION CHAIN EOD, via `computeAnalytics` — no live Kite call). Both
- *     resolve to `null` on any failure/missing session rather than showing
- *     partial or stale data as if it were live.
+ *     resolve to `null`/unavailable on any failure/missing session rather
+ *     than showing partial or stale data as if it were live. The
+ *     report-grade facade never returns trade-grade data (`tradeGrade`,
+ *     `canDriveSignals`, `canDrivePaperTrades` are hard-`false`) and never
+ *     fabricates a live quote — it accepts today's close snapshot even past
+ *     the 10-minute trade-grade hard-stale budget, but refuses anything
+ *     older than today's session.
  *   – No trading logic, signals, paper-trade creation, or broker execution.
  *   – Telegram secrets are NEVER logged or returned from any function here.
  *
@@ -44,7 +50,7 @@ import { logger } from "./logger";
 import { getActiveSessionStatus } from "./kiteAuth";
 import { feedStatus } from "./kiteFeed";
 import { computeDailySummaryFo } from "./paperDailySummaryFo";
-import { getKiteIndexQuotes } from "./kiteIndexQuotes";
+import { getReportGradeIndexQuotes, REPORT_INDEX_KEYS } from "./marketData/reportGradeIndexQuotes";
 import { computeAnalytics, type AnalyticsRowInput } from "./optionSnapshotAnalytics";
 import { SNAPSHOT_INDICES } from "./optionChainSnapshotIngestor";
 import {
@@ -842,33 +848,28 @@ export async function gatherPostMarketData(
     logger.warn({ err: (err as Error).message }, "dailyReports: gatherPostMarketData fno section failed");
   }
 
-  const INDEX_PERFORMANCE_KEYS: Array<{ yahoo: string; name: string }> = [
-    { yahoo: "^NSEI", name: "NIFTY 50" },
-    { yahoo: "^NSEBANK", name: "NIFTY BANK" },
-    { yahoo: "^BSESN", name: "SENSEX" },
-  ];
-
   let indexPerformance: PostMarketIndexPerformance | null = null;
   try {
-    const quotes = await getKiteIndexQuotes();
-    if (quotes != null) {
-      const rows: PostMarketIndexRow[] = [];
-      let latestAsOf: number | null = null;
-      for (const k of INDEX_PERFORMANCE_KEYS) {
-        const q = quotes.get(k.yahoo);
-        if (q == null) continue; // never fabricate a missing row
-        rows.push({
-          name: k.name,
-          close: q.price,
-          changePct: q.changePercent,
-          high: q.high ?? null,
-          low: q.low ?? null,
-        });
-        if (latestAsOf == null || q.asOf > latestAsOf) latestAsOf = q.asOf;
+    const quotes = await getReportGradeIndexQuotes("REPORT_POST_MARKET", nowMs);
+    const rows: PostMarketIndexRow[] = [];
+    let latestAsOfMs: number | null = null;
+    for (const { key, name } of REPORT_INDEX_KEYS) {
+      const q = quotes.get(key);
+      if (q == null || !q.canDriveReports || q.ltp == null || q.changePct == null) continue; // never fabricate a missing row
+      rows.push({
+        name,
+        close: q.ltp,
+        changePct: q.changePct,
+        high: q.high ?? null,
+        low: q.low ?? null,
+      });
+      const asOfMs = q.sourceAsOf != null ? Date.parse(q.sourceAsOf) : NaN;
+      if (Number.isFinite(asOfMs) && (latestAsOfMs == null || asOfMs > latestAsOfMs)) {
+        latestAsOfMs = asOfMs;
       }
-      if (rows.length > 0) {
-        indexPerformance = { rows, asOfIst: latestAsOf != null ? formatIstHM(latestAsOf) : null };
-      }
+    }
+    if (rows.length > 0) {
+      indexPerformance = { rows, asOfIst: latestAsOfMs != null ? formatIstHM(latestAsOfMs) : null };
     }
   } catch (err) {
     logger.warn(

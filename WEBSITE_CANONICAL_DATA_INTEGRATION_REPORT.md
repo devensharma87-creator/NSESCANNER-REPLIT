@@ -484,3 +484,82 @@ write migration was run against production during this verification. Full regres
 762 scanner tests + 2,849/2,850 api-server tests) is green, with one unrelated pre-existing regression
 (`providerImportGuard` / `dailyReports.ts`, from the separate 2026-07-01 Daily Analysis feature) flagged
 above as a non-blocking follow-up, not attributable to and not blocking this checkpoint.
+
+---
+
+## Checkpoint 2.5 — Report-Grade Market Data Facade for Daily Reports (2026-07-04)
+
+### 1. Phase 0 — read-only confirmation (produced before any code change)
+
+| Item | Finding |
+|---|---|
+| Failing test | `artifacts/api-server/src/lib/marketData/providerImportGuard.test.ts` — a new non-allowlisted direct provider import was detected. |
+| Direct import | `dailyReports.ts` had `import { getKiteIndexQuotes } from "./kiteIndexQuotes"` — a raw provider module, bypassing the trusted `marketData` layer entirely. |
+| Current strict router path | `marketData/router.ts` → `getIndexQuotes()` composes off `kiteProvider.getIndexQuotes()`, which is itself a thin wrapper over the same raw `kiteIndexQuotes.ts`; the router applies `buildMeta`/`computeFreshness` and treats anything past the hard-stale budget as `validationStatus: "stale"`, which the strict trade-decision gates reject outright. |
+| Strict freshness threshold | The policy's hard-stale budget is 10 minutes (`getPolicy().staleBudgetSec`, enforced in `validator.ts::buildMeta`) — correct for signals/paper-trade opens, which must never act on a decade-old-feeling tick. |
+| Post-market run time | The post-market Telegram report runs at 15:45 IST (`dailyAnalysisScheduler`), 15 minutes after the 15:30 IST market close — i.e. **~15 minutes past the last live tick**, already outside the 10-minute trade-grade window by design (index feeds stop ticking at close, not at 15:45). |
+| Why one-line swap is unsafe | A naive `getIndexQuotes()`-from-`router.ts` swap would apply the same 10-minute hard-stale rejection used for trade decisions; the last real tick (15:30 close) is ~15 min old by the time the report runs, so every post-market INDEX PERFORMANCE row would resolve `stale`/rejected and the section would go blank again — reproducing the exact bug commit `bd8f5413` fixed. |
+| Trade-decision impact | `gatherPostMarketData`/`gatherPreMarketData` in `dailyReports.ts` feed ONLY the Telegram report builders and the `/daily-analysis` read-only page. Grepped every caller of both functions (`routes/dailyAnalysis.ts`, the report scheduler, and the two report builders) — none of it is reachable from any F&O/Swing signal path, `openPaperTrade`, `openPaperEquityTrade`, or any order-placement code. Confirms the import bypass, while a real architectural violation, had **zero trade-decision blast radius** even before this fix. |
+| Correct design | A dedicated, clearly-labelled **report-grade** facade living inside `lib/marketData/` (exempt from the provider-import guard by location, same as `router.ts`/`kiteProvider.ts`) that internally reuses `kiteProvider.getIndexQuotes()` but applies a deliberately looser, still-honest acceptance policy scoped ONLY to report/display use cases — never touching or weakening `router.ts`'s trade-grade path. |
+
+### 2. Report-grade contract (Phase 1)
+
+New file: `artifacts/api-server/src/lib/marketData/reportGradeIndexQuotes.ts`.
+
+- `MarketDataUseCase` — `"TRADE_DECISION" | "PAPER_TRADE" | "LIVE_ALERT" | "REPORT_POST_MARKET" | "REPORT_PRE_MARKET" | "DISPLAY_ONLY"`; `ReportUseCase` narrows to the three report/display cases this facade may serve.
+- `ReportGradeIndexQuote` — carries `ltp/open/high/low/close/previousClose/change/changePct`, `source: "KITE" | "UNAVAILABLE"`, `sourceAsOf`, `freshnessSec`, `marketSession: "open" | "closed" | "post_market"`, `reason`, and three **type-level-and-runtime-hardcoded-`false`** trust fields: `tradeGrade`, `canDriveSignals`, `canDrivePaperTrades`. `canDriveReports` and `reportGrade` are the only booleans that can be `true`.
+- `deriveMarketSession(nowMs)` — pure, injectable-clock session classifier: weekday 09:15–15:30 IST → `open`; weekday 15:30–20:00 IST → `post_market`; everything else (incl. all-day Saturday/Sunday) → `closed`. Weekends are never misclassified as a live session.
+- `getReportGradeIndexQuotes(useCase, nowMs)` — acceptance policy:
+  1. Calls `kiteProvider.getIndexQuotes()` (the same provider wrapper the trade-grade router uses — legitimate same-layer reuse, not a new provider dependency).
+  2. A quote whose `asOf` falls on/after **today's** 09:15 IST market open is accepted as report-grade regardless of the 10-minute trade-grade budget — this is exactly what lets the 15:45 report show the 15:30 closing tick.
+  3. A quote from **before** today's session (yesterday's cache, stale weekend data) is refused and returned `reportGrade:false, reason:"REPORT_INDEX_QUOTES_STALE"` — never presented as if it were live/today's data.
+  4. No upstream data / missing symbol / provider throw → `reportGrade:false, reason:"INDEX_QUOTES_UNAVAILABLE"` (fails open, never throws).
+  5. `tradeGrade`, `canDriveSignals`, `canDrivePaperTrades` are hard-coded `false` on every single row, at both the type level (`false` literal type, not `boolean`) and the runtime-value level.
+
+### 3. `dailyReports.ts` migration (Phase 3)
+
+- Removed `import { getKiteIndexQuotes } from "./kiteIndexQuotes"`.
+- Added `import { getReportGradeIndexQuotes, REPORT_INDEX_KEYS } from "./marketData/reportGradeIndexQuotes"`.
+- `gatherPostMarketData`'s INDEX PERFORMANCE block now calls `getReportGradeIndexQuotes("REPORT_POST_MARKET", nowMs)` and maps `close/changePct/high/low` from each `ReportGradeIndexQuote`; a row is skipped entirely (never fabricated) when `canDriveReports` is false OR `ltp`/`changePct` is `null`. `asOfIst` is derived from the latest `sourceAsOf` across the surviving rows, preserving the existing "as of HH:MM" label. The compact Telegram format and the `"Unavailable — data source not integrated yet"` collapse-to-footer behavior from Checkpoint 1 are unchanged — this touched only the one INDEX PERFORMANCE data-gathering block, no other section.
+
+### 4. Provider import guard result (Phase 4)
+
+`providerImportGuard.test.ts` — **19/19 passing**, including the burn-down assertions. No allowlist entry was added or needed: `dailyReports.ts` no longer appears in the scan of direct-provider importers at all (confirmed by re-running the guard's own file scan), and `providerImportAllowlist.json` was **not modified**. The new facade file lives under `lib/marketData/`, which is exempt from the guard by directory (same exemption `router.ts`/`kiteProvider.ts` already have) — this is legitimate same-layer composition, not a new bypass.
+
+### 5. Tests and counts (Phase 5)
+
+New tests:
+- `marketData/reportGradeIndexQuotes.test.ts` — **12/12 passing**. Covers: accepts a same-day 15:30-close quote past the 10-minute trade-grade budget at a 15:45 post-market instant; never `tradeGrade`/`canDriveSignals`/`canDrivePaperTrades`; refuses a pre-today (yesterday's) quote as report-grade with `REPORT_INDEX_QUOTES_STALE`; never fakes live data on a Saturday/closed session; `INDEX_QUOTES_UNAVAILABLE` when the upstream returns null, a missing symbol, or throws; accepts a fresh intraday quote during market-open hours as report-grade-but-not-trade-grade; `deriveMarketSession` correctly classifies open/post_market/closed/weekend.
+- `dailyReports.gatherPostMarket.integration.test.ts` — **4/4 passing**. Verifies the real `gatherPostMarketData` (not just the facade in isolation) populates `indexPerformance` when the mocked facade returns usable rows, collapses `indexPerformance` to `null` when every index is unavailable, skips a row missing `changePct` without fabricating a value while keeping the other valid rows, and stays unaffected when unrelated DB-backed sections (option-chain EOD, swing) independently fail.
+
+Regression run (all green, `--pool=threads`):
+
+| Suite | Result |
+|---|---|
+| `providerImportGuard.test.ts` | 19/19 |
+| `dailyReports.test.ts` + `dailyReportsDedupContract.test.ts` + `dailyAnalysisTelegramPreviewRoute.test.ts` | 117/117 |
+| Full `lib/marketData/` directory (17 files, incl. the 2 new files above) | 236/236 |
+| `lib/*paper*.test.ts` (14 files) | 109/109 |
+| `lib/*swing*.test.ts` (15 files) | 273/273 |
+| `routes/__tests__/*.test.ts` (15 files) | 233/233 |
+| `@workspace/scanner` full suite | 762/762 (35 files) |
+
+`pnpm run typecheck` (libs + every leaf workspace, incl. `artifacts/api-server`) → clean. `pnpm run typecheck:libs` → clean. `pnpm --filter @workspace/scripts run index:llm` → regenerated (338 files tracked); `index:llm:check` → fresh, 338/338 matched.
+
+Item 8 (`dailyReports.ts` no longer imports `kiteIndexQuotes` directly) confirmed by direct grep — zero matches in `dailyReports.ts` itself (only in unrelated files: `kiteIntraday.ts`, `indicesBoard.ts`, `optionChain.ts`, and test/allowlist artifacts, none of which this checkpoint touched or needed to touch).
+
+### 6. Production verification (Phase 6)
+
+**Not performed in this pass.** This checkpoint's changes were verified locally (dev workflow restarted cleanly — server boot log shows no errors, `dailyReports: daily_report_runs table ready` fires normally, all scheduled jobs start as before) and via the automated test/typecheck suites above, but the build was **not published** during this session. No production claim is made.
+
+### 7. Remaining gaps
+
+- Production publish + live post-market preview verification (`GET /daily-analysis/telegram/preview`, owner-only, dry-run) is deferred to whenever the owner next publishes — this checkpoint does not require or request the owner password.
+- Three pre-existing, out-of-scope direct-provider importers (`kiteIntraday.ts`, `indicesBoard.ts`, `optionChain.ts`) still import `kiteIndexQuotes`/other raw providers directly and remain on the burn-down allowlist — unchanged by this checkpoint, tracked under the broader Unified Market Data Backbone follow-up (#132/#133).
+- Checkpoint 3 was explicitly not started, per the do-not-do list.
+
+### 8. Final verdict
+
+**`CANONICAL_DATA_CHECKPOINT_2_5_DEV_VERIFIED`**
+
+The report-grade market-data facade exists inside `lib/marketData/`, `dailyReports.ts` no longer imports any raw provider module, `providerImportGuard` passes with zero allowlist growth, the trade-grade router/policy were not touched or weakened, every report-grade row is hard-coded non-trade-grade/non-signal/non-paper-trade at both the type and runtime level, and the post-market INDEX PERFORMANCE section is proven (by both the facade's own unit tests and a `gatherPostMarketData` integration test) to remain populated at the 15:45 IST post-market instant instead of going blank. All required regression suites (providerImportGuard, daily-report builders/dedup/route, the full `marketData` directory, paper, swing, routes, scanner) plus full typecheck and the LLM index are green. No secrets were touched, no real Telegram message was sent, no order-placement or broker-execution code was touched, and no destructive migration was run. Production publish and the live post-market preview check remain pending and are intentionally left for the owner to trigger.

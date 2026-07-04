@@ -900,6 +900,17 @@
     "hash": "016a1804572714c9"
   },
   {
+    "path": "artifacts/api-server/src/lib/dailyReports.gatherPostMarket.integration.test.ts",
+    "purpose": "test",
+    "lines": 172,
+    "exports": [],
+    "externalImports": [
+      "vitest"
+    ],
+    "routes": [],
+    "hash": "a21f135ac93cd2ff"
+  },
+  {
     "path": "artifacts/api-server/src/lib/dailyReports.test.ts",
     "purpose": "test",
     "lines": 844,
@@ -913,7 +924,7 @@
   {
     "path": "artifacts/api-server/src/lib/dailyReports.ts",
     "purpose": "lib",
-    "lines": 1184,
+    "lines": 1185,
     "exports": [
       "ensureDailyReportRunsTable",
       "tryClaimScheduledReport",
@@ -941,7 +952,7 @@
       "@workspace/db"
     ],
     "routes": [],
-    "hash": "978e9565f2b13dc5"
+    "hash": "a9c1f8ab130ae324"
   },
   {
     "path": "artifacts/api-server/src/lib/dailyReportsDedupContract.test.ts",
@@ -3051,6 +3062,34 @@
     "externalImports": [],
     "routes": [],
     "hash": "0ac600b114ab6efa"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/marketData/reportGradeIndexQuotes.test.ts",
+    "purpose": "test",
+    "lines": 195,
+    "exports": [],
+    "externalImports": [
+      "vitest"
+    ],
+    "routes": [],
+    "hash": "9164ea60e98e7135"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/marketData/reportGradeIndexQuotes.ts",
+    "purpose": "lib",
+    "lines": 244,
+    "exports": [
+      "MarketDataUseCase",
+      "ReportUseCase",
+      "MarketSessionState",
+      "ReportGradeIndexQuote",
+      "REPORT_INDEX_KEYS",
+      "deriveMarketSession",
+      "getReportGradeIndexQuotes"
+    ],
+    "externalImports": [],
+    "routes": [],
+    "hash": "7136b858456d33a6"
   },
   {
     "path": "artifacts/api-server/src/lib/marketData/requirements.test.ts",
