@@ -1,0 +1,323 @@
+Production is published now.
+
+Run production verification for Checkpoint 2 only.
+
+Do not write new code unless production verification finds a real blocker.
+Do not start Checkpoint 3.
+Do not work on scanner migration.
+Do not work on charting migration.
+Do not work on option-chain / OI Lab migration.
+Do not change Swing strategy logic.
+Do not change Auto Strong Buy logic.
+Do not change F&O strategy logic.
+Do not change thresholds.
+Do not enable broker execution.
+Do not place real orders.
+Do not create fake trades.
+Do not send real Telegram test messages.
+Do not ask for owner/admin password.
+Do not trim, rewrite, reorganize, or mention replit.md.
+
+Current expected status before verification:
+
+CANONICAL_DATA_CHECKPOINT_2_DEV_VERIFIED
+
+Expected final status if all checks pass:
+
+CANONICAL_DATA_CHECKPOINT_2_PROD_VERIFIED
+
+====================================================
+PART A — DEPLOYMENT CONFIRMATION
+====================================================
+
+Confirm production now contains the Checkpoint 2 build.
+
+Report:
+
+1. Workspace HEAD commit.
+2. Published production commit.
+3. Production boot timestamp.
+4. Production API health.
+5. Confirm production bundle/API includes:
+   - paper_trade_eq.source
+   - paper_trade_eq.staged_order_id
+   - paper_eq_audit.paper_trade_id
+   - ensurePaperEqProvenanceColumns()
+   - lifecycle endpoint:
+     GET /api/paper/lifecycle/:symbol
+   - Paper Trading source badges
+   - Swing Queue paper-trade link wording
+   - updated OpenAPI/codegen source fields
+
+If production is still on the old build, stop and report:
+
+CANONICAL_DATA_CHECKPOINT_2_BUILD_NOT_DEPLOYED
+
+====================================================
+PART B — PRODUCTION DB SCHEMA CHECK
+====================================================
+
+Verify production DB has the safe additive columns.
+
+Check paper_trade_eq:
+
+- source
+- staged_order_id
+
+Check paper_eq_audit:
+
+- paper_trade_id
+
+Rules:
+
+- No destructive migration.
+- No dropped rows.
+- No deleted data.
+- Existing rows remain valid.
+- Source backfill converged.
+
+Report:
+
+| Table | Column | Exists? | Nullable? | Notes |
+|---|---|---:|---:|---|
+
+Also report source distribution:
+
+| source | count |
+|---|---:|
+| AUTO_STRONG_BUY |
+| MANUAL_BUY |
+| SWING_STAGED_APPROVAL |
+| LEGACY_UNKNOWN |
+| NULL |
+
+Expected:
+
+- NULL should be 0 after backfill.
+- Legacy/older rows may show LEGACY_UNKNOWN honestly.
+- AUTO rows should map to AUTO_STRONG_BUY.
+- Manual rows should map to MANUAL_BUY.
+
+====================================================
+PART C — PRODUCTION ENDPOINT SECURITY
+====================================================
+
+Verify:
+
+GET /api/paper/lifecycle/INDUSINDBK
+GET /api/paper/lifecycle/RELIANCE
+
+Anonymous/unauthed must return 401.
+
+Malformed symbol must return 400, for example:
+
+GET /api/paper/lifecycle/../../bad
+
+Owner-authenticated access should return 200 if your session is available.
+
+No secrets exposed.
+
+Report:
+
+| Endpoint | Anonymous | Owner | Secrets Exposed? | Verdict |
+|---|---:|---:|---:|---|
+
+====================================================
+PART D — INDUSINDBK LIFECYCLE VERIFICATION
+====================================================
+
+Verify INDUSINDBK in production.
+
+Expected from audit:
+
+- INDUSINDBK paper trade exists.
+- It was opened from automated equity paper-trading logic.
+- It has no swing_order_staging row.
+- It should be classified as AUTO_STRONG_BUY.
+- staged_order_id should be null.
+- paper_eq_audit should link back via paper_trade_id where possible.
+- It must not be falsely shown as Swing staged approval.
+- Broker execution must remain disabled.
+
+Report:
+
+| Check | Expected | Actual | Verdict |
+|---|---|---|---|
+| Paper trade exists | Yes |
+| Source | AUTO_STRONG_BUY |
+| staged_order_id | null |
+| Audit row linked | Yes, if matching row exists |
+| Swing staged row | None |
+| Broker execution | Disabled |
+| Real order | 0 |
+
+If INDUSINDBK is not active anymore, verify the latest available INDUSINDBK row/history and report honestly.
+
+====================================================
+PART E — RELIANCE LIFECYCLE VERIFICATION
+====================================================
+
+Verify RELIANCE in production.
+
+Expected from audit:
+
+- RELIANCE has swing_order_staging expired row(s).
+- RELIANCE has no paper_trade_eq row.
+- RELIANCE has no paper_eq_audit row.
+- It never became a paper trade.
+- It should remain expired / archived / non-actionable.
+- It must not appear as active paper trade.
+- It must not have fabricated paper-trade link.
+
+Report:
+
+| Check | Expected | Actual | Verdict |
+|---|---|---|---|
+| Swing staged row | Exists |
+| Status | EXPIRED |
+| Paper trade | None |
+| Paper audit | None |
+| Actionable? | No |
+| Fabricated link? | No |
+
+====================================================
+PART F — PAPER TRADING API VERIFICATION
+====================================================
+
+Verify production Paper Trading APIs now include source fields.
+
+Check relevant endpoints, repo-correct names may include:
+
+- /api/paper/positions/eq
+- /api/paper/trades/eq
+- /api/paper/lifecycle/:symbol
+
+Expected fields:
+
+- source
+- stagedOrderId
+- source badge data if applicable
+- broker execution disabled
+
+Report one sample active/open row and one closed row if available.
+
+Do not expose sensitive values.
+
+====================================================
+PART G — SWING QUEUE API / UI VERIFICATION
+====================================================
+
+Verify Swing Queue still behaves honestly.
+
+Expected:
+
+1. Active queue does not show expired orders as actionable.
+2. Expired RELIANCE remains expired.
+3. Staged-only orders show “not converted to paper trade” or equivalent.
+4. If any staged order has paperTradeId, it is shown.
+5. No fake link is created.
+6. Approval still does not place a real order.
+7. Broker execution remains disabled.
+
+If visual owner-auth is not possible, verify bundle/code/API and provide owner manual checklist.
+
+====================================================
+PART H — FRONTEND BUNDLE VERIFICATION
+====================================================
+
+Confirm production frontend bundle contains:
+
+- EqSourceBadge
+- AUTO_STRONG_BUY
+- MANUAL_BUY
+- SWING QUEUE or SWING_STAGED_APPROVAL label
+- LEGACY_UNKNOWN or legacy label
+- source column in Paper Trading
+- staged-only / not converted wording in Swing Queue
+
+Report bundle markers found.
+
+====================================================
+PART I — REGRESSION CHECKS
+====================================================
+
+Verify nothing else broke:
+
+1. /api/healthz works.
+2. /api/data-health/global works.
+3. Telegram alert dedup remains production verified.
+4. Swing TTL remains production verified.
+5. F&O exit monitoring remains DEV_VERIFIED, live evidence pending.
+6. Checkpoint 1 remains production verified.
+7. Broker execution remains disabled.
+8. No real orders placed.
+9. No Telegram spam.
+10. No secrets exposed.
+
+====================================================
+PART J — TESTS
+====================================================
+
+Run and report exact counts:
+
+pnpm --filter @workspace/api-server run typecheck
+pnpm --filter @workspace/api-server run typecheck:libs
+pnpm --filter @workspace/api-server exec vitest run src/lib/*swing*.test.ts src/lib/*paper*.test.ts src/lib/*equity*.test.ts src/lib/*lifecycle*.test.ts src/lib/*trade*.test.ts src/lib/*notification*.test.ts src/lib/*report*.test.ts src/lib/*dataHealth*.test.ts src/routes/**/*.test.ts
+pnpm --filter @workspace/scanner exec vitest run
+pnpm --filter @workspace/scripts run index:llm
+pnpm --filter @workspace/scripts run index:llm:check
+
+If full suite times out, run in batches and report:
+
+- batch name
+- file count
+- pass count
+- fail count
+- exit code
+
+====================================================
+PART K — REPORT UPDATE
+====================================================
+
+Update:
+
+WEBSITE_CANONICAL_DATA_INTEGRATION_REPORT.md
+
+Add production verification under:
+
+Checkpoint 2 — Swing ↔ Paper Trading Lifecycle Source/Link Audit
+
+Include:
+
+1. Deployment evidence.
+2. DB schema evidence.
+3. Source distribution.
+4. INDUSINDBK production result.
+5. RELIANCE production result.
+6. Lifecycle endpoint evidence.
+7. Paper Trading API evidence.
+8. Swing Queue evidence.
+9. Frontend bundle evidence.
+10. Regression checks.
+11. Tests and counts.
+12. LLM index status.
+13. Remaining gaps, if any.
+14. Final verdict.
+
+====================================================
+FINAL VERDICT
+====================================================
+
+Final verdict must be exactly one:
+
+- CANONICAL_DATA_CHECKPOINT_2_PROD_VERIFIED
+- CANONICAL_DATA_CHECKPOINT_2_DEV_VERIFIED
+- CANONICAL_DATA_CHECKPOINT_2_PARTIAL_SOURCE_GAP_REMAINS
+- CANONICAL_DATA_CHECKPOINT_2_BUILD_NOT_DEPLOYED
+- ROLLBACK_REQUIRED
+
+Use CANONICAL_DATA_CHECKPOINT_2_PROD_VERIFIED only if production is published and all checks pass.
+
+Use CANONICAL_DATA_CHECKPOINT_2_PARTIAL_SOURCE_GAP_REMAINS if Paper Trading source remains unclear, Swing Queue remains misleading, or lifecycle links are still missing.
+
+Use ROLLBACK_REQUIRED if secrets leak, broker execution turns on, real orders are placed, existing trades are corrupted, Telegram spam returns, or destructive migration happens.

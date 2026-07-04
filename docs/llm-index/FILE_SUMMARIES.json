@@ -3770,7 +3770,7 @@
   {
     "path": "artifacts/api-server/src/lib/paperEqAudit.ts",
     "purpose": "paper-trading",
-    "lines": 219,
+    "lines": 227,
     "exports": [
       "EqAuditReason",
       "EqEventType",
@@ -3786,7 +3786,33 @@
       "drizzle-orm"
     ],
     "routes": [],
-    "hash": "501060c7e5befcb9"
+    "hash": "ab1039c9260f2be2"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/paperEqLifecycleSummary.test.ts",
+    "purpose": "test",
+    "lines": 96,
+    "exports": [],
+    "externalImports": [
+      "vitest"
+    ],
+    "routes": [],
+    "hash": "110cdfc2fb37653f"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/paperEqLifecycleSummary.ts",
+    "purpose": "paper-trading",
+    "lines": 55,
+    "exports": [
+      "LifecycleTradeRow",
+      "LifecycleStagingRow",
+      "LifecycleSummaryInput",
+      "LifecycleSummary",
+      "computeLifecycleSummary"
+    ],
+    "externalImports": [],
+    "routes": [],
+    "hash": "c82479d5e7eab0ad"
   },
   {
     "path": "artifacts/api-server/src/lib/paperHeatSql.test.ts",
@@ -3911,9 +3937,12 @@
   {
     "path": "artifacts/api-server/src/lib/paperTradingEq.ts",
     "purpose": "paper-trading",
-    "lines": 922,
+    "lines": 1022,
     "exports": [
       "EquityExitReason",
+      "mapWriteSourceToProvenance",
+      "applyPaperEqProvenanceColumns",
+      "ensurePaperEqProvenanceColumns",
       "openPaperEquityTrade",
       "openManualPaperEquityTrade",
       "forceClosePaperEquityTrade",
@@ -3927,7 +3956,20 @@
       "@workspace/api-zod"
     ],
     "routes": [],
-    "hash": "27ac1b926c26dc72"
+    "hash": "50b324d6235bec85"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/paperTradingEqProvenance.test.ts",
+    "purpose": "test",
+    "lines": 175,
+    "exports": [],
+    "externalImports": [
+      "vitest",
+      "drizzle-orm",
+      "@workspace/db"
+    ],
+    "routes": [],
+    "hash": "90f4663c52c7af2d"
   },
   {
     "path": "artifacts/api-server/src/lib/paperTradingFO.premiumPath.test.ts",
@@ -6201,7 +6243,7 @@
   {
     "path": "artifacts/api-server/src/routes/paper.ts",
     "purpose": "api-route",
-    "lines": 1878,
+    "lines": 1972,
     "exports": [],
     "externalImports": [
       "express",
@@ -6230,7 +6272,7 @@
       "GET /paper/diagnostics/fo/exit-safety",
       "GET /paper/diagnostics/fo/exit-monitor/status"
     ],
-    "hash": "e335f3f65a2c4058"
+    "hash": "3f1144d4235c51c4"
   },
   {
     "path": "artifacts/api-server/src/routes/paperCombo.ts",
@@ -7923,7 +7965,7 @@
   {
     "path": "artifacts/scanner/src/pages/paper-trading.tsx",
     "purpose": "ui-page",
-    "lines": 2890,
+    "lines": 2935,
     "exports": [],
     "externalImports": [
       "react",
@@ -7938,7 +7980,7 @@
       "@/lib/fno/targetStatus"
     ],
     "routes": [],
-    "hash": "cf3992fc6babf0cd"
+    "hash": "26241651825d16f3"
   },
   {
     "path": "artifacts/scanner/src/pages/portfolio-analyser.tsx",
@@ -8136,7 +8178,7 @@
   {
     "path": "artifacts/scanner/src/pages/swing-cash.tsx",
     "purpose": "ui-page",
-    "lines": 575,
+    "lines": 581,
     "exports": [],
     "externalImports": [
       "react",
@@ -8151,7 +8193,7 @@
       "@/components/ui/switch"
     ],
     "routes": [],
-    "hash": "5d54b8d0b0a1957b"
+    "hash": "acd7d2654aa23a4a"
   },
   {
     "path": "artifacts/scanner/src/pages/watchlist.tsx",
@@ -8406,7 +8448,7 @@
   {
     "path": "lib/db/src/schema/paperTrading.ts",
     "purpose": "db-schema",
-    "lines": 421,
+    "lines": 474,
     "exports": [
       "paperAccountTable",
       "PaperAccountRow",
@@ -8415,6 +8457,7 @@
       "PaperTradeFoRow",
       "NewPaperTradeFoRow",
       "paperTradeEqTable",
+      "PaperTradeEqSource",
       "PaperTradeEqRow",
       "NewPaperTradeEqRow",
       "paperEqAuditTable",
@@ -8431,7 +8474,7 @@
       "drizzle-orm"
     ],
     "routes": [],
-    "hash": "be0fdecbce0e14e8"
+    "hash": "ca219a6badb12ad5"
   },
   {
     "path": "lib/db/src/schema/portfolio.ts",

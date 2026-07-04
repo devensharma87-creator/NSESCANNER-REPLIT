@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-03T20:24:08.372Z",
+  "generatedAt": "2026-07-04T06:54:04.710Z",
   "generatorVersion": "1.0.0",
   "files": {
     "artifacts/api-server/src/routes/admin.ts": {
@@ -118,9 +118,9 @@
       "mtime": "2026-05-13T13:57:43.155Z"
     },
     "artifacts/api-server/src/routes/paper.ts": {
-      "hash": "e335f3f65a2c4058",
-      "lines": 1878,
-      "mtime": "2026-07-02T20:18:59.373Z"
+      "hash": "3f1144d4235c51c4",
+      "lines": 1972,
+      "mtime": "2026-07-03T21:49:31.259Z"
     },
     "artifacts/api-server/src/routes/paperCombo.ts": {
       "hash": "ce6ef9a7fdbb135d",
@@ -838,9 +838,14 @@
       "mtime": "2026-05-17T10:14:48.030Z"
     },
     "artifacts/api-server/src/lib/paperEqAudit.ts": {
-      "hash": "501060c7e5befcb9",
-      "lines": 219,
-      "mtime": "2026-05-08T11:02:24.213Z"
+      "hash": "ab1039c9260f2be2",
+      "lines": 227,
+      "mtime": "2026-07-03T21:32:26.652Z"
+    },
+    "artifacts/api-server/src/lib/paperEqLifecycleSummary.ts": {
+      "hash": "c82479d5e7eab0ad",
+      "lines": 55,
+      "mtime": "2026-07-03T21:49:03.379Z"
     },
     "artifacts/api-server/src/lib/paperReportsEq.ts": {
       "hash": "3d08bed08d029e28",
@@ -858,9 +863,9 @@
       "mtime": "2026-05-13T14:26:02.749Z"
     },
     "artifacts/api-server/src/lib/paperTradingEq.ts": {
-      "hash": "27ac1b926c26dc72",
-      "lines": 922,
-      "mtime": "2026-06-23T15:04:06.194Z"
+      "hash": "50b324d6235bec85",
+      "lines": 1022,
+      "mtime": "2026-07-03T21:48:35.599Z"
     },
     "artifacts/api-server/src/lib/paperTradingFO.ts": {
       "hash": "d3b05ac1187fb8e9",
@@ -1233,9 +1238,9 @@
       "mtime": "2026-05-13T14:18:21.895Z"
     },
     "lib/db/src/schema/paperTrading.ts": {
-      "hash": "be0fdecbce0e14e8",
-      "lines": 421,
-      "mtime": "2026-07-02T18:23:26.506Z"
+      "hash": "ca219a6badb12ad5",
+      "lines": 474,
+      "mtime": "2026-07-03T21:30:45.879Z"
     },
     "lib/db/src/schema/portfolio.ts": {
       "hash": "879a6a7b938e6570",
@@ -1268,9 +1273,9 @@
       "mtime": "2026-06-05T12:55:17.075Z"
     },
     "lib/api-spec/openapi.yaml": {
-      "hash": "19382c5be03fb0da",
-      "lines": 6845,
-      "mtime": "2026-07-02T20:16:25.521Z"
+      "hash": "e3a30b95d093ccaf",
+      "lines": 6863,
+      "mtime": "2026-07-03T21:40:52.379Z"
     },
     "artifacts/scanner/src/pages/admin.tsx": {
       "hash": "4a6ea1da8bb56b02",
@@ -1398,9 +1403,9 @@
       "mtime": "2026-06-05T10:47:11.422Z"
     },
     "artifacts/scanner/src/pages/paper-trading.tsx": {
-      "hash": "cf3992fc6babf0cd",
-      "lines": 2890,
-      "mtime": "2026-07-02T20:26:24.573Z"
+      "hash": "26241651825d16f3",
+      "lines": 2935,
+      "mtime": "2026-07-03T21:42:40.732Z"
     },
     "artifacts/scanner/src/pages/portfolio-analyser.tsx": {
       "hash": "819b4da47ae05fcd",
@@ -1453,9 +1458,9 @@
       "mtime": "2026-05-13T13:50:54.317Z"
     },
     "artifacts/scanner/src/pages/swing-cash.tsx": {
-      "hash": "5d54b8d0b0a1957b",
-      "lines": 575,
-      "mtime": "2026-07-02T16:23:26.867Z"
+      "hash": "acd7d2654aa23a4a",
+      "lines": 581,
+      "mtime": "2026-07-03T21:43:28.001Z"
     },
     "artifacts/scanner/src/pages/watchlist.tsx": {
       "hash": "4b0244535000d983",
