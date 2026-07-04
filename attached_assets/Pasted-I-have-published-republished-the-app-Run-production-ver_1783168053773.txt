@@ -1,0 +1,256 @@
+I have published / republished the app.
+
+Run production verification for Checkpoint 3 only.
+
+Do not write new code unless production verification finds a real blocker.
+Do not start Checkpoint 4.
+Do not migrate scanner.
+Do not migrate charting.
+Do not migrate option-chain / OI Lab.
+Do not change F&O strategy logic.
+Do not change Swing strategy logic.
+Do not change Auto Strong Buy logic.
+Do not change thresholds.
+Do not weaken trade-grade checks.
+Do not allow report-grade data to drive signals or paper trades.
+Do not enable broker execution.
+Do not place real orders.
+Do not send Telegram test messages.
+Do not perform destructive migrations.
+Do not ask for owner/admin password.
+Do not trim, rewrite, reorganize, or mention replit.md.
+
+Current expected status:
+
+CANONICAL_DATA_CHECKPOINT_3_DEV_VERIFIED
+
+Expected final status if production checks pass:
+
+CANONICAL_DATA_CHECKPOINT_3_PROD_VERIFIED
+
+====================================================
+PART A — DEPLOYMENT CONFIRMATION
+====================================================
+
+Confirm production contains the Checkpoint 3 build.
+
+Report:
+
+1. Workspace HEAD commit.
+2. Published production commit.
+3. Fresh boot/process timestamp after Checkpoint 3 commit.
+4. /api/healthz status.
+5. Confirm deployed build includes:
+   - Data Parity API routes
+   - Data Parity observers/collectors
+   - P0/P1/P2/INFO classifier
+   - requireOwnerStrict route protection
+   - Infra Health “Data Parity” frontend section
+   - updated WEBSITE_CANONICAL_DATA_INTEGRATION_REPORT.md
+
+If production is still on the old build, stop and report:
+
+CANONICAL_DATA_CHECKPOINT_3_BUILD_NOT_DEPLOYED
+
+====================================================
+PART B — API SECURITY VERIFICATION
+====================================================
+
+Verify owner-only protection.
+
+Check:
+
+GET /api/data-parity/symbol/INDUSINDBK
+GET /api/data-parity/symbol/RELIANCE
+GET /api/data-parity/symbol/NIFTY
+POST /api/data-parity/check
+
+Expected:
+
+1. Anonymous request returns 401.
+2. Public-view mode does not bypass owner protection.
+3. Malformed symbol returns 400.
+4. Valid owner-auth request returns 200 if owner session is available.
+5. No secrets exposed.
+6. No raw tokens exposed.
+7. No Telegram send.
+8. No DB mutation.
+9. No order placement.
+
+Report:
+
+| Endpoint | Anonymous | Malformed | Owner/Auth | Secrets Exposed? | Verdict |
+|---|---:|---:|---:|---:|---|
+
+If owner-auth cannot be used, verify route registration/bundle evidence and provide owner manual checklist.
+
+====================================================
+PART C — SYMBOL PARITY VERIFICATION
+====================================================
+
+Run production checks for:
+
+1. INDUSINDBK
+2. RELIANCE
+3. NIFTY
+4. BANKNIFTY
+5. SENSEX
+
+For each symbol/index, report:
+
+| Symbol | Verdict | P0 | P1 | P2 | INFO | Key Finding |
+|---|---|---:|---:|---:|---:|---|
+
+Expected behavior:
+
+1. API returns observations array.
+2. Each available module includes source/as-of/freshness where available.
+3. tradeGrade/reportGrade flags are explicit.
+4. canDriveSignals and canDrivePaperTrades are explicit where relevant.
+5. Missing modules are reported as MISSING / NOT_APPLICABLE with reason.
+6. No module silently disappears.
+7. Mismatches are classified as P0/P1/P2/INFO.
+
+====================================================
+PART D — SPECIFIC EXPECTED FINDINGS
+====================================================
+
+Verify these known cases:
+
+INDUSINDBK:
+- Should include Paper Trading EQ observation if trade exists/history exists.
+- Source should reflect Checkpoint 2 attribution, usually AUTO_STRONG_BUY if applicable.
+- No false Swing staged approval link.
+
+RELIANCE:
+- Should include Swing Queue observation.
+- Expired staged order should be shown as expired/non-actionable if present.
+- No fabricated paper-trade link.
+
+NIFTY / BANKNIFTY / SENSEX:
+- Should include index/report-grade/F&O diagnostic observations where available.
+- Report-grade data must not be tradeGrade.
+- Report-grade data must not drive signals or paper trades.
+- Missing/stale sources must be labelled honestly.
+
+====================================================
+PART E — INFRA HEALTH VERIFICATION
+====================================================
+
+Confirm production frontend/API includes the Infra Health “Data Parity” section.
+
+Expected:
+
+1. Data Parity section exists in bundle.
+2. Symbol picker exists or equivalent UI exists.
+3. Results table exists.
+4. Worst verdict / mismatch counts are displayed.
+5. P0/P1/P2/INFO labels are visible.
+6. No secrets exposed.
+7. Owner-auth visual check if possible.
+8. If owner-auth visual check is blocked, provide owner manual checklist.
+
+====================================================
+PART F — REGRESSION CHECKS
+====================================================
+
+Verify:
+
+1. /api/healthz works.
+2. /api/data-health/global works.
+3. Checkpoint 1 remains PROD_VERIFIED.
+4. Checkpoint 2 remains PROD_VERIFIED.
+5. Checkpoint 2.5 remains PROD_VERIFIED.
+6. Provider import guard remains green.
+7. Telegram alert dedup remains production verified.
+8. Swing TTL remains production verified.
+9. F&O exit monitoring remains DEV_VERIFIED, live evidence pending.
+10. Broker execution remains disabled.
+11. No real orders placed.
+12. No Telegram spam.
+13. No secrets exposed.
+
+====================================================
+PART G — TESTS TO RERUN
+====================================================
+
+Run and report exact counts:
+
+pnpm --filter @workspace/api-server run typecheck
+pnpm --filter @workspace/api-server run typecheck:libs
+pnpm --filter @workspace/api-server exec vitest run src/lib/*dataParity*.test.ts src/lib/*canonical*.test.ts src/lib/*marketData*.test.ts src/lib/*daily*.test.ts src/lib/*paper*.test.ts src/lib/*swing*.test.ts src/lib/*fno*.test.ts src/lib/*dataHealth*.test.ts src/routes/**/*.test.ts
+pnpm --filter @workspace/scanner exec vitest run
+pnpm --filter @workspace/scripts run index:llm
+pnpm --filter @workspace/scripts run index:llm:check
+
+If full suite times out, run in batches and report:
+
+- batch name
+- file count
+- pass count
+- fail count
+- exit code
+
+====================================================
+PART H — REPORT UPDATE
+====================================================
+
+Update:
+
+WEBSITE_CANONICAL_DATA_INTEGRATION_REPORT.md
+
+Under:
+
+Checkpoint 3 — Data Parity API
+
+Add production verification evidence:
+
+1. Deployment evidence.
+2. API security evidence.
+3. INDUSINDBK result.
+4. RELIANCE result.
+5. NIFTY result.
+6. BANKNIFTY result.
+7. SENSEX result.
+8. Infra Health evidence.
+9. Regression checks.
+10. Tests and counts.
+11. LLM index status.
+12. Remaining P0/P1/P2 mismatches.
+13. Final verdict.
+
+====================================================
+FINAL VERDICT
+====================================================
+
+Final verdict must be exactly one:
+
+- CANONICAL_DATA_CHECKPOINT_3_PROD_VERIFIED
+- CANONICAL_DATA_CHECKPOINT_3_DEV_VERIFIED
+- CANONICAL_DATA_CHECKPOINT_3_PARTIAL_SOURCE_GAP_REMAINS
+- CANONICAL_DATA_CHECKPOINT_3_BUILD_NOT_DEPLOYED
+- ROLLBACK_REQUIRED
+
+Use:
+
+CANONICAL_DATA_CHECKPOINT_3_PROD_VERIFIED
+
+only if production is published and endpoints/checks pass.
+
+Use:
+
+CANONICAL_DATA_CHECKPOINT_3_PARTIAL_SOURCE_GAP_REMAINS
+
+if the API works but P0/P1 mismatches remain.
+
+Use:
+
+CANONICAL_DATA_CHECKPOINT_3_BUILD_NOT_DEPLOYED
+
+if production is still running the old build.
+
+Use:
+
+ROLLBACK_REQUIRED
+
+if secrets leak, broker execution turns on, real orders are placed, stale/report-grade data can drive trades, Telegram spam returns, or destructive changes occur.

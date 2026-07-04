@@ -875,3 +875,34 @@ data driving trades, no destructive change). It is purely a publish-propagation 
 same verification pass once a fresh deployment boot event post-dating `bba469b` (epoch
 `1783161119000`) appears in deployment logs, or the served JS bundle's filename/`Last-Modified`
 header changes from what is recorded above.
+
+**Attempt 3 (2026-07-04, ~12:27 UTC, after owner reported a third republish) — result unchanged:
+`BUILD_NOT_DEPLOYED`, with one new but inconclusive signal.**
+
+- Workspace HEAD unchanged: `2371ec8` (report-only commit); Checkpoint 3 code commit is still
+  `bba469b` / `2026-07-04T10:31:59Z` / epoch `1783161119000`.
+- **New this attempt**: a deployment log boot event was found that post-dates the commit —
+  `1783167559314` (`2026-07-04T12:19:19Z`) `artifact process started artifact=artifacts/api-server`,
+  followed by `port detected port=8080` a second later. This is the first post-commit boot event
+  seen across all three attempts.
+- **However, the frontend bundle is still unchanged**: `GET /` (fresh, no-cache) still references
+  the identical `/assets/index-DfdVFWMB.js`, and that file's `Last-Modified` header is still
+  `Sat, 04 Jul 2026 09:03:10 GMT` — byte-for-byte the same as Attempts 1 and 2. `GET /api/healthz`
+  → `200 {"status":"ok"}`.
+- **Why the new boot event does not upgrade the verdict**: Vite content-hashes built assets by
+  file content — if the scanner frontend had actually been rebuilt from the Checkpoint 3 source
+  (which changes `App.tsx` and adds the Infra Health "Data Parity" section), the bundle's hash in
+  its filename would necessarily change. It has not, across three independent checks over ~2 hours.
+  The most consistent explanation is that this boot event is an **autoscale cold-start of the
+  already-deployed pre-Checkpoint-3 image** (the api-server artifact scaling up from zero after an
+  idle period) rather than evidence of a fresh build/redeploy — a boot log alone, without a
+  corresponding bundle-hash change, is not sufficient proof of a new deployment. No build-version
+  or commit-SHA endpoint exists in this app to disambiguate the backend binary's version directly,
+  so the frontend bundle (a deterministic, content-addressed artifact) remains the authoritative
+  signal, and it says: still the old build.
+- No `ROLLBACK_REQUIRED` trigger found in this attempt either.
+
+Because the required Checkpoint 3 deliverable explicitly includes the Infra Health "Data Parity"
+**frontend** section (Part A item 5), and that is conclusively still absent from the live bundle,
+the verdict for the whole checkpoint remains `BUILD_NOT_DEPLOYED` even allowing for the ambiguous
+backend boot signal.
