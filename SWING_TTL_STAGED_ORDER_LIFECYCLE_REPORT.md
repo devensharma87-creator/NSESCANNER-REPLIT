@@ -302,3 +302,28 @@ Both columns intact. No data lost.
 **FINAL REPUBLISH SMOKE VERIFIED — BOOT ORDERING FIX LIVE**
 
 **Final verdict: SWING_TTL_LIFECYCLE_PROD_VERIFIED**
+
+---
+
+## Hygiene Re-Check — 2026-07-04 (post Checkpoint-2.5 republish)
+
+Triggered by the same warning recurring in production logs after the Checkpoint 2.5 republish boot (`e442c8b`→`db1e745`, pid 19, ~14:34 IST). Scope: narrow, read-only-first investigation only — no Swing/TTL/approval/F&O/Auto-Strong-Buy logic touched, no broker execution enabled, no orders placed, no Telegram sent, no destructive migration run.
+
+| Item | Finding |
+|---|---|
+| Exact warning | `swing TTL sweep: schema column migration failed (fail-open, columns may not exist yet)` — `artifacts/api-server/src/lib/swingTtlSweep.ts:207` |
+| Table involved | `swing_order_staging` |
+| Column(s) involved | `expired_at` (TIMESTAMPTZ), `expiry_reason` (TEXT) — both additive/nullable |
+| First seen time | Not new — same warning pattern first documented 2026-07-02 in this report (§"Final Republish Smoke Check", t+105s). This occurrence: `1783155967471` (2026-07-04 ~14:35:67 IST), ~9.4s after this boot's scheduler start |
+| Repeated or one-time | One-time per boot. Full-log search across this boot window found exactly one occurrence; code makes a runtime loop structurally impossible — `applySwingTtlSchemaColumns()` runs only once inside `startSwingTtlSweepScheduler()`, itself guarded by an idempotent `_started` flag and called exactly once from `app.ts` via `scheduleBootJob` |
+| Startup-only or runtime | Startup-only. The `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` migration runs once at scheduler start, never inside the periodic 10-min `_tick()`. Verified via source read of `swingTtlSweep.ts` |
+| TTL sweep still running? | Yes. `swing TTL sweep scheduler started` logged twice this boot (two cold-start process attempts, ~3.9s apart — same benign autoscale double-boot pattern as Checkpoint 2.5's §7.2, not a TTL-specific bug); `expireStaleSwingOrders`'s CAS-based expiry logic (`swingOrderStaging.ts:424-464`) does not depend on the migration having *just* succeeded — only on the columns physically existing, which they do |
+| Expired orders still non-actionable? | Yes, doubly guarded independent of this warning: `approveSwingOrder()` (`swingOrderStaging.ts:602+`) calls `expireStaleSwingOrders` first, then hard-rejects with `NOT_ACTIONABLE:<status>` if `!isActive(row.status)` and again with `EXPIRED` if `expiresAt <= now` — an EXPIRED row can never reach the approval-decision path |
+| Real order risk? | None. Broker execution for this table remains hard-disabled at the schema level (`brokerStatus` CHECK constraint only allows `BROKER_DISABLED`/`DRY_RUN`/`DRY_RUN_PLACED`); expiry itself only flips `status`/`approvalStatus` to `EXPIRED` and never calls any broker/execution code path |
+| Data corruption risk? | None. Root-caused (both 2026-07-02 and this recurrence) to transient DB-pool connection contention during the cold-start window — confirmed by the same-timestamp co-failure of unrelated queries (`preset scheduler: failed to load presets`, `DB_POOL_CONNECTION_TERMINATED` recovered-by-retry) in this boot's logs, not a schema or permissions problem. Both dev and production `information_schema.columns` were queried directly this pass and confirm `expired_at`/`expiry_reason` are present and correctly typed in both — no drift, nothing to repair. Expiry writes use a per-row CAS (`WHERE id=... AND status=<prior status>`) so no partial/duplicate expiry is possible even under retry |
+| Fix needed now? | No |
+| Files touched | None (report-only; this section) |
+| Tests run | None new — no code changed. Relied on existing evidence: live prod/dev schema queries (`information_schema.columns`), live prod deployment log fetch, and source reads of `swingTtlSweep.ts` / `swingOrderStaging.ts` / `swingStaging.ts` routes. The 14 pre-existing `swingTtlSweep.test.ts` cases already cover the idempotent-start and migration-failure-is-fail-open contracts (see 2026-07-02 checklist item 13) and were not re-run since no code changed |
+| Final verdict | **`SWING_TTL_WARNING_HARMLESS_DOCUMENTED`** |
+
+**Conclusion**: This is the same benign, already-documented, self-healing cold-start DB-pool-contention artifact identified on 2026-07-02, recurring on a fresh boot for the same system-wide reason (multiple background jobs contending for the shared connection pool in the first ~10s after cold start). The migration is a pure `ADD COLUMN IF NOT EXISTS` no-op in steady state (columns already exist in both dev and prod), the periodic TTL sweep and the approval-time expiry guard are structurally independent of this warning, and no repeat/loop is possible by design. No code change made. Checkpoint 3 was not started, per the do-not-do list.
