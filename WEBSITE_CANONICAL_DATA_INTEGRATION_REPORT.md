@@ -781,15 +781,73 @@ facade) rather than introducing new ones.
 
 ### 9. Production verification
 
-**Not yet attempted.** Per the pattern established in Checkpoints 1/2/2.5, this section will be
-completed in a follow-up pass once the owner republishes and a fresh deployment boot event
-post-dating this commit is confirmed in deployment logs.
+**Attempt 1 (2026-07-04, same day as commit) — result: `BUILD_NOT_DEPLOYED`.**
+
+The owner reported having republished the app. This pass checked deployment freshness against the
+Checkpoint 3 commit (`bba469b`, `2026-07-04T10:31:59Z` / epoch `1783161119000`) using three
+independent signals, all of which agree the live production build predates this commit:
+
+1. **Deployment boot-event log search.** Queried deployment logs for
+   `artifact process started` / `port detected` / `Server listening` with
+   `after_timestamp: 1783161119000` (the commit epoch) — **zero results**, at the time of the check
+   and again on a follow-up re-check ~15 minutes later. The only boot events on record
+   (`1783155864695` / `1783155869819`, 2026-07-04 09:04 UTC) are the ones already confirmed as the
+   Checkpoint 2.5 deploy in §7.1 of that checkpoint's section — no boot has occurred since.
+2. **Frontend bundle content check (strongest signal).** `getDeploymentInfo()` confirms
+   `isDeployed: true`, `hasSuccessfulBuild: true`, `primaryUrl: https://marketscannerbydev.in`.
+   Fetching `GET https://marketscannerbydev.in/infra-health` and downloading its referenced JS
+   bundle (`/assets/index-DfdVFWMB.js`) shows the bundle contains the **pre-Checkpoint-3** Infra
+   Health strings only (`"Candle Warehouse"`, `"Equity Risk Diagnostics"`, `"F&O Option-Chain
+   Snapshots"` — all Priority-10-era section labels) and **does not** contain `"Data Parity"` or any
+   of the new route-contract strings (`UNKNOWN_SYMBOL`, `TOO_MANY_SYMBOLS`, `SYMBOLS_REQUIRED`,
+   `data-parity/...`). `InfraHealthPage` is a direct (non-lazy) import in `App.tsx`, so its markup
+   is always in the main bundle when built — its complete absence here is conclusive, not a
+   code-splitting artefact. The bundle's `Last-Modified` header reads
+   `Sat, 04 Jul 2026 09:03:10 GMT`, i.e. built ~1.5 hours **before** the Checkpoint 3 commit, and
+   lines up with the already-confirmed Checkpoint 2.5 build/boot window.
+3. **API behavioural check (inconclusive on its own, recorded for completeness).** Anonymous
+   `GET /api/data-parity/symbol/{NIFTY,RELIANCE,BANKNIFTY,SENSEX}` and
+   `POST /api/data-parity/check` all return `401 {"error":"unauthorized","code":"AUTH_REQUIRED"}`
+   in production. This does **not** prove the route exists: `requireAuth`
+   (`lib/auth.ts`) is a global gate on all of `/api/*` except an explicit `PUBLIC_ROUTES`
+   allowlist, so it returns the identical 401 for a request to a **deliberately misspelled,
+   never-registered** path (`/api/data-parity-typo-nonexistent/symbol/NIFTY`) too — confirmed by
+   direct control test. Route non-existence and route-exists-but-unauthorized are indistinguishable
+   from the outside by design (this is intentional: it doesn't leak which owner-only paths exist to
+   an anonymous caller). This check is retained only as a secondary security regression signal (see
+   below), not as deployment evidence — signals 1 and 2 are authoritative.
+
+**Regression / safety signals collected during this check (all clean, no `ROLLBACK_REQUIRED`
+trigger found):** `GET /api/healthz` → `200 {"status":"ok"}`. `GET /api/data-health/global` → `200`
+with a live, coherent payload (`kite.sessionStatus: ACTIVE`, `swing.status: TRADE_GRADE`,
+`fno.status: BLOCKED` — expected, market closed). No secrets, tokens, or internal stack traces in
+any response body or header across all of the above requests. No Telegram send, no DB mutation, no
+order-placement endpoint was exercised. Checkpoint 1/2/2.5's own production verdicts are unaffected
+(this pass touched no code they depend on).
+
+**Parts B–G (API security matrix, symbol parity tables, Infra Health visual check, full regression
+matrix) were not run against production** — per the owner's own instruction ("If production is
+still on the old build, stop and report `CANONICAL_DATA_CHECKPOINT_3_BUILD_NOT_DEPLOYED`"), since
+production is confirmed to still be serving the pre-Checkpoint-3 build. Running those checks now
+would only re-validate the already-confirmed Checkpoint 2.5 build, not Checkpoint 3. The dev-side
+test suite (Part G) was already re-confirmed green in §7/§8 above on the current commit and was not
+re-run a second time in this pass since no source changed between the two checks.
+
+**No code was changed in this pass** — this was a read-only verification pass, consistent with the
+owner's instruction not to write new code absent a real blocker. Being on an old build is not a
+code defect; it requires a republish, not a fix.
 
 ### 10. Final verdict (this pass)
 
-**`CANONICAL_DATA_CHECKPOINT_3_DEV_VERIFIED`**
+**`CANONICAL_DATA_CHECKPOINT_3_BUILD_NOT_DEPLOYED`**
 
-All 13 collectors, the classification engine, the owner-only API, and the Infra Health frontend
-consumer are implemented, typecheck-clean, and covered by passing unit/contract tests. No
-production verification has been performed yet — do not treat this as `PROD_VERIFIED` until a
-fresh post-commit deployment boot event is confirmed, per the standing verification protocol.
+Source on `main` (`bba469b`) remains fully dev-verified — see §7/§8 (13 collectors, classifier, API
+routes, Infra Health frontend section, 31/31 targeted tests, 52/52 infraHealth tests, both
+typechecks clean). However, the live production deployment at `https://marketscannerbydev.in` is
+still serving the build from `2026-07-04 09:03 UTC` (the already-confirmed Checkpoint 2.5 build) —
+no boot event and no frontend-bundle evidence post-dates the Checkpoint 3 commit. This is **not** a
+regression and **not** a code defect (no `ROLLBACK_REQUIRED` trigger was found — no secret leak, no
+broker execution, no stale/report-grade data driving trades, no destructive change). It is purely a
+publish-timing gap: re-run this same verification pass once a fresh deployment boot event
+post-dating `bba469b` (epoch `1783161119000`) appears in deployment logs, or the served JS bundle's
+`Last-Modified` header moves past that same epoch.
