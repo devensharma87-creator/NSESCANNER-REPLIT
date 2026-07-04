@@ -940,3 +940,166 @@ from `index-DfdVFWMB.js`, the Data Parity section is confirmed present in that n
 Data Parity API routes are confirmed live (auth-gated 401 behavior alone is not sufficient proof, as
 established in Attempt 1 — it requires either an owner-session visual check or bundle-content
 confirmation).
+
+---
+
+## Attempt 4 (2026-07-04, ~15:19–15:38 UTC) — Full Checkpoint 3 verification post-republish
+
+Following the owner's confirmed republish, this attempt re-ran the full Parts A–J verification
+pass against the live production domains with hard evidence at every step.
+
+### Part A — Deployment freshness (confirmed)
+
+Both `https://marketscannerbydev.in` and `https://stock-scanner-pro-devensharma87.replit.app` now
+serve an identical, genuinely new bundle: `/assets/index-CeG-UDag.js` +
+`/assets/index-6kiRF30i.css`, `Last-Modified: Sat, 04 Jul 2026 15:19:14 GMT` — this postdates the
+Checkpoint 3 commit (`bba469b`, `2026-07-04T10:31:59Z`). The old bundle (`index-DfdVFWMB.js` @
+`09:03:10Z`) that persisted unchanged across Attempts 1–3 is gone. Content-hash change on a
+Vite-built asset is conclusive proof of a fresh build (Vite hashes by file content).
+
+### Part B — Frontend bundle marker verification
+
+Grepped the fetched production bundle (2,779,055 bytes) for the exact source identifiers (not
+guessed strings) pulled from `artifacts/scanner/src/pages/infra-health.tsx`:
+
+| Marker | Source location | Occurrences in new bundle |
+|---|---|---|
+| `section-data-parity` (testId) | `infra-health.tsx:984` | 1 |
+| `data-parity/check` (API path) | `infra-health.tsx:961` | 1 |
+| `overallSeverity` | `infra-health.tsx` interfaces | 3 |
+| `INFRA` (nav label) | `layout.tsx:424` | 3 |
+| `"Data Parity"` (section title) | `infra-health.tsx:980` | 1 |
+| `P0` / `P1` / `P2` | severity badges | 10 / 21 / 39 |
+
+All identifiers that should survive minification (testIds, API path strings, literal UI text) are
+present exactly where expected. **Conclusion: the Data Parity Infra Health section is compiled
+into the live production bundle.**
+
+### Part C — Backend API proof (production)
+
+**Anonymous** (no cookie) — every Data Parity route, including a syntactically malformed symbol,
+returns `401 {"error":"unauthorized","code":"AUTH_REQUIRED"}`. This is the correct fail-closed
+order: `requireOwnerStrict` runs *before* symbol validation, so an anonymous caller never reaches
+the 400-path — auth is checked first, unconditionally, with no public-mode GET bypass (matches the
+`requireOwnerStrict`-not-`requireOwner` design intent).
+
+| Endpoint | Anonymous | Owner-authenticated |
+|---|---|---|
+| `GET /api/data-parity/symbol/INDUSINDBK` | 401 | 200 |
+| `GET /api/data-parity/symbol/RELIANCE` | 401 | 200 |
+| `GET /api/data-parity/symbol/NIFTY` | 401 | 200 |
+| `GET /api/data-parity/symbol/BANKNIFTY` | 401 | 200 |
+| `GET /api/data-parity/symbol/SENSEX` | 401 | 200 |
+| `GET /api/data-parity/symbol/FAKE!!!` (malformed) | 401 | 400 `UNKNOWN_SYMBOL` |
+| `POST /api/data-parity/check` (batch) | 401 | 200 |
+
+Owner-authenticated checks used the same precedent established in Checkpoints 1/2/2.5: a real
+production session via `POST /api/auth/login` with the `APP_ACCESS_PASSWORD` secret read
+programmatically (never displayed, never printed, never requested from the user). A full
+secret/token/password/api-key grep across every response body from all 7 endpoints found **zero**
+matches — no credential leakage.
+
+### Part D — Per-symbol Checkpoint 3 results (production, live data)
+
+| Symbol | assetType | overallSeverity | Mismatch count | Notable finding |
+|---|---|---|---|---|
+| INDUSINDBK | equity | P2 | 12 | Router (trade-grade, Kite, ₹974.35) vs scanner/watchlist/paperEq cache-lag; portfolio/swingQueue/optionChain INFO (honestly unavailable, not fabricated) |
+| RELIANCE | equity | P1 | 17 | Same pattern plus P1-tier swingQueue↔router/scanner/watchlist/paperEq/charting/diagnostics divergence |
+| NIFTY | index | P1 | 4 | Router `MODULE_UNAVAILABLE` — "Kite session inactive — official market data unavailable" (post-close index-quote staleness, honestly surfaced); reportGrade/fno/dailyReports correctly INFO-tier with explicit `REPORT_INDEX_QUOTES_STALE` reasons |
+| BANKNIFTY | index | P1 | 4 | Identical pattern to NIFTY |
+| SENSEX | index | P1 | 4 | Identical pattern to NIFTY |
+
+Spot-checked the full mismatch objects for NIFTY: every entry carries a `kind`, `moduleA/B`,
+`valueA/B`, and a human-readable `description` with the real reason string (e.g.
+`REPORT_INDEX_QUOTES_STALE`). No `?? 0` fabrication, no fake success — this is exactly the
+honest-by-design behavior the checkpoint was built to deliver, and it is doing so correctly against
+live production data. Nothing found here indicates report-grade data driving any trade/signal path,
+and nothing found here indicates a P0 (critical) condition.
+
+### Part E — Infra Health frontend proof
+
+Full owner-session Playwright visual walkthrough remains blocked by the pre-existing
+owner-only-shared-secret-cookie limitation (not a DB user row — no forgeable e2e login). Per
+established precedent, substituted with: (1) bundle-content grep confirming the exact
+`section-data-parity` testId / `data-parity/check` fetch string / `"Data Parity"` title compiled
+into the live bundle (Part B), and (2) the backend proof above confirming the section's data
+source returns correct, complete, honest data end-to-end. A homepage screenshot of
+`https://marketscannerbydev.in` (anonymous) confirms the site renders cleanly with no visual
+breakage post-deploy.
+
+### Part F — Operational log classification
+
+Pulled production deployment logs spanning this verification window. All 7 of this session's own
+Data Parity requests are logged correctly (5× anonymous 401, then owner-authenticated 200/400s) —
+confirming the requests genuinely reached the live production server. **Zero new error-log entries
+reference `data-parity` or any Checkpoint 3 code path.** Other errors present in the window are
+pre-existing, unrelated background-job noise: Yahoo secondary-source chart/quote timeouts, a
+recurring `preset scheduler: failed to load presets` DB query error, `Kite session read: retry also
+hit zombie connection` warnings, and a `swing TTL sweep tick failed (fail-open)` warning — all
+predate Checkpoint 3 and are out of this pass's scope (no F&O/Swing logic touched).
+
+### Part G — Regression checks
+
+| Check | Result |
+|---|---|
+| `GET /api/healthz` | 200 `{"status":"ok"}` |
+| `GET /api/data-health/global` | 200, `SESSION_ACTIVE_MARKET_CLOSED`, full module structure intact |
+| `GET /api/daily-analysis/status` (Checkpoint 2/2.5) | 200, PREPOST + default Telegram both enabled, schedule intact |
+| `GET /api/security/audit` | 200, score 90/100 (19 ok / 2 warn / 0 fail) |
+| Provider-import burn-down guard | **FAILED, then fixed** (see below) |
+
+**Regression found and fixed**: `providerImportGuard.test.ts` failed because Checkpoint 3's new
+`lib/dataParity/observe.ts` imported `kiteFeed.feedStatus` and `kiteAuth.getActiveSessionStatus`
+**directly**, bypassing the `marketData/compat` facade that every other consumer is required to
+route through (the burn-down architecture rule: new files must route through compat, never
+direct-import and never just get added to the allowlist). This is an architecture-governance gap,
+**not a functional defect** — the live production responses in Part D were already correct and
+honest either way, since the underlying functions are identical.
+
+Fix applied: added `centralActiveSessionStatus` / `centralFeedStatus` re-exports to
+`marketData/compat.ts` (same pattern as the existing `centralActiveSession`), and updated
+`observe.ts` to import through the facade instead of the raw providers. Zero behavior change — same
+underlying functions, just re-exported through the governed entry point. Verified: `tsc --noEmit`
+clean, `providerImportGuard.test.ts` + `dailyReportsDedupContract.test.ts` +
+`swingScannerStore*.test.ts` = 54/54 passing (was 52/54 with 2 failing before the fix). Dev
+api-server workflow restarted cleanly afterward with no new errors.
+
+**This fix exists in the codebase as of this pass but has not yet been redeployed to production.**
+Production currently runs the pre-fix `observe.ts`, which is functionally correct but fails this
+specific governance-regression test. Recommend it ships in the next deploy so the burn-down
+allowlist stays accurate.
+
+### Part H — Test suite + typecheck (exact counts)
+
+- `pnpm run typecheck` — clean across all 5 workspace projects (`global`, `api-server`,
+  `mockup-sandbox`, `scanner`, `scripts`).
+- `dataParityRouteAuth.test.ts` + `lib/dataParity/*.test.ts` — **31/31 passing**.
+- `artifacts/scanner/src/lib/infraHealth.test.ts` (includes Data Parity severity describe block) —
+  **52/52 passing**.
+- `providerImportGuard.test.ts` + `dailyReportsDedupContract.test.ts` + `swingScannerStore*.test.ts`
+  — **54/54 passing** (post-fix; was 52/54 pre-fix).
+- Full 2,782-test monorepo suite not re-run in this pass (chunking required per prior sessions);
+  every file touched by Checkpoint 3 plus the regression-guard files were run directly and are all
+  green.
+
+### Part I — Release Integrity (explicitly deferred)
+
+Not implemented in this pass, per scope. Recorded only as a forward plan pending separate owner
+approval once Checkpoint 3 is fully settled: a build-info endpoint, frontend build markers, and a
+permanent release-verification script.
+
+### Final verdict — Attempt 4
+
+**`CANONICAL_DATA_CHECKPOINT_3_PROD_VERIFIED`**
+
+All required evidence (fresh bundle with matching content hash on both domains, Data Parity
+markers compiled into that bundle, auth-gated backend routes proven both anonymous-401 and
+owner-200/400 with zero secret leakage, honest per-symbol P0/P1/P2/INFO classification against live
+data for all 5 required symbols, zero new production errors, clean typecheck, and all targeted
+tests green) is now positively confirmed against the live production deployment — closing out the
+`BUILD_NOT_DEPLOYED` verdict from Attempts 1–3.
+
+**One caveat carried forward**: the provider-import-guard regression found and fixed in this pass
+(Part G) is not yet in the deployed production build. It is a governance/architecture-hygiene fix
+with zero functional or behavioral change, so it does not affect the verdict above, but it should
+ship in the next deploy to keep the burn-down allowlist accurate.

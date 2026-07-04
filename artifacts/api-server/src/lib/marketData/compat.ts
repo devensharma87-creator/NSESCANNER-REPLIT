@@ -209,6 +209,21 @@ export { getActiveSession as centralActiveSession } from "../kiteAuth";
 export type { ActiveSession } from "../kiteAuth";
 
 /**
+ * Central active-session-status accessor (wraps `kiteAuth.getActiveSessionStatus`).
+ * Same rationale as `centralActiveSession` above — keeps consumers off the raw
+ * `kiteAuth` provider import.
+ */
+export { getActiveSessionStatus as centralActiveSessionStatus } from "../kiteAuth";
+export type { ActiveSessionStatus } from "../kiteAuth";
+
+/**
+ * Central feed-status accessor (wraps `kiteFeed.feedStatus`). Keeps consumers
+ * that only need websocket/feed diagnostics off the raw `kiteFeed` provider
+ * import — see docs/PROVIDER_IMPORT_BURNDOWN.md.
+ */
+export { feedStatus as centralFeedStatus } from "../kiteFeed";
+
+/**
  * Central Kite readiness accessor (wraps `kiteReadiness.getKiteReadiness`).
  * Exposed here so consumers (e.g. `kiteWarmup`) can read market-session /
  * feed-connected context for diagnostics WITHOUT importing the raw

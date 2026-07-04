@@ -1,0 +1,498 @@
+CODER PROMPT — FRESH PUBLISH VERIFICATION + CHECKPOINT 3 LIVE PROOF + RELEASE INTEGRITY GATE
+
+Owner has just published the app again.
+
+Screenshot evidence:
+- Replit Domains page shows:
+  - stock-scanner-pro-devensharma87.replit.app
+  - marketscannerbydev.in
+  - marketscannerbydev.in is verified through GoDaddy
+
+Attached deployment logs show post-publish artifact startup, static handler registration, and api-server process startup, but prior checks showed the production frontend bundle was still old.
+
+Do not assume the new build is live just because the process restarted.
+
+This task is about hard proof.
+
+====================================================
+CURRENT STATUS BEFORE THIS TASK
+====================================================
+
+Accepted milestones:
+
+1. SIGNAL_DATA_NOTIFICATION_PARITY_DETERMINISTIC_PROD_VERIFIED_LIVE_SMOKE_PENDING
+2. GLOBAL_DATA_HEALTH_KITE_RESILIENCE_PROD_VERIFIED
+3. SWING_TTL_LIFECYCLE_PROD_VERIFIED
+4. TELEGRAM_ALERT_QUALITY_PROD_VERIFIED
+5. FNO_EXIT_MONITORING_DEV_VERIFIED
+6. CANONICAL_DATA_CHECKPOINT_1_PROD_VERIFIED
+7. CANONICAL_DATA_CHECKPOINT_2_PROD_VERIFIED
+8. CANONICAL_DATA_CHECKPOINT_2_5_PROD_VERIFIED
+9. SWING_TTL_WARNING_HARMLESS_DOCUMENTED
+10. CANONICAL_DATA_CHECKPOINT_3_DEV_VERIFIED
+11. CANONICAL_DATA_CHECKPOINT_3_BUILD_NOT_DEPLOYED
+
+Checkpoint 3 is built and dev-verified, but production has not yet been proven because previous checks showed the old frontend bundle:
+
+/assets/index-DfdVFWMB.js
+
+The owner has now published again. Re-run verification from scratch.
+
+====================================================
+ABSOLUTE DO-NOT-DO RULES
+====================================================
+
+Do not write new feature code until deployment freshness is proven.
+
+Do not start Checkpoint 4.
+
+Do not migrate scanner.
+
+Do not migrate charting.
+
+Do not migrate option-chain / OI Lab.
+
+Do not change F&O strategy logic.
+
+Do not change Swing strategy logic.
+
+Do not change Auto Strong Buy logic.
+
+Do not change thresholds.
+
+Do not weaken trade-grade checks.
+
+Do not allow report-grade/stale data to drive signals.
+
+Do not allow report-grade/stale data to drive paper trades.
+
+Do not enable broker execution.
+
+Do not place real orders.
+
+Do not send Telegram test messages.
+
+Do not perform destructive migrations.
+
+Do not delete rows.
+
+Do not ask for owner/admin password.
+
+Do not trim, rewrite, reorganize, or mention replit.md.
+
+Do not mark PROD_VERIFIED unless frontend bundle + backend API + auth checks are proven live.
+
+====================================================
+PART A — DEPLOYMENT / DOMAIN BINDING VERIFICATION
+====================================================
+
+Compare both live URLs:
+
+1. Custom domain:
+   https://marketscannerbydev.in
+
+2. Default Replit app domain:
+   https://stock-scanner-pro-devensharma87.replit.app
+
+For both domains, verify:
+
+- HTTP status
+- HTML response
+- frontend JS bundle filename
+- bundle Last-Modified timestamp
+- cache-control headers
+- whether bundle contains Data Parity frontend markers
+- whether /api/data-parity/* routes exist
+- whether /api/healthz works
+- whether they serve the same build
+
+Report:
+
+| Check | marketscannerbydev.in | replit.app domain | Match? | Finding |
+|---|---|---|---:|---|
+| HTML status |
+| JS bundle filename |
+| Bundle Last-Modified |
+| Data Parity marker |
+| /api/healthz |
+| /api/data-parity route |
+| Cache headers |
+| Verdict |
+
+Possible outcomes:
+
+1. Both domains show old bundle:
+   New build was not promoted/deployed.
+
+2. Replit domain shows new bundle, custom domain shows old bundle:
+   Custom domain is attached to stale/wrong deployment.
+
+3. Custom domain shows new bundle, Replit domain old:
+   Domain routing is unusual but custom domain is what matters; continue verification on marketscannerbydev.in.
+
+4. Both show new bundle:
+   Continue to Checkpoint 3 production verification.
+
+====================================================
+PART B — HARD BUNDLE PROOF
+====================================================
+
+Do not rely on process boot alone.
+
+Verify the live frontend bundle.
+
+Required:
+
+1. Fetch production HTML from marketscannerbydev.in.
+2. Extract script asset filename.
+3. Confirm whether it is still:
+   /assets/index-DfdVFWMB.js
+
+4. If it is still the same file, compare Last-Modified and byte size with previous checks.
+5. Fetch the JS bundle with:
+   - no-cache header
+   - cache-busting query string
+
+6. Search bundle for:
+
+- Data Parity
+- data-parity
+- CHECKPOINT_3
+- P0
+- P1
+- P2
+- mismatch
+- symbol picker
+- Infra Health
+
+Report:
+
+| Marker | Found? | Notes |
+|---|---:|---|
+| Data Parity |
+| data-parity |
+| P0/P1/P2 |
+| symbol picker |
+| Infra Health section |
+
+If bundle is still old and markers are absent, stop and report:
+
+CANONICAL_DATA_CHECKPOINT_3_BUILD_NOT_DEPLOYED
+
+Do not continue to fake backend-only verification.
+
+====================================================
+PART C — BACKEND API PROOF
+====================================================
+
+Verify backend separately.
+
+Check on marketscannerbydev.in:
+
+GET /api/healthz
+
+GET /api/data-parity/symbol/INDUSINDBK
+GET /api/data-parity/symbol/RELIANCE
+GET /api/data-parity/symbol/NIFTY
+GET /api/data-parity/symbol/BANKNIFTY
+GET /api/data-parity/symbol/SENSEX
+
+POST /api/data-parity/check
+
+Expected:
+
+- Anonymous requests return 401 for owner-only data parity endpoints.
+- Malformed symbol returns 400.
+- No secrets exposed.
+- No tokens exposed.
+- No Telegram send.
+- No DB mutation.
+- No order placement.
+
+Report:
+
+| Endpoint | Anonymous Result | Malformed Result | Owner Result If Available | Secrets? | Verdict |
+|---|---:|---:|---:|---:|---|
+
+If backend routes are live but frontend bundle is old, verdict is not PROD_VERIFIED. Report:
+
+BACKEND_FRONTEND_DEPLOYMENT_MISMATCH
+
+====================================================
+PART D — CHECKPOINT 3 PRODUCTION VERIFICATION
+====================================================
+
+Proceed only if Parts A–C show the correct build is live.
+
+Verify these symbols:
+
+1. INDUSINDBK
+2. RELIANCE
+3. NIFTY
+4. BANKNIFTY
+5. SENSEX
+
+For each, report:
+
+| Symbol | Verdict | P0 | P1 | P2 | INFO | Main Finding |
+|---|---|---:|---:|---:|---:|---|
+
+Required behavior:
+
+1. Observations array exists.
+2. Missing modules are shown as MISSING / NOT_APPLICABLE with reason.
+3. No module silently disappears.
+4. Source is shown where available.
+5. Source-as-of is shown where available.
+6. Freshness is shown where available.
+7. tradeGrade is explicit.
+8. reportGrade is explicit.
+9. canDriveSignals is explicit where relevant.
+10. canDrivePaperTrades is explicit where relevant.
+11. P0/P1/P2/INFO mismatches are classified.
+
+Known checks:
+
+INDUSINDBK:
+- Paper Trading EQ observation exists if trade/history exists.
+- It must not be falsely linked to Swing staged approval.
+- Source should reflect Checkpoint 2 attribution where available.
+
+RELIANCE:
+- Swing Queue observation should show expired staged state if present.
+- No fabricated paper-trade link.
+
+NIFTY / BANKNIFTY / SENSEX:
+- Report-grade index facade observation should be present where available.
+- F&O diagnostics observation should be present where available.
+- Report-grade must not be trade-grade.
+- Report-grade must not drive signals or paper trades.
+
+====================================================
+PART E — INFRA HEALTH FRONTEND PROOF
+====================================================
+
+Verify the Infra Health Data Parity frontend section.
+
+Required proof:
+
+1. Bundle contains Data Parity section markers.
+2. Bundle contains symbol picker markers.
+3. Bundle contains results table markers.
+4. Bundle contains P0/P1/P2/INFO labels.
+5. If owner-auth visual access is available, open Infra Health and confirm:
+   - Data Parity card exists.
+   - Symbol selector exists.
+   - Results table renders.
+   - Worst verdict / mismatch counts visible.
+
+If owner-auth visual access is not available, do not ask for password. Provide owner manual checklist.
+
+====================================================
+PART F — OPERATIONAL LOG CHECK AFTER PUBLISH
+====================================================
+
+Use the attached logs and latest production logs.
+
+Check and classify these items:
+
+1. Initial healthcheck 500s.
+2. DB_POOL_CONNECTION_TERMINATED / zombie connection warnings.
+3. scanAll hard-timeouts.
+4. preset scheduler failed to load presets.
+5. FII/DII initial backfill failures.
+6. Participant OI initial backfill failures.
+7. Yahoo chart timeouts.
+8. Kite ticker disconnect/reconnect.
+9. Swing TTL fail-open schema migration warning.
+10. System alert dedup self-test.
+
+Do not fix these in this task unless one is directly blocking Checkpoint 3 production verification.
+
+Report:
+
+| Log Issue | Repeated? | Blocking Checkpoint 3? | Existing Known Issue? | Needs Separate Task? |
+|---|---:|---:|---:|---:|
+
+Expected:
+
+- System alert dedup self-test should remain green.
+- Some cold-start DB pool issues may be known, but repeated scheduler failures must be documented for later.
+- Do not let these distract from bundle/API proof.
+
+====================================================
+PART G — REGRESSION CHECKS
+====================================================
+
+Verify:
+
+1. /api/healthz works.
+2. /api/data-health/global works.
+3. Checkpoint 1 remains PROD_VERIFIED.
+4. Checkpoint 2 remains PROD_VERIFIED.
+5. Checkpoint 2.5 remains PROD_VERIFIED.
+6. Provider import guard remains green.
+7. Telegram alert dedup remains production verified.
+8. Swing TTL remains production verified.
+9. F&O exit monitoring remains DEV_VERIFIED, live evidence pending.
+10. Broker execution remains disabled.
+11. No real orders placed.
+12. No Telegram spam.
+13. No secrets exposed.
+
+====================================================
+PART H — TESTS
+====================================================
+
+Run and report exact counts:
+
+pnpm --filter @workspace/api-server run typecheck
+
+pnpm --filter @workspace/api-server run typecheck:libs
+
+pnpm --filter @workspace/api-server exec vitest run src/lib/*dataParity*.test.ts src/lib/*canonical*.test.ts src/lib/*marketData*.test.ts src/lib/*daily*.test.ts src/lib/*paper*.test.ts src/lib/*swing*.test.ts src/lib/*fno*.test.ts src/lib/*dataHealth*.test.ts src/routes/**/*.test.ts
+
+pnpm --filter @workspace/scanner exec vitest run
+
+pnpm --filter @workspace/scripts run index:llm
+
+pnpm --filter @workspace/scripts run index:llm:check
+
+If full suite times out, run in batches and report:
+
+- batch name
+- file count
+- test count
+- pass count
+- fail count
+- exit code
+
+Do not summarize failed or partial tests as green.
+
+====================================================
+PART I — PERMANENT RELEASE INTEGRITY PLAN
+====================================================
+
+After Checkpoint 3 production status is determined, prepare a short implementation plan for a permanent release-integrity system.
+
+Do not implement it in this verification pass unless explicitly approved after reporting.
+
+Required future system:
+
+1. /api/build-info endpoint.
+2. commit SHA.
+3. build time.
+4. boot time.
+5. deployment ID if available.
+6. frontend bundle filename/hash.
+7. frontend/backend build match.
+8. checkpoint markers.
+9. no secrets.
+10. release verification script.
+
+Report recommended next task:
+
+P0 RELEASE INTEGRITY + BUILD PROOF GATE
+
+This must be done before Checkpoint 4.
+
+====================================================
+PART J — REPORT UPDATE
+====================================================
+
+Update:
+
+WEBSITE_CANONICAL_DATA_INTEGRATION_REPORT.md
+
+Under Checkpoint 3 production verification, add:
+
+1. Owner publish confirmation.
+2. Domain screenshot summary.
+3. Custom domain vs Replit domain comparison.
+4. Bundle filename evidence.
+5. Bundle marker evidence.
+6. Backend API evidence.
+7. Symbol parity results.
+8. Infra Health frontend evidence.
+9. Operational log classification.
+10. Regression checks.
+11. Tests and counts.
+12. LLM index status.
+13. Final verdict.
+
+====================================================
+FINAL VERDICT
+====================================================
+
+Final verdict must be exactly one:
+
+- CANONICAL_DATA_CHECKPOINT_3_PROD_VERIFIED
+- CANONICAL_DATA_CHECKPOINT_3_DEV_VERIFIED
+- CANONICAL_DATA_CHECKPOINT_3_PARTIAL_SOURCE_GAP_REMAINS
+- CANONICAL_DATA_CHECKPOINT_3_BUILD_NOT_DEPLOYED
+- BACKEND_FRONTEND_DEPLOYMENT_MISMATCH
+- CUSTOM_DOMAIN_BOUND_TO_OLD_DEPLOYMENT
+- ROLLBACK_REQUIRED
+
+Use CANONICAL_DATA_CHECKPOINT_3_PROD_VERIFIED only if:
+
+1. custom domain serves new frontend bundle,
+2. Data Parity frontend markers exist,
+3. Data Parity backend routes are live,
+4. auth/security checks pass,
+5. symbol parity checks return results,
+6. no secrets exposed,
+7. no Telegram spam,
+8. no real orders,
+9. broker execution disabled.
+
+Use CANONICAL_DATA_CHECKPOINT_3_BUILD_NOT_DEPLOYED if:
+
+- bundle remains index-DfdVFWMB.js,
+- Data Parity markers are absent,
+- production is still serving old build.
+
+Use BACKEND_FRONTEND_DEPLOYMENT_MISMATCH if:
+
+- backend routes are live,
+- but frontend bundle is old.
+
+Use CUSTOM_DOMAIN_BOUND_TO_OLD_DEPLOYMENT if:
+
+- Replit default domain serves new bundle,
+- but marketscannerbydev.in serves old bundle.
+
+Use ROLLBACK_REQUIRED if:
+
+- secrets leak,
+- broker execution turns on,
+- real orders are placed,
+- stale/report-grade data can drive trades,
+- destructive migration happens,
+- Telegram spam returns.
+
+====================================================
+ACCEPTANCE CRITERIA
+====================================================
+
+This verification is accepted only if:
+
+1. Both domains are compared.
+2. Live frontend bundle filename is checked.
+3. Bundle Last-Modified is checked.
+4. Data Parity markers are searched.
+5. Backend API routes are checked.
+6. Auth gating is checked.
+7. INDUSINDBK is checked.
+8. RELIANCE is checked.
+9. NIFTY is checked.
+10. BANKNIFTY is checked.
+11. SENSEX is checked.
+12. Infra Health frontend section is verified by bundle or owner checklist.
+13. Operational log warnings are classified.
+14. No secrets exposed.
+15. No Telegram sent.
+16. No real orders placed.
+17. Broker execution remains disabled.
+18. Report is updated.
+19. Final verdict uses only the allowed values.

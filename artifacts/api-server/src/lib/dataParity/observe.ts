@@ -20,7 +20,12 @@ import {
   getEquityQuoteResolved,
   getIndexQuote,
 } from "../marketData/router";
-import { centralIndexQuotes } from "../marketData/compat";
+import {
+  centralIndexQuotes,
+  centralActiveSessionStatus as getActiveSessionStatus,
+  centralFeedStatus as feedStatus,
+  type ActiveSessionStatus,
+} from "../marketData/compat";
 import { getReportGradeIndexQuotes } from "../marketData/reportGradeIndexQuotes";
 import { pointFromMeta, type DataMeta, type SourceStatus } from "../marketData/types";
 import { buildSymbolDiagnostic } from "../marketData/diagnostics";
@@ -29,8 +34,6 @@ import { getAllScannedRows } from "../fullNseScanner";
 import { getSpotForUnderlying, fetchOptionChain } from "../optionChain";
 import { buildGlobalDataHealth } from "../globalDataHealth";
 import { OPTION_INDICES } from "../optionSignals";
-import { getActiveSessionStatus, type ActiveSessionStatus } from "../kiteAuth";
-import { feedStatus } from "../kiteFeed";
 import { FNO_LIQUIDITY } from "../paperAccount";
 import {
   classifyFreshness,
