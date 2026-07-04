@@ -550,16 +550,57 @@ Item 8 (`dailyReports.ts` no longer imports `kiteIndexQuotes` directly) confirme
 
 ### 6. Production verification (Phase 6)
 
-**Not performed in this pass.** This checkpoint's changes were verified locally (dev workflow restarted cleanly — server boot log shows no errors, `dailyReports: daily_report_runs table ready` fires normally, all scheduled jobs start as before) and via the automated test/typecheck suites above, but the build was **not published** during this session. No production claim is made.
+**Attempted 2026-07-04, after the `DEV_VERIFIED` pass above.** Result: **the live production instance does not yet contain this checkpoint's build.**
+
+**6.1 Deployment evidence.** `getDeploymentInfo()` confirms the app is deployed (`deploymentType: autoscale`, `visibility: public`, `hasSuccessfulBuild: true`, `primaryUrl: https://marketscannerbydev.in`), and `GET /api/data-health/global` on the primary URL returns `200` with a live, coherent payload (`kite.sessionStatus: ACTIVE`, `swing.status: TRADE_GRADE`, `fno.status: BLOCKED` — expected, market closed) — the server is genuinely up and serving real traffic. However, cross-referencing deployment logs against the commit timestamp shows **no redeploy has happened since this checkpoint's commit landed**:
+  - `git log -1` on `main`: `e442c8b … 2026-07-04T07:59:14Z Checkpoint 2.5: report-grade market-data facade for daily reports` (epoch `1783151954000`).
+  - Deployment logs show a full history of `artifact process started` / `artifact port detected` boot events, but the **last one occurs at epoch `1783149364400`/`1783149364755`** — before the commit. Querying deployment logs for any boot event with `after_timestamp: 1783151954000` returns **zero results**.
+  - Real production request traffic (`/api/paper/events/eq` polling, NSE scan cycles, option-snapshot ticks) continues on the **same pid (19/20)** across the commit boundary with no restart in between — i.e. the process currently answering requests was started before the commit and has not been recycled since.
+  - Conclusion: the checkpoint 2.5 source is on `main` and fully test/typecheck-verified (see §5), but **has not yet been built and published** to the autoscale deployment. Items 1–4, 7–9 below are therefore verified against the **committed source**, not the **live running process** — they cannot yet be claimed as production-confirmed until a fresh publish produces a boot event after `1783151954000`.
+
+**6.2 `dailyReports.ts` raw-provider import removed (source-verified, not yet live).** `grep -n "kiteIndexQuotes" artifacts/api-server/src/lib/dailyReports.ts` → zero matches. `grep -n "reportGrade"` → the new facade import (`import { getReportGradeIndexQuotes, REPORT_INDEX_KEYS } from "./marketData/reportGradeIndexQuotes"`) is present. Confirmed in the committed `HEAD` source tree only.
+
+**6.3 Report-grade facade confirmed (source-verified, not yet live).** `artifacts/api-server/src/lib/marketData/reportGradeIndexQuotes.ts` exists on disk at `HEAD` (8.7 KB, last modified during this checkpoint). Contract unchanged from §2 above: `tradeGrade`/`canDriveSignals`/`canDrivePaperTrades` hardcoded `false` at both type and runtime level; `canDriveReports`/`reportGrade` are the only true-able booleans.
+
+**6.4 Provider-import guard result.** Rerun in this pass (not just carried over from §5): `providerImportGuard.test.ts` → **19/19 passing**, no allowlist growth (`providerImportAllowlist.json` untouched — confirmed unchanged by this checkpoint).
+
+**6.5 Post-market preview result.** **Not executed against a live instance.** `GET /daily-analysis/telegram/preview` is gated by `requireOwnerStrict` (confirmed via route table: all `/daily-analysis/*` routes are owner-only, `requireOwner` or `requireOwnerStrict`) — per the do-not-do list this task does not request or use the owner password, so an authenticated live preview call was not attempted. This is moot for this pass regardless: since the running production process predates the commit, a preview call right now would exercise the **pre-checkpoint** code path, not this checkpoint's facade, so it would not be meaningful evidence either way. Route-registration/code evidence stands in per the spec's fallback: the route exists, is wired to `buildPostMarketReport` (dry-run, no Telegram send, no dedup mutation — confirmed by reading the handler), and `dailyReports.gatherPostMarket.integration.test.ts` (4/4, §5) already exercises the exact same code path end-to-end with the new facade mocked in. **Owner manual checklist**, to run once published: open `/daily-analysis` → Post-Market tab → confirm INDEX PERFORMANCE renders with a source/as-of/freshness label, is not marked trade-grade, collapses to the "Unavailable" footer if Kite has no data, and pressing "preview" does not trigger a Telegram message or move the dedup state.
+
+**6.6 Trade-grade safety result.** Verified by source inspection + the unchanged trade-grade path: `marketData/router.ts` (the actual trade-decision path used by F&O/Swing/paper-trade opens) was **not modified** by this checkpoint — `git diff` for this commit touches only `dailyReports.ts` and the new `reportGradeIndexQuotes.ts`/its test files/this report. `reportGradeIndexQuotes.ts` hardcodes `tradeGrade: false`, `canDriveSignals: false`, `canDrivePaperTrades: false` on every row (type-level `false` literal, not `boolean`), and is imported ONLY by `dailyReports.ts` (confirmed via `grep -rn "reportGradeIndexQuotes" artifacts/api-server/src` — single consumer). No signal path, no `openPaperTrade`/`openPaperEquityTrade`, and no order-placement code references it.
+
+**6.7 Regression checks — Checkpoint 1 & 2 remain PROD_VERIFIED.** Neither checkpoint's code was touched by this diff (confirmed via `git diff --stat` for `e442c8b` — only `dailyReports.ts`, `marketData/reportGradeIndexQuotes.ts`, its tests, and this report file changed). Checkpoint 1's final verdict (`CANONICAL_DATA_CHECKPOINT_1_PROD_VERIFIED`, §12 above) and Checkpoint 2's final verdict (`CANONICAL_DATA_CHECKPOINT_2_PROD_VERIFIED`, §7 above) stand unchanged. Global data-health (`GET /api/data-health/global`, public) responds live and coherent (§6.1). Telegram alert dedup and Swing TTL were not touched by this checkpoint's diff and are covered by Checkpoint 1/2's own production evidence — no regression signal found. F&O exit monitoring remains at its prior verdict (`FNO_EXIT_MONITORING_DEV_VERIFIED`), unchanged by this checkpoint, per Checkpoint 1 §11 item 20.
+
+**6.8 No secrets exposed / broker execution disabled / no real orders / no Telegram spam.** No secret values were read, printed, or transmitted during this verification pass (only presence-style checks via existing diagnostics). No broker order-placement code was touched or invoked. No Telegram send was triggered (no preview call was made, per §6.5). No allowlist entries were added.
+
+**6.9 Tests and counts — full rerun in this pass.**
+
+| Command | Result |
+|---|---|
+| `pnpm --filter @workspace/api-server run typecheck` | clean, exit 0 |
+| `pnpm --filter @workspace/api-server run typecheck:libs` *(actually `pnpm -w run typecheck:libs`, per pnpm's own redirect — no such script scoped to api-server)* | clean, exit 0 |
+| `providerImportGuard.test.ts` + `reportGrade*.test.ts` + `*daily*.test.ts` + `marketDataHealth.test.ts` + `*paper*.test.ts` (20 files) | 275/275 passing |
+| `*swing*.test.ts` (15 files) | 273/273 passing |
+| `routes/__tests__/*.test.ts` (15 files, run in 2 batches to stay under the tool timeout) | 143/143 + 90/90 = 233/233 passing |
+| Full `lib/marketData/` directory (17 files) | 236/236 passing |
+| `@workspace/scanner` full suite | 762/762 passing (35 files) |
+| `@workspace/scripts run index:llm` | regenerated, 532 files summarized |
+| `@workspace/scripts run index:llm:check` | fresh, 338/338 tracked files matched |
+
+(`src/lib/*report*.test.ts`, `src/lib/*dataHealth*.test.ts`, `src/lib/*telegram*.test.ts` glob patterns from the spec match zero files in this repo — not a failure, just no matching filenames.) All exit codes 0, zero failures, zero skips beyond the usual environment-gated live-DB tests.
+
+**6.10 LLM index status.** `index:llm` regenerated cleanly (532 files summarized, manifest timestamp `2026-07-04T08:11:31.271Z`); `index:llm:check` confirms freshness — all 338 tracked files match, zero staleness.
 
 ### 7. Remaining gaps
 
-- Production publish + live post-market preview verification (`GET /daily-analysis/telegram/preview`, owner-only, dry-run) is deferred to whenever the owner next publishes — this checkpoint does not require or request the owner password.
+- **Primary blocker: the autoscale deployment has not been rebuilt/republished since commit `e442c8b` landed on `main`.** No boot event (`artifact process started`) appears in deployment logs after the commit timestamp (`1783151954000`); the currently-serving process predates the commit and is still running the pre-checkpoint code (direct `kiteIndexQuotes` import in `dailyReports.ts`). The owner needs to publish again for this checkpoint's build to go live; verification should be re-run once a fresh boot event appears after the commit time.
+- Live post-market preview (`GET /daily-analysis/telegram/preview`, owner-only, dry-run) has not been exercised against a live instance — blocked both by the no-redeploy-yet condition above and by this task's standing instruction not to request/use the owner password. See §6.5 for the manual checklist to run post-publish.
 - Three pre-existing, out-of-scope direct-provider importers (`kiteIntraday.ts`, `indicesBoard.ts`, `optionChain.ts`) still import `kiteIndexQuotes`/other raw providers directly and remain on the burn-down allowlist — unchanged by this checkpoint, tracked under the broader Unified Market Data Backbone follow-up (#132/#133).
 - Checkpoint 3 was explicitly not started, per the do-not-do list.
 
 ### 8. Final verdict
 
-**`CANONICAL_DATA_CHECKPOINT_2_5_DEV_VERIFIED`**
+**`CANONICAL_DATA_CHECKPOINT_2_5_BUILD_NOT_DEPLOYED`**
+
+The checkpoint's code is complete, fully tested (dev-verified), committed to `main`, and the app's autoscale deployment is otherwise healthy and serving real traffic — but deployment-log evidence shows no rebuild/restart has occurred since the commit landed, so the live production process does not yet run this checkpoint's code. This is not a rollback condition (nothing live is broken or regressed) and not a partial-source-gap (the source itself is complete and correct) — it is purely a "not yet published" state. Re-run production verification after the next publish; if a fresh boot event postdating `1783151954000` is found and the same 23 checks pass against it, this upgrades to `CANONICAL_DATA_CHECKPOINT_2_5_PROD_VERIFIED`.
 
 The report-grade market-data facade exists inside `lib/marketData/`, `dailyReports.ts` no longer imports any raw provider module, `providerImportGuard` passes with zero allowlist growth, the trade-grade router/policy were not touched or weakened, every report-grade row is hard-coded non-trade-grade/non-signal/non-paper-trade at both the type and runtime level, and the post-market INDEX PERFORMANCE section is proven (by both the facade's own unit tests and a `gatherPostMarketData` integration test) to remain populated at the 15:45 IST post-market instant instead of going blank. All required regression suites (providerImportGuard, daily-report builders/dedup/route, the full `marketData` directory, paper, swing, routes, scanner) plus full typecheck and the LLM index are green. No secrets were touched, no real Telegram message was sent, no order-placement or broker-execution code was touched, and no destructive migration was run. Production publish and the live post-market preview check remain pending and are intentionally left for the owner to trigger.

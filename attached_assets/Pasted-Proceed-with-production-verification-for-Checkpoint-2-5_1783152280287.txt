@@ -1,0 +1,160 @@
+Proceed with production verification for Checkpoint 2.5 only.
+
+The app is ready to be published / has been published by owner. Do not write new code unless production verification finds a real blocker.
+
+Current status:
+
+CANONICAL_DATA_CHECKPOINT_2_5_DEV_VERIFIED
+
+Expected final status if production checks pass:
+
+CANONICAL_DATA_CHECKPOINT_2_5_PROD_VERIFIED
+
+Do not start Checkpoint 3.
+Do not work on data parity API.
+Do not migrate scanner.
+Do not migrate charting.
+Do not migrate option-chain / OI Lab.
+Do not change F&O strategy.
+Do not change Swing strategy.
+Do not change Auto Strong Buy logic.
+Do not change thresholds.
+Do not weaken trade-grade freshness rules.
+Do not allow report-grade data to drive signals or paper trades.
+Do not add provider-import allowlist entries.
+Do not enable broker execution.
+Do not place real orders.
+Do not send real Telegram test messages.
+Do not ask for owner/admin password.
+Do not trim, rewrite, reorganize, or mention replit.md.
+
+====================================================
+PRODUCTION VERIFICATION — CHECKPOINT 2.5
+====================================================
+
+Verify the following in production:
+
+1. Production contains the Checkpoint 2.5 build.
+2. `reportGradeIndexQuotes.ts` exists in the deployed build.
+3. `dailyReports.ts` no longer imports raw `kiteIndexQuotes`.
+4. `dailyReports.ts` uses the new report-grade marketData facade.
+5. `providerImportGuard.test.ts` passes.
+6. No provider-import allowlist growth.
+7. Post-market index-performance section still works.
+8. Post-market report does not go blank because of the strict 10-minute trade-grade stale cutoff.
+9. Report-grade quotes are clearly not trade-grade.
+10. Report-grade quotes have:
+   - `tradeGrade: false`
+   - `canDriveSignals: false`
+   - `canDrivePaperTrades: false`
+   - `canDriveReports: true`
+11. No signal path uses report-grade quotes.
+12. No paper-trade path uses report-grade quotes.
+13. No F&O/Swing/Auto Strong Buy logic changed.
+14. No secrets exposed.
+15. Broker execution remains disabled.
+16. No real orders placed.
+17. No Telegram spam.
+18. Checkpoint 1 remains PROD_VERIFIED.
+19. Checkpoint 2 remains PROD_VERIFIED.
+20. Global data-health still works.
+21. Telegram alert dedup still works.
+22. Swing TTL still works.
+23. F&O exit monitoring remains DEV_VERIFIED, live evidence pending.
+
+====================================================
+PREVIEW CHECK
+====================================================
+
+Use the owner-safe preview/dry-run endpoint if available.
+
+Check post-market preview only. Do not send Telegram.
+
+Verify:
+
+1. Post-market preview renders successfully.
+2. Index performance appears if report-grade Kite data exists.
+3. Index performance includes source/as-of/freshness or equivalent source label.
+4. It does not label the data as trade-grade.
+5. If data is unavailable, it collapses cleanly into the unavailable footer.
+6. It does not reintroduce long placeholder garbage.
+7. Preview does not mutate dedup state.
+8. Preview does not send Telegram.
+
+If owner-auth preview cannot be executed, verify route registration/bundle/code evidence and provide owner manual checklist.
+
+====================================================
+TESTS TO RERUN
+====================================================
+
+Run and report exact counts:
+
+pnpm --filter @workspace/api-server run typecheck
+pnpm --filter @workspace/api-server run typecheck:libs
+pnpm --filter @workspace/api-server exec vitest run src/lib/marketData/providerImportGuard.test.ts src/lib/marketData/*reportGrade*.test.ts src/lib/*daily*.test.ts src/lib/*report*.test.ts src/lib/*marketData*.test.ts src/lib/*dataHealth*.test.ts src/lib/*telegram*.test.ts src/lib/*paper*.test.ts src/lib/*swing*.test.ts src/routes/**/*.test.ts
+pnpm --filter @workspace/scanner exec vitest run
+pnpm --filter @workspace/scripts run index:llm
+pnpm --filter @workspace/scripts run index:llm:check
+
+If full suite times out, run in batches and report:
+
+- batch name
+- file count
+- pass count
+- fail count
+- exit code
+
+====================================================
+REPORT UPDATE
+====================================================
+
+Update:
+
+WEBSITE_CANONICAL_DATA_INTEGRATION_REPORT.md
+
+Under:
+
+Checkpoint 2.5 — Report-Grade Market Data Facade for Daily Reports
+
+Add production verification evidence:
+
+1. Deployment evidence.
+2. `dailyReports.ts` raw-provider import removed.
+3. Report-grade facade confirmed.
+4. Provider-import guard result.
+5. Post-market preview result.
+6. Trade-grade safety result.
+7. Regression checks.
+8. Tests and counts.
+9. LLM index status.
+10. Final verdict.
+
+====================================================
+FINAL VERDICT
+====================================================
+
+Final verdict must be exactly one:
+
+- CANONICAL_DATA_CHECKPOINT_2_5_PROD_VERIFIED
+- CANONICAL_DATA_CHECKPOINT_2_5_DEV_VERIFIED
+- CANONICAL_DATA_CHECKPOINT_2_5_PARTIAL_SOURCE_GAP_REMAINS
+- CANONICAL_DATA_CHECKPOINT_2_5_BUILD_NOT_DEPLOYED
+- ROLLBACK_REQUIRED
+
+Use:
+
+CANONICAL_DATA_CHECKPOINT_2_5_PROD_VERIFIED
+
+only if production is published and the production checks pass.
+
+Use:
+
+CANONICAL_DATA_CHECKPOINT_2_5_PARTIAL_SOURCE_GAP_REMAINS
+
+if providerImportGuard still fails, dailyReports still imports raw provider, post-market report goes blank, or report-grade/trade-grade separation is unclear.
+
+Use:
+
+ROLLBACK_REQUIRED
+
+if trade-grade freshness was weakened, report-grade data can drive signals/paper trades, secrets leak, broker execution turns on, real orders are placed, or Telegram spam returns.
