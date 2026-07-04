@@ -352,43 +352,114 @@ spot-check on the next trading day (see §11).
   cookie-based identity) — substituted curl + direct DB verification per that established precedent
   instead of grinding on browser login.
 
-### 6. Production verification status — NOT YET PERFORMED
+### 6. Production verification status — PERFORMED 2026-07-04
 
-This checkpoint's code has **not** been published. The live production deployment
-(`https://marketscannerbydev.in`, autoscale) is still serving the Checkpoint-1 build (`0f48ee3` /
-`9b109de` — a docs-only commit after it); none of the T001–T006 schema, write-path, endpoint, or UI
-changes are present in production yet. Publishing requires the user to click the Publish button
-(the agent cannot trigger a deploy directly) — `suggestDeploy()` was called at the end of this
-session to prompt that action. Once published, the recommended prod verification (read-only,
-`environment: "production"`) is: (1) confirm the new `source`/`staged_order_id`/`paper_trade_id`
-columns exist and the backfill has converged on the prod `paper_trade_eq`/`paper_eq_audit` tables,
-specifically re-checking the `INDUSINDBK` and `RELIANCE` rows identified in the Phase 0 prod audit;
-(2) `GET /api/paper/lifecycle/INDUSINDBK` and `/RELIANCE` against prod with an owner session:
-`INDUSINDBK` should show a linked `AUTO_STRONG_BUY` trade with a non-null `paper_eq_audit.paper_trade_id`,
-`RELIANCE` should show its expired staging row(s) with `paperTrades: []` (still no fabricated link);
-(3) visually confirm the `EqSourceBadge` column renders on `/paper-trading` and the "not
-converted (staged-only)" note renders on `/swing-cash`.
+Published to production (autoscale, `https://marketscannerbydev.in`) at workspace HEAD `02c5418`
+("Published your App") on top of `ff9c651` (this checkpoint's code commit); `getDeploymentInfo()`
+confirms `hasSuccessfulBuild: true`. All checks below were run against the live deployment using the
+owner's real session (`POST /api/auth/login` with the `APP_ACCESS_PASSWORD` secret read
+programmatically — never displayed, printed, or requested from the user), direct read-only queries
+against the production DB replica (`environment: "production"`, SELECT-only), and production
+deployment logs. No fake trades were created, no real Telegram was sent, no owner password was
+requested from the user, and no destructive or write migration was run against production.
+
+**Part A/C — Deploy + endpoint security:** ✅ CONFIRMED. `/api/healthz` → 200. Anonymous GET to
+`/api/paper/lifecycle/INDUSINDBK`, `/RELIANCE`, and a malformed-symbol path (`..%2F..%2Fbad`) all
+return `401`. Owner-authenticated: `INDUSINDBK` → 200, `RELIANCE` → 200, malformed symbol → `400
+{"error":"Invalid symbol format"}`.
+
+**Part D — INDUSINDBK:** ⚠️ GAP. `GET /api/paper/lifecycle/INDUSINDBK` (owner) → 200, but the live
+`paper_trade_eq` row shows `"source": null` (expected `AUTO_STRONG_BUY` post-backfill),
+`summary.tradesMissingSource: 1`. Confirmed identically via `GET /api/paper/positions/eq` (full open
+book: INDUSINDBK, DELHIVERY, MARUTI, MAZDOCK, ... — every row shows `source: null, stagedOrderId:
+null`).
+
+**Part E — RELIANCE:** ✅ CONFIRMED matches Phase 0 expectation. 0 `paper_trade_eq` rows, 1 `EXPIRED`
+staging row, `paperTrades: []` — no fabricated swing→paper link.
+
+**Part B — Schema + backfill state (root-caused):** Direct read-only production DB query confirms
+`paper_trade_eq.source`, `paper_trade_eq.staged_order_id`, and `paper_eq_audit.paper_trade_id` all
+**exist** (nullable, `TEXT`) — but `source` is **NULL on all 36/36** live `paper_trade_eq` rows (100%,
+not partial). Root cause traced precisely: the additive columns were added to prod by **Replit's own
+Publish-time schema diff** (dev↔prod structural sync), not by this checkpoint's app-level
+`applyPaperEqProvenanceColumns()`. That function's *data*-backfill (the `UPDATE` steps that stamp
+`AUTO_STRONG_BUY`/`MANUAL_BUY`/`LEGACY_UNKNOWN`) is pure application logic gated behind the memoized
+`ensurePaperEqProvenanceColumns()`, which is **only** invoked from `openPaperEquityTrade` /
+`openManualPaperEquityTrade` — i.e. it fires the first time any equity paper trade write path runs
+in that server process. Since publish, production has had zero equity-trade-open attempts (2026-07-04
+is a non-trading Saturday, no live `STRONG_BUY` signals fired), so that lazy trigger has genuinely
+never executed — even though the columns already exist. Deployment logs corroborate this precisely:
+transient `Failed query: ... "source", "staged_order_id" ...` errors on `paper_trade_eq` SELECT/UPDATE
+appear only in a narrow window (2026-07-03T22:20–23:33Z, i.e. right at the publish cutover, before
+Replit's schema diff had fully applied) and have **zero recurrences** since — confirming this was a
+brief, self-healed cutover race, not an ongoing bug. This is a **timing/environmental gap, not a code
+defect**: the shipped migration is correct and idempotent (dev-verified, 7/7 tests), it simply has not
+been triggered yet in the live process.
+
+Critically, **no fabrication occurs anywhere while this is pending**: the backend leaves `source` as
+honest `NULL` (never guesses `AUTO`/`MANUAL`), and the frontend's `EqSourceBadge`
+(`paper-trading.tsx`) defaults a `null`/`undefined` source to the `LEGACY_UNKNOWN` badge with an
+explicit tooltip — "Opened before source tracking was added — cannot be attributed honestly." Users
+see an honest "cannot attribute" state, never a wrong one.
+
+A production data-write to force the backfill immediately was considered and rejected: (1) the
+`executeSql` production path is SELECT-only by design — writes are not permitted; (2) forcing the
+lazy trigger via the manual-buy endpoint would create a fake trade, explicitly prohibited; (3) adding
+a new eager-startup-migration code path would require new code and a fresh publish cycle, outside this
+session's "verification only, no new code unless required" scope, and the existing lazy-trigger design
+is intentional, established codebase convention (mirrors `fnoExitMonitorHealth`'s identical
+lazy-schema-ensure pattern) — not a bug requiring a code fix. The correct, lowest-risk resolution is to
+let it converge naturally on the next equity-trade write (expected the next trading session), which
+requires no agent action.
+
+**Part F — Paper Trading API:** ✅ CONFIRMED functional. `GET /api/paper/positions/eq?status=OPEN`
+returns the full real open book with correct P&L fields; all rows honestly show `source: null` per
+the Part B finding above (no crash, no fabrication).
+
+**Part G — Swing Queue:** ✅ CONFIRMED honest and unaffected. `GET /api/swing/status` →
+`mode: "paper_only"`, `brokerExecutionEnabled: false`, `brokerStatus: "DISABLED"`, kill switch off, TTL
+sweep running normally. `GET /api/swing/staged-orders` → `items: []` (no orders currently pending —
+consistent with a quiet Saturday), `execution` block confirms "no real order is ever placed." No
+fabricated swing→paper link rendered anywhere.
+
+**Part H — Frontend:** ✅ CONFIRMED. `EqSourceBadge` in `paper-trading.tsx` and the "Paper trade link:
+not converted (staged-only)" note in `swing-cash.tsx`'s `OrderCard` are present in the shipped bundle
+logic and degrade honestly (see Part B).
+
+**Part I — Regression:** ✅ CONFIRMED. `/api/stocks-to-watch/analysis` → 200 (471 scanned).
+`/api/security/audit` → 200, score 90/100, 0 fail / 2 warn / 19 ok.
+
+**Part J — Tests:** ✅ CONFIRMED green against the identical deployed source tree.
+`paperTradingEqProvenance.test.ts` → 7/7 passed (dev DB, `--pool=threads`).
 
 ### 7. Next checkpoint recommendation
 
-Checkpoint 2's code is complete, dev-verified, and ready to publish. No further scope should be
-added to this checkpoint. Once the user publishes, run the §6 prod checklist to close this out as
-`CANONICAL_DATA_CHECKPOINT_2_PROD_VERIFIED`; this does not require re-opening any code changes if the
-checks pass as expected. The broader P0 canonical-data initiative follow-ups (#132/#133) remain
-correctly separately tracked and out of this checkpoint's scope.
+Checkpoint 2's code is correct, complete, and safely deployed — the only open item is a
+production **data** convergence gap (100% of `paper_trade_eq.source` still `NULL`), not a code defect,
+which will self-resolve the next time any equity signal triggers `openPaperEquityTrade` (expected the
+next trading session) with zero agent action required. **Recommended non-blocking follow-up**: a
+same-day spot-check of `GET /api/paper/lifecycle/INDUSINDBK` and the `source` distribution once the
+next trading session has produced at least one equity signal, to confirm the backfill converged as
+designed (dev already proved this exact convergence). If faster convergence is wanted, a tiny
+follow-up (eager-invoke `ensurePaperEqProvenanceColumns()` once at server startup instead of only
+lazily) could be scoped and separately approved — not done here since it was not required to satisfy
+the "no new code unless a real blocker requires it" constraint (the current design is safe, honest,
+and self-healing). The broader P0 canonical-data initiative follow-ups (#132/#133) remain correctly
+separately tracked and out of this checkpoint's scope.
 
 ---
 
-**Checkpoint 2 final verdict: `CANONICAL_DATA_CHECKPOINT_2_DEV_VERIFIED`**
+**Checkpoint 2 final verdict: `CANONICAL_DATA_CHECKPOINT_2_PARTIAL_SOURCE_GAP_REMAINS`**
 
-Every equity paper trade is now traceable to a source (`AUTO_STRONG_BUY` / `SWING_STAGED_APPROVAL`
-[reserved, unused] / `MANUAL_BUY` / `LEGACY_UNKNOWN`), backed by additive-only DB columns, an
-idempotent backfill verified convergent against real dev data, a new owner-only lifecycle diagnostic
-endpoint, honest UI source badges and a no-fabricated-link note on the Swing Queue, and 213 passing
-regression tests (14 new) alongside a clean full-workspace typecheck. Production has **not** been
-published with this checkpoint's changes yet — that is a user-initiated action outside the agent's
-control (`suggestDeploy()` invoked to request it) — so the production leg of the audit (§6) remains
-pending and this verdict correctly stops at `DEV_VERIFIED` rather than overclaiming
-`PROD_VERIFIED`. No source/link gap remains in the code itself: every path that opens a paper trade
-is now covered (`AUTO`, `MANUAL`, and the confirmed-absent `SWING_STAGED_APPROVAL` path is honestly
-represented as never occurring today, not silently ignored).
+Published to production and confirmed live and functioning: endpoint security, the lifecycle
+diagnostic, the Paper Trading API, and the Swing Queue all behave exactly as designed, with zero
+fabrication anywhere (backend leaves unknown sources honestly `NULL`; the UI honestly labels them
+`LEGACY_UNKNOWN` rather than guessing). However, Paper Trading source remains unclear for all 36 live
+production equity trades today — the additive schema exists (added by Replit's own publish-time
+schema sync) but the idempotent data backfill has not yet executed in the running production process,
+because its lazy trigger (`openPaperEquityTrade`/`openManualPaperEquityTrade`) has not fired since
+publish on this non-trading Saturday. This is a root-caused, self-healing timing gap — not a bug, not
+data corruption, and not something a fake trade or a direct production DB write should be used to
+force closed (both were explicitly out of bounds for this session). No further code changes were made
+this session, consistent with the "verification only" constraint. Recommend re-checking after the next
+trading session's first equity signal to close this out as `CANONICAL_DATA_CHECKPOINT_2_PROD_VERIFIED`.
