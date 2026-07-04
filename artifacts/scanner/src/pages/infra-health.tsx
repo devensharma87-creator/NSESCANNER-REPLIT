@@ -61,6 +61,10 @@ import {
   type ExitMonitorHealthLite,
   type SubsystemHealthLite,
   type SystemAlertHealthDiag,
+  dataParitySeverityForOverall,
+  deriveDataParitySectionSeverity,
+  type DataParityOverallSeverity,
+  type DataParityResultLite,
 } from "@/lib/infraHealth";
 import { GateStatusPanel } from "@/components/infra/GateStatusPanel";
 import { SwingFreshnessPanel } from "@/components/infra/SwingFreshnessPanel";
@@ -851,6 +855,237 @@ function EtfRecognitionSection({
               <span className="font-medium">{check.recognised ? "Priceable" : "Not priceable"}</span>
             </div>
             <div className="mt-1 text-muted-foreground">{ETF_SOURCE_LABEL[check.source]}</div>
+          </div>
+        )}
+      </div>
+    </SectionShell>
+  );
+}
+
+// ── Data Parity (Checkpoint 3) — cross-module symbol/index observation diff ─
+
+const DATA_PARITY_SYMBOLS: ReadonlyArray<{ symbol: string; assetType: "index" | "equity" }> = [
+  { symbol: "INDUSINDBK", assetType: "equity" },
+  { symbol: "RELIANCE", assetType: "equity" },
+  { symbol: "NIFTY", assetType: "index" },
+  { symbol: "BANKNIFTY", assetType: "index" },
+  { symbol: "SENSEX", assetType: "index" },
+];
+
+interface DataParityObservationResp {
+  moduleId: string;
+  moduleLabel: string;
+  symbol: string;
+  assetType: "index" | "equity";
+  status: "OK" | "UNAVAILABLE";
+  reason: string | null;
+  kind: string;
+  freshnessClass: "trade_grade" | "report_grade" | "cache" | "frozen" | "not_applicable";
+  price: number | null;
+  asOf: string | null;
+  freshnessSec: number | null;
+  source: string;
+  trustTier: string | null;
+  tradeGrade: boolean | null;
+  capturedAt: string;
+}
+interface DataParityMismatchResp {
+  severity: DataParityOverallSeverity;
+  kind: string;
+  moduleA: string;
+  moduleB: string;
+  valueA: number | string | boolean | null;
+  valueB: number | string | boolean | null;
+  description: string;
+}
+interface DataParityResultResp {
+  symbol: string;
+  assetType: "index" | "equity";
+  capturedAt: string;
+  observations: DataParityObservationResp[];
+  mismatches: DataParityMismatchResp[];
+  overallSeverity: DataParityOverallSeverity;
+}
+interface DataParityCheckResp {
+  ok: boolean;
+  capturedAt?: string;
+  results?: DataParityResultResp[];
+  error?: string;
+  message?: string;
+}
+
+const PARITY_SEVERITY_BADGE: Record<DataParityOverallSeverity, string> = {
+  OK: "border-emerald-600 text-emerald-600",
+  INFO: "border-sky-600 text-sky-600",
+  P2: "border-amber-600 text-amber-600",
+  P1: "border-amber-600 text-amber-600",
+  P0: "border-rose-600 text-rose-600",
+};
+
+function DataParitySection(): React.ReactElement {
+  const base = import.meta.env.BASE_URL;
+  const [selected, setSelected] = useState<Set<string>>(new Set(DATA_PARITY_SYMBOLS.map((s) => s.symbol)));
+  const [state, setState] = useState<{ results: DataParityResultResp[] | null; error: string | null; loading: boolean }>({
+    results: null,
+    error: null,
+    loading: false,
+  });
+
+  const severity = useMemo(
+    () =>
+      deriveDataParitySectionSeverity({
+        results: state.results as DataParityResultLite[] | null,
+        error: state.error,
+        loading: state.loading,
+      }),
+    [state],
+  );
+
+  function toggle(symbol: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(symbol)) next.delete(symbol);
+      else next.add(symbol);
+      return next;
+    });
+  }
+
+  async function runCheck() {
+    const symbols = Array.from(selected);
+    if (symbols.length === 0) {
+      setState({ results: null, error: "Select at least one symbol.", loading: false });
+      return;
+    }
+    setState((s) => ({ ...s, loading: true, error: null }));
+    try {
+      const r = await fetch(`${base}api/data-parity/check`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ symbols }),
+      });
+      const j = (await r.json()) as DataParityCheckResp;
+      if (!r.ok || !j.ok) {
+        setState({ results: null, error: j.message ?? j.error ?? `HTTP ${r.status}`, loading: false });
+        return;
+      }
+      setState({ results: j.results ?? [], error: null, loading: false });
+    } catch (e) {
+      setState({ results: null, error: e instanceof Error ? e.message : "fetch failed", loading: false });
+    }
+  }
+
+  return (
+    <SectionShell
+      title="Data Parity"
+      icon={Signal}
+      severity={severity}
+      description="Checkpoint 3: compares how 13 read-only modules currently see the same symbol/index. Diagnostic-only, on-demand — does not run automatically and does not touch any trading, signal, or broker path."
+      testId="section-data-parity"
+    >
+      <div className="space-y-3">
+        <div className="flex flex-wrap gap-x-4 gap-y-1.5">
+          {DATA_PARITY_SYMBOLS.map(({ symbol }) => (
+            <label key={symbol} className="flex items-center gap-1.5 text-xs cursor-pointer">
+              <input
+                type="checkbox"
+                checked={selected.has(symbol)}
+                onChange={() => toggle(symbol)}
+                data-testid={`checkbox-parity-${symbol}`}
+              />
+              <span className="font-mono">{symbol}</span>
+            </label>
+          ))}
+          <Button size="sm" variant="outline" onClick={() => void runCheck()} disabled={state.loading} data-testid="button-run-parity-check">
+            {state.loading ? "Checking…" : "Run parity check"}
+          </Button>
+        </div>
+
+        {state.error && <div className="text-xs text-rose-500">{state.error}</div>}
+        {!state.results && !state.loading && !state.error && (
+          <div className="text-xs text-muted-foreground">
+            <Info className="inline h-3 w-3 mr-1 align-middle" />
+            Not yet run — this section stays idle until you trigger a check (it reads live Kite/F&O
+            data per symbol, so it does not auto-refresh with the rest of the dashboard).
+          </div>
+        )}
+
+        {state.results && (
+          <div className="space-y-4" data-testid="parity-results">
+            {state.results.map((result) => (
+              <div key={result.symbol} className="border border-border/50 rounded p-2">
+                <div className="flex items-center justify-between gap-2 mb-2">
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono font-medium text-sm">{result.symbol}</span>
+                    <span className="text-xs text-muted-foreground">({result.assetType})</span>
+                  </div>
+                  <Badge
+                    variant="outline"
+                    className={PARITY_SEVERITY_BADGE[result.overallSeverity]}
+                    data-testid={`badge-parity-${result.symbol}`}
+                  >
+                    {result.overallSeverity}
+                  </Badge>
+                </div>
+
+                <div className="overflow-x-auto">
+                  <table className="w-full text-[11px]">
+                    <thead>
+                      <tr className="text-left text-muted-foreground border-b border-border/30">
+                        <th className="py-1 pr-2">Module</th>
+                        <th className="py-1 pr-2">Status</th>
+                        <th className="py-1 pr-2">Price</th>
+                        <th className="py-1 pr-2">As of</th>
+                        <th className="py-1 pr-2">Source</th>
+                        <th className="py-1 pr-2">Trade-grade</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {result.observations.map((obs) => (
+                        <tr key={obs.moduleId} className="border-b border-border/20 last:border-b-0">
+                          <td className="py-1 pr-2">{obs.moduleLabel}</td>
+                          <td className="py-1 pr-2">
+                            {obs.status === "OK" ? (
+                              <span className="text-emerald-600">OK</span>
+                            ) : (
+                              <span className="text-muted-foreground" title={obs.reason ?? undefined}>
+                                UNAVAILABLE
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-1 pr-2 font-mono">{obs.price != null ? num(obs.price) : "—"}</td>
+                          <td className="py-1 pr-2">{formatAge(obs.asOf, Date.now())}</td>
+                          <td className="py-1 pr-2">{obs.source}</td>
+                          <td className="py-1 pr-2">
+                            {obs.tradeGrade === null ? "—" : obs.tradeGrade ? "Yes" : "No"}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {result.mismatches.length > 0 ? (
+                  <div className="mt-2">
+                    <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-1">
+                      Mismatches
+                    </div>
+                    <ul className="space-y-1">
+                      {result.mismatches.map((m, i) => (
+                        <li key={i} className="flex items-start gap-1.5 text-[11px]">
+                          <SeverityIcon s={dataParitySeverityForOverall(m.severity)} className="h-3 w-3 mt-0.5 shrink-0" />
+                          <span>
+                            <span className="font-mono">{m.severity}</span> · {m.description}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : (
+                  <div className="mt-2 text-[11px] text-emerald-600">No mismatches detected.</div>
+                )}
+              </div>
+            ))}
           </div>
         )}
       </div>
@@ -3007,6 +3242,9 @@ export default function InfraHealthPage(): React.ReactElement {
         </div>
         <div className="md:col-span-2">
           <EtfRecognitionSection diag={etf} nowMs={nowMs} />
+        </div>
+        <div className="md:col-span-2">
+          <DataParitySection />
         </div>
         <div className="md:col-span-2">
           <ObservabilitySection {...observability} />

@@ -14,11 +14,14 @@ import {
   deriveRsCoverage,
   latestTimestamp,
   derivePublicFreshness,
+  dataParitySeverityForOverall,
+  deriveDataParitySectionSeverity,
   type GateState,
   type SnapshotDiagnostics,
   type ExitMonitorHealthLite,
   type SubsystemHealthLite,
   type SystemAlertHealthDiag,
+  type DataParityResultLite,
 } from "./infraHealth";
 
 const NOW = Date.parse("2026-05-15T13:00:00Z");
@@ -510,5 +513,52 @@ describe("deriveSystemAlertHealthSeverity", () => {
   it("returns ok for an empty diagnostics payload (no alerts fired yet)", () => {
     const d: SystemAlertHealthDiag = { states: [], recentClaims: [], skipped: { totalSkipped: 0, lastSkipped: null } };
     expect(deriveSystemAlertHealthSeverity(d).severity).toBe("ok");
+  });
+});
+
+describe("dataParitySeverityForOverall (Checkpoint 3)", () => {
+  it("maps P0 (contradictory signal direction) to fail", () => {
+    expect(dataParitySeverityForOverall("P0")).toBe("fail");
+  });
+  it("maps P1 and P2 to warn", () => {
+    expect(dataParitySeverityForOverall("P1")).toBe("warn");
+    expect(dataParitySeverityForOverall("P2")).toBe("warn");
+  });
+  it("maps INFO and OK to ok (expected divergence is not a problem)", () => {
+    expect(dataParitySeverityForOverall("INFO")).toBe("ok");
+    expect(dataParitySeverityForOverall("OK")).toBe("ok");
+  });
+});
+
+describe("deriveDataParitySectionSeverity (Checkpoint 3)", () => {
+  it("returns disabled when no check has been run yet (not a failure)", () => {
+    expect(deriveDataParitySectionSeverity({ results: null, error: null, loading: false })).toBe("disabled");
+    expect(deriveDataParitySectionSeverity({ results: [], error: null, loading: false })).toBe("disabled");
+  });
+  it("returns fail on a fetch error, even if stale results are present", () => {
+    const results: DataParityResultLite[] = [{ symbol: "NIFTY", overallSeverity: "OK" }];
+    expect(deriveDataParitySectionSeverity({ results, error: "HTTP 500", loading: false })).toBe("fail");
+  });
+  it("rolls up the worst per-symbol severity across a batch", () => {
+    const results: DataParityResultLite[] = [
+      { symbol: "NIFTY", overallSeverity: "OK" },
+      { symbol: "RELIANCE", overallSeverity: "P1" },
+      { symbol: "BANKNIFTY", overallSeverity: "INFO" },
+    ];
+    expect(deriveDataParitySectionSeverity({ results, error: null, loading: false })).toBe("warn");
+  });
+  it("escalates to fail the moment any symbol reports P0", () => {
+    const results: DataParityResultLite[] = [
+      { symbol: "NIFTY", overallSeverity: "OK" },
+      { symbol: "SENSEX", overallSeverity: "P0" },
+    ];
+    expect(deriveDataParitySectionSeverity({ results, error: null, loading: false })).toBe("fail");
+  });
+  it("returns ok when every symbol is clean", () => {
+    const results: DataParityResultLite[] = [
+      { symbol: "NIFTY", overallSeverity: "OK" },
+      { symbol: "INDUSINDBK", overallSeverity: "INFO" },
+    ];
+    expect(deriveDataParitySectionSeverity({ results, error: null, loading: false })).toBe("ok");
   });
 });

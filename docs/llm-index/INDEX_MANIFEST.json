@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-04T08:11:31.271Z",
+  "generatedAt": "2026-07-04T10:30:54.841Z",
   "generatorVersion": "1.0.0",
   "files": {
     "artifacts/api-server/src/routes/admin.ts": {
@@ -47,6 +47,11 @@
       "lines": 71,
       "mtime": "2026-07-02T14:22:29.134Z"
     },
+    "artifacts/api-server/src/routes/dataParity.ts": {
+      "hash": "b6e12d081ed8ea79",
+      "lines": 121,
+      "mtime": "2026-07-04T10:21:18.403Z"
+    },
     "artifacts/api-server/src/routes/deepscan.ts": {
       "hash": "b95ce8887c391da0",
       "lines": 55,
@@ -78,9 +83,9 @@
       "mtime": "2026-06-17T03:43:06.668Z"
     },
     "artifacts/api-server/src/routes/index.ts": {
-      "hash": "64d2b7f81d041995",
-      "lines": 107,
-      "mtime": "2026-07-02T11:43:42.300Z"
+      "hash": "c72f277c2dfd2c67",
+      "lines": 109,
+      "mtime": "2026-07-04T10:20:51.711Z"
     },
     "artifacts/api-server/src/routes/indices.ts": {
       "hash": "c4053f741bc8676a",
@@ -291,6 +296,21 @@
       "hash": "a9c1f8ab130ae324",
       "lines": 1185,
       "mtime": "2026-07-04T07:45:53.641Z"
+    },
+    "artifacts/api-server/src/lib/dataParity/classify.ts": {
+      "hash": "176a5e6160adaac1",
+      "lines": 240,
+      "mtime": "2026-07-04T10:10:17.239Z"
+    },
+    "artifacts/api-server/src/lib/dataParity/observe.ts": {
+      "hash": "33df4885feec3b6b",
+      "lines": 658,
+      "mtime": "2026-07-04T10:19:08.956Z"
+    },
+    "artifacts/api-server/src/lib/dataParity/types.ts": {
+      "hash": "c810f2ab26349a2c",
+      "lines": 179,
+      "mtime": "2026-07-04T10:09:21.602Z"
     },
     "artifacts/api-server/src/lib/dataProvider.ts": {
       "hash": "f1b97c30a4f41b49",
@@ -1338,9 +1358,9 @@
       "mtime": "2026-04-27T20:48:10.896Z"
     },
     "artifacts/scanner/src/pages/infra-health.tsx": {
-      "hash": "a354bc99d3cf3304",
-      "lines": 3046,
-      "mtime": "2026-07-03T08:11:03.164Z"
+      "hash": "c7d1d20689192baa",
+      "lines": 3284,
+      "mtime": "2026-07-04T10:25:55.427Z"
     },
     "artifacts/scanner/src/pages/kite.tsx": {
       "hash": "e2b41fa997f9ccbc",
@@ -1538,9 +1558,9 @@
       "mtime": "2026-07-01T14:10:17.486Z"
     },
     "artifacts/scanner/src/lib/infraHealth.ts": {
-      "hash": "fcf9b4dfb6799410",
-      "lines": 536,
-      "mtime": "2026-07-03T08:08:37.750Z"
+      "hash": "604e6fec5f2ddfc1",
+      "lines": 589,
+      "mtime": "2026-07-04T10:23:40.923Z"
     },
     "artifacts/scanner/src/lib/optionChainFilters.ts": {
       "hash": "be66fb2e4800c522",

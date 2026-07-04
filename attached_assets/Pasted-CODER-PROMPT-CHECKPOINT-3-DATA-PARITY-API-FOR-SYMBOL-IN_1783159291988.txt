@@ -1,0 +1,513 @@
+CODER PROMPT — CHECKPOINT 3: DATA PARITY API FOR SYMBOL / INDEX CONSISTENCY
+
+Current accepted milestones:
+
+1. SIGNAL_DATA_NOTIFICATION_PARITY_DETERMINISTIC_PROD_VERIFIED_LIVE_SMOKE_PENDING
+2. GLOBAL_DATA_HEALTH_KITE_RESILIENCE_PROD_VERIFIED
+3. SWING_TTL_LIFECYCLE_PROD_VERIFIED
+4. TELEGRAM_ALERT_QUALITY_PROD_VERIFIED
+5. FNO_EXIT_MONITORING_DEV_VERIFIED
+6. CANONICAL_DATA_CHECKPOINT_1_PROD_VERIFIED
+7. CANONICAL_DATA_CHECKPOINT_2_PROD_VERIFIED
+8. CANONICAL_DATA_CHECKPOINT_2_5_PROD_VERIFIED
+9. SWING_TTL_WARNING_HARMLESS_DOCUMENTED
+
+Now start Checkpoint 3 only.
+
+====================================================
+CHECKPOINT 3 OBJECTIVE
+====================================================
+
+Build a production-safe Data Parity API that proves whether the same symbol/index is using the same market data across the website.
+
+The owner’s core concern:
+
+A stock/index must have one canonical OHLC/quote truth across the app.
+
+For example:
+
+- INDUSINDBK should not show one price in Paper Trading and another in Scanner.
+- RELIANCE should not show one status in Swing Queue and another in Paper Trading.
+- NIFTY/BANKNIFTY/SENSEX should not have different OHLC across pre-market, post-market, F&O diagnostics, option-chain, charting, and reports.
+
+This checkpoint is diagnostic-first.
+
+It must detect and report mismatches clearly.
+
+It must not silently rewrite or migrate every module yet.
+
+====================================================
+STRICT SCOPE
+====================================================
+
+Allowed:
+
+1. Build owner-only data parity API.
+2. Compare selected symbols across existing module data paths.
+3. Return source, as-of, freshness, trade-grade/report-grade flags.
+4. Classify mismatches as P0/P1/P2.
+5. Add Infra Health section if safe.
+6. Add tests.
+7. Update report.
+8. Fix only tiny obvious bugs if directly discovered and low-risk.
+
+Not allowed:
+
+1. Do not migrate Scanner provider path yet.
+2. Do not migrate Charting provider path yet.
+3. Do not migrate Option Chain / OI Lab yet.
+4. Do not change F&O strategy logic.
+5. Do not change Swing strategy logic.
+6. Do not change Auto Strong Buy logic.
+7. Do not change thresholds.
+8. Do not change entry/SL/target formulas.
+9. Do not weaken trade-grade checks.
+10. Do not use report-grade data for trading decisions.
+11. Do not fabricate data.
+12. Do not enable broker execution.
+13. Do not place real orders.
+14. Do not send Telegram test messages.
+15. Do not run heavy candle backfill.
+16. Do not perform destructive migrations.
+17. Do not ask for owner/admin password.
+18. Do not trim, rewrite, reorganize, or mention replit.md.
+
+====================================================
+PHASE 0 — READ CONTEXT FIRST
+====================================================
+
+Before coding, read:
+
+- AGENT.md
+- docs/llm-index/AGENT_START_HERE.md
+- docs/llm-index/CRITICAL_FLOWS.md
+- docs/llm-index/API_ROUTES_INDEX.md
+- docs/llm-index/DATABASE_INDEX.md
+- docs/llm-index/DATA_SOURCES_AND_PROVENANCE.md
+- docs/llm-index/TEST_AND_VERIFICATION_INDEX.md
+- WEBSITE_CANONICAL_DATA_INTEGRATION_REPORT.md
+- GLOBAL_DATA_HEALTH_AND_KITE_RESILIENCE_REPORT.md
+- SWING_TTL_STAGED_ORDER_LIFECYCLE_REPORT.md
+- FNO_EXIT_MONITORING_RELIABILITY_REPORT.md
+- SIGNAL_DATA_NOTIFICATION_PARITY_FIX_REPORT.md
+- docs/telegram-alert-quality-audit-2026-07-03.md
+
+Then inspect existing data paths for:
+
+- INDUSINDBK
+- RELIANCE
+- NIFTY
+- BANKNIFTY
+- SENSEX
+
+Inspect these modules/pages/APIs:
+
+- marketData/router.ts
+- canonical / trusted quote layer
+- report-grade index facade
+- scanner data path
+- watchlist data path
+- portfolio data path
+- charting latest candle path
+- stock intelligence path
+- swing cash queue path
+- paper trading equity path
+- F&O diagnostics path
+- option-chain path
+- pre-market report data path
+- post-market report data path
+- global data-health
+- Infra Health
+
+Before coding, produce this audit matrix:
+
+| Symbol/Index | Module | API/File | Data Source | LTP/OHLC Field | Source As-Of? | Freshness? | Trade Grade? | Risk |
+|---|---|---|---|---|---:|---:|---:|---|
+| INDUSINDBK |
+| RELIANCE |
+| NIFTY |
+| BANKNIFTY |
+| SENSEX |
+
+Also produce:
+
+| Known Split Path | Affected Modules | Risk | Should Fix Now? |
+|---|---|---|---:|
+
+Do not code before this audit is complete.
+
+====================================================
+PHASE 1 — DEFINE DATA PARITY CONTRACT
+====================================================
+
+Create a strict data parity result contract.
+
+Suggested types:
+
+```ts
+type DataParitySeverity = "P0" | "P1" | "P2" | "INFO";
+
+type DataParityModule =
+  | "CANONICAL_QUOTE"
+  | "SCANNER"
+  | "WATCHLIST"
+  | "PORTFOLIO"
+  | "PAPER_TRADING_EQ"
+  | "SWING_QUEUE"
+  | "CHARTING"
+  | "STOCK_INTELLIGENCE"
+  | "FNO_DIAGNOSTICS"
+  | "OPTION_CHAIN"
+  | "PRE_MARKET_REPORT"
+  | "POST_MARKET_REPORT"
+  | "GLOBAL_DATA_HEALTH";
+
+type DataParityObservation = {
+  module: DataParityModule;
+  symbol: string;
+  canonicalKey: string | null;
+  ltp: number | null;
+  open: number | null;
+  high: number | null;
+  low: number | null;
+  close: number | null;
+  previousClose: number | null;
+  change: number | null;
+  changePct: number | null;
+  source: string | null;
+  sourceAsOf: string | null;
+  freshnessSec: number | null;
+  tradeGrade: boolean;
+  reportGrade: boolean;
+  canDriveSignals: boolean;
+  canDrivePaperTrades: boolean;
+  canDriveReports: boolean;
+  status: "AVAILABLE" | "MISSING" | "STALE" | "NOT_APPLICABLE" | "ERROR";
+  reason: string | null;
+};
+
+type DataParityMismatch = {
+  severity: DataParitySeverity;
+  field: string;
+  modules: string[];
+  expected: string | number | null;
+  actual: Array<{ module: string; value: string | number | null }>;
+  reason: string;
+  recommendedAction: string;
+};
+
+type DataParityResult = {
+  symbol: string;
+  canonicalKey: string | null;
+  checkedAt: string;
+  observations: DataParityObservation[];
+  mismatches: DataParityMismatch[];
+  verdict: "PASS" | "P0_MISMATCH" | "P1_MISMATCH" | "P2_MISMATCH" | "INSUFFICIENT_DATA";
+};
+====================================================
+PHASE 2 — MISMATCH CLASSIFICATION RULES
+
+Implement clear mismatch rules.
+
+P0 mismatch:
+
+Same symbol has different LTP between trade-grade modules using same source/as-of.
+Same symbol has different daily OHLC for same date.
+A stale/proxy/display/report-grade quote is marked trade-grade.
+Yahoo/cache/report-grade data can drive signals.
+Yahoo/cache/report-grade data can drive paper trades.
+Paper Trading uses a quote different from canonical trade-grade source.
+F&O diagnostics uses non-canonical or stale trade-driving data.
+Same index close differs between pre/post-market report and canonical report-grade source.
+
+P1 mismatch:
+
+Source label missing.
+Source as-of missing.
+Freshness missing.
+Module uses direct provider path but value matches canonical.
+Module uses cache without label.
+Report-grade/trade-grade distinction unclear.
+Symbol identity differs but value is same.
+
+P2 mismatch:
+
+Formatting difference.
+Rounding difference within tolerance.
+Display name mismatch.
+Non-critical stale display-only module clearly labelled.
+
+INFO:
+
+Module not applicable.
+Market closed.
+No active trade for that symbol.
+Swing staged-only, no paper trade by design.
+====================================================
+PHASE 3 — BUILD OWNER-ONLY API
+
+Add owner-only endpoints.
+
+Suggested:
+
+GET /api/data-parity/symbol/:symbol
+
+POST /api/data-parity/check
+
+Required default symbols for batch check:
+
+INDUSINDBK
+RELIANCE
+NIFTY
+BANKNIFTY
+SENSEX
+
+GET example:
+
+/api/data-parity/symbol/INDUSINDBK
+/api/data-parity/symbol/RELIANCE
+/api/data-parity/symbol/NIFTY
+
+POST body:
+
+{
+  "symbols": ["INDUSINDBK", "RELIANCE", "NIFTY", "BANKNIFTY", "SENSEX"]
+}
+
+Endpoint rules:
+
+Owner-only.
+Anonymous must return 401.
+Invalid symbol must return 400.
+No secrets exposed.
+No raw tokens.
+No Telegram sends.
+No DB writes except optional safe audit log if already standard.
+No order placement.
+Should not hammer Kite.
+Should use cached/current module APIs where possible.
+Should be safe during market closed.
+====================================================
+PHASE 4 — MODULE OBSERVATIONS TO INCLUDE
+
+For equities INDUSINDBK and RELIANCE, include where available:
+
+Canonical quote/router.
+Scanner value.
+Watchlist value.
+Portfolio value if held/available.
+Paper Trading EQ value/status.
+Swing Queue status.
+Charting latest candle.
+Stock intelligence quote.
+Reports if applicable.
+
+For indices NIFTY/BANKNIFTY/SENSEX, include where available:
+
+Canonical index quote/router.
+Report-grade index facade.
+Global data-health.
+Pre-market report data.
+Post-market report data.
+F&O diagnostics.
+Option-chain index reference.
+Charting latest candle if available.
+
+Every observation must include:
+
+source
+sourceAsOf
+freshnessSec if available
+tradeGrade
+reportGrade
+canDriveSignals
+canDrivePaperTrades
+reason if unavailable
+
+If a module cannot be queried yet, return:
+
+status = NOT_APPLICABLE or MISSING
+reason = clear explanation
+
+Do not silently omit modules.
+
+====================================================
+PHASE 5 — INFRA HEALTH SECTION
+
+Add an Infra Health section if safe:
+
+“Data Parity”
+
+Show:
+
+last parity check time
+symbols checked
+P0 mismatch count
+P1 mismatch count
+P2 mismatch count
+worst verdict
+latest mismatches
+direct-provider risk summary
+next recommended checkpoint
+
+If UI requires owner auth and cannot be visually verified, provide owner manual checklist.
+
+====================================================
+PHASE 6 — REPORT REQUIRED
+
+Update:
+
+WEBSITE_CANONICAL_DATA_INTEGRATION_REPORT.md
+
+Add section:
+
+Checkpoint 3 — Data Parity API
+
+Include:
+
+Why this checkpoint exists.
+Modules audited.
+Data parity contract.
+API endpoints added.
+Mismatch severity rules.
+INDUSINDBK result.
+RELIANCE result.
+NIFTY result.
+BANKNIFTY result.
+SENSEX result.
+P0/P1/P2 mismatches found.
+Fixes made, if any.
+Deferred migrations.
+Tests and counts.
+Production verification.
+Final verdict.
+====================================================
+PHASE 7 — TESTS REQUIRED
+
+Add/update tests:
+
+data parity GET endpoint requires owner.
+anonymous request returns 401.
+malformed symbol returns 400.
+valid symbol returns observations array.
+batch endpoint handles default symbols.
+P0 mismatch detected for different trade-grade LTP.
+P0 mismatch detected when report-grade can drive signals.
+P0 mismatch detected when stale data marked trade-grade.
+P1 mismatch detected for missing source.
+P1 mismatch detected for missing as-of.
+P2 mismatch detected for rounding only.
+INFO returned for not applicable module.
+INDUSINDBK parity result includes Paper Trading EQ observation.
+RELIANCE parity result includes Swing Queue observation.
+NIFTY parity result includes report-grade index facade observation.
+BANKNIFTY parity result includes F&O diagnostics observation if available.
+SENSEX parity result includes index/report observation if available.
+No Telegram send occurs.
+No DB mutation occurs unless explicitly intended.
+No order path touched.
+Broker execution remains disabled.
+Provider import guard remains green.
+Checkpoint 1 tests remain green.
+Checkpoint 2 tests remain green.
+Checkpoint 2.5 tests remain green.
+
+Run:
+
+pnpm --filter @workspace/api-server run typecheck
+pnpm --filter @workspace/api-server run typecheck:libs
+pnpm --filter @workspace/api-server exec vitest run src/lib/dataParity.test.ts src/lib/canonical.test.ts src/lib/marketData.test.ts src/lib/daily.test.ts src/lib/paper.test.ts src/lib/swing.test.ts src/lib/fno.test.ts src/lib/dataHealth.test.ts src/routes/**/*.test.ts
+pnpm --filter @workspace/scanner exec vitest run
+pnpm --filter @workspace/scripts run index:llm
+pnpm --filter @workspace/scripts run index:llm:check
+
+If full suite times out, run in batches and report:
+
+batch name
+file count
+pass count
+fail count
+exit code
+====================================================
+PHASE 8 — PRODUCTION VERIFICATION
+
+After publish, verify production:
+
+Production contains Checkpoint 3 build.
+Endpoints exist.
+Anonymous access returns 401.
+Malformed symbol returns 400.
+Owner-auth result works or manual checklist provided.
+/api/data-parity/symbol/INDUSINDBK returns result.
+/api/data-parity/symbol/RELIANCE returns result.
+/api/data-parity/symbol/NIFTY returns result.
+/api/data-parity/symbol/BANKNIFTY returns result.
+/api/data-parity/symbol/SENSEX returns result.
+Batch check works.
+No secrets exposed.
+No Telegram sent.
+No real order placed.
+Broker execution remains disabled.
+Provider import guard remains green.
+Checkpoint 1 remains prod verified.
+Checkpoint 2 remains prod verified.
+Checkpoint 2.5 remains prod verified.
+Global data-health still works.
+Telegram alert dedup still works.
+Swing TTL still works.
+F&O exit monitoring remains dev verified, live evidence pending.
+Report updated with actual production results.
+
+Production result table:
+
+Symbol	Verdict	P0	P1	P2	Notes
+INDUSINDBK					
+RELIANCE					
+NIFTY					
+BANKNIFTY					
+SENSEX					
+====================================================
+FINAL VERDICT
+
+Final verdict must be exactly one:
+
+CANONICAL_DATA_CHECKPOINT_3_PROD_VERIFIED
+CANONICAL_DATA_CHECKPOINT_3_DEV_VERIFIED
+CANONICAL_DATA_CHECKPOINT_3_PARTIAL_SOURCE_GAP_REMAINS
+CANONICAL_DATA_CHECKPOINT_3_BUILD_NOT_DEPLOYED
+ROLLBACK_REQUIRED
+
+Use CANONICAL_DATA_CHECKPOINT_3_PROD_VERIFIED only if production is published and verified.
+
+Use CANONICAL_DATA_CHECKPOINT_3_DEV_VERIFIED if implementation/tests pass but production verification is pending.
+
+Use CANONICAL_DATA_CHECKPOINT_3_PARTIAL_SOURCE_GAP_REMAINS if the API works but P0/P1 mismatches remain.
+
+Use ROLLBACK_REQUIRED if secrets leak, broker execution turns on, real orders are placed, stale/report-grade data can drive trades, or destructive changes occur.
+
+====================================================
+ACCEPTANCE CRITERIA
+
+Checkpoint 3 is accepted only if:
+
+Data Parity API exists.
+Owner-only access is enforced.
+INDUSINDBK can be checked.
+RELIANCE can be checked.
+NIFTY can be checked.
+BANKNIFTY can be checked.
+SENSEX can be checked.
+Source/as-of/freshness/tradeGrade/reportGrade are shown.
+P0/P1/P2 mismatches are classified.
+No module silently disappears from results.
+No trading logic changed.
+No report-grade data can drive signals.
+No report-grade data can drive paper trades.
+Broker execution remains disabled.
+No real orders are placed.
+No secrets exposed.
+Tests pass.
+LLM index fresh.
+Report updated.
+
+This checkpoint will not fix every data path yet, but it will finally show us **where the website still disagrees with itself**.

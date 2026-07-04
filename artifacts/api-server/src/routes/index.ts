@@ -29,6 +29,7 @@ import alertsRouter from "./alerts";
 import dailyAnalysisRouter from "./dailyAnalysis";
 import dataHealthRouter from "./dataHealth";
 import parityRouter from "./parity";
+import dataParityRouter from "./dataParity";
 import { startInstFlowsRefresher } from "../lib/instFlows";
 import { triggerKiteWarmup } from "../lib/kiteWarmup";
 import { scheduleBootJob, BOOT_STAGGER_MS } from "../lib/bootScheduler";
@@ -70,6 +71,7 @@ router.use(alertsRouter);               // /alerts/* — owner-only alert diagno
 router.use(dailyAnalysisRouter);        // /daily-analysis/* — owner-only pre/post market daily analysis report management (PREPOST bot, DB dedup, history)
 router.use(dataHealthRouter);           // /data-health/market — PUBLIC canonical market data health (session+feed+market-session, no secrets)
 router.use(parityRouter);               // /parity/* — owner-only Deterministic Parity Verification Harness (dry_run, replay, status — no Telegram to real channel)
+router.use(dataParityRouter);           // /data-parity/* — owner-only Checkpoint 3 Data Parity API (requireOwnerStrict; cross-module symbol/index observation diff, read-only)
 
 // Kick off background fetcher (FII/DII + participant OI) on first router import.
 // W6-P4A: staggered to the back of the cold-start window (heaviest boot job —

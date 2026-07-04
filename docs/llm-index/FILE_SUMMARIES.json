@@ -966,6 +966,81 @@
     "hash": "2f4a04b455ebd504"
   },
   {
+    "path": "artifacts/api-server/src/lib/dataParity/classify.test.ts",
+    "purpose": "test",
+    "lines": 210,
+    "exports": [],
+    "externalImports": [
+      "vitest"
+    ],
+    "routes": [],
+    "hash": "34cf9c3797fabb00"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/dataParity/classify.ts",
+    "purpose": "lib",
+    "lines": 240,
+    "exports": [
+      "TRADE_GRADE_FRESH_BUDGET_SEC",
+      "PRICE_DIVERGENCE_P0_PCT",
+      "PRICE_DIVERGENCE_P1_PCT",
+      "STALENESS_DIVERGENCE_P1_MIN",
+      "classifyPriceDivergence",
+      "classifyStalenessDivergence",
+      "classifySourceDivergence",
+      "classifyTradeGradeDivergence",
+      "classifyModuleUnavailable",
+      "buildDataParityMismatches",
+      "deriveOverallSeverity",
+      "buildDataParityResult"
+    ],
+    "externalImports": [],
+    "routes": [],
+    "hash": "176a5e6160adaac1"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/dataParity/observe.ts",
+    "purpose": "lib",
+    "lines": 658,
+    "exports": [
+      "observeModule",
+      "observeAllModules"
+    ],
+    "externalImports": [
+      "drizzle-orm",
+      "@workspace/db"
+    ],
+    "routes": [],
+    "hash": "33df4885feec3b6b"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/dataParity/types.ts",
+    "purpose": "lib",
+    "lines": 179,
+    "exports": [
+      "DataParityModuleId",
+      "DATA_PARITY_MODULE_LABELS",
+      "DataParityAssetType",
+      "DataParityFreshnessClass",
+      "DataParityObservationKind",
+      "DataParityObservationStatus",
+      "DataParityObservation",
+      "DataParitySeverity",
+      "DataParityMismatchKind",
+      "DataParityMismatch",
+      "DataParityOverallSeverity",
+      "DataParityResult",
+      "INDEX_MODULES",
+      "EQUITY_MODULES",
+      "modulesFor",
+      "DATA_PARITY_TEST_SYMBOLS",
+      "INDEX_KEY_MAP"
+    ],
+    "externalImports": [],
+    "routes": [],
+    "hash": "c810f2ab26349a2c"
+  },
+  {
     "path": "artifacts/api-server/src/lib/dataProvider.ts",
     "purpose": "lib",
     "lines": 51,
@@ -5674,6 +5749,22 @@
     "hash": "b8cefef236e28fd3"
   },
   {
+    "path": "artifacts/api-server/src/routes/__tests__/dataParityRouteAuth.test.ts",
+    "purpose": "api-route",
+    "lines": 204,
+    "exports": [],
+    "externalImports": [
+      "vitest",
+      "express",
+      "cookie-parser",
+      "node:http",
+      "node:crypto",
+      "node:net"
+    ],
+    "routes": [],
+    "hash": "99f19ec033160c5a"
+  },
+  {
     "path": "artifacts/api-server/src/routes/__tests__/diagnosticRouteAuth.test.ts",
     "purpose": "api-route",
     "lines": 598,
@@ -6030,6 +6121,20 @@
     "hash": "3424f3ef3424df56"
   },
   {
+    "path": "artifacts/api-server/src/routes/dataParity.ts",
+    "purpose": "api-route",
+    "lines": 121,
+    "exports": [],
+    "externalImports": [
+      "express"
+    ],
+    "routes": [
+      "GET /data-parity/symbol/:symbol",
+      "POST /data-parity/check"
+    ],
+    "hash": "b6e12d081ed8ea79"
+  },
+  {
     "path": "artifacts/api-server/src/routes/deepscan.ts",
     "purpose": "api-route",
     "lines": 55,
@@ -6146,13 +6251,13 @@
   {
     "path": "artifacts/api-server/src/routes/index.ts",
     "purpose": "api-route",
-    "lines": 107,
+    "lines": 109,
     "exports": [],
     "externalImports": [
       "express"
     ],
     "routes": [],
-    "hash": "64d2b7f81d041995"
+    "hash": "c72f277c2dfd2c67"
   },
   {
     "path": "artifacts/api-server/src/routes/indices.ts",
@@ -6922,18 +7027,18 @@
   {
     "path": "artifacts/scanner/src/lib/infraHealth.test.ts",
     "purpose": "test",
-    "lines": 515,
+    "lines": 565,
     "exports": [],
     "externalImports": [
       "vitest"
     ],
     "routes": [],
-    "hash": "5b4d2387f9e3578f"
+    "hash": "9f794de5c0b0d6dd"
   },
   {
     "path": "artifacts/scanner/src/lib/infraHealth.ts",
     "purpose": "lib",
-    "lines": 536,
+    "lines": 589,
     "exports": [
       "Severity",
       "SEVERITY_LABEL",
@@ -6958,7 +7063,7 @@
     ],
     "externalImports": [],
     "routes": [],
-    "hash": "fcf9b4dfb6799410"
+    "hash": "604e6fec5f2ddfc1"
   },
   {
     "path": "artifacts/scanner/src/lib/optionChainFilters.test.ts",
@@ -7786,7 +7891,7 @@
   {
     "path": "artifacts/scanner/src/pages/infra-health.tsx",
     "purpose": "ui-page",
-    "lines": 3046,
+    "lines": 3284,
     "exports": [],
     "externalImports": [
       "react",
@@ -7801,7 +7906,7 @@
       "@/components/infra/ShadowDiagnosticsPanel"
     ],
     "routes": [],
-    "hash": "a354bc99d3cf3304"
+    "hash": "c7d1d20689192baa"
   },
   {
     "path": "artifacts/scanner/src/pages/kite.tsx",

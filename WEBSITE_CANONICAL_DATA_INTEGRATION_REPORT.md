@@ -635,3 +635,161 @@ All exit code 0. (Full suite + typecheck + scanner + LLM index were already re-r
 **`CANONICAL_DATA_CHECKPOINT_2_5_PROD_VERIFIED`**
 
 Production now runs a build that boots strictly after commit `e442c8b` (two boot events at `1783155864695`/`1783155869819`, pid 19, on the `db1e745` "Published your App" commit whose diff against `e442c8b` touches zero application code). Against that live, currently-serving source: `dailyReports.ts` imports only the report-grade facade and never the raw `kiteIndexQuotes` provider; `reportGradeIndexQuotes.ts` hard-codes `tradeGrade`/`canDriveSignals`/`canDrivePaperTrades` to `false` on every row and `canDriveReports: true` only when genuinely available; `providerImportGuard` passes (19/19) with zero allowlist growth; the trade-grade router/policy were untouched; post-boot production logs show a healthy process (transient cold-start healthchecks only, no crash loop), normal scan/data-pump activity, zero Telegram sends, zero order-placement or secret-related log lines, and no regression signal on Checkpoint 1/2 surfaces. The only unresolved item — live exercise of the owner-only post-market Telegram preview — is blocked purely by scheduling and the standing no-owner-password rule, not by any defect, and is fully covered by green source-level tests plus a manual checklist for the owner. No new code was written this pass beyond documentation; no trading logic, thresholds, broker-execution, or trade-grade freshness rules were touched.
+
+---
+
+## Checkpoint 3 — Owner-only Data Parity API + Infra Health consumer (2026-07-04)
+
+### 1. Scope
+
+A production-safe, **diagnostic-first** cross-module comparison surface: for one of the five
+canonical Checkpoint-3 symbols (`INDUSINDBK`, `RELIANCE`, `NIFTY`, `BANKNIFTY`, `SENSEX`), collect
+how each of 13 already-existing, already-computed modules currently sees that symbol's price, then
+classify divergences into severities. This is a **read-only snapshot tool for the owner**, not a
+new data path: it never migrates any consumer, never fetches data no consumer already fetches, and
+never influences trading/strategy/threshold logic. Per the governing do-not-do list: no broker
+execution, no real orders, no Telegram sends, no destructive migrations, no owner-password use.
+
+### 2. Contract (`lib/dataParity/types.ts`)
+
+- `DataParityModuleId` — 13 stable module identifiers: `router`, `reportGrade`, `scanner`,
+  `watchlist`, `portfolio`, `paperEq`, `swingQueue`, `charting`, `diagnostics`, `fno`,
+  `optionChain`, `dailyReports`, `globalHealth`.
+- `DataParityObservation` — one module's view of one symbol at capture time: `status` (`OK` |
+  `UNAVAILABLE`, with `reason` populated only when unavailable — never fabricated), `kind`
+  (`quote`/`candle_close`/`frozen_plan`/`health`/`not_applicable`), `freshnessClass`
+  (`trade_grade`/`report_grade`/`cache`/`frozen`/`not_applicable` — the freshness *policy* a value
+  was captured under, so cross-class comparisons can be handled conservatively instead of as
+  false-positive divergences), `price`, `asOf`, `freshnessSec`, `source`, `trustTier`, `tradeGrade`.
+- `DataParityMismatch` — `severity` (`P0`/`P1`/`P2`/`INFO`), `kind`
+  (`PRICE_DIVERGENCE`/`STALENESS_DIVERGENCE`/`SOURCE_DIVERGENCE`/`TRADE_GRADE_DIVERGENCE`/
+  `MODULE_UNAVAILABLE`), the two modules being compared, both raw values, and a human description.
+- `modulesFor(assetType)` — a module-applicability registry so indices are never checked against
+  equity-only modules (Portfolio, Watchlist, Paper EQ, Swing Queue, Stock Intelligence) and
+  equities are never checked against index-only F&O modules (F&O Diagnostics is
+  NIFTY/BANKNIFTY/SENSEX-only, matching `OPTION_INDICES`).
+- `DATA_PARITY_TEST_SYMBOLS` — the five canonical symbols this Checkpoint is scoped to; the API
+  rejects any other symbol with `UNKNOWN_SYMBOL` rather than silently widening scope.
+
+### 3. Classification rules (`lib/dataParity/classify.ts`, pure, unit-tested)
+
+Deliberately conservative to avoid false-positive P0s across modules with legitimately different
+freshness policies (e.g. a report-grade same-day quote is never compared as if it shared the
+10-minute trade-grade budget):
+
+| Rule | Threshold | Severity |
+|---|---|---|
+| `PRICE_DIVERGENCE` | ≤0.1% | no mismatch |
+| | 0.1%–0.5% | P1 |
+| | >0.5% AND both sides trade-grade+fresh (≤10 min) | **P0** |
+| | >0.5% otherwise (cross-class) | P1 (capped) |
+| `STALENESS_DIVERGENCE` (only compared when both sides claim fresh) | asOf drift ≤5 min | no mismatch |
+| | asOf drift >5 min | P1 |
+| `SOURCE_DIVERGENCE` (provider differs, prices agree) | — | P2 |
+| `TRADE_GRADE_DIVERGENCE` (tradeGrade flag differs — often by design) | — | INFO |
+| `MODULE_UNAVAILABLE` | router unavailable | P1 |
+| | any other module unavailable | INFO |
+
+`buildDataParityResult` composes `buildDataParityMismatches` (pairwise over every OK observation,
+plus one unavailable-flag per UNAVAILABLE observation) and `deriveOverallSeverity`
+(worst-of-P0/P1/P2/INFO/OK) into the final `DataParityResult`.
+
+### 4. Observation collectors (`lib/dataParity/observe.ts`, 13 collectors)
+
+Each `observe*` function reads ONE existing module's already-computed view — never a new fetch,
+never a mutating call:
+
+| # | Module | Read path | Notes |
+|---|---|---|---|
+| 1 | Canonical Router | `getIndexQuote` / `getEquityQuoteResolved` (`marketData/router`) | The trade-grade authoritative path itself. |
+| 2 | Report-Grade Index Quotes | `getReportGradeIndexQuotes("DISPLAY_ONLY")` | Index-only; always `tradeGrade:false` by the facade's own design (Checkpoint 2.5). |
+| 3/4/6 | Scanner / Watchlist / Paper EQ | `getAllScannedRows()` (shared NSE-500 scan cache) | All three currently draw from the same cache — no separate live pull path exists for watchlist indicators or paper-EQ candidate pricing; documented as a real architectural finding, not fixed here (Checkpoint 3 is diagnostic-only). |
+| 5 | Portfolio | — | Honest `UNAVAILABLE`: holdings are priced client-side, no server-side pricing path exists to observe. |
+| 7 | Swing Queue | Direct read-only `db.select` on `swing_order_staging`, latest row | Deliberately does **not** call `listSwingOrders()`, which mutates via `expireStaleSwingOrders()`. |
+| 8 | Charting | `getChartCandles(symbol, segment, "1D")` | Last daily candle close. |
+| 9 | Stock Intelligence | `buildSymbolDiagnostic(symbol, "EQUITY")` | Equity-only, same path as the real `/data/diagnostics` route. |
+| 10 | F&O Diagnostics | `deriveSignalReadiness` composed the same way as `/api/fno/data-health` | Index-only (NIFTY/BANKNIFTY/SENSEX); session+feed+spot+option-chain, thresholds mirror `routes/fno.ts` exactly. |
+| 11 | Option Chain Spot | `getSpotForUnderlying(symbol)` | |
+| 12 | Pre/Post-Market Reports | `getReportGradeIndexQuotes("REPORT_POST_MARKET")` | Reuses the exact same report-grade facade the real report builders call. |
+| 13 | Global Data Health | `buildGlobalDataHealth()` | System-level rollup, not a per-symbol price — `price` stays `null` so it can only ever participate in `MODULE_UNAVAILABLE` checks, never a spurious price/staleness mismatch. |
+
+Every collector wraps its read in try/catch and returns an explicit `UNAVAILABLE` observation with
+an honest `reason` on any failure — never throws, never fabricates a value. `observeModule` adds one
+more defensive wrapper in case a future collector regresses that contract.
+
+### 5. API routes (`routes/dataParity.ts`)
+
+- `GET /api/data-parity/symbol/:symbol` — single-symbol snapshot.
+- `POST /api/data-parity/check` — batch, body `{ symbols: string[] }`, capped at 10 (only 5 valid
+  symbols exist; this is a hard ceiling against a malformed/oversized payload).
+- Both gated by `requireOwnerStrict` (**not** `requireOwner`) — no anonymous GET bypass even when
+  public-access mode is enabled, matching the existing pattern for owner-only surfaces that expose
+  per-module data-source detail (e.g. the Telegram preview endpoint from Checkpoint 1).
+- Validation errors: `UNKNOWN_SYMBOL` (symbol outside the five canonical test symbols),
+  `SYMBOLS_REQUIRED` (empty batch), `TOO_MANY_SYMBOLS` (batch >10).
+- Zero broker/order code touched; zero Telegram code touched; zero writes — purely composes reads
+  already exposed via other modules' existing functions.
+
+### 6. Infra Health frontend consumer (`pages/infra-health.tsx`, `lib/infraHealth.ts`)
+
+- New **Data Parity** section on `/infra-health` (owner-only), placed after the existing ETF
+  Recognition section, following the same `SectionShell` + local-`useState` + on-demand-fetch
+  pattern already used by the Equity Risk Diagnostics and ETF Recognition sections — **not** the
+  `useEndpoint` auto-refresh hook, so this section never triggers a live Kite/F&O read on the
+  dashboard's normal 30–60s refresh cycle. It stays idle (`disabled` severity, explicit "not yet
+  run" copy) until the owner ticks symbols and clicks "Run parity check".
+- Renders, per symbol: an overall severity badge, a per-module observation table (status, price,
+  as-of age via the existing `formatAge` helper, source, trade-grade flag), and a mismatch list
+  with per-mismatch severity icons.
+- Pure severity helpers added to `lib/infraHealth.ts`: `dataParitySeverityForOverall` (maps
+  `OK`→ok, `INFO`→info-as-ok, `P2`/`P1`→warn, `P0`→fail onto the shared `Severity` type) and
+  `deriveDataParitySectionSeverity` (rolls up per-symbol severities via the existing `rollUp`
+  helper; `fail` on a fetch error, `disabled` when no check has been run yet — mirroring the
+  on-demand pattern rather than the "OK-until-loaded" pattern the auto-refresh sections use, since
+  an unrun on-demand check is genuinely neither OK nor a failure).
+- Frontend response types are hand-mirrored (not cross-artifact-imported, per monorepo convention
+  that artifacts never import each other) from `lib/dataParity/types.ts`; the mirrored shapes were
+  diffed field-by-field against the source file during this pass to confirm no drift.
+- Zero change to any other Infra Health section, zero change to any trading/signal/scheduler code.
+
+### 7. Tests
+
+| Suite | Result |
+|---|---|
+| `lib/dataParity/classify.test.ts` (pure rule unit tests) | passing (written in T002) |
+| `routes/__tests__/dataParityRouteAuth.test.ts` (auth + validation contract) | **10/10 passing** — anonymous 401 with public-mode OFF, anonymous 401 with public-mode ON (critical: no bypass), owner-cookie 200 (single + batch), unknown-symbol 400, empty-batch 400, oversized-batch 400 |
+| `artifacts/scanner/src/lib/infraHealth.test.ts` | **52/52 passing** (includes the new Data Parity severity-helper cases) |
+| `pnpm run typecheck` (api-server + scanner, full) | clean, exit 0 |
+
+Collector correctness (T003) is covered by typecheck-green + a manual read confirming no collector
+calls a mutating function (`scanAll`, `runEquityPaperTradingTick`, `listSwingOrders`, any
+report-send function) — this is a route-contract + classification-rule test suite, not a
+collector-live-data test suite, since collectors intentionally reuse already-tested read paths
+(router, scanner cache, chart candles, diagnostics, F&O readiness, option chain, report-grade
+facade) rather than introducing new ones.
+
+### 8. What was intentionally NOT done
+
+- No consumer's data path was migrated — Scanner/Watchlist/Paper-EQ still share the same cache,
+  Portfolio still has no server-side pricing path; Checkpoint 3 **documents** these facts via
+  `UNAVAILABLE`/shared-cache observations, it does not fix them.
+- No trading/strategy/threshold/sizing/broker/order-execution code was touched.
+- No Telegram test sends, no destructive migrations, no owner-password request or use.
+- Production republish/live verification of this checkpoint was not attempted in this pass (see
+  §9) — consistent with the pattern established in Checkpoints 1/2/2.5, where dev-verification and
+  prod-verification are separate, explicitly-labelled passes.
+
+### 9. Production verification
+
+**Not yet attempted.** Per the pattern established in Checkpoints 1/2/2.5, this section will be
+completed in a follow-up pass once the owner republishes and a fresh deployment boot event
+post-dating this commit is confirmed in deployment logs.
+
+### 10. Final verdict (this pass)
+
+**`CANONICAL_DATA_CHECKPOINT_3_DEV_VERIFIED`**
+
+All 13 collectors, the classification engine, the owner-only API, and the Infra Health frontend
+consumer are implemented, typecheck-clean, and covered by passing unit/contract tests. No
+production verification has been performed yet — do not treat this as `PROD_VERIFIED` until a
+fresh post-commit deployment boot event is confirmed, per the standing verification protocol.

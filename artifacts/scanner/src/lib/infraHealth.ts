@@ -513,6 +513,59 @@ export function deriveSystemAlertHealthSeverity(
   return { severity: "ok", reasons };
 }
 
+// ───────────────────────────────────────────────────────────────────────────
+// Checkpoint 3 (2026-07-04): Data Parity — pure severity for the owner-only
+// GET /api/data-parity/symbol/:symbol and POST /api/data-parity/check
+// diagnostics. Purely observational: it compares what each of 13 read paths
+// currently reports for a symbol and classifies divergence. It NEVER touches
+// scoring, gates, thresholds, or any trading/broker path, and this helper
+// does not either — it only maps an already-computed `overallSeverity` onto
+// the dashboard's five-value `Severity` scale for badge colouring.
+//
+// Mapping rationale: P0 (contradictory signal direction) is the only case
+// that must escalate to "fail" — it means a trader could see BUY on one
+// screen and SELL on another for the same symbol at the same instant. P1/P2
+// (stale source, missing module, price drift) are "warn" — worth a look, not
+// an incident. INFO (e.g. expected trade-grade vs display-grade divergence)
+// and OK both render "ok" — they are not a problem.
+// ───────────────────────────────────────────────────────────────────────────
+
+export type DataParityOverallSeverity = "OK" | "INFO" | "P2" | "P1" | "P0";
+
+export interface DataParityResultLite {
+  symbol: string;
+  overallSeverity: DataParityOverallSeverity;
+}
+
+export function dataParitySeverityForOverall(overall: DataParityOverallSeverity): Severity {
+  switch (overall) {
+    case "P0":
+      return "fail";
+    case "P1":
+    case "P2":
+      return "warn";
+    case "INFO":
+    case "OK":
+    default:
+      return "ok";
+  }
+}
+
+/**
+ * Section severity for the on-demand Data Parity panel. This section does
+ * NOT auto-run on page load (it triggers live Kite/F&O reads per symbol) —
+ * so "no results yet" is "disabled" (not yet checked), never "fail".
+ */
+export function deriveDataParitySectionSeverity(state: {
+  results: DataParityResultLite[] | null;
+  error: string | null;
+  loading: boolean;
+}): Severity {
+  if (state.error) return "fail";
+  if (!state.results || state.results.length === 0) return "disabled";
+  return rollUp(state.results.map((r) => dataParitySeverityForOverall(r.overallSeverity)));
+}
+
 export function derivePublicFreshness(
   input: { scanDate: string | null; intradayTimestamps: Array<string | null | undefined> },
   nowMs: number,
