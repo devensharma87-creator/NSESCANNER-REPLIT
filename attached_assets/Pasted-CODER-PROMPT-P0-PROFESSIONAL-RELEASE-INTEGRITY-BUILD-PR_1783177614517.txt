@@ -1,0 +1,488 @@
+CODER PROMPT — P0 PROFESSIONAL RELEASE INTEGRITY + BUILD PROOF + CHECKPOINT 3 DEPLOYMENT GATE
+
+Current owner instruction:
+
+No more incomplete work.
+No more “it should work.”
+No more covering up.
+No more repeated same issue.
+No more moving to the next checkpoint before the current one is truly live.
+No more claiming production verification without hard evidence.
+No more childish placeholder output.
+No more multiple data paths without proof.
+No more app behaving differently across tabs.
+
+The owner wants the platform built cleanly, accurately, professionally, efficiently, reliably, and in a way that can actually be verified.
+
+This is now a release-quality and verification discipline task.
+
+====================================================
+CURRENT ACCEPTED MILESTONES
+====================================================
+
+1. SIGNAL_DATA_NOTIFICATION_PARITY_DETERMINISTIC_PROD_VERIFIED_LIVE_SMOKE_PENDING
+2. GLOBAL_DATA_HEALTH_KITE_RESILIENCE_PROD_VERIFIED
+3. SWING_TTL_LIFECYCLE_PROD_VERIFIED
+4. TELEGRAM_ALERT_QUALITY_PROD_VERIFIED
+5. FNO_EXIT_MONITORING_DEV_VERIFIED
+6. CANONICAL_DATA_CHECKPOINT_1_PROD_VERIFIED
+7. CANONICAL_DATA_CHECKPOINT_2_PROD_VERIFIED
+8. CANONICAL_DATA_CHECKPOINT_2_5_PROD_VERIFIED
+9. SWING_TTL_WARNING_HARMLESS_DOCUMENTED
+10. CANONICAL_DATA_CHECKPOINT_3_DEV_VERIFIED
+11. CANONICAL_DATA_CHECKPOINT_3_BUILD_NOT_DEPLOYED
+
+Checkpoint 3 is built and dev-verified, but production is not proven live because the frontend bundle hash did not change.
+
+Do not start Checkpoint 4.
+
+Do not migrate any more modules.
+
+First fix the release integrity problem permanently.
+
+====================================================
+ABSOLUTE DO-NOT-DO RULES
+====================================================
+
+Do not change trading strategy logic.
+
+Do not change F&O logic.
+
+Do not change Swing logic.
+
+Do not change Auto Strong Buy logic.
+
+Do not change thresholds.
+
+Do not change entry / stop-loss / target formulas.
+
+Do not weaken trade-grade checks.
+
+Do not allow report-grade or stale data to drive signals.
+
+Do not allow report-grade or stale data to drive paper trades.
+
+Do not enable broker execution.
+
+Do not place real orders.
+
+Do not send Telegram test messages.
+
+Do not create fake trades.
+
+Do not fabricate data.
+
+Do not hide missing data.
+
+Do not mark anything production verified without evidence.
+
+Do not perform destructive migrations.
+
+Do not delete rows.
+
+Do not ask for owner/admin password.
+
+Do not trim, rewrite, reorganize, or mention replit.md.
+
+Do not start Checkpoint 4.
+
+Do not work on scanner/charting/option-chain migration yet.
+
+====================================================
+MAIN OBJECTIVE
+====================================================
+
+Build a permanent professional release verification system so every future checkpoint can prove:
+
+1. Which commit is running in production.
+2. Which frontend bundle is live.
+3. Which backend build is live.
+4. When the app was built.
+5. When the app booted.
+6. Which deployment ID is active.
+7. Which environment is serving traffic.
+8. Whether frontend and backend are from the same build.
+9. Whether a checkpoint is truly deployed.
+10. Whether production verification is valid.
+
+Without this, no future checkpoint should be accepted as PROD_VERIFIED.
+
+====================================================
+PHASE 0 — FREEZE CURRENT STATE
+====================================================
+
+Before coding, report the current situation:
+
+| Item | Current Finding |
+|---|---|
+| Current git HEAD |
+| Checkpoint 3 commit |
+| Current production boot time |
+| Current frontend bundle filename |
+| Current frontend bundle Last-Modified |
+| Whether bundle contains Data Parity markers |
+| Whether backend Data Parity routes are live |
+| Current Checkpoint 3 verdict |
+| Why PROD_VERIFIED is blocked |
+
+Expected current verdict:
+
+CANONICAL_DATA_CHECKPOINT_3_BUILD_NOT_DEPLOYED
+
+Do not move forward until this is written clearly.
+
+====================================================
+PHASE 1 — ADD PERMANENT BUILD INFO / VERSION ENDPOINT
+====================================================
+
+Add a permanent production-safe build-info endpoint.
+
+Suggested endpoint:
+
+GET /api/build-info
+
+or repo-correct equivalent.
+
+The endpoint must be public-safe and expose no secrets.
+
+Required response:
+
+```json
+{
+  "app": "marketscanner",
+  "environment": "production",
+  "commitSha": "...",
+  "commitShort": "...",
+  "branch": "...",
+  "buildTime": "...",
+  "bootTime": "...",
+  "deploymentId": "...",
+  "frontendBundleHash": "...",
+  "frontendBundleFile": "...",
+  "apiBuildId": "...",
+  "scannerBuildId": "...",
+  "nodeEnv": "production",
+  "checkpointMarkers": {
+    "canonicalDataCheckpoint1": true,
+    "canonicalDataCheckpoint2": true,
+    "canonicalDataCheckpoint2_5": true,
+    "canonicalDataCheckpoint3": true,
+    "dataParityApi": true,
+    "dataParityInfraHealth": true
+  }
+}
+
+If some fields are not available from Replit environment variables, return:
+
+"unknown"
+
+but do not omit the field.
+
+Rules:
+
+No secrets.
+No tokens.
+No database passwords.
+No private environment values.
+Must work in production.
+Must clearly distinguish build time from boot time.
+Must make it obvious whether production is serving the latest code.
+====================================================
+PHASE 2 — ADD FRONTEND BUILD MARKER
+
+Add a frontend build marker that can be verified from the production bundle.
+
+Required:
+
+Add a safe constant in frontend build:
+APP_BUILD_ID
+APP_COMMIT_SHA
+FRONTEND_BUILD_TIME
+CHECKPOINT_3_DATA_PARITY_UI = true
+Ensure the production bundle contains searchable markers:
+Data Parity
+CHECKPOINT_3_DATA_PARITY_UI
+data-parity
+Add this marker into Infra Health if safe:
+Frontend build ID
+API build ID
+Bundle hash if available
+Build freshness status
+If the frontend and backend build IDs differ, Infra Health must show warning:
+FRONTEND_BACKEND_BUILD_MISMATCH
+====================================================
+PHASE 3 — ADD RELEASE VERIFICATION UTILITY
+
+Create a script or documented command that checks release integrity.
+
+Suggested:
+
+pnpm --filter @workspace/scripts run verify:release
+
+or repo-appropriate equivalent.
+
+It should verify:
+
+Local git HEAD.
+Build-info endpoint.
+Production commit SHA.
+Production boot time.
+Frontend bundle filename.
+Frontend bundle Last-Modified.
+Frontend bundle contains required checkpoint markers.
+Backend API routes are live.
+Frontend/backend build IDs match if available.
+No old bundle still being served.
+
+For Checkpoint 3 specifically, it must check:
+
+/api/build-info says checkpoint3 true.
+Frontend bundle contains “Data Parity”.
+Frontend bundle contains data-parity route/component markers.
+/api/data-parity/symbol/INDUSINDBK route exists and is owner-protected.
+/api/data-parity/symbol/RELIANCE route exists and is owner-protected.
+/api/data-parity/symbol/NIFTY route exists and is owner-protected.
+/api/data-parity/check route exists and is owner-protected.
+====================================================
+PHASE 4 — CHECKPOINT VERDICT RULES
+
+Add explicit verdict rules to WEBSITE_CANONICAL_DATA_INTEGRATION_REPORT.md.
+
+From now on:
+
+PROD_VERIFIED is forbidden unless all are true:
+
+Production build-info matches expected commit.
+Production boot is after checkpoint commit.
+Frontend bundle changed when frontend code changed.
+Frontend bundle contains checkpoint markers.
+Backend routes are live.
+Required APIs are auth-gated.
+Tests pass.
+No secrets exposed.
+No broker execution.
+No real orders.
+No Telegram spam.
+
+If backend restarted but bundle did not change:
+
+BUILD_NOT_DEPLOYED
+
+If API routes are live but frontend marker missing:
+
+PARTIAL_SOURCE_GAP_REMAINS or BUILD_NOT_DEPLOYED depending on scope.
+
+If stale/report-grade data can drive trades:
+
+ROLLBACK_REQUIRED
+
+If broker execution turns on:
+
+ROLLBACK_REQUIRED
+
+If secrets leak:
+
+ROLLBACK_REQUIRED
+
+====================================================
+PHASE 5 — RE-VERIFY CHECKPOINT 3 AFTER BUILD INFO EXISTS
+
+After build-info and frontend markers are implemented and published, re-run Checkpoint 3 production verification.
+
+Required:
+
+/api/build-info returns Checkpoint 3 markers.
+Frontend bundle filename changed from index-DfdVFWMB.js.
+Bundle contains Data Parity markers.
+Data Parity API routes are live and owner-protected.
+Infra Health Data Parity section is present in bundle.
+Anonymous access returns 401.
+Malformed symbol returns 400.
+No secrets exposed.
+No Telegram sent.
+No real orders.
+Broker execution disabled.
+Checkpoint 1 remains PROD_VERIFIED.
+Checkpoint 2 remains PROD_VERIFIED.
+Checkpoint 2.5 remains PROD_VERIFIED.
+
+Only then upgrade:
+
+CANONICAL_DATA_CHECKPOINT_3_PROD_VERIFIED
+
+====================================================
+PHASE 6 — QUALITY GATE FOR ALL FUTURE WORK
+
+Create a professional quality gate checklist and add it to the main report.
+
+Every future checkpoint must include:
+
+Scope freeze.
+Do-not-touch list.
+Current-state audit.
+Exact files touched.
+Exact data paths.
+Source/as-of/freshness handling.
+Trade-grade/report-grade separation.
+Tests and counts.
+Build-info verification.
+Frontend bundle verification if UI changed.
+Backend route verification if API changed.
+Production health verification.
+Owner-only route auth verification.
+No secrets exposed.
+No Telegram spam.
+No real orders.
+Broker execution disabled.
+Final verdict using allowed values only.
+
+No checkpoint can be called complete without this.
+
+====================================================
+PHASE 7 — TESTS REQUIRED
+
+Add/update tests:
+
+/api/build-info returns safe fields.
+/api/build-info exposes no secrets.
+/api/build-info includes commit/build/boot/deployment placeholders.
+/api/build-info includes checkpoint markers.
+Build-info works when env vars are missing.
+Frontend build marker exists.
+Infra Health can render build-info if added.
+Data Parity marker exists in frontend code.
+Release verification utility detects old bundle.
+Release verification utility detects missing marker.
+Release verification utility detects backend/frontend mismatch if implemented.
+Data Parity API tests remain green.
+Provider import guard remains green.
+Checkpoint 1 tests remain green.
+Checkpoint 2 tests remain green.
+Checkpoint 2.5 tests remain green.
+No broker execution path touched.
+No Telegram send occurs.
+
+Run:
+
+pnpm --filter @workspace/api-server run typecheck
+pnpm --filter @workspace/api-server run typecheck:libs
+pnpm --filter @workspace/api-server exec vitest run src/routes/**/*.test.ts src/lib/build.test.ts src/lib/release.test.ts src/lib/dataParity.test.ts src/lib/marketData.test.ts src/lib/daily.test.ts src/lib/paper.test.ts src/lib/swing.test.ts src/lib/fno.test.ts src/lib/dataHealth.test.ts
+pnpm --filter @workspace/scanner exec vitest run
+pnpm --filter @workspace/scripts run index:llm
+pnpm --filter @workspace/scripts run index:llm:check
+
+If full suite times out, run in batches and report exact counts.
+
+====================================================
+PHASE 8 — PRODUCTION VERIFICATION
+
+After publish, verify:
+
+/api/build-info live.
+Build-info has no secrets.
+Build-info boot time is after publish.
+Build-info commit matches expected commit if available.
+Frontend bundle changed.
+Frontend bundle contains build marker.
+Frontend bundle contains Data Parity marker.
+Data Parity routes live.
+Data Parity frontend section present in bundle.
+Release verification utility passes.
+/api/healthz works.
+/api/data-health/global works.
+Telegram alert dedup still works.
+Swing TTL still works.
+F&O exit monitoring remains DEV_VERIFIED, live evidence pending.
+Checkpoint 1 remains PROD_VERIFIED.
+Checkpoint 2 remains PROD_VERIFIED.
+Checkpoint 2.5 remains PROD_VERIFIED.
+No secrets exposed.
+No Telegram spam.
+No real orders.
+Broker execution disabled.
+====================================================
+REPORT REQUIRED
+
+Update:
+
+WEBSITE_CANONICAL_DATA_INTEGRATION_REPORT.md
+
+Add section:
+
+P0 Release Integrity + Build Proof Gate
+
+Include:
+
+Why this was needed.
+Root cause of repeated deployment confusion.
+Build-info endpoint.
+Frontend build marker.
+Release verification utility.
+New PROD_VERIFIED rules.
+Checkpoint 3 re-verification.
+Tests and counts.
+Production evidence.
+Final verdict.
+====================================================
+FINAL VERDICT
+
+Final verdict must be exactly one:
+
+RELEASE_INTEGRITY_AND_CHECKPOINT_3_PROD_VERIFIED
+RELEASE_INTEGRITY_DEV_VERIFIED_CHECKPOINT_3_BUILD_PENDING
+RELEASE_INTEGRITY_PARTIAL_GAP_REMAINS
+CHECKPOINT_3_BUILD_NOT_DEPLOYED
+ROLLBACK_REQUIRED
+
+Use:
+
+RELEASE_INTEGRITY_AND_CHECKPOINT_3_PROD_VERIFIED
+
+only if build-info is live, frontend markers are live, Data Parity API/UI are live, and Checkpoint 3 production verification passes.
+
+Use:
+
+RELEASE_INTEGRITY_DEV_VERIFIED_CHECKPOINT_3_BUILD_PENDING
+
+if code/tests pass but production publish is pending.
+
+Use:
+
+RELEASE_INTEGRITY_PARTIAL_GAP_REMAINS
+
+if build-info exists but frontend/backend proof is incomplete.
+
+Use:
+
+CHECKPOINT_3_BUILD_NOT_DEPLOYED
+
+if production still serves the old bundle.
+
+Use:
+
+ROLLBACK_REQUIRED
+
+if secrets leak, broker execution turns on, real orders are placed, stale/report-grade data can drive trades, Telegram spam returns, or destructive changes occur.
+
+====================================================
+ACCEPTANCE CRITERIA
+
+This task is accepted only if:
+
+Build-info endpoint exists.
+Build-info exposes no secrets.
+Frontend build marker exists.
+Data Parity frontend marker can be found in bundle.
+Production freshness can be proven without guessing.
+Checkpoint 3 production status can be decided with hard evidence.
+No more relying only on process restart logs.
+No more PROD_VERIFIED without bundle/API proof.
+Tests pass.
+LLM index fresh.
+No trading logic changed.
+No broker execution.
+No real orders.
+No Telegram spam.
+Report updated with strict future quality gate.
+
+This is the professional reset. After this, no more “maybe deployed,” no more “same bundle,” no more verbal production claims. Every checkpoint must prove exactly what is live.
