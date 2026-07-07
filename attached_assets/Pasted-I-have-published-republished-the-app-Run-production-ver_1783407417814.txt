@@ -1,0 +1,138 @@
+I have published / republished the app.
+
+Run production verification for the P0 Release Integrity + Build Proof Gate only.
+
+Do not write new feature code.
+Do not start any market-data checkpoint.
+Do not migrate scanner.
+Do not migrate charting.
+Do not migrate option-chain / OI Lab.
+Do not change F&O strategy.
+Do not change Swing strategy.
+Do not change Auto Strong Buy logic.
+Do not change thresholds.
+Do not weaken trade-grade checks.
+Do not enable broker execution.
+Do not place real orders.
+Do not send Telegram test messages.
+Do not perform destructive migrations.
+Do not ask for owner/admin password.
+
+Current verdict:
+
+RELEASE_INTEGRITY_DEV_VERIFIED_BUILD_PENDING
+
+Expected final verdict if production checks pass:
+
+RELEASE_INTEGRITY_PROD_VERIFIED
+
+====================================================
+PRODUCTION VERIFICATION CHECKLIST
+====================================================
+
+1. Confirm production has fresh boot after the release-integrity commit.
+2. Confirm /api/build-info returns HTTP 200 on:
+   https://marketscannerbydev.in/api/build-info
+
+3. Confirm /api/build-info is public-safe and exposes no secrets.
+4. Confirm /api/build-info includes:
+   - app
+   - environment
+   - commitSha
+   - commitShort
+   - branch
+   - buildTime
+   - bootTime
+   - apiBuildId
+   - checkpointMarkers
+
+5. Confirm commitShort is dab4a594 or later.
+6. Confirm bootTime is after the latest publish.
+7. Confirm checkpointMarkers are true for:
+   - checkpoint1
+   - checkpoint2
+   - checkpoint2_5
+   - checkpoint3
+   - dataParityApi
+   - reportGradeFacade
+   - providerImportCompat
+
+8. Confirm frontend bundle changed after publish if frontend marker files were included.
+9. Confirm live frontend bundle contains:
+   - APP_BUILD_ID
+   - FRONTEND_BUILD_TIME
+   - CHECKPOINT_3_DATA_PARITY_UI
+   - DATA_PARITY_INFRA_HEALTH
+   - RELEASE_INTEGRITY_ENABLED
+
+10. Run:
+    pnpm --filter @workspace/scripts run verify:release
+
+11. Confirm verify:release passes all 12 checks.
+12. Confirm /api/healthz works.
+13. Confirm /api/data-health/global works.
+14. Confirm Data Parity API still works and is owner-protected.
+15. Confirm providerImportGuard remains green.
+16. Confirm Checkpoint 1 remains PROD_VERIFIED.
+17. Confirm Checkpoint 2 remains PROD_VERIFIED.
+18. Confirm Checkpoint 2.5 remains PROD_VERIFIED.
+19. Confirm Checkpoint 3 remains PROD_VERIFIED.
+20. Confirm Data Parity provider-import compat remains PROD_VERIFIED.
+21. Confirm no secrets exposed.
+22. Confirm no Telegram spam.
+23. Confirm no real orders placed.
+24. Confirm broker execution remains disabled.
+
+====================================================
+TESTS TO RUN
+====================================================
+
+Run and report exact counts:
+
+pnpm --filter @workspace/api-server run typecheck
+pnpm --filter @workspace/api-server run typecheck:libs
+pnpm --filter @workspace/api-server exec vitest run src/routes/**/*.test.ts src/lib/*build*.test.ts src/lib/*release*.test.ts src/lib/*dataParity*.test.ts src/lib/*marketData*.test.ts src/lib/*daily*.test.ts src/lib/*paper*.test.ts src/lib/*swing*.test.ts src/lib/*fno*.test.ts src/lib/*dataHealth*.test.ts
+pnpm --filter @workspace/scanner exec vitest run
+pnpm --filter @workspace/scripts run index:llm
+pnpm --filter @workspace/scripts run index:llm:check
+
+====================================================
+REPORT UPDATE
+====================================================
+
+Update:
+
+WEBSITE_CANONICAL_DATA_INTEGRATION_REPORT.md
+
+Under:
+
+P0 Release Integrity + Build Proof Gate
+
+Add production verification evidence:
+
+1. /api/build-info production response summary.
+2. Commit/build/boot proof.
+3. Frontend marker proof.
+4. verify:release output.
+5. Regression checks.
+6. Tests and counts.
+7. LLM index status.
+8. Final verdict.
+
+====================================================
+FINAL VERDICT
+====================================================
+
+Final verdict must be exactly one:
+
+- RELEASE_INTEGRITY_PROD_VERIFIED
+- RELEASE_INTEGRITY_DEV_VERIFIED_BUILD_PENDING
+- RELEASE_INTEGRITY_PARTIAL_GAP_REMAINS
+- RELEASE_INTEGRITY_BUILD_NOT_DEPLOYED
+- ROLLBACK_REQUIRED
+
+Use RELEASE_INTEGRITY_PROD_VERIFIED only if /api/build-info, frontend markers, verify:release, tests, and production checks all pass.
+
+Use RELEASE_INTEGRITY_BUILD_NOT_DEPLOYED if production is still running the old build.
+
+Use ROLLBACK_REQUIRED if secrets leak, broker execution turns on, real orders are placed, stale/report-grade data can drive trades, Telegram spam returns, or destructive migration occurs.
