@@ -32,6 +32,8 @@ export interface OptionSignal {
   /** e.g. intraday-15m */
   timeframe?: string;
   vwap?: number;
+  /** True when vwap is a genuine volume-weighted average price. False for cash indices (NIFTY/BANKNIFTY/SENSEX) whose Kite candles carry zero volume — vwap is set to spot as a geometric placeholder and must not be displayed as institutional fair value. */
+  vwapAvailable?: boolean;
   ema9?: number;
   ema21?: number;
   /** Phase-2: intraday EMA20 — confluence-engine input alongside EMA9/EMA50. */
@@ -39,11 +41,11 @@ export interface OptionSignal {
   /** Phase-2: intraday EMA50 — slower trend filter for the confluence engine. */
   ema50?: number;
   rsi?: number;
-  /** DAILY-bar volume profile VAH (legacy). */
+  /** DAILY-bar volume profile VAH (legacy). Null for cash indices (zero volume). */
   valueAreaHigh?: number;
-  /** DAILY-bar volume profile VAL (legacy). */
+  /** DAILY-bar volume profile VAL (legacy). Null for cash indices (zero volume). */
   valueAreaLow?: number;
-  /** DAILY-bar volume profile POC (legacy). */
+  /** DAILY-bar volume profile POC (legacy). Null for cash indices (zero volume). */
   pointOfControl?: number;
   /** Phase-2: INTRADAY fixed volume profile VAH (last 60 15-min bars). Null for cash-index spots whose intraday volume is 0. */
   intradayValueAreaHigh?: number;

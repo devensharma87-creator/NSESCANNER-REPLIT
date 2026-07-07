@@ -1,0 +1,452 @@
+CODER PROMPT — P0-2 ZERO-VOLUME VWAP / VOLUME PROFILE HONESTY FIX + SHADOW COMPARISON
+
+Current accepted production status:
+
+RELEASE_INTEGRITY_PROD_VERIFIED
+USER_FACING_CORE_TABS_DEEP_AUDIT_COMPLETE
+BACKTEST_CHARGES_MODEL_NET_PNL_PROD_VERIFIED
+FNO_COST_MODEL_UNIFICATION_PROD_VERIFIED
+
+Production is live at commitShort 646e43be or later.
+P0-1 F&O cost model unification is fully PROD_VERIFIED.
+Broker execution is disabled.
+No real orders.
+No Telegram spam.
+
+Now start the next P0 only:
+
+P0-2 — ZERO-VOLUME VWAP / VOLUME PROFILE HONESTY FIX
+
+====================================================
+WHY THIS PHASE IS REQUIRED
+====================================================
+
+The audit reports found a major F&O signal honesty issue:
+
+1. NIFTY / BANKNIFTY / SENSEX index candles may carry zero volume.
+2. sessionVwap currently degrades to HLC3 when volume is zero.
+3. Therefore signal drivers labelled as VWAP are not true VWAP.
+4. Volume Profile may return fake/degenerate VAH / VAL / POC when all volumes are zero.
+5. These fake VWAP / VP values can affect F&O signal confidence and displayed signal cards.
+6. Volume breakout may be structurally dead for indices.
+7. Mean reversion may be near-impossible when VWAP degenerates.
+8. Signal cards may show fabricated VWAP / VAH / VAL / POC values.
+
+This phase must make the system honest and fail-closed where volume is unavailable.
+
+====================================================
+STRICT SCOPE
+====================================================
+
+Allowed:
+
+1. Re-audit current VWAP / Volume Profile / index-volume logic first.
+2. Fix zero-volume VWAP honesty.
+3. Fix zero-volume Volume Profile honesty.
+4. Stop publishing fake VAH / VAL / POC when volume is unavailable.
+5. Add clear provenance / unavailable reason.
+6. Add shadow comparison for signal impact.
+7. Add tests.
+8. Update reports.
+9. Verify release integrity.
+
+Not allowed:
+
+Do not change F&O strategy thresholds blindly.
+Do not tune confidence scores.
+Do not optimize win rate.
+Do not change detector weights except where required to remove fake zero-volume inputs.
+Do not change entry/exit logic.
+Do not change touch-vs-close trigger semantics in this phase.
+Do not change SL/target formulas.
+Do not change option premium logic.
+Do not change paper trade opening eligibility except where fake VWAP/VP must no longer qualify a signal.
+Do not enable broker execution.
+Do not place real orders.
+Do not send Telegram tests.
+Do not perform destructive migrations.
+Do not start Charting fixes.
+Do not start Portfolio fixes.
+Do not start Backtesting Phase 3B.
+Do not rewrite historical trades.
+Do not silently alter historical win-rate interpretation.
+Do not claim improved performance without post-fix sample data.
+
+====================================================
+PART A — PRE-FIX RE-AUDIT
+====================================================
+
+Before coding, inspect and report current behavior in:
+
+1. indicators.ts
+2. optionSignals.ts
+3. confluenceEngine.ts
+4. compositeBias.ts, if VWAP/VP used there
+5. kiteIntraday.ts
+6. indexFuturesVolume.ts
+7. chartDatafeed / charting VWAP path
+8. F&O signal card mapping / toSignal()
+9. F&O signal history persistence
+10. Any frontend card displaying VWAP / VAH / VAL / POC
+11. Any tests around sessionVwap / volumeProfile / F&O detectors
+
+Create this table:
+
+| File | Function | Current Behavior | Zero-Volume Behavior | Issue | Severity |
+|---|---|---|---|---|---|
+
+Specifically confirm:
+
+1. Does sessionVwap return HLC3 when cumulative volume is zero?
+2. Does volumeProfile return non-null degenerate profile when all volumes are zero?
+3. Are fake VAH / VAL / POC values published on F&O cards?
+4. Does confluenceEngine score fake VP as bullish/bearish?
+5. Does TREND_CONTINUATION use degraded VWAP as a confidence driver?
+6. Does VWAP_RECLAIM use degraded VWAP?
+7. Does MEAN_REVERSION become near-impossible?
+8. Does VOLUME_BREAKOUT become dead due to zero volume?
+9. Does Charting already have futures-volume VWAP separately?
+10. Is futures-volume VWAP currently excluded from the signal engine?
+
+====================================================
+PART B — DESIGN DECISION
+====================================================
+
+Implement the safe honesty-first design.
+
+Default rule:
+
+If volume is unavailable or cumulative volume is zero, VWAP and Volume Profile must be treated as unavailable, not approximated.
+
+Required behavior:
+
+1. sessionVwap must not silently return HLC3 as VWAP when total volume is zero.
+2. volumeProfile must return null when total volume is zero or non-positive.
+3. Signal context must carry explicit flags/reasons:
+   - vwapAvailable
+   - vwapUnavailableReason
+   - volumeProfileAvailable
+   - volumeProfileUnavailableReason
+   - volumeSource
+4. F&O signal cards must not show VWAP / VAH / VAL / POC if unavailable.
+5. Driver text must not say “above VWAP” if VWAP is unavailable.
+6. Detectors dependent on VWAP/volume profile must either:
+   - skip that driver honestly, or
+   - emit a clear suppressed reason such as INDEX_VOLUME_UNAVAILABLE.
+7. No fake replacement value is allowed.
+
+Acceptable unavailable reasons:
+
+- ZERO_VOLUME_INDEX_CANDLE
+- VOLUME_UNAVAILABLE
+- VOLUME_PROFILE_UNAVAILABLE_ZERO_VOLUME
+- VWAP_UNAVAILABLE_ZERO_VOLUME
+- FUTURES_VOLUME_NOT_WIRED_TO_SIGNALS
+
+====================================================
+PART C — SHADOW COMPARISON REQUIREMENT
+====================================================
+
+Because this can change signal behavior, implement shadow comparison.
+
+Do not hide the behavior change.
+
+Add a shadow diagnostic path that compares:
+
+1. Legacy VWAP/VP behavior
+2. New honest VWAP/VP behavior
+
+For each F&O signal scan cycle, record or expose:
+
+1. Candidate count under legacy behavior.
+2. Candidate count under honest behavior.
+3. Tradeable signal count under legacy behavior.
+4. Tradeable signal count under honest behavior.
+5. Signals demoted because VWAP unavailable.
+6. Signals demoted because Volume Profile unavailable.
+7. Detector affected:
+   - TREND_CONTINUATION
+   - VWAP_RECLAIM
+   - MEAN_REVERSION
+   - VOLUME_BREAKOUT
+   - BASELINE
+8. Confidence delta.
+9. Direction delta CALL/PUT.
+10. Whether tradeability changed.
+
+If storing in DB is too large for this phase, expose via diagnostics endpoint and in-memory last-run summary.
+
+Required diagnostic endpoint or report section:
+
+F&O VWAP/VP HONESTY SHADOW SUMMARY
+
+Required table:
+
+| Index | Detector | Legacy Candidate? | Honest Candidate? | Legacy Confidence | Honest Confidence | Delta | Reason |
+|---|---|---:|---:|---:|---:|---:|---|
+
+====================================================
+PART D — DETECTOR HANDLING
+====================================================
+
+For each detector, implement honest behavior:
+
+1. TREND_CONTINUATION
+
+If VWAP unavailable:
+- do not add “Spot above VWAP” confidence driver.
+- do not use fake HLC3.
+- either score using remaining non-volume factors or demote if VWAP is mandatory.
+- add reason: VWAP_UNAVAILABLE_ZERO_VOLUME.
+
+2. VWAP_RECLAIM
+
+If VWAP unavailable:
+- do not run this detector as VWAP reclaim.
+- suppress with clear reason.
+- do not relabel a candle reversal as VWAP reclaim.
+
+3. MEAN_REVERSION
+
+If VWAP unavailable:
+- do not calculate distance from fake VWAP.
+- suppress with clear reason.
+
+4. VOLUME_BREAKOUT
+
+If volume is zero/unavailable:
+- suppress with clear structural reason.
+- do not show generic “conditions not met” only.
+
+5. BASELINE
+
+If VWAP unavailable:
+- remove VWAP vote from denominator or mark unavailable.
+- do not count fake VWAP vote.
+- ensure confidence formula does not reward fake alignment.
+
+6. CONFLUENCE ENGINE
+
+If Volume Profile unavailable:
+- no VP factor.
+- no fake “above value area” bullish boost.
+- no fake “above POC” driver.
+- no VAH/VAL/POC output.
+
+====================================================
+PART E — CARD / UI HONESTY
+====================================================
+
+F&O signal cards must be honest.
+
+If VWAP unavailable:
+- show “VWAP unavailable — index candle volume unavailable”
+- do not show VWAP value
+- do not show VWAP-based driver
+
+If Volume Profile unavailable:
+- show “Volume Profile unavailable — zero/absent volume”
+- do not show VAH / VAL / POC
+- do not show “above value area” or “above POC”
+
+Required card fields where technically possible:
+
+1. vwapAvailable
+2. vwapUnavailableReason
+3. volumeProfileAvailable
+4. volumeProfileUnavailableReason
+5. volumeSource
+6. vwapSource
+7. vpSource
+
+Do not create scary UI clutter. Use compact honesty badges.
+
+====================================================
+PART F — FUTURES VOLUME VWAP DECISION
+====================================================
+
+Do not wire futures-volume VWAP directly into live signal tradeability in this phase unless already clearly isolated behind a feature flag.
+
+For this phase:
+
+1. Keep the primary fix honesty-first.
+2. If adding futures-volume VWAP, keep it shadow-only or feature-flagged.
+3. Do not allow it to open trades until shadow comparison is reviewed.
+4. Label source clearly:
+   VWAP_SOURCE = INDEX_FUTURES_VOLUME_SHADOW
+5. Add report explaining whether it should become future production signal input.
+
+====================================================
+PART G — TESTS REQUIRED
+====================================================
+
+Add/update tests for:
+
+1. sessionVwap returns null/unavailable when cumulative volume is zero.
+2. sessionVwap does not return HLC3 as VWAP for zero-volume candles.
+3. volumeProfile returns null when total volume is zero.
+4. volumeProfile does not return degenerate VAH / VAL / POC for zero volume.
+5. TREND_CONTINUATION does not add fake VWAP driver.
+6. VWAP_RECLAIM suppresses when VWAP unavailable.
+7. MEAN_REVERSION suppresses when VWAP unavailable.
+8. VOLUME_BREAKOUT suppresses with structural zero-volume reason.
+9. BASELINE confidence does not count fake VWAP vote.
+10. confluenceEngine does not score fake VP.
+11. F&O card does not publish fake VAH / VAL / POC.
+12. Unavailable reasons appear in diagnostics.
+13. Shadow comparison reports legacy-vs-honest delta.
+14. Existing F&O cost model tests remain green.
+15. Existing Backtest Charges tests remain green.
+16. Provider import guard remains green.
+17. Broker execution remains disabled.
+18. No Telegram send occurs.
+
+====================================================
+PART H — COMMANDS TO RUN
+====================================================
+
+Run:
+
+pnpm --filter @workspace/scripts run verify:release
+
+pnpm --filter @workspace/api-server run typecheck
+
+pnpm --filter @workspace/api-server run typecheck:libs
+
+pnpm --filter @workspace/api-server exec vitest run src/lib/*indicator*.test.ts src/lib/*optionSignal*.test.ts src/lib/*confluence*.test.ts src/lib/*fno*.test.ts src/lib/*paper*.test.ts src/lib/*fnoCost*.test.ts src/lib/*backtest*.test.ts src/routes/**/*.test.ts
+
+pnpm --filter @workspace/scanner exec vitest run
+
+pnpm --filter @workspace/scripts run index:llm
+
+pnpm --filter @workspace/scripts run index:llm:check
+
+If any suite times out, split into smaller batches and report exact counts.
+
+====================================================
+PART I — POST-FIX RE-AUDIT
+====================================================
+
+After implementation, re-audit the original findings:
+
+R5 Index candles carry zero volume
+R6 sessionVwap returns HLC3 when volume = 0
+R7 TREND_CONTINUATION “Spot above VWAP” degraded to candle shape
+R8 VWAP_RECLAIM degraded to candle reversal
+R9 MEAN_REVERSION near-impossible due to fake VWAP
+R10 VOLUME_BREAKOUT dead / bad reason
+R11 futures-volume VWAP only charting, not signals
+F-02 fake Volume Profile / fake VAH-VAL-POC / bullish bias
+
+Report:
+
+| Finding | Pre-Fix Status | Post-Fix Status | Evidence | Verdict |
+|---|---|---|---|---|
+
+Expected:
+
+- R5 remains true as market-data fact, but now handled honestly.
+- R6 fixed.
+- R7 fixed or explicitly demoted/driver removed.
+- R8 fixed or suppressed honestly.
+- R9 fixed or suppressed honestly.
+- R10 fixed with structural reason.
+- R11 remains true unless shadow futures-volume path is added.
+- F-02 fixed for fake VP publication and scoring.
+
+====================================================
+PART J — REPORT UPDATE
+====================================================
+
+Update:
+
+1. FULL_MARKET_SCANNER_DEEP_AUDIT_REPORT_2026-07-07.md, if present in repo/docs
+2. MARKET_SCANNER_INDEPENDENT_DEEP_AUDIT_2026-07-07.md, if present in repo/docs
+3. USER_FACING_CORE_TABS_DEEP_AUDIT_REPORT.md
+4. WEBSITE_CANONICAL_DATA_INTEGRATION_REPORT.md
+
+If uploaded audit files are reference artifacts only, do not overwrite them.
+
+Create:
+
+FNO_VWAP_VOLUME_PROFILE_HONESTY_REPORT.md
+
+Include:
+
+1. Original P0 issue.
+2. Current-state re-audit.
+3. Files changed.
+4. sessionVwap behavior change.
+5. volumeProfile behavior change.
+6. Detector handling.
+7. Signal-card honesty changes.
+8. Shadow comparison design.
+9. Tests and counts.
+10. Release integrity result.
+11. Regression checks.
+12. Final verdict.
+
+====================================================
+PART K — PRODUCTION VERIFICATION AFTER PUBLISH
+====================================================
+
+If code/tests pass but production publish is pending, final verdict should be DEV_VERIFIED.
+
+After owner publishes, verify:
+
+1. /api/build-info live with new commit.
+2. verify:release green.
+3. F&O diagnostics exposes VWAP/VP unavailability honestly.
+4. F&O signal cards do not show fake VWAP / VAH / VAL / POC.
+5. Shadow comparison is available.
+6. No broker execution.
+7. No real orders.
+8. No Telegram spam.
+9. No strategy threshold tuning occurred.
+10. Existing P0-1 cost model remains PROD_VERIFIED.
+
+====================================================
+FINAL VERDICT
+====================================================
+
+Final verdict must be exactly one:
+
+- FNO_VWAP_VOLUME_PROFILE_HONESTY_DEV_VERIFIED
+- FNO_VWAP_VOLUME_PROFILE_HONESTY_PROD_VERIFIED
+- FNO_VWAP_VOLUME_PROFILE_HONESTY_PARTIAL_GAP_REMAINS
+- RELEASE_INTEGRITY_REGRESSION_FOUND
+- ROLLBACK_REQUIRED
+
+Use:
+
+FNO_VWAP_VOLUME_PROFILE_HONESTY_DEV_VERIFIED
+
+if code/tests pass but production publish is pending.
+
+Use:
+
+FNO_VWAP_VOLUME_PROFILE_HONESTY_PROD_VERIFIED
+
+only if production shows the fix live, fake VWAP/VP values are no longer published, diagnostics show honest unavailable reasons, shadow comparison is available, tests pass, and no regressions are found.
+
+Use:
+
+FNO_VWAP_VOLUME_PROFILE_HONESTY_PARTIAL_GAP_REMAINS
+
+if fake VWAP/VP values can still affect signal confidence or card output.
+
+Use:
+
+RELEASE_INTEGRITY_REGRESSION_FOUND
+
+if verify:release has a real FAIL.
+
+Use:
+
+ROLLBACK_REQUIRED
+
+if secrets leak, broker execution turns on, real orders are placed, Telegram spam occurs, destructive migration happens, or stale/report-grade data can drive live trades.
+
+Expected result before owner republish:
+
+FNO_VWAP_VOLUME_PROFILE_HONESTY_DEV_VERIFIED

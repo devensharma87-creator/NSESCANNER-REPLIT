@@ -103,7 +103,10 @@ export function avgVolume(vols: number[], period = 20): number {
   return window.reduce((a, b) => a + b, 0) / window.length;
 }
 
-/** Rolling daily VWAP using HLC3 weighted by volume across the lookback window. */
+/**
+ * Rolling daily VWAP using HLC3 weighted by volume across the lookback window.
+ * Returns null when total volume in the window is zero (e.g. cash index candles).
+ */
 export function rollingVwap(
   high: number[],
   low: number[],
@@ -122,11 +125,24 @@ export function rollingVwap(
     pv += typ * vol;
     v += vol;
   }
-  if (v === 0) return close[n - 1] ?? null;
+  if (v === 0) return null;
   return pv / v;
 }
 
-/** Intraday session VWAP (cumulative from start of provided bars). */
+/**
+ * Intraday session VWAP (cumulative from start of provided bars).
+ *
+ * Returns null for every bar whose cumulative volume is still zero.
+ * Cash indices (NIFTY / BANKNIFTY / SENSEX) are computed values — Kite
+ * returns volume=0 for every bar — so the entire series will be null for
+ * those instruments. Callers must check for null before trusting the value
+ * as a real volume-weighted price.
+ *
+ * Previous behaviour (returning HLC3 when cumVol=0) was silently wrong:
+ * it let detectors believe they had a real VWAP when they only had the
+ * typical price, producing fake "VWAP reclaim" and "VWAP above/below"
+ * signals for every F&O index.
+ */
 export function sessionVwap(
   high: number[],
   low: number[],
@@ -141,7 +157,7 @@ export function sessionVwap(
     const vol = volume[i] ?? 0;
     pv += typ * vol;
     v += vol;
-    out[i] = v > 0 ? pv / v : typ;
+    out[i] = v > 0 ? pv / v : null;
   }
   return out;
 }
@@ -179,6 +195,12 @@ export function volumeProfile(
   let pocIdx = 0;
   for (let i = 1; i < bins; i++) if (buckets[i]! > buckets[pocIdx]!) pocIdx = i;
   const totalVol = buckets.reduce((a, b) => a + b, 0);
+  // Return null when there is no real volume — an all-zero bucket set would
+  // produce a degenerate profile (POC at bin 0, VAL=lo, VAH=lo+step) that
+  // looks valid but is entirely price-range derived, not volume-weighted.
+  // Cash indices (NIFTY/BANKNIFTY/SENSEX) always have zero candle volume,
+  // so their Volume Profile is genuinely unavailable.
+  if (totalVol <= 0) return null;
   const targetVA = totalVol * 0.7;
   let vaVol = buckets[pocIdx]!;
   let lower = pocIdx;

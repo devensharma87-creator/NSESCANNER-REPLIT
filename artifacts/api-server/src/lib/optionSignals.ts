@@ -179,6 +179,14 @@ interface Ctx {
   open0: number;
   sessionChangePct: number;
   vwap: number;
+  /**
+   * True only when the session VWAP is a genuine volume-weighted average.
+   * False for cash indices (NIFTY/BANKNIFTY/SENSEX) — their Kite candles
+   * carry zero volume, so `vwap` is set to `spot` as a geometric
+   * placeholder and MUST NOT be surfaced as institutional fair value.
+   * Detectors must gate their VWAP-dependent drivers on this flag.
+   */
+  vwapAvailable: boolean;
   vwapSeries: (number | null)[];
   ema9: number;
   ema21: number;
@@ -312,7 +320,13 @@ function buildContext(cfg: IndexCfg, intra: YahooChart, daily: YahooChart): Ctx 
   const dailyEma50Raw = lastVal(dailyEma50Series);
   const atrDailyRaw   = lastVal(dailyAtrSeries);
 
-  const fullIndicators = vwapRaw != null && ema9Raw != null && ema21Raw != null
+  // vwapAvailable is false for cash indices (NIFTY/BANKNIFTY/SENSEX): Kite
+  // returns volume=0 for every bar, so sessionVwap now correctly returns null
+  // for the entire series. This is a STRUCTURAL gap, not a warm-up gap — we
+  // do NOT include it in the fullIndicators warm-up gate (which would suppress
+  // ALL detectors for index signals). Detectors individually gate on vwapAvailable.
+  const vwapAvailable = vwapRaw != null;
+  const fullIndicators = ema9Raw != null && ema21Raw != null
     && rsi14Raw != null && atr15Raw != null && dailyEma50Raw != null && atrDailyRaw != null
     && dn >= 50;
 
@@ -344,9 +358,10 @@ function buildContext(cfg: IndexCfg, intra: YahooChart, daily: YahooChart): Ctx 
     : null;
   // Phase-2: INTRADAY fixed volume profile over the last 60 15-min bars
   // (~3 trading days of context). Cash-index volume from Kite is 0 for
-  // NIFTY/BANKNIFTY/etc — `volumeProfile` returns null when total volume
-  // is zero, so this is naturally null for those indices and the
-  // confluence engine treats it as a no-op factor.
+  // NIFTY/BANKNIFTY/etc — `volumeProfile` now returns null when totalVol=0
+  // (the degenerate all-zero-bucket profile is correctly rejected), so this
+  // is naturally null for those indices and the confluence engine scores it
+  // as weight=0 ("warm-up — insufficient bars").
   const vpIntraday = intraCloses.length >= 30
     ? volumeProfile(intraHighs, intraLows, intraCloses, intra.volume, 24, 60)
     : null;
@@ -460,7 +475,7 @@ function buildContext(cfg: IndexCfg, intra: YahooChart, daily: YahooChart): Ctx 
   return {
     cfg, spot, open0,
     sessionChangePct: ((spot - open0) / open0) * 100,
-    vwap: effectiveVwap, vwapSeries,
+    vwap: effectiveVwap, vwapAvailable, vwapSeries,
     ema9: effectiveEma9, ema21: effectiveEma21,
     ema20: effectiveEma20, ema50: effectiveEma50,
     ema9Series, ema21Series,
@@ -609,6 +624,80 @@ const VOL_CLAMP_REJECT_RATIO = 1.5;
 
 /** 1. Trend Continuation — strong VWAP+EMA alignment, fresh momentum, RSI in trend zone */
 function detectTrendContinuation(c: Ctx): Detected | null {
+  // ── VWAP-UNAVAILABLE BRANCH ──────────────────────────────────────────────
+  // For cash indices (NIFTY/BANKNIFTY/SENSEX), Kite candle volume is always
+  // zero, so sessionVwap returns null for the entire series and vwapAvailable
+  // is false. When VWAP is unavailable we degrade to EMA-stack-only gating:
+  //   • The ±25 VWAP confidence driver is omitted (honest — not fabricated).
+  //   • Base confidence drops from 45 to 20 (losing the VWAP driver weight).
+  //   • Stop/target geometry falls back to pivot-only (effectiveVwap = spot).
+  //   • An explicit "VWAP data quality" driver is appended so the card is
+  //     transparent about the missing data source.
+  if (!c.vwapAvailable) {
+    const stackBull = c.ema9 > c.ema21 && c.spot > c.ema9;
+    const stackBear = c.ema9 < c.ema21 && c.spot < c.ema9;
+    if (!stackBull && !stackBear) return null;
+    const dir: Direction = stackBull ? "BULLISH" : "BEARISH";
+    const drivers: SignalReason[] = [];
+    let conf = 0;
+    if (dir === "BULLISH") {
+      drivers.push({ label: "EMA 9 > EMA 21 stack", detail: `EMA9 ${c.ema9.toFixed(2)} > EMA21 ${c.ema21.toFixed(2)} — fast above slow.`, weight: 20, bullish: true });
+      conf += 20;
+      if (c.rsi14 >= 52 && c.rsi14 <= 68) { drivers.push({ label: "RSI healthy bullish", detail: `RSI ${c.rsi14.toFixed(1)} in trend zone (52–68).`, weight: 15, bullish: true }); conf += 15; }
+      else if (c.rsi14 > 68) { drivers.push({ label: "RSI overbought caution", detail: `RSI ${c.rsi14.toFixed(1)} — extended; size smaller.`, weight: 5, bullish: false }); conf -= 5; }
+      if (c.vp && c.spot > c.vp.pointOfControl) { drivers.push({ label: "Above POC", detail: `Spot above POC ${c.vp.pointOfControl.toFixed(2)} — value supports buyers.`, weight: 8, bullish: true }); conf += 8; }
+      if (c.lastVol != null && c.lastVol > c.avgVol20 * 1.2) { drivers.push({ label: "Volume confirmation", detail: `Last bar vol ${(c.lastVol / 1e6).toFixed(2)}M > 20-bar avg.`, weight: 8, bullish: true }); conf += 8; }
+    } else {
+      drivers.push({ label: "EMA 9 < EMA 21 stack", detail: `EMA9 ${c.ema9.toFixed(2)} < EMA21 ${c.ema21.toFixed(2)} — fast below slow.`, weight: 20, bullish: false });
+      conf += 20;
+      if (c.rsi14 <= 48 && c.rsi14 >= 32) { drivers.push({ label: "RSI healthy bearish", detail: `RSI ${c.rsi14.toFixed(1)} in trend zone (32–48).`, weight: 15, bullish: false }); conf += 15; }
+      else if (c.rsi14 < 32) { drivers.push({ label: "RSI oversold caution", detail: `RSI ${c.rsi14.toFixed(1)} — bounce risk; size smaller.`, weight: 5, bullish: true }); conf -= 5; }
+      if (c.vp && c.spot < c.vp.pointOfControl) { drivers.push({ label: "Below POC", detail: `Spot below POC ${c.vp.pointOfControl.toFixed(2)} — value supports sellers.`, weight: 8, bullish: false }); conf += 8; }
+      if (c.lastVol != null && c.lastVol > c.avgVol20 * 1.2) { drivers.push({ label: "Volume confirmation", detail: `Last bar vol ${(c.lastVol / 1e6).toFixed(2)}M > 20-bar avg.`, weight: 8, bullish: false }); conf += 8; }
+    }
+    drivers.push({
+      label: "VWAP data quality",
+      detail: "Index spot candles carry zero volume — session VWAP is structurally unavailable; direction from EMA+RSI only.",
+      weight: 0, bullish: dir === "BULLISH",
+    });
+    if ((dir === "BULLISH" && c.htfBias === "BEARISH") || (dir === "BEARISH" && c.htfBias === "BULLISH")) {
+      conf = Math.max(0, conf - 12);
+      drivers.push({ label: "HTF conflict — daily trend opposes", detail: `Daily EMA50 ${c.dailyEma50.toFixed(2)} vs spot ${c.spot.toFixed(2)} suggests counter-trend; size smaller.`, weight: 12, bullish: dir === "BULLISH" });
+    }
+    conf = Math.max(0, Math.min(100, conf));
+    if (conf < 50) return null;
+    const trigger = dir === "BULLISH" ? c.prevSwingHigh : c.prevSwingLow;
+    const stop = dir === "BULLISH"
+      ? Math.min(c.piv.s1, c.spot - c.atrDaily * 0.3)
+      : Math.max(c.piv.r1, c.spot + c.atrDaily * 0.3);
+    const t1 = dir === "BULLISH"
+      ? Math.max(c.piv.r1, c.vp?.valueAreaHigh ?? c.piv.r1) + c.atr15 * 0.3
+      : Math.min(c.piv.s1, c.vp?.valueAreaLow ?? c.piv.s1) - c.atr15 * 0.3;
+    const t2 = dir === "BULLISH" ? c.piv.r2 : c.piv.s2;
+    const dist = Math.abs(c.spot - trigger);
+    const triggerDesc = dir === "BULLISH"
+      ? `15-min close > ${trigger.toFixed(2)} (intraday swing high)`
+      : `15-min close < ${trigger.toFixed(2)} (intraday swing low)`;
+    return {
+      setupKey: "TREND_CONTINUATION",
+      setupName: dir === "BULLISH" ? "Trend Continuation — Long" : "Trend Continuation — Short",
+      setupSummary: dir === "BULLISH"
+        ? "Buy CE on momentum continuation. EMA stack + RSI aligned bullish; enter on next break of intraday swing high. (VWAP unavailable — index candle volume is 0.)"
+        : "Buy PE on momentum continuation. EMA stack + RSI aligned bearish; enter on next break of intraday swing low. (VWAP unavailable — index candle volume is 0.)",
+      direction: dir,
+      confidence: conf,
+      drivers,
+      entryTrigger: triggerDesc + (dist > c.atr15 * 1.5 ? " — currently extended; wait for pullback." : ""),
+      entryLevel: trigger,
+      stopLevel: stop,
+      targetLevel: t1,
+      target2Level: t2,
+      invalidation: dir === "BULLISH"
+        ? `Sustained 15-min close below EMA21 ${c.ema21.toFixed(2)} or below S1 ${c.piv.s1.toFixed(2)}.`
+        : `Sustained 15-min close above EMA21 ${c.ema21.toFixed(2)} or above R1 ${c.piv.r1.toFixed(2)}.`,
+    };
+  }
+  // ── VWAP-AVAILABLE PATH (equity stocks / equity-index futures with real volume) ──
   const aboveVwap = c.spot > c.vwap;
   const stackBull = c.ema9 > c.ema21 && c.spot > c.ema9;
   const stackBear = c.ema9 < c.ema21 && c.spot < c.ema9;
@@ -685,6 +774,11 @@ function detectTrendContinuation(c: Ctx): Detected | null {
 
 /** 2. VWAP Reclaim/Reject — fresh cross of VWAP with momentum */
 function detectVwapReclaim(c: Ctx): Detected | null {
+  // This setup is entirely VWAP-based — the "reclaim" IS the VWAP cross.
+  // Without a real volume-weighted price there is no valid cross to detect.
+  // For cash indices (volume=0) the VWAP series is all null, so any
+  // apparent cross would be fabricated from HLC3. Hard-suppress.
+  if (!c.vwapAvailable) return null;
   const series = c.vwapSeries;
   const closes = c.bars.c;
   const n = closes.length;
@@ -965,30 +1059,51 @@ function detectMeanReversion(c: Ctx): Detected | null {
 
 /** 6. Baseline directional outlook (always-on) — uses dominant VWAP + EMA21 + RSI bias.
  * Lower confidence; emitted for EVERY index so the user always has a directional read.
- * Higher-conviction setups (when they fire) are listed first; baseline is the fallback floor. */
+ * Higher-conviction setups (when they fire) are listed first; baseline is the fallback floor.
+ *
+ * When vwapAvailable=false (cash indices with zero candle volume), the VWAP
+ * vote is dropped and a 3-vote system is used (EMA21, EMA9vsEMA21, RSI).
+ * This avoids the systematic BEARISH bias that would result from scoring
+ * `spot > spot` (effectiveVwap=spot → always false → always one free bearish vote). */
 function detectBaselineOutlook(c: Ctx): Detected | null {
-  const bullVotes = (c.spot > c.vwap ? 1 : 0) + (c.spot > c.ema21 ? 1 : 0) + (c.ema9 > c.ema21 ? 1 : 0) + (c.rsi14 > 50 ? 1 : 0);
-  const bearVotes = 4 - bullVotes;
-  // Tie → resolve toward the intraday session move so a -1.3% day can't show "bullish".
-  const dir: Direction = bullVotes > bearVotes
-    ? "BULLISH"
-    : bullVotes < bearVotes
-      ? "BEARISH"
-      : (c.sessionChangePct >= 0 ? "BULLISH" : "BEARISH");
-  const align = Math.max(bullVotes, bearVotes);
-
-  const conf = 35 + align * 5; // 35–55%
-  const spotAboveVwap = c.spot > c.vwap;
+  let dir: Direction;
+  let align: number;
   const spotAboveEma21 = c.spot > c.ema21;
   const ema9AboveEma21 = c.ema9 > c.ema21;
   const rsiAbove50 = c.rsi14 > 50;
-  const drivers: SignalReason[] = [
-    { label: spotAboveVwap ? "Spot above VWAP" : "Spot below VWAP", detail: `Spot ${c.spot.toFixed(2)} ${spotAboveVwap ? ">" : "<"} VWAP ${c.vwap.toFixed(2)}.`, weight: 12, bullish: spotAboveVwap },
-    { label: spotAboveEma21 ? "Spot above EMA21" : "Spot below EMA21", detail: `Spot ${spotAboveEma21 ? "above" : "below"} EMA21 ${c.ema21.toFixed(2)}.`, weight: 10, bullish: spotAboveEma21 },
-    { label: ema9AboveEma21 ? "EMA 9 > 21" : "EMA 9 < 21", detail: `EMA9 ${c.ema9.toFixed(2)} vs EMA21 ${c.ema21.toFixed(2)}.`, weight: 10, bullish: ema9AboveEma21 },
-    { label: `RSI ${c.rsi14.toFixed(1)}`, detail: `RSI ${rsiAbove50 ? "above" : "below"} 50 — ${rsiAbove50 ? "bullish" : "bearish"} bias.`, weight: 8, bullish: rsiAbove50 },
-  ];
+  const drivers: SignalReason[] = [];
 
+  if (!c.vwapAvailable) {
+    // 3-vote system: EMA21, EMA9vsEMA21, RSI
+    const bullVotes3 = (spotAboveEma21 ? 1 : 0) + (ema9AboveEma21 ? 1 : 0) + (rsiAbove50 ? 1 : 0);
+    const bearVotes3 = 3 - bullVotes3;
+    dir = bullVotes3 > bearVotes3 ? "BULLISH"
+      : bullVotes3 < bearVotes3 ? "BEARISH"
+      : (c.sessionChangePct >= 0 ? "BULLISH" : "BEARISH");
+    align = Math.max(bullVotes3, bearVotes3);
+    drivers.push(
+      { label: spotAboveEma21 ? "Spot above EMA21" : "Spot below EMA21", detail: `Spot ${spotAboveEma21 ? "above" : "below"} EMA21 ${c.ema21.toFixed(2)}.`, weight: 10, bullish: spotAboveEma21 },
+      { label: ema9AboveEma21 ? "EMA 9 > 21" : "EMA 9 < 21", detail: `EMA9 ${c.ema9.toFixed(2)} vs EMA21 ${c.ema21.toFixed(2)}.`, weight: 10, bullish: ema9AboveEma21 },
+      { label: `RSI ${c.rsi14.toFixed(1)}`, detail: `RSI ${rsiAbove50 ? "above" : "below"} 50 — ${rsiAbove50 ? "bullish" : "bearish"} bias.`, weight: 8, bullish: rsiAbove50 },
+      { label: "VWAP data quality", detail: "Index spot candles carry zero volume — VWAP vote omitted from direction score; using EMA+RSI only.", weight: 0, bullish: dir === "BULLISH" },
+    );
+  } else {
+    const spotAboveVwap = c.spot > c.vwap;
+    const bullVotes = (spotAboveVwap ? 1 : 0) + (spotAboveEma21 ? 1 : 0) + (ema9AboveEma21 ? 1 : 0) + (rsiAbove50 ? 1 : 0);
+    const bearVotes = 4 - bullVotes;
+    dir = bullVotes > bearVotes ? "BULLISH"
+      : bullVotes < bearVotes ? "BEARISH"
+      : (c.sessionChangePct >= 0 ? "BULLISH" : "BEARISH");
+    align = Math.max(bullVotes, bearVotes);
+    drivers.push(
+      { label: spotAboveVwap ? "Spot above VWAP" : "Spot below VWAP", detail: `Spot ${c.spot.toFixed(2)} ${spotAboveVwap ? ">" : "<"} VWAP ${c.vwap.toFixed(2)}.`, weight: 12, bullish: spotAboveVwap },
+      { label: spotAboveEma21 ? "Spot above EMA21" : "Spot below EMA21", detail: `Spot ${spotAboveEma21 ? "above" : "below"} EMA21 ${c.ema21.toFixed(2)}.`, weight: 10, bullish: spotAboveEma21 },
+      { label: ema9AboveEma21 ? "EMA 9 > 21" : "EMA 9 < 21", detail: `EMA9 ${c.ema9.toFixed(2)} vs EMA21 ${c.ema21.toFixed(2)}.`, weight: 10, bullish: ema9AboveEma21 },
+      { label: `RSI ${c.rsi14.toFixed(1)}`, detail: `RSI ${rsiAbove50 ? "above" : "below"} 50 — ${rsiAbove50 ? "bullish" : "bearish"} bias.`, weight: 8, bullish: rsiAbove50 },
+    );
+  }
+
+  const conf = (c.vwapAvailable ? 35 : 30) + align * 5; // 35–55% with VWAP, 30–45% without
   const trigger = dir === "BULLISH" ? c.prevSwingHigh : c.prevSwingLow;
   const stop = dir === "BULLISH" ? Math.min(c.vwap, c.ema21) - c.atr15 * 0.5 : Math.max(c.vwap, c.ema21) + c.atr15 * 0.5;
   // Ensure RR >= 1.5 by construction; expand pivot target if it's too tight.
@@ -1023,8 +1138,12 @@ function detectBaselineOutlook(c: Ctx): Detected | null {
     targetLevel: t1,
     target2Level: t2,
     invalidation: dir === "BULLISH"
-      ? `Sustained close below VWAP ${c.vwap.toFixed(2)} flips bias.`
-      : `Sustained close above VWAP ${c.vwap.toFixed(2)} flips bias.`,
+      ? (c.vwapAvailable
+          ? `Sustained close below VWAP ${c.vwap.toFixed(2)} flips bias.`
+          : `Sustained close below EMA21 ${c.ema21.toFixed(2)} flips bias.`)
+      : (c.vwapAvailable
+          ? `Sustained close above VWAP ${c.vwap.toFixed(2)} flips bias.`
+          : `Sustained close above EMA21 ${c.ema21.toFixed(2)} flips bias.`),
   };
 }
 
@@ -1231,6 +1350,7 @@ function toSignal(c: Ctx, d: Detected, tier: "HIGH_CONVICTION" | "BASELINE"): Op
     tradeClass: deriveTradeClass(tier, isSignalHygieneV2Enabled()),
     timeframe: "intraday-15m",
     vwap: round2(c.vwap),
+    vwapAvailable: c.vwapAvailable,
     ema9: round2(c.ema9),
     ema21: round2(c.ema21),
     rsi: round2(c.rsi14),
@@ -1395,6 +1515,7 @@ function buildSignalsForIndex(
           ema20: ctx.ema20,
           ema50: ctx.ema50,
           vwap: ctx.vwap,
+          vwapAvailable: ctx.vwapAvailable,
           vp: ctx.vpIntraday,
           regime: ctx.regime.regime,
           ivRank: null,

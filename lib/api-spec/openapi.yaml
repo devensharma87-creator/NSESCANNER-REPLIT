@@ -2951,14 +2951,17 @@ components:
           description: "FNO_SIGNAL_HYGIENE_V2: TRADEABLE only for STANDARD-tier HIGH_CONVICTION signals the auto-trader may open; INFO_ONLY for BASELINE and any demoted/vetoed (RECOVERY_MODE_VETO / CHASE_RISK_VETO) signal, which is surfaced for context but never auto-traded."
         timeframe: { type: string, description: "e.g. intraday-15m" }
         vwap: { type: number }
+        vwapAvailable:
+          type: boolean
+          description: "True when vwap is a genuine volume-weighted average price. False for cash indices (NIFTY/BANKNIFTY/SENSEX) whose Kite candles carry zero volume — vwap is set to spot as a geometric placeholder and must not be displayed as institutional fair value."
         ema9: { type: number }
         ema21: { type: number }
         ema20: { type: number, description: "Phase-2: intraday EMA20 — confluence-engine input alongside EMA9/EMA50." }
         ema50: { type: number, description: "Phase-2: intraday EMA50 — slower trend filter for the confluence engine." }
         rsi: { type: number }
-        valueAreaHigh: { type: number, description: "DAILY-bar volume profile VAH (legacy)." }
-        valueAreaLow: { type: number, description: "DAILY-bar volume profile VAL (legacy)." }
-        pointOfControl: { type: number, description: "DAILY-bar volume profile POC (legacy)." }
+        valueAreaHigh: { type: number, description: "DAILY-bar volume profile VAH (legacy). Null for cash indices (zero volume)." }
+        valueAreaLow: { type: number, description: "DAILY-bar volume profile VAL (legacy). Null for cash indices (zero volume)." }
+        pointOfControl: { type: number, description: "DAILY-bar volume profile POC (legacy). Null for cash indices (zero volume)." }
         intradayValueAreaHigh: { type: number, description: "Phase-2: INTRADAY fixed volume profile VAH (last 60 15-min bars). Null for cash-index spots whose intraday volume is 0." }
         intradayValueAreaLow:  { type: number, description: "Phase-2: INTRADAY fixed volume profile VAL." }
         intradayPointOfControl: { type: number, description: "Phase-2: INTRADAY fixed volume profile POC." }

@@ -46,3 +46,4 @@
 - [Detect BUILD_NOT_DEPLOYED via logs](detect-build-not-deployed-via-logs.md) — compare commit epoch vs deployment log boot-event timestamps; a commit landing on main proves nothing about what's live until republished.
 - [executeSql "ROLLBACK" masks a real SQL error](executesql-rollback-masks-column-error.md) — success:true + `START TRANSACTION\nROLLBACK` with no rows means the query errored (e.g. bad column name), not tool flakiness; re-check schema before retrying.
 - [Report-grade vs trade-grade quote facades](report-grade-vs-trade-grade-quotes.md) — display/report consumers need a looser same-day-accept policy than the 10min trade-grade router; hard-code tradeGrade/canDriveSignals false.
+- [VWAP availability flag pattern](vwap-availability-flag-pattern.md) — cash indices (NIFTY/BANKNIFTY/SENSEX) have volume=0 → VWAP/VP structurally null; gate detectors on vwapAvailable, never include in fullIndicators warm-up gate.

@@ -3805,6 +3805,12 @@ export const GetOptionSignalsResponse = zod.object({
         ),
       timeframe: zod.string().optional().describe("e.g. intraday-15m"),
       vwap: zod.number().optional(),
+      vwapAvailable: zod
+        .boolean()
+        .optional()
+        .describe(
+          "True when vwap is a genuine volume-weighted average price. False for cash indices (NIFTY\/BANKNIFTY\/SENSEX) whose Kite candles carry zero volume — vwap is set to spot as a geometric placeholder and must not be displayed as institutional fair value.",
+        ),
       ema9: zod.number().optional(),
       ema21: zod.number().optional(),
       ema20: zod
@@ -3823,15 +3829,21 @@ export const GetOptionSignalsResponse = zod.object({
       valueAreaHigh: zod
         .number()
         .optional()
-        .describe("DAILY-bar volume profile VAH (legacy)."),
+        .describe(
+          "DAILY-bar volume profile VAH (legacy). Null for cash indices (zero volume).",
+        ),
       valueAreaLow: zod
         .number()
         .optional()
-        .describe("DAILY-bar volume profile VAL (legacy)."),
+        .describe(
+          "DAILY-bar volume profile VAL (legacy). Null for cash indices (zero volume).",
+        ),
       pointOfControl: zod
         .number()
         .optional()
-        .describe("DAILY-bar volume profile POC (legacy)."),
+        .describe(
+          "DAILY-bar volume profile POC (legacy). Null for cash indices (zero volume).",
+        ),
       intradayValueAreaHigh: zod
         .number()
         .optional()

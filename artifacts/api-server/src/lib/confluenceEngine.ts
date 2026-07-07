@@ -36,7 +36,15 @@ export interface ConfluenceInputs {
   ema20: number;
   ema50: number;
   vwap: number;
-  /** intraday volume profile (last 60 15-min bars). null when warm-up. */
+  /**
+   * Whether `vwap` is a real volume-weighted average price.
+   * False for cash indices (NIFTY/BANKNIFTY/SENSEX) whose Kite candles
+   * carry zero volume — `vwap` will be set to `spot` as a geometric
+   * placeholder but must NOT be scored as institutional fair value.
+   * When false, scoreVwap returns weight=0 / polarity="neutral".
+   */
+  vwapAvailable?: boolean;
+  /** intraday volume profile (last 60 15-min bars). null when warm-up or zero volume. */
   vp: ConfluenceVp | null;
   regime:
     | "TRENDING_BULL"
@@ -114,6 +122,16 @@ function scoreEmaStack(i: ConfluenceInputs): ConfluenceFactor {
 }
 
 function scoreVwap(i: ConfluenceInputs): ConfluenceFactor {
+  // Cash indices (NIFTY/BANKNIFTY/SENSEX) carry zero candle volume — their
+  // VWAP is structurally unavailable. The `vwap` field is set to `spot` as
+  // a geometric placeholder. Scoring it would give a spurious "at VWAP"
+  // reading on every bar, so we return weight=0 with an honest label.
+  if (i.vwapAvailable === false) {
+    return {
+      label: "VWAP", weight: 0, polarity: "neutral",
+      detail: "VWAP unavailable — index spot candles carry zero volume; cannot compute volume-weighted price",
+    };
+  }
   const above = i.spot > i.vwap;
   const aligned =
     (i.direction === "BULLISH" && above) ||
