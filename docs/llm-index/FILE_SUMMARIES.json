@@ -6081,7 +6081,7 @@
   {
     "path": "artifacts/api-server/src/routes/backtest.ts",
     "purpose": "api-route",
-    "lines": 1268,
+    "lines": 1276,
     "exports": [],
     "externalImports": [
       "express",
@@ -6101,7 +6101,7 @@
       "GET /backtest/fno/snapshot-coverage",
       "GET /backtest/fno/strategies"
     ],
-    "hash": "9889c16c3f3b779d"
+    "hash": "463682d3574540ed"
   },
   {
     "path": "artifacts/api-server/src/routes/buildInfo.ts",

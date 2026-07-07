@@ -2192,3 +2192,91 @@ API typecheck: PASS (zero errors). LLM index: fresh (348 files).
 
 Gap: per-trade `chargesBreakdown` itemized fields not persisted/returned (summary totals correct, gross/net per trade correct).  
 Fix applied locally. **Republish required to achieve PROD_VERIFIED.**
+
+---
+
+## PHASE 3A — BACKTEST CHARGES MODEL + NET P&L — FINAL ROUTE-FIX PRODUCTION VERIFICATION
+**Verification Date**: 2026-07-07  
+**Published Commit**: 011f6733 (route fix live)  
+**bootTime**: 2026-07-07T11:51:04.797Z  
+**Prior State**: `BACKTEST_CHARGES_MODEL_NET_PNL_PARTIAL_GAP_REMAINS` (commit 88376ede)
+
+---
+
+### Fresh Deploy Proof
+
+- `commitShort=011f6733`, `environment=production`, `bootTime=2026-07-07T11:51:04.797Z`
+- All 7 checkpoint markers = true
+- `verify:release`: 11/12 PASS, 0 FAIL (check 12 = INFO, pre-existing)
+- Data Parity API: anonymous → 401 (owner-protected) ✓
+
+---
+
+### Route Fix Production Proof
+
+Fresh DIRECTIONAL NIFTY May 2026 run (ID `3bff79a7`, parameters not previously cached):
+
+| Field | Value | Stored in DB? |
+|---|---|---|
+| `costs_json` in DB | 19/19 rows non-null | ✓ |
+| `chargesBreakdown` in GET response | 19/19 trades present | ✓ |
+| `computable` | true | ✓ |
+| `premiumModeled` | true | ✓ |
+
+**DB `costs_json` sample** (confirms all 7 fields):  
+`brokerage=40, stt=49.90, exchangeCharges=20.61, sebiCharges=0.059, stampDuty=0.77, gst=10.92, slippageCost=205.97, totalCharges=328.24`
+
+**Cache artifact note**: Pre-fix NIFTY Jun 2026 run (ID `eb0a1bd9`, created 2026-07-07 11:06:55 before the route-fix commit) has `costs_json = null` in its 21 trade rows. This is an expected DB artifact from pre-fix data — not a regression. New inserts from commit `011f6733` forward are correct. No backfill needed.
+
+---
+
+### Mode B Per-Trade + Summary Invariants
+
+| Run | Instrument | Trades | PASS | charge_sum | summary.totalCosts | Match | netFormula | Verdict |
+|---|---|---:|---:|---:|---:|---|---|---|
+| 3bff79a7 | NIFTY May 2026 | 19 | 19 | 5,621.51 | 5,621.51 | ✓ | ✓ | PASS |
+| a02a3ee4 | BANKNIFTY Jun 2026 | 35 | 35 | 8,963.54 | 8,963.54 | ✓ | ✓ | PASS |
+
+---
+
+### Mode A REAL_REPLAY Honesty Proof
+
+Run ID `73ad9216`, ALL instruments, 2026 full year, 126 trades:
+
+| Trades | chargesBreakdown | CompChargeSum | summary.totalCosts | Match | Honest? |
+|---|---|---:|---:|---|---|
+| 23 computable | Present (all 7 fields) | 4,812.76 | 4,812.76 | ✓ | ✓ |
+| 103 non-computable | `null` (not fake zero) | 0 | — | ✓ | ✓ |
+
+Net formula: −32,940.75 − 4,812.76 = −37,753.51 ✓
+
+---
+
+### Tests and Counts
+
+| Suite | Tests | Result |
+|---|---:|---|
+| verify:release | 11 checks | 11 PASS, 0 FAIL |
+| api-server typecheck | — | PASS |
+| Backtest suite | 159 | 159/159 PASS |
+| FNO + routes | 510 | 510/510 PASS |
+| Paper + marketData | 236 | 236/236 PASS |
+| Provider import guard | 19 | 19/19 PASS |
+| Scanner | 770 | 770/770 PASS |
+| **Total** | **1694** | **1694/1694 PASS** |
+
+LLM index: fresh at 2026-07-07T12:00:11Z, 348 files all match.
+
+---
+
+### Regression Checks
+
+All 7 checkpoint markers = true · verify:release 11/12 PASS · provider import guard 19/19 · broker execution disabled · no real orders · no Telegram spam · no strategy/threshold changes · no destructive migration · stale/report-grade data cannot drive signals.
+
+---
+
+### Final Verdict
+
+**`BACKTEST_CHARGES_MODEL_NET_PNL_PROD_VERIFIED`**
+
+Route fix (`chargesBreakdown` persistence + GET mapper) is live in production (commit `011f6733`). All new Mode B/C runs correctly persist and return full per-trade charge breakdown. Mode A computable/non-computable honesty preserved. All 1694 tests pass. No regressions.

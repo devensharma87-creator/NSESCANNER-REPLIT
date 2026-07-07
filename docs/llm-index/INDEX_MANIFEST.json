@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-07T11:05:26.251Z",
+  "generatedAt": "2026-07-07T12:00:11.149Z",
   "generatorVersion": "1.0.0",
   "files": {
     "artifacts/api-server/src/routes/admin.ts": {
@@ -18,9 +18,9 @@
       "mtime": "2026-05-05T14:54:42.380Z"
     },
     "artifacts/api-server/src/routes/backtest.ts": {
-      "hash": "9889c16c3f3b779d",
-      "lines": 1268,
-      "mtime": "2026-06-29T10:55:55.508Z"
+      "hash": "463682d3574540ed",
+      "lines": 1276,
+      "mtime": "2026-07-07T11:11:09.297Z"
     },
     "artifacts/api-server/src/routes/buildInfo.ts": {
       "hash": "b93c53d113ab07c1",
