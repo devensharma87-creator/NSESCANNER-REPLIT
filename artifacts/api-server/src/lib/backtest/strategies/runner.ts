@@ -27,6 +27,7 @@ import {
 } from "./base";
 import { applyFilters } from "./filters";
 import { candleUtcIso } from "../time";
+import { computeBacktestTradeCost } from "../backtestCharges";
 
 export interface RunOptions {
   timeframe: string;
@@ -100,6 +101,12 @@ export function runStrategy(
     const riskUnit = Math.abs(pos.entry.entrySpot - pos.entry.stop);
     const riskAmount = ATM_DELTA * riskUnit * pos.qty;
     const rMultiple = riskAmount > 0 ? totalPnl / riskAmount : null;
+    const tradeCost = computeBacktestTradeCost({
+      pnl: totalPnl,
+      lots: pos.lots,
+      lotSize: pos.lotSize,
+      entrySpot: pos.entry.entrySpot,
+    });
     trades.push({
       id: randomUUID(),
       indexSymbol: ctx.indexSymbol,
@@ -146,6 +153,9 @@ export function runStrategy(
       historicalSetupMatch: null,
       passedConditions: pos.entry.passedConditions,
       failedConditions: pos.entry.failedConditions,
+      grossPnl: tradeCost.grossPnl,
+      chargesBreakdown: tradeCost.computable ? tradeCost : null,
+      netPnl: tradeCost.netPnl,
     });
   };
 

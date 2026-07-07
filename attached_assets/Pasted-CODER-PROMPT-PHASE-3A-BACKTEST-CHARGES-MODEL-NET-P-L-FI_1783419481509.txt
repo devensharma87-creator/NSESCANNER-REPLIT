@@ -1,0 +1,407 @@
+CODER PROMPT — PHASE 3A BACKTEST CHARGES MODEL + NET P&L FIX
+
+Current accepted status:
+
+RELEASE_INTEGRITY_PROD_VERIFIED
+USER_FACING_CORE_TABS_DEEP_AUDIT_COMPLETE
+
+verify:release is green.
+Production build-info is live.
+Checkpoint 1 / 2 / 2.5 / 3 are PROD_VERIFIED.
+Data Parity compat is PROD_VERIFIED.
+Provider imports are clean.
+Broker execution is disabled.
+No real orders.
+No Telegram spam.
+
+The User-Facing Core Tabs Deep Audit is complete.
+
+Highest-priority P0 finding:
+
+Backtesting currently shows gross P&L / gross equity curve without deducting realistic brokerage, STT, exchange charges, SEBI charges, stamp duty, GST, and slippage.
+
+This can overstate P&L by 5–20% and mislead the owner/user.
+
+Start PHASE 3A only:
+
+BACKTEST CHARGES MODEL + NET P&L FIX
+
+====================================================
+STRICT SCOPE
+====================================================
+
+This is a Backtesting-only implementation phase.
+
+Allowed work:
+
+1. Add charges/slippage model to backtesting.
+2. Show gross P&L and net P&L separately.
+3. Make equity curve use net P&L by default.
+4. Show charges breakdown per trade.
+5. Show total charges in summary.
+6. Add clear assumptions panel.
+7. Add tests.
+8. Update audit/report files.
+9. Verify release integrity remains green.
+
+Not allowed:
+
+Do not change live trading strategy.
+Do not change F&O signal logic.
+Do not change Swing logic.
+Do not change Auto Strong Buy logic.
+Do not change entry rules.
+Do not change exit rules.
+Do not change SL formula.
+Do not change target formula.
+Do not change thresholds.
+Do not change paper trading.
+Do not change Telegram.
+Do not enable broker execution.
+Do not place real orders.
+Do not perform destructive migrations.
+Do not touch Charting tab.
+Do not touch Portfolio tab.
+Do not touch Scanner.
+Do not touch Option Chain.
+Do not touch OI Lab.
+Do not touch production orders.
+Do not fabricate option prices.
+Do not hide synthetic/modelled pricing assumptions.
+
+====================================================
+OBJECTIVE
+====================================================
+
+Backtesting must become honest and professional.
+
+Every backtest result must clearly show:
+
+1. Gross P&L before costs.
+2. Brokerage.
+3. STT.
+4. Exchange transaction charges.
+5. SEBI charges.
+6. Stamp duty.
+7. GST.
+8. Slippage.
+9. Total charges.
+10. Net P&L after all costs.
+11. Net equity curve.
+12. Gross vs net comparison.
+13. Assumptions used.
+
+Backtest summary must not show only gross profit as if it is real tradable profit.
+
+====================================================
+PART A — CURRENT STATE CONFIRMATION
+====================================================
+
+Before coding, confirm current backtesting issue from the audit:
+
+1. Existing P&L is gross.
+2. Existing equity curve accumulates gross P&L.
+3. Charges are zero or missing.
+4. Slippage is zero or missing.
+5. No visible above-equity-curve warning.
+6. Existing strategy rules are otherwise not to be changed.
+
+Write a short current-state table:
+
+| Item | Current Behavior | Issue | Severity |
+|---|---|---|---|
+
+====================================================
+PART B — CHARGES MODEL DESIGN
+====================================================
+
+Create a reusable charges model for backtesting.
+
+It must support at least:
+
+1. Equity intraday.
+2. Equity delivery, if applicable.
+3. Futures.
+4. Options.
+
+For options/F&O backtesting, include:
+
+- brokerage per order,
+- STT on sell side where applicable,
+- exchange transaction charges,
+- SEBI charges,
+- stamp duty,
+- GST on brokerage + transaction charges where applicable,
+- slippage per leg.
+
+If exact statutory rates are configurable in existing code/config, use config.
+
+If exact values are not already configured, implement a clearly named default model with constants and document them as assumptions.
+
+Do not hardcode hidden magic numbers without labels.
+
+Required structure:
+
+ChargesModel / BacktestChargesModel
+
+Required output per trade:
+
+{
+  grossPnl,
+  brokerage,
+  stt,
+  exchangeCharges,
+  sebiCharges,
+  stampDuty,
+  gst,
+  slippageCost,
+  totalCharges,
+  netPnl
+}
+
+====================================================
+PART C — TRADE-WISE BACKTEST OUTPUT
+====================================================
+
+Each backtest trade must include:
+
+1. Entry price.
+2. Exit price.
+3. Quantity / lots.
+4. Gross P&L.
+5. Charges breakdown.
+6. Slippage cost.
+7. Net P&L.
+8. Pricing mode:
+   - REAL_CHAIN
+   - BLACK_SCHOLES_MODELLED
+   - SYNTHETIC_DELTA_PROXY
+   - UNKNOWN
+9. Source/provenance where available.
+10. Assumptions used.
+
+Required trade table fields:
+
+| Trade | Gross P&L | Brokerage | STT | Exchange | SEBI | Stamp | GST | Slippage | Total Charges | Net P&L |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+
+====================================================
+PART D — SUMMARY METRICS
+====================================================
+
+Backtest summary must show both gross and net.
+
+Required:
+
+1. Gross total P&L.
+2. Net total P&L.
+3. Total charges.
+4. Total slippage.
+5. Gross return.
+6. Net return.
+7. Gross max drawdown.
+8. Net max drawdown.
+9. Win rate based on net P&L.
+10. Profit factor based on net P&L.
+11. Expectancy based on net P&L.
+12. Average gross profit/loss.
+13. Average net profit/loss.
+
+Important:
+
+Equity curve must use net P&L by default.
+
+If gross equity curve is shown, it must be clearly labeled:
+
+GROSS BEFORE CHARGES
+
+Net curve must be labeled:
+
+NET AFTER CHARGES
+
+====================================================
+PART E — UI REQUIREMENTS
+====================================================
+
+Backtesting tab must show a visible assumptions panel above the result/equity curve.
+
+Panel must include:
+
+1. Pricing mode.
+2. Whether option price is real/modelled/synthetic.
+3. Brokerage model.
+4. Tax/charges model.
+5. Slippage model.
+6. Gross vs net explanation.
+7. Warning if synthetic proxy is used.
+
+Required visible warnings:
+
+If synthetic option pricing is used:
+
+SYNTHETIC_DELTA_PROXY — results are indicative only and not real historical option fills.
+
+If charges are estimated:
+
+Charges are estimated using the configured backtest charges model.
+
+If slippage is estimated:
+
+Slippage is modelled and may differ from real execution.
+
+Do not bury these warnings only inside a hidden drawer.
+
+====================================================
+PART F — DATA HONESTY RULES
+====================================================
+
+Backtesting must never imply:
+
+1. Synthetic option premium = real historical premium.
+2. Gross P&L = actual tradable profit.
+3. Zero charges = realistic result.
+4. Modelled fills = real exchange fills.
+5. Backtested profit = live-tested profit.
+
+If data is synthetic/modelled, label it clearly.
+
+If charges are estimated, label them clearly.
+
+If option chain is unavailable, do not fake confidence.
+
+====================================================
+PART G — TESTS REQUIRED
+====================================================
+
+Add/update tests for:
+
+1. Charges model calculates all components.
+2. Net P&L = gross P&L - total charges.
+3. Equity curve uses net P&L.
+4. Summary total net P&L equals sum of trade net P&L.
+5. Win rate uses net P&L.
+6. Profit factor uses net P&L.
+7. Expectancy uses net P&L.
+8. Slippage reduces P&L.
+9. Charges are not zero unless explicitly configured as zero.
+10. Synthetic pricing warning appears.
+11. Gross vs net labels appear.
+12. Backtesting does not change live strategy rules.
+13. Existing 30% SL consistency remains unchanged.
+14. No broker execution path touched.
+15. No Telegram send occurs.
+
+Run:
+
+pnpm --filter @workspace/scripts run verify:release
+
+pnpm --filter @workspace/api-server run typecheck
+
+pnpm --filter @workspace/api-server run typecheck:libs
+
+pnpm --filter @workspace/api-server exec vitest run src/lib/*backtest*.test.ts src/lib/*charges*.test.ts src/lib/*paper*.test.ts src/lib/*fno*.test.ts src/lib/*marketData*.test.ts src/routes/**/*.test.ts
+
+pnpm --filter @workspace/scanner exec vitest run
+
+pnpm --filter @workspace/scripts run index:llm
+
+pnpm --filter @workspace/scripts run index:llm:check
+
+If any command times out, run in smaller batches and report exact counts.
+
+====================================================
+PART H — REPORT UPDATE
+====================================================
+
+Update:
+
+USER_FACING_CORE_TABS_DEEP_AUDIT_REPORT.md
+
+and
+
+WEBSITE_CANONICAL_DATA_INTEGRATION_REPORT.md
+
+Add section:
+
+PHASE 3A — BACKTEST CHARGES MODEL + NET P&L FIX
+
+Include:
+
+1. Original P0 issue.
+2. Files changed.
+3. Charges model implemented.
+4. Formula summary.
+5. Gross vs net changes.
+6. UI assumptions panel.
+7. Tests and counts.
+8. Release integrity result.
+9. Safety confirmation.
+10. Final verdict.
+
+====================================================
+ACCEPTANCE CRITERIA
+====================================================
+
+This phase is accepted only if:
+
+1. Backtest no longer reports only gross P&L.
+2. Net P&L is calculated per trade.
+3. Net P&L is calculated in summary.
+4. Equity curve uses net P&L by default.
+5. Charges breakdown is visible.
+6. Slippage is included.
+7. Assumptions are visible above results.
+8. Synthetic/modelled pricing is clearly labeled.
+9. Tests pass.
+10. verify:release remains green.
+11. No live strategy changed.
+12. No broker execution.
+13. No real orders.
+14. No Telegram spam.
+15. Report updated.
+
+====================================================
+FINAL VERDICT
+====================================================
+
+Final verdict must be exactly one:
+
+- BACKTEST_CHARGES_MODEL_NET_PNL_DEV_VERIFIED
+- BACKTEST_CHARGES_MODEL_NET_PNL_PROD_VERIFIED
+- BACKTEST_CHARGES_MODEL_NET_PNL_PARTIAL_GAP_REMAINS
+- RELEASE_INTEGRITY_REGRESSION_FOUND
+- ROLLBACK_REQUIRED
+
+Use:
+
+BACKTEST_CHARGES_MODEL_NET_PNL_DEV_VERIFIED
+
+if code/tests pass but production publish is pending.
+
+Use:
+
+BACKTEST_CHARGES_MODEL_NET_PNL_PROD_VERIFIED
+
+only if the fix is deployed, verify:release is green, and production backtesting UI/API shows gross/net/charges correctly.
+
+Use:
+
+BACKTEST_CHARGES_MODEL_NET_PNL_PARTIAL_GAP_REMAINS
+
+if any charges, net P&L, equity curve, or warning requirement is incomplete.
+
+Use:
+
+RELEASE_INTEGRITY_REGRESSION_FOUND
+
+if verify:release fails.
+
+Use:
+
+ROLLBACK_REQUIRED
+
+if secrets leak, broker execution turns on, real orders are placed, Telegram spam occurs, stale/report-grade data can drive trades, or destructive changes occur.
+
+Expected result for this pass before owner republish:
+
+BACKTEST_CHARGES_MODEL_NET_PNL_DEV_VERIFIED

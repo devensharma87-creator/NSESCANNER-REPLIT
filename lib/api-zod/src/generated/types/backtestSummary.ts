@@ -33,10 +33,14 @@ export interface BacktestSummary {
   worstTradePnl?: number | null;
   byInstrument?: BacktestInstrumentStat[];
   equityCurve?: BacktestEquityPoint[];
-  /** Stage 4: Total gross P&L (pre-costs) across priced trades. Null for non-SNAPSHOT_PREMIUM_REPLAY runs. */
+  /** Total gross P&L before F&O charges across decided trades. Null when no charges were computed. */
   totalGrossPnl?: number | null;
-  /** Stage 4: Total F&O round-trip costs across priced trades. Null for non-SNAPSHOT_PREMIUM_REPLAY runs. */
+  /** Total F&O charges across decided trades. Null when no charges were computed. */
   totalCosts?: number | null;
-  /** Stage 4: Total net P&L (post-costs). Equals totalPnl for SNAPSHOT_PREMIUM_REPLAY. Null for other runs. */
+  /** Total net P&L after F&O charges. Null when no charges were computed. */
   totalNetPnl?: number | null;
+  /** Max drawdown on the gross (pre-charges) equity curve. Null when same as maxDrawdown. */
+  grossMaxDrawdown?: number | null;
+  /** true when brokerage/STT/exchange/SEBI/stamp/slippage were applied to this run. */
+  chargesApplied?: boolean;
 }

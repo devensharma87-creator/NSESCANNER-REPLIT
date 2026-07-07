@@ -30,6 +30,7 @@ import type {
   BacktestTradeOut,
   BacktestCoverageWindow,
 } from "./types";
+import { computeBacktestTradeCost } from "./backtestCharges";
 
 export interface Candle {
   /** Wall-clock IST instant encoded in the Date's UTC fields. */
@@ -141,6 +142,7 @@ export function runDirectional(
     const sign = o.dir === "BULL" ? 1 : -1;
     const optionMovePerUnit = ATM_DELTA * sign * (exitSpot - o.entrySpot);
     const pnl = round2(optionMovePerUnit * opts.lotSize * o.lots);
+    const tradeCost = computeBacktestTradeCost({ pnl, lots: o.lots, lotSize: opts.lotSize, entrySpot: o.entrySpot });
     const cfgStep = cfg.strikeStep;
     const strike = Math.round(o.entrySpot / cfgStep) * cfgStep;
     trades.push({
@@ -171,6 +173,9 @@ export function runDirectional(
       modeled: true,
       maxFavorableExcursion: null,
       maxAdverseExcursion: null,
+      grossPnl: tradeCost.grossPnl,
+      chargesBreakdown: tradeCost.computable ? tradeCost : null,
+      netPnl: tradeCost.netPnl,
     });
   };
 
@@ -262,6 +267,7 @@ export function runDirectional(
     const sign = o.dir === "BULL" ? 1 : -1;
     const optionMovePerUnit = ATM_DELTA * sign * (price - o.entrySpot);
     const pnl = round2(optionMovePerUnit * opts.lotSize * o.lots);
+    const tradeCost = computeBacktestTradeCost({ pnl, lots: o.lots, lotSize: opts.lotSize, entrySpot: o.entrySpot });
     const strike = Math.round(o.entrySpot / cfg!.strikeStep) * cfg!.strikeStep;
     trades.push({
       id: `dir:${opts.indexSymbol}:${candles[o.entryIdx]!.t.toISOString()}`,
@@ -291,6 +297,9 @@ export function runDirectional(
       modeled: true,
       maxFavorableExcursion: null,
       maxAdverseExcursion: null,
+      grossPnl: tradeCost.grossPnl,
+      chargesBreakdown: tradeCost.computable ? tradeCost : null,
+      netPnl: tradeCost.netPnl,
     });
   }
 }

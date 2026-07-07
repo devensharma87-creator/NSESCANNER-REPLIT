@@ -21,6 +21,7 @@ import type {
   BacktestSnapshotCoverageOut,
   BacktestTradeOut,
 } from "./types";
+import { computeBacktestTradeCost } from "./backtestCharges";
 
 export interface OshRow {
   signal_date: string | Date | null;
@@ -121,6 +122,19 @@ export function buildReplayTrades(rows: OshRow[], opts: ReplayOptions): Backtest
       pnl = Math.round(pnl * 100) / 100;
     }
 
+    // Compute charges using real captured premiums (Mode A).
+    // Only for decided trades (pnl !== null) — undecided trades get null breakdown.
+    const chargesBreakdown =
+      pnl !== null && entry !== null && lotSize !== null
+        ? computeBacktestTradeCost({
+            pnl,
+            lots,
+            lotSize,
+            optionEntry: entry,
+            optionExit: optionExit,
+          })
+        : null;
+
     out.push({
       id: `osh:${iso(row.generated_at) ?? ""}:${row.index_symbol}:${row.setup_key ?? ""}:${row.strike ?? ""}`,
       indexSymbol: row.index_symbol,
@@ -149,6 +163,9 @@ export function buildReplayTrades(rows: OshRow[], opts: ReplayOptions): Backtest
       modeled: false,
       maxFavorableExcursion: num(row.max_favorable_excursion),
       maxAdverseExcursion: num(row.max_adverse_excursion),
+      grossPnl: chargesBreakdown?.grossPnl ?? null,
+      chargesBreakdown: chargesBreakdown?.computable ? chargesBreakdown : null,
+      netPnl: chargesBreakdown?.netPnl ?? null,
     });
   }
   return out;

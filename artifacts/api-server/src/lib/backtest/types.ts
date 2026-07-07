@@ -66,6 +66,41 @@ export interface FnoCostBreakdown {
   total: number;
 }
 
+/**
+ * Itemised F&O round-trip cost result for backtest trades — all modes (A, B, C).
+ * Mode D uses `FnoCostBreakdown` (via `costs` field) for backward compat; this
+ * type is for the new unified charges surface.
+ */
+export interface BacktestTradeCostResult {
+  /** true when all required inputs were present and charges could be computed. */
+  computable: boolean;
+  /**
+   * true when entry/exit premiums were estimated from entry spot (Modes B/C —
+   * no historical option data). false when real captured premiums were used (Mode A).
+   */
+  premiumModeled: boolean;
+  /** Gross P&L before charges (= trade.pnl for Modes A/B/C). */
+  grossPnl: number | null;
+  /** Flat ₹20 round-trip brokerage per order side × 2. ₹ */
+  brokerage: number;
+  /** STT: 0.15% on exit (sell) premium turnover. ₹ */
+  stt: number;
+  /** NSE exchange transaction charges on both legs. ₹ */
+  exchangeCharges: number;
+  /** SEBI charges on both legs. ₹ */
+  sebiCharges: number;
+  /** Stamp duty on buy-side premium turnover. ₹ */
+  stampDuty: number;
+  /** 18% GST on (brokerage + exchange + SEBI). ₹ */
+  gst: number;
+  /** Bid-ask spread cost + fill slippage (35 bps per side of premium turnover). ₹ */
+  slippageCost: number;
+  /** Sum of all charges above. ₹ */
+  totalCharges: number;
+  /** Net P&L = grossPnl − totalCharges. Null when grossPnl is null. */
+  netPnl: number | null;
+}
+
 /** Mode-mix summary for a SNAPSHOT_PREMIUM_REPLAY run. */
 export interface BacktestPricingModeMix {
   realCaptured: number;
@@ -155,6 +190,11 @@ export interface BacktestTradeOut {
   netPnl?: number | null;
   /** true when both entry AND exit snapshots were within REPLAY_ENTRY_TOLERANCE_MIN. */
   withinTolerance?: boolean | null;
+  /**
+   * Unified charges breakdown — populated for Modes A, B, C (not Stage 4 which uses `costs`).
+   * Null when charges could not be computed (undecided trade, missing inputs).
+   */
+  chargesBreakdown?: BacktestTradeCostResult | null;
 }
 
 export interface BacktestBlockedOut {
@@ -214,12 +254,16 @@ export interface BacktestSummaryOut {
   worstTradePnl: number | null;
   byInstrument: BacktestInstrumentStat[];
   equityCurve: BacktestEquityPoint[];
-  /** Stage 4: Total gross P&L (pre-costs) — only for SNAPSHOT_PREMIUM_REPLAY. */
+  /** Total gross P&L before F&O charges across decided trades. Null when no charges computed. */
   totalGrossPnl?: number | null;
-  /** Stage 4: Total F&O costs across all priced trades. */
+  /** Total F&O charges across decided trades. Null when no charges computed. */
   totalCosts?: number | null;
-  /** Stage 4: Total net P&L (post-costs) — equals totalPnl for this mode. */
+  /** Total net P&L after F&O charges. Null when no charges computed. */
   totalNetPnl?: number | null;
+  /** Max drawdown on gross (pre-charges) equity curve. Null when same as maxDrawdown. */
+  grossMaxDrawdown?: number | null;
+  /** true when brokerage/STT/exchange/SEBI/stamp/slippage were applied to this run. */
+  chargesApplied?: boolean;
 }
 
 export interface BacktestCoverageWindow {

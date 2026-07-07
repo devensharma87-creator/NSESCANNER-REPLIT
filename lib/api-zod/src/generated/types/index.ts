@@ -35,6 +35,7 @@ export * from "./backtestStrategyMeta";
 export * from "./backtestStrategyMetaDefaultParams";
 export * from "./backtestSummary";
 export * from "./backtestTrade";
+export * from "./backtestTradeCostResult";
 export * from "./backtestTradesResponse";
 export * from "./backtestTradeStrategyParams";
 export * from "./balanceSheetRow";

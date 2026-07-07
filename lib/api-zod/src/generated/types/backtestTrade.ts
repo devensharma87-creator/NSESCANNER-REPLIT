@@ -5,6 +5,7 @@
  * NSE Stock Scanner API
  * OpenAPI spec version: 0.1.0
  */
+import type { BacktestTradeCostResult } from "./backtestTradeCostResult";
 import type { BacktestTradeStrategyParams } from "./backtestTradeStrategyParams";
 import type { FnoCostBreakdown } from "./fnoCostBreakdown";
 
@@ -61,12 +62,14 @@ export interface BacktestTrade {
   entryDelta?: number | null;
   /** Stage 4: Theta from the entry snapshot. Null when not captured. */
   entryTheta?: number | null;
-  /** Stage 4: Gross P&L before F&O costs. Null when pricingMode=UNAVAILABLE. */
+  /** Gross P&L before F&O charges. For Modes A/B/C equals pnl; for Mode D may differ when pricingMode=UNAVAILABLE. */
   grossPnl?: number | null;
-  /** Stage 4: Itemised F&O cost breakdown. Null for non-SNAPSHOT_PREMIUM_REPLAY trades. */
+  /** Mode D (SNAPSHOT_PREMIUM_REPLAY) itemised F&O cost breakdown. Null for other modes — use chargesBreakdown instead. */
   costs?: FnoCostBreakdown | null;
-  /** Stage 4: Net P&L after F&O costs. Null when pricingMode=UNAVAILABLE. */
+  /** Net P&L after F&O charges. Null for undecided trades (pnl=null). */
   netPnl?: number | null;
-  /** Stage 4: true when both entry and exit snapshots were within REPLAY_ENTRY_TOLERANCE_MIN (5 min) of the signal time. */
+  /** Mode D: true when both entry and exit snapshots were within REPLAY_ENTRY_TOLERANCE_MIN (5 min) of the signal time. */
   withinTolerance?: boolean | null;
+  /** Unified charges breakdown for Modes A, B, C. Null for undecided trades, non-computable inputs, or Mode D (use costs instead). */
+  chargesBreakdown?: BacktestTradeCostResult | null;
 }

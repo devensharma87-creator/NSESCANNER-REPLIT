@@ -9967,19 +9967,31 @@ export const GetBacktestRunResponse = zod.object({
         .number()
         .nullish()
         .describe(
-          "Stage 4: Total gross P&L (pre-costs) across priced trades. Null for non-SNAPSHOT_PREMIUM_REPLAY runs.",
+          "Total gross P&L before F&O charges across decided trades. Null when no charges were computed.",
         ),
       totalCosts: zod
         .number()
         .nullish()
         .describe(
-          "Stage 4: Total F&O round-trip costs across priced trades. Null for non-SNAPSHOT_PREMIUM_REPLAY runs.",
+          "Total F&O charges across decided trades. Null when no charges were computed.",
         ),
       totalNetPnl: zod
         .number()
         .nullish()
         .describe(
-          "Stage 4: Total net P&L (post-costs). Equals totalPnl for SNAPSHOT_PREMIUM_REPLAY. Null for other runs.",
+          "Total net P&L after F&O charges. Null when no charges were computed.",
+        ),
+      grossMaxDrawdown: zod
+        .number()
+        .nullish()
+        .describe(
+          "Max drawdown on the gross (pre-charges) equity curve. Null when same as maxDrawdown.",
+        ),
+      chargesApplied: zod
+        .boolean()
+        .optional()
+        .describe(
+          "true when brokerage\/STT\/exchange\/SEBI\/stamp\/slippage were applied to this run.",
         ),
     })
     .describe(
@@ -10355,7 +10367,7 @@ export const GetBacktestRunTradesResponse = zod.object({
         .number()
         .nullish()
         .describe(
-          "Stage 4: Gross P&L before F&O costs. Null when pricingMode=UNAVAILABLE.",
+          "Gross P&L before F&O charges. For Modes A\/B\/C equals pnl; for Mode D may differ when pricingMode=UNAVAILABLE.",
         ),
       costs: zod
         .object({
@@ -10391,19 +10403,69 @@ export const GetBacktestRunTradesResponse = zod.object({
         )
         .nullish()
         .describe(
-          "Stage 4: Itemised F&O cost breakdown. Null for non-SNAPSHOT_PREMIUM_REPLAY trades.",
+          "Mode D (SNAPSHOT_PREMIUM_REPLAY) itemised F&O cost breakdown. Null for other modes — use chargesBreakdown instead.",
         ),
       netPnl: zod
         .number()
         .nullish()
         .describe(
-          "Stage 4: Net P&L after F&O costs. Null when pricingMode=UNAVAILABLE.",
+          "Net P&L after F&O charges. Null for undecided trades (pnl=null).",
         ),
       withinTolerance: zod
         .boolean()
         .nullish()
         .describe(
-          "Stage 4: true when both entry and exit snapshots were within REPLAY_ENTRY_TOLERANCE_MIN (5 min) of the signal time.",
+          "Mode D: true when both entry and exit snapshots were within REPLAY_ENTRY_TOLERANCE_MIN (5 min) of the signal time.",
+        ),
+      chargesBreakdown: zod
+        .object({
+          computable: zod
+            .boolean()
+            .describe(
+              "true when all required inputs were present and charges could be computed.",
+            ),
+          premiumModeled: zod
+            .boolean()
+            .describe(
+              "true when entry\/exit premiums were estimated from entry spot (Modes B\/C). false when real captured premiums were used (Mode A).",
+            ),
+          grossPnl: zod
+            .number()
+            .nullish()
+            .describe("Gross P&L before charges."),
+          brokerage: zod
+            .number()
+            .describe("Flat ₹20 round-trip brokerage per order side × 2. ₹"),
+          stt: zod
+            .number()
+            .describe("STT: 0.15% on exit (sell) premium turnover. ₹"),
+          exchangeCharges: zod
+            .number()
+            .describe("NSE exchange transaction charges on both legs. ₹"),
+          sebiCharges: zod.number().describe("SEBI charges on both legs. ₹"),
+          stampDuty: zod
+            .number()
+            .describe("Stamp duty on buy-side premium turnover. ₹"),
+          gst: zod
+            .number()
+            .describe("18% GST on (brokerage + exchange + SEBI). ₹"),
+          slippageCost: zod
+            .number()
+            .describe(
+              "Bid-ask spread + fill slippage (35 bps per side of premium turnover). ₹",
+            ),
+          totalCharges: zod.number().describe("Sum of all charges. ₹"),
+          netPnl: zod
+            .number()
+            .nullish()
+            .describe("Net P&L = grossPnl − totalCharges."),
+        })
+        .describe(
+          "Itemised F&O round-trip charges for one backtest trade (Modes A, B, C). Mode D uses FnoCostBreakdown via the costs field.",
+        )
+        .nullish()
+        .describe(
+          "Unified charges breakdown for Modes A, B, C. Null for undecided trades, non-computable inputs, or Mode D (use costs instead).",
         ),
     }),
   ),

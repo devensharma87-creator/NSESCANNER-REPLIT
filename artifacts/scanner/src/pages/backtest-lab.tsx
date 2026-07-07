@@ -326,6 +326,37 @@ function buildTradesCsv(trades: BacktestTrade[]): string {
 
 // ───────────── panels ─────────────
 
+/**
+ * Compact assumptions disclosure — shown above results for ALL backtest modes.
+ * Rates mirror FNO_COST_PARAMS (api-server/src/lib/fnoCostModel.ts, 2026-04-01).
+ */
+function ChargesAssumptionsPanel({ premiumModeled }: { premiumModeled: boolean }) {
+  return (
+    <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 rounded border border-amber-500/20 bg-amber-500/5 px-3 py-2 text-[11px] text-muted-foreground">
+      <span className="font-semibold text-amber-400/90">Charges included</span>
+      <span title="Flat ₹20 per order × 2 legs (Zerodha NSE F&amp;O)">Brokerage ₹40</span>
+      <span className="text-border">·</span>
+      <span title="Securities transaction tax: 0.15% × exit (sell) premium turnover — effective 2026-04-01">STT 0.15%</span>
+      <span className="text-border">·</span>
+      <span title="NSE exchange transaction charge on both legs (0.053% of turnover)">Exchange 0.053%</span>
+      <span className="text-border">·</span>
+      <span title="SEBI turnover charges on both legs">SEBI ~0.0001%</span>
+      <span className="text-border">·</span>
+      <span title="Stamp duty on buy-side premium: 0.003% of entry turnover">Stamp 0.003%</span>
+      <span className="text-border">·</span>
+      <span title="18% GST applied to brokerage + exchange + SEBI charges">GST 18%</span>
+      <span className="text-border">·</span>
+      <span title="Bid-ask spread + fill slippage combined, 35 bps per side of premium turnover">Slippage 35 bps/side</span>
+      <span className="ml-auto text-[10px] italic text-muted-foreground/60">
+        NSE F&amp;O rates as of 2026-04-01
+        {premiumModeled && (
+          <> · <span className="text-amber-400/70" title="Mode B/C have no historical option data — ATM premium estimated as 0.7% of entry spot price. Real premium drag will differ.">premiums modelled @ 0.7% of spot</span></>
+        )}
+      </span>
+    </div>
+  );
+}
+
 const equityConfig = {
   equity: { label: "Equity", color: "hsl(199 89% 60%)" },
 } satisfies ChartConfig;
@@ -1358,18 +1389,37 @@ function TradesTable({ trades, showAttribution }: { trades: BacktestTrade[]; sho
               <td className="px-2 py-1.5 text-right tabular-nums">{t.qty ?? "—"}</td>
               <td
                 className={`px-2 py-1.5 text-right tabular-nums ${
-                  t.pnl == null ? "text-muted-foreground" : t.pnl > 0 ? "text-emerald-400" : t.pnl < 0 ? "text-rose-400" : ""
+                  (() => {
+                    const ep = t.netPnl ?? t.pnl;
+                    return ep == null ? "text-muted-foreground" : ep > 0 ? "text-emerald-400" : ep < 0 ? "text-rose-400" : "";
+                  })()
                 }`}
                 title={
                   t.pnl == null
                     ? "Excluded from P&L — no captured outcome (not fabricated)"
-                    : t.grossPnl != null && t.costs != null
-                      ? `Gross: ${money(t.grossPnl)} · Costs: ₹${t.costs.total.toFixed(0)} · Net: ${money(t.pnl)}`
-                      : undefined
+                    : t.chargesBreakdown?.computable
+                      ? `Gross: ${money(t.chargesBreakdown.grossPnl)} · Charges: ₹${t.chargesBreakdown.totalCharges.toFixed(0)} · Net: ${money(t.chargesBreakdown.netPnl)}${t.chargesBreakdown.premiumModeled ? " (modelled premium 0.7% of spot)" : " (real premium)"}`
+                      : t.grossPnl != null && t.costs != null
+                        ? `Gross: ${money(t.grossPnl)} · Costs: ₹${t.costs.total.toFixed(0)} · Net: ${money(t.pnl)}`
+                        : undefined
                 }
               >
-                {t.pnl == null ? "n/a" : money(t.pnl)}
-                {t.grossPnl != null && t.costs != null && (
+                {t.pnl == null
+                  ? "n/a"
+                  : t.netPnl != null
+                    ? money(t.netPnl)
+                    : money(t.pnl)}
+                {/* Modes A/B/C — unified charges breakdown */}
+                {t.chargesBreakdown?.computable && (
+                  <span
+                    className="ml-1 text-[9px] text-muted-foreground"
+                    title={`Charges: brokerage ₹${t.chargesBreakdown.brokerage} + STT ₹${t.chargesBreakdown.stt.toFixed(2)} + exch ₹${t.chargesBreakdown.exchangeCharges.toFixed(2)} + GST ₹${t.chargesBreakdown.gst.toFixed(2)} + stamp ₹${t.chargesBreakdown.stampDuty.toFixed(2)} + slip ₹${t.chargesBreakdown.slippageCost.toFixed(0)}${t.chargesBreakdown.premiumModeled ? " (modelled)" : ""}`}
+                  >
+                    -₹{t.chargesBreakdown.totalCharges.toFixed(0)}
+                  </span>
+                )}
+                {/* Mode D (SNAPSHOT_PREMIUM_REPLAY) — backward compat */}
+                {!t.chargesBreakdown && t.grossPnl != null && t.costs != null && (
                   <span className="ml-1 text-[9px] text-muted-foreground" title={`Costs: brokerage ₹${t.costs.brokerage} + STT ₹${t.costs.stt.toFixed(2)} + txn ₹${t.costs.exchangeTxn.toFixed(2)} + GST ₹${t.costs.gst.toFixed(2)} + stamp ₹${t.costs.stampDuty.toFixed(2)} + spread ₹${(t.costs.spreadCost ?? 0).toFixed(0)}${t.costs.spreadModelled ? " (modelled)" : ""}`}>
                     -₹{t.costs.total.toFixed(0)}
                   </span>
@@ -2028,6 +2078,15 @@ export default function BacktestLab() {
 
           {/* read-only "filters used" summary for this saved run */}
           <RunFiltersUsed filters={run?.filters} maxTradesPerDay={run?.maxTradesPerDay} />
+
+          {/* charges assumptions panel — shown for all modes when a run is present */}
+          {run && (
+            <ChargesAssumptionsPanel
+              premiumModeled={
+                run.backtestMode === "DIRECTIONAL" || run.backtestMode === "STRATEGY_RESEARCH"
+              }
+            />
+          )}
 
           {/* summary stats */}
           {summary && (
