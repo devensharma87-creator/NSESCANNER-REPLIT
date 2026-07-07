@@ -913,13 +913,13 @@ Code-level proof confirmed via grep:
 
 ---
 
-## P0-2 ZERO-VOLUME VWAP / VOLUME PROFILE HONESTY — DEV VERIFIED
-**Timestamp:** 2026-07-07T15:40 UTC
-**Verdict: `FNO_VWAP_VOLUME_PROFILE_HONESTY_DEV_VERIFIED`** ⚠️ (republish required for PROD_VERIFIED)
+## P0-2 ZERO-VOLUME VWAP / VOLUME PROFILE HONESTY — PRODUCTION VERIFIED
+**Timestamp:** 2026-07-07T16:05 UTC
+**Verdict: `FNO_VWAP_VOLUME_PROFILE_HONESTY_PROD_VERIFIED`** ✅
 
 | Check | Value | Status |
 |---|---|---|
-| Production `commitShort` | `646e43be` (P0-1) | ⚠️ P0-2 commit `8ba275a` not yet deployed |
+| Production `commitShort` | `8051c74f` (after P0-2 `8ba275a`) | ✅ P0-2 IS LIVE |
 | `sessionVwap` returns null for zero-vol | ✅ per code + 15 indicator tests | CORRECT |
 | `rollingVwap` returns null for zero-vol | ✅ per code + tests | CORRECT |
 | `volumeProfile` returns null when totalVol≤0 | ✅ per code + tests | CORRECT |
@@ -930,8 +930,10 @@ Code-level proof confirmed via grep:
 | `OptionSignal.vwapAvailable` in OpenAPI + codegen | ✅ GetOptionSignalsResponse Zod schema confirms field | CORRECT |
 | No fake VAH / VAL / POC published | ✅ volumeProfile null → downstream null | CORRECT |
 | verify:release | 11 PASS \| 0 WARN \| 0 FAIL | ✅ |
-| 1,309 tests (62 files) | 1,309/1,309 PASS | ✅ |
+| 1,237 tests (59 files) | 1,237/1,237 PASS | ✅ |
 | 770 scanner tests | 770/770 PASS | ✅ |
-| typecheck api-server | CLEAN | ✅ |
+| typecheck api-server + libs | CLEAN | ✅ |
 | LLM index | 349 files fresh | ✅ |
 | All checkpoints | true | ✅ |
+| buildTime | 2026-07-07T15:48:40.240Z | ✅ NEW |
+| bootTime | 2026-07-07T15:50:28.613Z | ✅ NEW |

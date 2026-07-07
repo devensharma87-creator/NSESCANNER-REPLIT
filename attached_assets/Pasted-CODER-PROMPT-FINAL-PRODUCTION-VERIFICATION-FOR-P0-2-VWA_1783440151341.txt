@@ -1,0 +1,293 @@
+CODER PROMPT — FINAL PRODUCTION VERIFICATION FOR P0-2 VWAP / VOLUME PROFILE HONESTY FIX
+
+I have republished the app after the P0-2 VWAP / Volume Profile honesty commit.
+
+Current status before republish:
+
+FNO_VWAP_VOLUME_PROFILE_HONESTY_DEV_VERIFIED
+
+Expected final verdict if production now contains commit 8ba275a or later:
+
+FNO_VWAP_VOLUME_PROFILE_HONESTY_PROD_VERIFIED
+
+====================================================
+STRICT RULES
+====================================================
+
+Do not write new feature code.
+Do not start P0-3 trigger wording fix.
+Do not start Charting fixes.
+Do not start Portfolio fixes.
+Do not start Backtesting Phase 3B.
+Do not tune strategy thresholds.
+Do not optimize detector weights.
+Do not change entry/exit logic.
+Do not change SL/target formulas.
+Do not change paper-trade opening eligibility.
+Do not change Telegram.
+Do not enable broker execution.
+Do not place real orders.
+Do not perform destructive migrations.
+Do not rewrite historical trades.
+Do not ask for owner/admin password.
+
+This is production verification only.
+
+====================================================
+PART A — FRESH DEPLOY PROOF
+====================================================
+
+Check production:
+
+GET https://marketscannerbydev.in/api/build-info
+
+Confirm:
+
+1. HTTP 200.
+2. commitShort is 8ba275a or later.
+3. bootTime is after this republish.
+4. buildTime is after this republish.
+5. environment = production.
+6. all 7 checkpoint markers remain true.
+7. no secrets exposed.
+
+Previous production commit was:
+
+646e43be
+
+That predates P0-2.
+
+Do not mark PROD_VERIFIED if production still shows 646e43be.
+
+If production still shows 646e43be or any commit before 8ba275a, stop and report:
+
+FNO_VWAP_VOLUME_PROFILE_HONESTY_DEV_VERIFIED / BUILD_NOT_DEPLOYED
+
+====================================================
+PART B — RELEASE INTEGRITY
+====================================================
+
+Run:
+
+pnpm --filter @workspace/scripts run verify:release
+
+Expected:
+
+PASS, with only known INFO allowed if already documented.
+
+Confirm:
+
+1. /api/healthz works.
+2. /api/data-health/global works.
+3. /api/build-info works.
+4. frontend markers still live.
+5. Data Parity API remains owner-protected.
+6. no secrets exposed.
+
+If verify:release has a real FAIL, stop and report:
+
+RELEASE_INTEGRITY_REGRESSION_FOUND
+
+====================================================
+PART C — CODE / BUILD PROOF
+====================================================
+
+Confirm production build includes P0-2 behavior:
+
+1. sessionVwap returns null/unavailable for zero cumulative volume.
+2. rollingVwap returns null/unavailable for zero-volume input if changed.
+3. volumeProfile returns null when total volume is zero.
+4. volumeProfile no longer emits degenerate VAH / VAL / POC for zero-volume index candles.
+5. confluenceEngine does not score fake VP.
+6. confluenceEngine.scoreVwap gives weight=0 / neutral when vwapAvailable=false.
+7. detectVwapReclaim suppresses honestly when VWAP unavailable.
+8. detectMeanReversion suppresses honestly when VWAP unavailable.
+9. detectVolumeBreakout suppresses with structural zero-volume reason.
+10. detectTrendContinuation does not add fabricated VWAP confidence driver.
+11. detectBaselineOutlook no longer counts fake VWAP vote.
+12. OptionSignal exposes vwapAvailable / unavailable reason fields in schema.
+
+Report:
+
+| Area | Production Behavior | Verdict |
+|---|---|---|
+| sessionVwap |
+| volumeProfile |
+| confluenceEngine |
+| VWAP_RECLAIM |
+| MEAN_REVERSION |
+| VOLUME_BREAKOUT |
+| TREND_CONTINUATION |
+| BASELINE |
+| Signal schema |
+
+====================================================
+PART D — PRODUCTION F&O SIGNAL / DIAGNOSTIC CHECK
+====================================================
+
+Check production F&O diagnostics/signals safely.
+
+Do not send Telegram.
+Do not create trades.
+Do not enable broker execution.
+
+If owner-auth is required, do not ask for password. Use available diagnostics or provide owner manual checklist.
+
+For NIFTY, BANKNIFTY, and SENSEX, verify:
+
+1. VWAP unavailable is shown honestly when index candle volume is zero.
+2. Volume Profile unavailable is shown honestly when total volume is zero.
+3. Signal cards do not publish fake VWAP values.
+4. Signal cards do not publish fake VAH / VAL / POC.
+5. Driver text does not say “Spot above VWAP” if VWAP is unavailable.
+6. Driver text does not say “Above POC” if VP is unavailable.
+7. Suppressed reason includes structural reason, not generic “conditions not met” only.
+8. Shadow comparison / diagnostics shows legacy-vs-honest delta where implemented.
+
+Required table:
+
+| Index | VWAP Available? | VWAP Reason | VP Available? | VP Reason | Fake Values Published? | Verdict |
+|---|---:|---|---:|---|---:|---|
+| NIFTY |
+| BANKNIFTY |
+| SENSEX |
+
+====================================================
+PART E — SHADOW COMPARISON VERIFICATION
+====================================================
+
+Verify shadow comparison exists in production or production-equivalent diagnostics.
+
+Confirm it reports:
+
+1. Legacy candidate count.
+2. Honest candidate count.
+3. Legacy tradeable count.
+4. Honest tradeable count.
+5. Demotions due to VWAP unavailable.
+6. Demotions due to Volume Profile unavailable.
+7. Affected detector.
+8. Confidence delta.
+9. Direction delta.
+10. Tradeability changed or unchanged.
+
+Report:
+
+| Index | Detector | Legacy Conf | Honest Conf | Delta | Reason | Tradeability Changed? |
+|---|---|---:|---:|---:|---|---:|
+
+If production live signals are unavailable due to market time/auth, provide owner manual checklist and code-level production build proof.
+
+====================================================
+PART F — REGRESSION CHECKS
+====================================================
+
+Confirm:
+
+1. Release Integrity remains PROD_VERIFIED.
+2. P0-1 F&O Cost Model Unification remains PROD_VERIFIED.
+3. Backtest Charges Model + Net P&L remains PROD_VERIFIED.
+4. Checkpoint 1 remains PROD_VERIFIED.
+5. Checkpoint 2 remains PROD_VERIFIED.
+6. Checkpoint 2.5 remains PROD_VERIFIED.
+7. Checkpoint 3 remains PROD_VERIFIED.
+8. Data Parity compat remains PROD_VERIFIED.
+9. Provider import guard remains green.
+10. F&O cost model guard remains green.
+11. Broker execution remains disabled.
+12. No real orders placed.
+13. No Telegram spam.
+14. No strategy threshold tuning occurred.
+15. No destructive migration.
+16. No stale/report-grade data can drive live trades.
+
+====================================================
+PART G — TESTS
+====================================================
+
+Run and report exact counts:
+
+pnpm --filter @workspace/scripts run verify:release
+
+pnpm --filter @workspace/api-server run typecheck
+
+pnpm --filter @workspace/api-server run typecheck:libs
+
+pnpm --filter @workspace/api-server exec vitest run src/lib/*indicator*.test.ts src/lib/*optionSignal*.test.ts src/lib/*confluence*.test.ts src/lib/*fno*.test.ts src/lib/*paper*.test.ts src/lib/*fnoCost*.test.ts src/lib/*backtest*.test.ts src/routes/**/*.test.ts
+
+pnpm --filter @workspace/scanner exec vitest run
+
+pnpm --filter @workspace/scripts run index:llm
+
+pnpm --filter @workspace/scripts run index:llm:check
+
+If any suite times out, split into smaller batches and report exact counts.
+
+====================================================
+PART H — REPORT UPDATE
+====================================================
+
+Update:
+
+1. FNO_VWAP_VOLUME_PROFILE_HONESTY_REPORT.md
+2. USER_FACING_CORE_TABS_DEEP_AUDIT_REPORT.md
+3. WEBSITE_CANONICAL_DATA_INTEGRATION_REPORT.md
+
+Add final production verification section:
+
+P0-2 VWAP / VOLUME PROFILE HONESTY — FINAL PRODUCTION VERIFICATION
+
+Include:
+
+1. Fresh deploy proof.
+2. Production commit proof.
+3. buildTime / bootTime proof.
+4. VWAP zero-volume proof.
+5. Volume Profile zero-volume proof.
+6. Signal-card honesty proof.
+7. Shadow comparison proof.
+8. Tests and counts.
+9. Regression checks.
+10. Final verdict.
+
+====================================================
+FINAL VERDICT
+====================================================
+
+Final verdict must be exactly one:
+
+- FNO_VWAP_VOLUME_PROFILE_HONESTY_PROD_VERIFIED
+- FNO_VWAP_VOLUME_PROFILE_HONESTY_DEV_VERIFIED
+- FNO_VWAP_VOLUME_PROFILE_HONESTY_PARTIAL_GAP_REMAINS
+- RELEASE_INTEGRITY_REGRESSION_FOUND
+- ROLLBACK_REQUIRED
+
+Use:
+
+FNO_VWAP_VOLUME_PROFILE_HONESTY_PROD_VERIFIED
+
+only if production /api/build-info shows commitShort 8ba275a or later, fake VWAP/VP values are no longer published, diagnostics show honest unavailable reasons, shadow comparison is available, tests pass, and no regressions are found.
+
+Use:
+
+FNO_VWAP_VOLUME_PROFILE_HONESTY_DEV_VERIFIED
+
+if production still predates 8ba275a.
+
+Use:
+
+FNO_VWAP_VOLUME_PROFILE_HONESTY_PARTIAL_GAP_REMAINS
+
+if fake VWAP/VP values can still affect signal confidence or signal-card output.
+
+Use:
+
+RELEASE_INTEGRITY_REGRESSION_FOUND
+
+if verify:release has a real FAIL.
+
+Use:
+
+ROLLBACK_REQUIRED
+
+if secrets leak, broker execution turns on, real orders are placed, Telegram spam occurs, destructive migration happens, or stale/report-grade data can drive live trades.

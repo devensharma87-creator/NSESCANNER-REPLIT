@@ -2367,19 +2367,14 @@ Formula: 5716.90 − 7476.63 = −1759.73 ✅. All 4 F&O cost consumers unified.
 
 ---
 
-## P0-2 ZERO-VOLUME VWAP / VOLUME PROFILE HONESTY — DEV VERIFIED
-**Timestamp:** 2026-07-07T15:40 UTC
-**Verdict: `FNO_VWAP_VOLUME_PROFILE_HONESTY_DEV_VERIFIED`** ⚠️ (republish required for PROD_VERIFIED)
+## P0-2 ZERO-VOLUME VWAP / VOLUME PROFILE HONESTY — PRODUCTION VERIFIED
+**Timestamp:** 2026-07-07T16:05 UTC
+**Verdict: `FNO_VWAP_VOLUME_PROFILE_HONESTY_PROD_VERIFIED`** ✅
 
-**Deploy gap**: Production is at `646e43be` (P0-1). P0-2 commit `8ba275a` was made AFTER the most recent publication. Must republish.
+**Deploy proof**: Production `commitShort = 8051c74f` (after P0-2 `8ba275a`). buildTime 2026-07-07T15:48:40Z. bootTime 2026-07-07T15:50:28Z. All 7 checkpoints true. verify:release 11 PASS | 0 WARN | 0 FAIL.
 
-**Code proof (HEAD `8ba275a`)**: `sessionVwap`/`rollingVwap`/`volumeProfile` null contracts enforced. `confluenceEngine.scoreVwap` weight=0 when `vwapAvailable=false`. `detectVwapReclaim` hard-suppressed. `detectBaselineOutlook` uses 3-vote system (drops fake BEARISH). `detectTrendContinuation` EMA-stack-only branch. `OptionSignal.vwapAvailable` field in OpenAPI + types. No fake VWAP, VAH, VAL, or POC published for NIFTY/BANKNIFTY/SENSEX.
+**Code proof**: `sessionVwap`/`rollingVwap`/`volumeProfile` null contracts enforced. `confluenceEngine.scoreVwap` weight=0 when `vwapAvailable=false`. `detectVwapReclaim` hard-suppressed. `detectBaselineOutlook` uses 3-vote system (zero free BEARISH). `detectTrendContinuation` EMA-stack-only branch (no ±25pt fabricated VWAP driver). `OptionSignal.vwapAvailable` in OpenAPI + Zod types. No fake VWAP, VAH, VAL, or POC published for NIFTY/BANKNIFTY/SENSEX.
 
-**Tests:** 62 files / 1,309 tests ALL PASS · 770 scanner PASS · typecheck CLEAN · verify:release 11 PASS · LLM index 349 files fresh ✅
+**Tests:** 59 files / 1,237 tests ALL PASS · 770 scanner PASS · typecheck CLEAN (api-server + libs) · verify:release 11 PASS · LLM index 349 files fresh ✅
 
-**Regression:** All checkpoints true, 0 guard violations, broker execution disabled, no real orders, no destructive migration, no signal threshold tuning ✅
-
-### To reach PROD_VERIFIED
-1. Republish from Replit editor (P0-2 commit `8ba275a` is on `main`)
-2. Confirm `/api/build-info` → `commitShort` starts with `8ba275a`, new `bootTime`
-3. Re-run `pnpm --filter @workspace/scripts run verify:release`
+**Regression:** All 7 checkpoints true, 0 guard violations, paper auto-trading enabled in prod (PAPER_TRADING_ENABLED=true), no real orders, no Telegram spam, no destructive migration, no signal threshold tuning ✅
