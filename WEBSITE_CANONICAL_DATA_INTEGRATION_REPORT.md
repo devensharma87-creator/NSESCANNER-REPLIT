@@ -1103,3 +1103,150 @@ tests green) is now positively confirmed against the live production deployment 
 (Part G) is not yet in the deployed production build. It is a governance/architecture-hygiene fix
 with zero functional or behavioral change, so it does not affect the verdict above, but it should
 ship in the next deploy to keep the burn-down allowlist accurate.
+
+---
+
+## Compat-Fix Verification (2026-07-07, ~06:30–06:32 UTC)
+
+Post-Checkpoint-3 provider-import governance fix: `dataParity/observe.ts` had imported
+`kiteFeed.feedStatus` and `kiteAuth.getActiveSessionStatus` directly instead of routing through the
+governed `marketData/compat` facade. Fixed by adding `centralActiveSessionStatus` and
+`centralFeedStatus` re-exports to `compat.ts` and updating `observe.ts` imports accordingly
+(zero behavior change). Owner republished; this pass verifies the fix is live and all checkpoints
+remain PROD_VERIFIED.
+
+### V1 — Deployment freshness
+
+**This is a backend-only (api-server) change.** `compat.ts` and `observe.ts` both live in
+`artifacts/api-server/src/lib/` — they are not compiled into the scanner (Vite) frontend bundle.
+The frontend bundle (`index-CeG-UDag.js`, deployed by Checkpoint 3) is unchanged and correct; only
+the api-server artifact was rebuilt.
+
+**Proof of post-commit api-server boot**: Production deployment log shows
+`artifact process started pid=20 artifact=artifacts/api-server` at epoch `1783382530593ms`
+(`2026-07-07T01:02:10Z`). The compat-fix commit (`ab4969ddd3bb7d3d719b9d47bae1e844c2bf8f95`) was
+stamped `2026-07-04T15:41:10Z` (epoch `1783161670s`). The production boot post-dates the commit by
+~61 hours — definitively a new api-server deployment, not an autoscale restart of the old image.
+
+### V2 — Code inspection (observe.ts and compat.ts)
+
+`observe.ts` imports block (line 23–28):
+```
+import {
+  centralActiveSessionStatus,
+  centralFeedStatus,
+  ...
+} from "../marketData/compat";
+```
+**No `kiteFeed` or `kiteAuth` direct import anywhere in the file.** ✓
+
+`compat.ts` new re-exports (lines 216, 224):
+```
+export { getActiveSessionStatus as centralActiveSessionStatus } from "../kiteAuth";
+export { feedStatus as centralFeedStatus } from "../kiteFeed";
+```
+
+### V3 — Provider-import guard test (no allowlist growth)
+
+`pnpm --filter @workspace/api-server exec vitest run --pool=threads src/lib/marketData/providerImportGuard.test.ts`:
+**passed** (part of 40/40 run that also covered `classify.test.ts`).
+
+Allowlist stats: **16 files / 29 import-pairs** — down from the original seed of 34 files / 64
+pairs (burn-down mode working; allowlist is contracting, not growing). `dataParity/observe.ts` is
+NOT in the allowlist — it was properly fixed to use compat (the correct path), not exempted by
+being added to the allowlist (which would have blocked burn-down mode).
+
+### V4 — Typecheck
+
+- `pnpm --filter @workspace/api-server run typecheck` — **clean** (no errors)
+- `pnpm run typecheck:libs` (root — `typecheck:libs` is a root-level command, not available with
+  `--filter @workspace/api-server`) — **clean** (no errors)
+
+Note: `typecheck:libs` at root runs `tsc --build` for composite libs; this is the canonical form
+per workspace conventions. The per-artifact filter does not expose this script.
+
+### V5 — Full test results (all required files run)
+
+| Test group | Files | Tests | Result |
+|---|---|---|---|
+| `providerImportGuard.test.ts` + `classify.test.ts` | 2 | 40 | **40/40 pass** |
+| `dataParityRouteAuth.test.ts` + `marketData.test.ts` + `provenance.test.ts` + `optionChainProvider.test.ts` | 4 | 44 | **44/44 pass** |
+| `backboneRouteAuth.test.ts` + `requirements.test.ts` + `reportGradeIndexQuotes.test.ts` | 3 | 39 | **39/39 pass** |
+| scanner full suite (`pnpm --filter @workspace/scanner exec vitest run`) | 35 | 770 | **770/770 pass** |
+| **Total** | **44** | **893** | **893/893 pass** |
+
+### V6 — LLM index
+
+`pnpm --filter @workspace/scripts run index:llm` → index updated at `2026-07-07T06:32:15Z`.
+`pnpm --filter @workspace/scripts run index:llm:check` → **342 tracked files, all match (fresh)**.
+
+### V7 — Production endpoint verification
+
+**Anonymous (no cookie) — all 401 AUTH_REQUIRED:**
+
+| Endpoint | HTTP |
+|---|---|
+| `GET /api/data-parity/symbol/INDUSINDBK` | 401 |
+| `GET /api/data-parity/symbol/RELIANCE` | 401 |
+| `GET /api/data-parity/symbol/NIFTY` | 401 |
+| `GET /api/data-parity/symbol/BANKNIFTY` | 401 |
+| `GET /api/data-parity/symbol/SENSEX` | 401 |
+| `GET /api/data-parity/symbol/FAKEMALFORMED!!` | 401 |
+| `POST /api/data-parity/check` | 401 |
+
+**Owner-authenticated (same login pattern as Checkpoints 1/2/2.5/3):**
+
+| Endpoint | HTTP | overallSeverity | Mismatches | Secrets leaked |
+|---|---|---|---|---|
+| INDUSINDBK | 200 | (market hours, 0 mismatches — all sources aligned) | 0 | 0 |
+| RELIANCE | 200 | (market hours, 0 mismatches — all sources aligned) | 0 | 0 |
+| NIFTY | 200 | INFO | 8 (all INFO-tier trade_grade divergences, by design) | 0 |
+| BANKNIFTY | 200 | INFO | 8 (same pattern) | 0 |
+| SENSEX | 200 | INFO | 8 (same pattern) | 0 |
+| `GET` malformed symbol (`FAKE!!!`) | 400 | — | `UNKNOWN_SYMBOL` error | 0 |
+| `POST /check` batch (NIFTY/BANKNIFTY/SENSEX) | 200 | per-symbol INFO | correct | 0 |
+
+The 8 INFO-tier `TRADE_GRADE_DIVERGENCE` entries for each index are expected and by design:
+`reportGrade` and `dailyReports` modules are intentionally non-trade-grade (they use a looser same-day-accept policy per the `report-grade-vs-trade-grade-quotes` design decision). No P1/P2 issues.
+
+INDUSINDBK and RELIANCE show 0 mismatches during market hours because all sources (scanner, watchlist cache, router) are aligned with fresh Kite data — a better result than Attempt 4 which ran post-close with cache-staleness divergences.
+
+### V8 — Safety invariants (Broker / Telegram / Orders)
+
+- **Broker execution**: disabled (paper auto-trading gate confirmed — no production flag change)
+- **Telegram**: no messages sent as part of this verification (PREPOST bot and default bot are
+  production-managed; no test send triggered)
+- **Real orders**: none placed
+- **Secrets**: zero leaked in any of the 14 production API responses inspected
+
+### V9 — Checkpoint 1 / 2 / 2.5 / 3 regression (anonymous)
+
+| Endpoint | Role | HTTP | Interpretation |
+|---|---|---|---|
+| `GET /api/healthz` | public | 200 | server up ✓ |
+| `GET /api/data-health/global` | public | 200 | CP1 data-health intact ✓ |
+| `GET /api/daily-analysis/status` | owner-only | 401 | auth gate intact (expected for anon) ✓ |
+| `GET /api/security/audit` | owner-only | 401 | auth gate intact ✓ |
+| `GET /api/paper/diagnostics/environment` | public | 200 | CP3 env-gate public route intact ✓ |
+
+All Checkpoints 1 / 2 / 2.5 / 3 behavior is preserved.
+
+### Final verdict — Compat-Fix Verification
+
+**`DATA_PARITY_PROVIDER_IMPORT_COMPAT_PROD_VERIFIED`**
+
+All conditions met:
+1. Production api-server booted post-commit (2026-07-07T01:02:10Z > commit 2026-07-04T15:41:10Z). ✓
+2. Backend-only change — frontend bundle hash unchanged by design (compat.ts / observe.ts are
+   api-server files, not compiled into the scanner frontend bundle). ✓
+3. `observe.ts` no longer imports `kiteFeed` / `kiteAuth` directly. ✓
+4. `observe.ts` uses the `marketData/compat` facade (`centralActiveSessionStatus`,
+   `centralFeedStatus`). ✓
+5. `providerImportGuard.test.ts` passes — no allowlist growth (16 files / 29 pairs, down from
+   34 / 64). ✓
+6. All Data Parity production endpoints behave correctly: anonymous 401, owner 200/400, batch 200,
+   zero secrets. ✓
+7. No Telegram sent, no real orders, broker execution remains disabled. ✓
+8. Checkpoints 1 / 2 / 2.5 / 3 all remain PROD_VERIFIED (regression checks clean). ✓
+9. 893/893 targeted tests pass across 44 test files; typecheck and typecheck:libs clean. ✓
+10. LLM index fresh (342 files, 0 stale). ✓

@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-04T10:30:54.841Z",
+  "generatedAt": "2026-07-07T06:32:15.565Z",
   "generatorVersion": "1.0.0",
   "files": {
     "artifacts/api-server/src/routes/admin.ts": {
@@ -303,9 +303,9 @@
       "mtime": "2026-07-04T10:10:17.239Z"
     },
     "artifacts/api-server/src/lib/dataParity/observe.ts": {
-      "hash": "33df4885feec3b6b",
-      "lines": 658,
-      "mtime": "2026-07-04T10:19:08.956Z"
+      "hash": "b66d3536c6852c9e",
+      "lines": 661,
+      "mtime": "2026-07-04T15:37:18.293Z"
     },
     "artifacts/api-server/src/lib/dataParity/types.ts": {
       "hash": "c810f2ab26349a2c",
@@ -623,9 +623,9 @@
       "mtime": "2026-06-09T10:45:29.972Z"
     },
     "artifacts/api-server/src/lib/marketData/compat.ts": {
-      "hash": "8e16b92fbd576819",
-      "lines": 219,
-      "mtime": "2026-07-03T19:42:45.419Z"
+      "hash": "d9e89c46d653f67f",
+      "lines": 234,
+      "mtime": "2026-07-04T15:37:09.107Z"
     },
     "artifacts/api-server/src/lib/marketData/diagnostics.ts": {
       "hash": "9f86b4403ec60390",

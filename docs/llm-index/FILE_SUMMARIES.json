@@ -1001,7 +1001,7 @@
   {
     "path": "artifacts/api-server/src/lib/dataParity/observe.ts",
     "purpose": "lib",
-    "lines": 658,
+    "lines": 661,
     "exports": [
       "observeModule",
       "observeAllModules"
@@ -1011,7 +1011,7 @@
       "@workspace/db"
     ],
     "routes": [],
-    "hash": "33df4885feec3b6b"
+    "hash": "b66d3536c6852c9e"
   },
   {
     "path": "artifacts/api-server/src/lib/dataParity/types.ts",
@@ -2663,7 +2663,7 @@
   {
     "path": "artifacts/api-server/src/lib/marketData/compat.ts",
     "purpose": "api-route",
-    "lines": 219,
+    "lines": 234,
     "exports": [
       "centralIndexCandles",
       "centralHasIndexCoverage",
@@ -2673,7 +2673,7 @@
     ],
     "externalImports": [],
     "routes": [],
-    "hash": "8e16b92fbd576819"
+    "hash": "d9e89c46d653f67f"
   },
   {
     "path": "artifacts/api-server/src/lib/marketData/diagnostics.ts",

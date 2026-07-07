@@ -1,0 +1,81 @@
+Checkpoint 3 feature verification is accepted as:
+
+CANONICAL_DATA_CHECKPOINT_3_PROD_VERIFIED
+
+However, do not start any new checkpoint yet.
+
+You found and fixed one provider-import governance issue:
+
+dataParity/observe.ts was directly importing kiteFeed/kiteAuth instead of using the governed marketData/compat facade.
+
+That fix is committed and tests are green, but it is not deployed yet.
+
+Owner will republish now / has republished now. Run production verification for this compat-layer fix only.
+
+STRICT RULES:
+
+Do not write new feature code.
+Do not start Checkpoint 4.
+Do not migrate scanner.
+Do not migrate charting.
+Do not migrate option-chain / OI Lab.
+Do not change F&O strategy.
+Do not change Swing strategy.
+Do not change Auto Strong Buy logic.
+Do not change thresholds.
+Do not weaken trade-grade checks.
+Do not allow report-grade/stale data to drive signals or paper trades.
+Do not enable broker execution.
+Do not place real orders.
+Do not send Telegram test messages.
+Do not perform destructive migrations.
+Do not ask for owner/admin password.
+
+OBJECTIVE:
+
+Verify that the provider-import compat fix is now live in production and that Checkpoint 3 remains production verified.
+
+VERIFY:
+
+1. Production has a fresh build after the compat-fix commit.
+2. Frontend bundle hash changed if frontend files changed; if only backend/source governance changed, explain exact proof used.
+3. Deployed code no longer has dataParity/observe.ts importing kiteFeed/kiteAuth directly.
+4. dataParity/observe.ts uses marketData/compat facade.
+5. providerImportGuard passes clean.
+6. No allowlist growth.
+7. Data Parity endpoints still work:
+   - /api/data-parity/symbol/INDUSINDBK
+   - /api/data-parity/symbol/RELIANCE
+   - /api/data-parity/symbol/NIFTY
+   - /api/data-parity/symbol/BANKNIFTY
+   - /api/data-parity/symbol/SENSEX
+   - /api/data-parity/check
+8. Anonymous access remains 401.
+9. Malformed symbol still returns 400 where applicable.
+10. No secrets exposed.
+11. No Telegram sent.
+12. No real orders placed.
+13. Broker execution remains disabled.
+14. Checkpoint 1 remains PROD_VERIFIED.
+15. Checkpoint 2 remains PROD_VERIFIED.
+16. Checkpoint 2.5 remains PROD_VERIFIED.
+17. Checkpoint 3 remains PROD_VERIFIED.
+18. WEBSITE_CANONICAL_DATA_INTEGRATION_REPORT.md is updated with this final provider-import compatibility verification.
+
+RUN TESTS:
+
+pnpm --filter @workspace/api-server run typecheck
+pnpm --filter @workspace/api-server run typecheck:libs
+pnpm --filter @workspace/api-server exec vitest run src/lib/marketData/providerImportGuard.test.ts src/lib/*dataParity*.test.ts src/lib/*marketData*.test.ts src/routes/**/*.test.ts
+pnpm --filter @workspace/scanner exec vitest run
+pnpm --filter @workspace/scripts run index:llm
+pnpm --filter @workspace/scripts run index:llm:check
+
+FINAL VERDICT MUST BE EXACTLY ONE:
+
+- DATA_PARITY_PROVIDER_IMPORT_COMPAT_PROD_VERIFIED
+- DATA_PARITY_PROVIDER_IMPORT_COMPAT_BUILD_NOT_DEPLOYED
+- DATA_PARITY_PROVIDER_IMPORT_COMPAT_PARTIAL_GAP_REMAINS
+- ROLLBACK_REQUIRED
+
+Use DATA_PARITY_PROVIDER_IMPORT_COMPAT_PROD_VERIFIED only if the compat fix is live, providerImportGuard is green, no allowlist growth happened, and Data Parity production behavior remains correct.
