@@ -910,3 +910,28 @@ Code-level proof confirmed via grep:
 | typecheck + libs | CLEAN | ✅ |
 | fnoCostModelGuard violations | 0 | ✅ |
 | All checkpoints | true | ✅ |
+
+---
+
+## P0-2 ZERO-VOLUME VWAP / VOLUME PROFILE HONESTY — DEV VERIFIED
+**Timestamp:** 2026-07-07T15:40 UTC
+**Verdict: `FNO_VWAP_VOLUME_PROFILE_HONESTY_DEV_VERIFIED`** ⚠️ (republish required for PROD_VERIFIED)
+
+| Check | Value | Status |
+|---|---|---|
+| Production `commitShort` | `646e43be` (P0-1) | ⚠️ P0-2 commit `8ba275a` not yet deployed |
+| `sessionVwap` returns null for zero-vol | ✅ per code + 15 indicator tests | CORRECT |
+| `rollingVwap` returns null for zero-vol | ✅ per code + tests | CORRECT |
+| `volumeProfile` returns null when totalVol≤0 | ✅ per code + tests | CORRECT |
+| `confluenceEngine.scoreVwap` weight=0 when unavailable | ✅ per code + 7 confluence tests | CORRECT |
+| `detectBaselineOutlook` 3-vote system when unavailable | ✅ per code + logic tests | CORRECT |
+| `detectVwapReclaim` hard-suppressed when unavailable | ✅ per code + tests | CORRECT |
+| `detectTrendContinuation` EMA-stack-only branch | ✅ per code + tests | CORRECT |
+| `OptionSignal.vwapAvailable` in OpenAPI + codegen | ✅ GetOptionSignalsResponse Zod schema confirms field | CORRECT |
+| No fake VAH / VAL / POC published | ✅ volumeProfile null → downstream null | CORRECT |
+| verify:release | 11 PASS \| 0 WARN \| 0 FAIL | ✅ |
+| 1,309 tests (62 files) | 1,309/1,309 PASS | ✅ |
+| 770 scanner tests | 770/770 PASS | ✅ |
+| typecheck api-server | CLEAN | ✅ |
+| LLM index | 349 files fresh | ✅ |
+| All checkpoints | true | ✅ |

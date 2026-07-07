@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-07T14:37:29.362Z",
+  "generatedAt": "2026-07-07T15:39:38.483Z",
   "generatorVersion": "1.0.0",
   "files": {
     "artifacts/api-server/src/routes/admin.ts": {
@@ -303,9 +303,9 @@
       "mtime": "2026-06-01T13:32:49.391Z"
     },
     "artifacts/api-server/src/lib/confluenceEngine.ts": {
-      "hash": "b00cad40a217e01a",
-      "lines": 241,
-      "mtime": "2026-05-06T14:37:16.929Z"
+      "hash": "2ab494c9f8839f99",
+      "lines": 259,
+      "mtime": "2026-07-07T14:51:45.809Z"
     },
     "artifacts/api-server/src/lib/csvExport.ts": {
       "hash": "016a1804572714c9",
@@ -538,9 +538,9 @@
       "mtime": "2026-06-07T13:49:43.705Z"
     },
     "artifacts/api-server/src/lib/indicators.ts": {
-      "hash": "c395ee986a842d84",
-      "lines": 256,
-      "mtime": "2026-06-07T10:29:37.303Z"
+      "hash": "eb379c78d22ad164",
+      "lines": 278,
+      "mtime": "2026-07-07T14:51:27.456Z"
     },
     "artifacts/api-server/src/lib/indicesBoard.ts": {
       "hash": "2515ae504af8dfca",
@@ -853,9 +853,9 @@
       "mtime": "2026-05-06T14:27:23.697Z"
     },
     "artifacts/api-server/src/lib/optionSignals.ts": {
-      "hash": "d6a8feaf894c8b50",
-      "lines": 2877,
-      "mtime": "2026-07-03T07:53:40.964Z"
+      "hash": "77da3c6774345da3",
+      "lines": 2998,
+      "mtime": "2026-07-07T14:55:22.190Z"
     },
     "artifacts/api-server/src/lib/optionSnapshotAnalytics.ts": {
       "hash": "6f46087c9cd95893",
@@ -1323,9 +1323,9 @@
       "mtime": "2026-06-05T12:55:17.075Z"
     },
     "lib/api-spec/openapi.yaml": {
-      "hash": "f1574ddb679aaa55",
-      "lines": 6887,
-      "mtime": "2026-07-07T10:40:10.789Z"
+      "hash": "5ade6b2af342a8e1",
+      "lines": 6890,
+      "mtime": "2026-07-07T14:56:07.210Z"
     },
     "artifacts/scanner/src/pages/admin.tsx": {
       "hash": "4a6ea1da8bb56b02",

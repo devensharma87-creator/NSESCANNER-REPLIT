@@ -94,3 +94,138 @@ pnpm --filter @workspace/api-server exec vitest run --pool=threads \
   "src/lib/optionSignals.vwapLabel.test.ts"
 # → 4 test files, 41 tests, all passed
 ```
+
+---
+
+## Production Verification — 2026-07-07
+
+### Part A — Fresh Deploy Proof
+
+| Check | Value | Status |
+|---|---|---|
+| Production endpoint | `https://marketscannerbydev.in/api/build-info` | ✅ HTTP 200 |
+| Production `commitShort` | `646e43be` (P0-1 commit) | ⚠️ P0-2 commit `8ba275a` NOT YET LIVE |
+| `buildTime` | 2026-07-07T14:31:27.607Z | ⚠️ BEFORE P0-2 commit |
+| `bootTime` | 2026-07-07T14:34:23.730Z | ✅ Valid |
+| `environment` | `production` | ✅ |
+| All 7 checkpoint markers | `true` | ✅ |
+| Secrets exposed | None | ✅ |
+
+**Deploy gap**: The user published at 14:31 UTC; the P0-2 commit (`8ba275a`) was made during this session after that timestamp. Production must be republished to pick up P0-2.
+
+---
+
+### Part B — Release Integrity
+
+```
+verify:release → 11 PASS | 0 WARN | 0 FAIL ✅
+```
+
+| Check | Result |
+|---|---|
+| /api/healthz | ✅ HTTP 200 |
+| /api/data-health/global | ✅ HTTP 200 |
+| /api/build-info | ✅ HTTP 200, no secrets |
+| Boot time present | ✅ |
+| All 7 checkpoint markers | ✅ |
+| Frontend bundle detected | ✅ index-BI-foe_a.js (not stale) |
+| Frontend release markers | ✅ All 3 present |
+| Frontend Data Parity markers | ✅ All 2 present |
+| Data Parity API owner-protected | ✅ anonymous → 401 |
+
+---
+
+### Part C — Code / Model Proof
+
+All fixes verified against committed code at HEAD (`8ba275a`):
+
+| File | Fix Verified? | Evidence | Verdict |
+|---|---|---|---|
+| `indicators.ts` | ✅ YES | `sessionVwap` line 153-155: `if (cumVol === 0) ...push(null)`; `rollingVwap` line 128: `if (v === 0) return null`; `volumeProfile` line 203: `if (totalVol <= 0) return null` | CORRECT |
+| `confluenceEngine.ts` | ✅ YES | `scoreVwap` lines 132-137: early-return `weight=0, polarity="neutral"` when `i.vwapAvailable === false`; `ConfluenceInputs.vwapAvailable?: boolean` added | CORRECT |
+| `optionSignals.ts` | ✅ YES | `Ctx.vwapAvailable: boolean` added; `buildContext` sets `vwapAvailable = vwapRaw != null`; `detectVwapReclaim` guard at top; `detectTrendContinuation` VWAP-unavailable branch; `detectBaselineOutlook` 3-vote system; signal output field; confluenceInputs pass-through | CORRECT |
+| `openapi.yaml` / generated types | ✅ YES | `OptionSignal.vwapAvailable` (boolean, optional) in spec; `GetOptionSignalsResponse` Zod schema confirmed to contain `vwapAvailable` field; codegen ran cleanly | CORRECT |
+
+---
+
+### Part D — Production F&O Signal Honesty Check
+
+**Limitation**: `/api/fno/signals` requires owner auth (anonymous → 401). Production is also still at P0-1 (`646e43be`), so P0-2 fixes are not yet live in production. Live signal verification deferred until republish.
+
+Code-level proof (what will be true after republish):
+
+| Index | VWAP Available? | VWAP Reason | VP Available? | VP Reason | Fake Levels Published? | Verdict |
+|---|---|---|---|---|---|---|
+| NIFTY | `false` | Kite returns vol=0 for all bars; `sessionVwap` returns null series; `vwapAvailable=false` set in `buildContext` | `null` | `volumeProfile` returns null when totalVol=0; `c.vp=null` | None — `scoreVwap` weight=0, `detectVwapReclaim` suppressed, `detectBaselineOutlook` uses 3-vote | ✅ HONEST |
+| BANKNIFTY | `false` | Same as NIFTY | `null` | Same as NIFTY | None | ✅ HONEST |
+| SENSEX | `false` | Same as NIFTY | `null` | Same as NIFTY | None | ✅ HONEST |
+
+---
+
+### Part E — Shadow / Diagnostic Proof
+
+**Limitation**: No dedicated persisted shadow-comparison endpoint was built for P0-2. The behaviour delta is captured through unit tests only.
+
+| Index | Detector | Legacy Behavior | Honest Behavior | Confidence Delta | Reason |
+|---|---|---|---|---|---|
+| NIFTY/BANKNIFTY/SENSEX | `scoreVwap` | weight=±10 from fabricated `spot≈vwap` reading | weight=0, polarity=neutral | −10 to +10 (removed) | `VWAP_UNAVAILABLE_ZERO_VOLUME` |
+| NIFTY/BANKNIFTY/SENSEX | `detectVwapReclaim` | Could emit VWAP_RECLAIM from all-null series | `return null` — hard suppressed | −∞ (full suppression) | `VWAP_UNAVAILABLE_ZERO_VOLUME` |
+| NIFTY/BANKNIFTY/SENSEX | `detectTrendContinuation` | ±25 VWAP driver added from `spot>spot` (false) | EMA-stack-only branch; base conf 20 vs 45; "VWAP data quality" driver appended | −25 base | `VWAP_UNAVAILABLE_ZERO_VOLUME` |
+| NIFTY/BANKNIFTY/SENSEX | `detectBaselineOutlook` | 4-vote with systematic free BEARISH from `spot>spot` | 3-vote (EMA21/EMA9stack/RSI); base conf 30 vs 35 | Removes 1 free BEARISH vote | `INDEX_VOLUME_UNAVAILABLE` |
+| NIFTY/BANKNIFTY/SENSEX | `detectVolumeBreakout` | Degenerate all-zero VP profile fed to detector | `null` VP → `if (!c.vp) return null` suppresses | Full suppression | `VOLUME_PROFILE_UNAVAILABLE_ZERO_VOLUME` |
+| NIFTY/BANKNIFTY/SENSEX | `detectMeanReversion` | `dist = 0` already (vwap=spot) → no change | Same — already naturally suppressed | 0 | N/A |
+
+---
+
+### Part F — Regression Checks
+
+| Check | Status |
+|---|---|
+| Release Integrity PROD_VERIFIED | ✅ verify:release 11 PASS |
+| P0-1 F&O Cost Model PROD_VERIFIED | ✅ STT=0.0015, EXCH=0.0003503 live on prod (646e43be) |
+| Checkpoint 1 marker | ✅ true |
+| Checkpoint 2 marker | ✅ true |
+| Checkpoint 2.5 marker | ✅ true |
+| Checkpoint 3 marker | ✅ true |
+| Data Parity compat marker | ✅ true |
+| Provider import guard | ✅ passes (included in test suite) |
+| FNO cost model guard | ✅ 0 violations |
+| Broker execution disabled | ✅ `isPaperAutoTradingEnabled()` = false in dev |
+| Real orders placed | ✅ None |
+| Telegram spam | ✅ None |
+| Strategy threshold tuning | ✅ None |
+| Destructive migration | ✅ None |
+| Stale data driving live trades | ✅ Market data trust-tier guards unchanged |
+
+---
+
+### Part G — Full Test Counts
+
+| Suite | Files | Tests | Status |
+|---|---|---|---|
+| P0-2 zero-volume VWAP (indicators, confluenceEngine, optionSignals) | 6 | 87 | ✅ ALL PASS |
+| FNO cost model / guard / exit decision / sizing | 6 | 133 | ✅ ALL PASS |
+| Route auth + backtest routes | 7 | 122 | ✅ ALL PASS |
+| Daily analysis / exit monitor / FNO alerts / observability | 6 | 133 | ✅ ALL PASS |
+| Paper trading FO + EQ | 2 | 64 | ✅ ALL PASS |
+| Scanner frontend (35 files) | 35 | 770 | ✅ ALL PASS |
+| **Total** | **62** | **1,309** | **✅ ALL PASS** |
+
+```
+api-server typecheck: CLEAN ✅
+verify:release: 11 PASS | 0 WARN | 0 FAIL ✅
+LLM index: 349 files tracked, fresh (0 min ago) ✅
+```
+
+---
+
+### Final Verdict
+
+**`FNO_VWAP_VOLUME_PROFILE_HONESTY_DEV_VERIFIED`**
+
+All code fixes are committed and verified at HEAD (`8ba275a`). All 1,309 tests pass. Typecheck clean. Release integrity intact. Regressions: zero.
+
+Production is still at `646e43be` (P0-1). To advance to `PROD_VERIFIED`:
+1. Republish from the Replit editor
+2. Confirm `/api/build-info` → `commitShort` = `8ba275a` (or later), new `bootTime`
+3. Re-run `pnpm --filter @workspace/scripts run verify:release`
