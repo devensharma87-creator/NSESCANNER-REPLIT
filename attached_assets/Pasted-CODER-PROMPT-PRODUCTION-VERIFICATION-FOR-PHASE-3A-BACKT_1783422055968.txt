@@ -1,0 +1,282 @@
+CODER PROMPT — PRODUCTION VERIFICATION FOR PHASE 3A BACKTEST CHARGES MODEL + NET P&L
+
+I have published / republished the app.
+
+Run production verification for PHASE 3A only:
+
+BACKTEST CHARGES MODEL + NET P&L FIX
+
+Current status:
+
+BACKTEST_CHARGES_MODEL_NET_PNL_DEV_VERIFIED
+
+Expected final if production verification passes:
+
+BACKTEST_CHARGES_MODEL_NET_PNL_PROD_VERIFIED
+
+====================================================
+STRICT RULES
+====================================================
+
+Do not write new feature code unless production verification finds a real blocker.
+
+Do not start Charting fixes.
+Do not start Portfolio fixes.
+Do not start Backtesting Phase 3B.
+Do not change live F&O strategy.
+Do not change Swing strategy.
+Do not change Auto Strong Buy logic.
+Do not change thresholds.
+Do not change entry rules.
+Do not change exit rules.
+Do not change SL/target formulas.
+Do not change paper trading.
+Do not change Telegram.
+Do not enable broker execution.
+Do not place real orders.
+Do not perform destructive migrations.
+Do not ask for owner/admin password.
+
+This is verification-only.
+
+====================================================
+PART A — RELEASE INTEGRITY
+====================================================
+
+Run:
+
+pnpm --filter @workspace/scripts run verify:release
+
+Expected:
+
+12/12 PASS
+
+Also verify:
+
+1. /api/build-info HTTP 200.
+2. commitShort is latest deployed commit.
+3. bootTime is after publish.
+4. frontend bundle is fresh if frontend changed.
+5. no secrets exposed.
+6. release markers still present.
+7. Data Parity API remains owner-protected.
+
+If verify:release fails, stop and report:
+
+RELEASE_INTEGRITY_REGRESSION_FOUND
+
+====================================================
+PART B — PRODUCTION BACKTEST API VERIFICATION
+====================================================
+
+Run production backtest checks for all supported modes affected by Phase 3A:
+
+1. Mode A / Real Replay, if available.
+2. Mode B / Directional.
+3. Mode C / Strategy.
+4. Mode D, if applicable.
+
+For each mode, confirm returned trades include:
+
+- grossPnl
+- chargesBreakdown
+- brokerage
+- stt
+- exchangeCharges
+- sebiCharges
+- stampDuty
+- gst
+- slippageCost
+- totalCharges
+- netPnl
+
+Required invariant:
+
+netPnl = grossPnl - totalCharges
+
+Report table:
+
+| Mode | Trades? | Gross P&L | Total Charges | Net P&L | Net Formula Correct? | Verdict |
+|---|---:|---:|---:|---:|---:|---|
+
+====================================================
+PART C — SUMMARY METRICS VERIFICATION
+====================================================
+
+For each mode with trades, confirm summary includes:
+
+1. totalGrossPnl
+2. totalCosts
+3. totalNetPnl
+4. gross return if available
+5. net return if available
+6. win rate based on net P&L
+7. profit factor based on net P&L
+8. expectancy based on net P&L
+9. equity curve using net P&L by default
+
+Required invariant:
+
+summary.totalNetPnl = sum(trade.netPnl)
+
+Required invariant:
+
+summary.totalCosts = sum(trade.chargesBreakdown.totalCharges)
+
+Report table:
+
+| Mode | totalGrossPnl | totalCosts | totalNetPnl | Trade Sum Match? | Equity Curve Net? | Verdict |
+|---|---:|---:|---:|---:|---:|---|
+
+====================================================
+PART D — FRONTEND UI VERIFICATION
+====================================================
+
+Verify Backtesting tab UI in production.
+
+Confirm:
+
+1. Amber “Charges included” disclosure is visible above results.
+2. All cost items are listed.
+3. Modes B/C show modelled premium assumption.
+4. Trade table shows net P&L as primary.
+5. Tooltip or inline detail shows Gross / Charges / Net.
+6. Each trade shows charges deduction.
+7. Summary shows gross/net breakdown.
+8. Equity curve is not presented as gross-only profit.
+9. Synthetic/modelled pricing warning remains visible where applicable.
+10. No hidden or buried-only warning.
+
+If owner-auth visual access is needed, do not ask for password. Provide owner manual checklist.
+
+Required UI table:
+
+| UI Item | Present? | Evidence | Verdict |
+|---|---:|---|---|
+
+====================================================
+PART E — DATA HONESTY VERIFICATION
+====================================================
+
+Confirm production does not imply:
+
+1. gross P&L = actual tradable profit.
+2. synthetic premium = real historical option premium.
+3. modelled fills = exchange-confirmed fills.
+4. zero charges = realistic backtest.
+5. backtested result = live-tested result.
+
+Confirm labels:
+
+- Gross before charges
+- Net after charges
+- Charges estimated/modelled
+- Slippage modelled
+- Synthetic/modelled pricing warning where applicable
+
+====================================================
+PART F — REGRESSION CHECKS
+====================================================
+
+Confirm:
+
+1. Release Integrity remains PROD_VERIFIED.
+2. Checkpoint 1 remains PROD_VERIFIED.
+3. Checkpoint 2 remains PROD_VERIFIED.
+4. Checkpoint 2.5 remains PROD_VERIFIED.
+5. Checkpoint 3 remains PROD_VERIFIED.
+6. Data Parity compat remains PROD_VERIFIED.
+7. Provider import guard remains green.
+8. Broker execution remains disabled.
+9. No real orders placed.
+10. No Telegram spam.
+11. No stale/report-grade data can drive live signals.
+12. No live strategy thresholds changed.
+13. 30% SL consistency remains unchanged.
+
+====================================================
+PART G — TESTS
+====================================================
+
+Run and report exact counts:
+
+pnpm --filter @workspace/scripts run verify:release
+
+pnpm --filter @workspace/api-server run typecheck
+
+pnpm --filter @workspace/api-server run typecheck:libs
+
+pnpm --filter @workspace/api-server exec vitest run src/lib/*backtest*.test.ts src/lib/*charges*.test.ts src/lib/*paper*.test.ts src/lib/*fno*.test.ts src/lib/*marketData*.test.ts src/routes/**/*.test.ts
+
+pnpm --filter @workspace/scanner exec vitest run
+
+pnpm --filter @workspace/scripts run index:llm
+
+pnpm --filter @workspace/scripts run index:llm:check
+
+If a suite times out, run in batches and report exact counts.
+
+====================================================
+PART H — REPORT UPDATE
+====================================================
+
+Update:
+
+USER_FACING_CORE_TABS_DEEP_AUDIT_REPORT.md
+
+and
+
+WEBSITE_CANONICAL_DATA_INTEGRATION_REPORT.md
+
+Add production verification section:
+
+PHASE 3A — BACKTEST CHARGES MODEL + NET P&L PRODUCTION VERIFICATION
+
+Include:
+
+1. Fresh deploy proof.
+2. API verification.
+3. UI verification.
+4. Gross vs net proof.
+5. Charges breakdown proof.
+6. Equity curve net proof.
+7. Data honesty labels.
+8. Tests and counts.
+9. Regression checks.
+10. Final verdict.
+
+====================================================
+FINAL VERDICT
+====================================================
+
+Final verdict must be exactly one:
+
+- BACKTEST_CHARGES_MODEL_NET_PNL_PROD_VERIFIED
+- BACKTEST_CHARGES_MODEL_NET_PNL_DEV_VERIFIED
+- BACKTEST_CHARGES_MODEL_NET_PNL_PARTIAL_GAP_REMAINS
+- RELEASE_INTEGRITY_REGRESSION_FOUND
+- ROLLBACK_REQUIRED
+
+Use:
+
+BACKTEST_CHARGES_MODEL_NET_PNL_PROD_VERIFIED
+
+only if production backtesting API/UI shows gross P&L, total charges, net P&L, net equity curve, assumptions panel, and all tests/regressions pass.
+
+Use:
+
+BACKTEST_CHARGES_MODEL_NET_PNL_PARTIAL_GAP_REMAINS
+
+if any API/UI/summary/equity-curve/label requirement is incomplete.
+
+Use:
+
+RELEASE_INTEGRITY_REGRESSION_FOUND
+
+if verify:release fails.
+
+Use:
+
+ROLLBACK_REQUIRED
+
+if secrets leak, broker execution turns on, real orders are placed, Telegram spam occurs, destructive migration happens, or stale/report-grade data can drive live trades.

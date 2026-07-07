@@ -108,3 +108,9 @@ id = "BOJ-pCplO16A5sYeid46O"
 uri = "file://FNO_EXIT_MONITORING_RELIABILITY_REPORT.md"
 type = "text"
 title = "F&O Exit Monitoring Reliability Report"
+
+[[outputs]]
+id = "TqcexNoIeOYeFaIaFZg0a"
+uri = "file://exports/project-source.tar.gz"
+type = "unspecified"
+title = "Indian Stock Market Scanner — Full Project Source"
