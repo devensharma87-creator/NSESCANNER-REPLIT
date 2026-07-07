@@ -1,0 +1,256 @@
+CODER PROMPT — FINAL PRODUCTION VERIFICATION FOR PHASE 3A ROUTE FIX
+
+I have republished the app after the chargesBreakdown persistence/GET mapper route fix.
+
+Run final production verification for PHASE 3A only:
+
+BACKTEST CHARGES MODEL + NET P&L FIX
+
+Current status before this republish:
+
+BACKTEST_CHARGES_MODEL_NET_PNL_PARTIAL_GAP_REMAINS
+
+Reason:
+- Published commit 88376ede had gross/net summary working.
+- But per-trade chargesBreakdown was computed but not stored/returned by GET /backtest/fno/runs/:id/trades for Modes A/B/C.
+- Route fix was committed after verification:
+  1. Store t.chargesBreakdown into costs_json when t.costs is null.
+  2. GET mapper returns chargesBreakdown from costs_json for Modes A/B/C while keeping Mode D costs behavior.
+
+Expected final verdict if this republish contains the fix:
+
+BACKTEST_CHARGES_MODEL_NET_PNL_PROD_VERIFIED
+
+====================================================
+STRICT RULES
+====================================================
+
+Do not write new feature code unless verification finds a real blocker.
+Do not start Charting fixes.
+Do not start Portfolio fixes.
+Do not start Backtesting Phase 3B.
+Do not change live F&O strategy.
+Do not change Swing strategy.
+Do not change Auto Strong Buy logic.
+Do not change thresholds.
+Do not change entry rules.
+Do not change exit rules.
+Do not change SL/target formulas.
+Do not change paper trading.
+Do not change Telegram.
+Do not enable broker execution.
+Do not place real orders.
+Do not perform destructive migrations.
+Do not ask for owner/admin password.
+
+This is verification-only.
+
+====================================================
+PART A — RELEASE INTEGRITY
+====================================================
+
+Run:
+
+pnpm --filter @workspace/scripts run verify:release
+
+Expected:
+
+11 PASS + 1 INFO is acceptable if check 12 remains the known frontend/backend build-status INFO.
+
+Hard failures are not acceptable.
+
+Also confirm:
+
+1. /api/build-info HTTP 200.
+2. commitShort is after the route-fix commit.
+3. bootTime is after this republish.
+4. no secrets exposed.
+5. Data Parity API still returns 401 anonymous.
+6. release markers remain live.
+
+If release integrity has a real FAIL, stop and report:
+
+RELEASE_INTEGRITY_REGRESSION_FOUND
+
+====================================================
+PART B — CONFIRM ROUTE FIX IS LIVE
+====================================================
+
+Confirm production now includes the route fix.
+
+Specifically verify in production behavior:
+
+1. Fresh Mode B DIRECTIONAL run creates trades.
+2. GET /backtest/fno/runs/:id/trades returns each computable trade with:
+
+- grossPnl
+- netPnl
+- chargesBreakdown
+- chargesBreakdown.brokerage
+- chargesBreakdown.stt
+- chargesBreakdown.exchangeCharges
+- chargesBreakdown.sebiCharges
+- chargesBreakdown.stampDuty
+- chargesBreakdown.gst
+- chargesBreakdown.slippageCost
+- chargesBreakdown.totalCharges
+
+3. chargesBreakdown is not null for computable Mode B trades.
+4. Formula holds for every computable trade:
+
+netPnl = grossPnl - chargesBreakdown.totalCharges
+
+5. Summary invariant holds:
+
+summary.totalCosts = sum(trade.chargesBreakdown.totalCharges)
+
+6. Summary invariant holds:
+
+summary.totalNetPnl = summary.totalGrossPnl - summary.totalCosts
+
+Report:
+
+| Mode | Trades | chargesBreakdown Returned? | Formula Correct? | Summary Match? | Verdict |
+|---|---:|---:|---:|---:|---|
+
+====================================================
+PART C — MODE A / REAL REPLAY HONESTY CHECK
+====================================================
+
+Verify Mode A behavior remains honest:
+
+1. Computable Mode A trades with premium data return full chargesBreakdown.
+2. Non-computable Mode A trades return chargesBreakdown = null, not fake zero.
+3. Non-computable trades must not pretend charges were calculated.
+4. Summary totalCosts equals sum of computable trade charges.
+5. Net formula holds for computable trades.
+
+Report:
+
+| Mode A Type | Count | chargesBreakdown | Expected? | Verdict |
+|---|---:|---|---:|---|
+
+Expected:
+- Computable trades: chargesBreakdown present.
+- Non-computable trades: chargesBreakdown null with honest handling.
+
+====================================================
+PART D — FRONTEND UI QUICK CHECK
+====================================================
+
+Confirm Backtesting UI still shows:
+
+1. Amber Charges Included / assumptions panel above results.
+2. All charge items visible.
+3. Modes B/C show modelled premium assumption.
+4. Trade table shows net P&L as primary.
+5. Gross / Charges / Net visible in tooltip or inline detail.
+6. Summary shows gross/net breakdown.
+7. Synthetic/modelled warnings are still visible where applicable.
+
+If owner-auth visual access is unavailable, provide owner manual checklist. Do not ask for password.
+
+====================================================
+PART E — REGRESSION CHECKS
+====================================================
+
+Confirm:
+
+1. Release Integrity remains PROD_VERIFIED.
+2. Checkpoint 1 remains PROD_VERIFIED.
+3. Checkpoint 2 remains PROD_VERIFIED.
+4. Checkpoint 2.5 remains PROD_VERIFIED.
+5. Checkpoint 3 remains PROD_VERIFIED.
+6. Data Parity compat remains PROD_VERIFIED.
+7. Provider import guard remains green.
+8. Broker execution remains disabled.
+9. No real orders placed.
+10. No Telegram spam.
+11. No strategy/threshold changes.
+12. No destructive migration.
+13. No stale/report-grade data can drive live trades.
+
+====================================================
+PART F — TESTS
+====================================================
+
+Run and report exact counts:
+
+pnpm --filter @workspace/scripts run verify:release
+
+pnpm --filter @workspace/api-server run typecheck
+
+pnpm --filter @workspace/api-server run typecheck:libs
+
+pnpm --filter @workspace/api-server exec vitest run src/lib/*backtest*.test.ts src/lib/*charges*.test.ts src/lib/*paper*.test.ts src/lib/*fno*.test.ts src/lib/*marketData*.test.ts src/routes/**/*.test.ts
+
+pnpm --filter @workspace/scanner exec vitest run
+
+pnpm --filter @workspace/scripts run index:llm
+
+pnpm --filter @workspace/scripts run index:llm:check
+
+If a suite times out, run in batches and report exact counts.
+
+====================================================
+PART G — REPORT UPDATE
+====================================================
+
+Update:
+
+USER_FACING_CORE_TABS_DEEP_AUDIT_REPORT.md
+
+and
+
+WEBSITE_CANONICAL_DATA_INTEGRATION_REPORT.md
+
+Add final production verification section:
+
+PHASE 3A — BACKTEST CHARGES MODEL + NET P&L FINAL ROUTE-FIX PRODUCTION VERIFICATION
+
+Include:
+
+1. Fresh deploy proof.
+2. Route fix production proof.
+3. Mode B trade-level chargesBreakdown proof.
+4. Mode A computable/non-computable honesty proof.
+5. Summary invariant proof.
+6. UI quick check / owner checklist.
+7. Tests and counts.
+8. Regression checks.
+9. Final verdict.
+
+====================================================
+FINAL VERDICT
+====================================================
+
+Final verdict must be exactly one:
+
+- BACKTEST_CHARGES_MODEL_NET_PNL_PROD_VERIFIED
+- BACKTEST_CHARGES_MODEL_NET_PNL_PARTIAL_GAP_REMAINS
+- RELEASE_INTEGRITY_REGRESSION_FOUND
+- ROLLBACK_REQUIRED
+
+Use:
+
+BACKTEST_CHARGES_MODEL_NET_PNL_PROD_VERIFIED
+
+only if the route fix is live and production GET trades returns chargesBreakdown correctly for computable trades, all formulas match, tests pass, and no regressions are found.
+
+Use:
+
+BACKTEST_CHARGES_MODEL_NET_PNL_PARTIAL_GAP_REMAINS
+
+if chargesBreakdown is still missing/null for computable Mode B trades or summary/trade invariants fail.
+
+Use:
+
+RELEASE_INTEGRITY_REGRESSION_FOUND
+
+if verify:release has a real FAIL.
+
+Use:
+
+ROLLBACK_REQUIRED
+
+if secrets leak, broker execution turns on, real orders are placed, Telegram spam occurs, destructive migration happens, or stale/report-grade data can drive live trades.
