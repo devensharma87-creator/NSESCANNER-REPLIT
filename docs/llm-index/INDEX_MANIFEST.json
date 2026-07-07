@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-07T10:04:37.501Z",
+  "generatedAt": "2026-07-07T11:05:26.251Z",
   "generatorVersion": "1.0.0",
   "files": {
     "artifacts/api-server/src/routes/admin.ts": {
@@ -197,6 +197,11 @@
       "lines": 419,
       "mtime": "2026-07-02T06:43:58.720Z"
     },
+    "artifacts/api-server/src/lib/backtest/backtestCharges.ts": {
+      "hash": "46cbdd1f655cdd9f",
+      "lines": 159,
+      "mtime": "2026-07-07T10:30:24.021Z"
+    },
     "artifacts/api-server/src/lib/backtest/candleSource.ts": {
       "hash": "85372baedf2b0bdf",
       "lines": 116,
@@ -208,9 +213,9 @@
       "mtime": "2026-06-29T10:00:09.880Z"
     },
     "artifacts/api-server/src/lib/backtest/directional.ts": {
-      "hash": "472243d0ca35eea3",
-      "lines": 337,
-      "mtime": "2026-06-05T14:57:41.229Z"
+      "hash": "f71187ef32edb5bd",
+      "lines": 346,
+      "mtime": "2026-07-07T10:32:09.217Z"
     },
     "artifacts/api-server/src/lib/backtest/premiumReplay.ts": {
       "hash": "18a72198b8543c91",
@@ -218,9 +223,9 @@
       "mtime": "2026-06-29T06:24:42.920Z"
     },
     "artifacts/api-server/src/lib/backtest/replay.ts": {
-      "hash": "e6c8a705580153d1",
-      "lines": 224,
-      "mtime": "2026-06-05T12:49:36.683Z"
+      "hash": "c572a8b341ce0ae2",
+      "lines": 241,
+      "mtime": "2026-07-07T10:32:53.184Z"
     },
     "artifacts/api-server/src/lib/backtest/riskGuardSimulation.ts": {
       "hash": "102710d7a7c5ff45",
@@ -238,9 +243,9 @@
       "mtime": "2026-06-29T06:24:43.900Z"
     },
     "artifacts/api-server/src/lib/backtest/summary.ts": {
-      "hash": "47eb26695d49566b",
-      "lines": 166,
-      "mtime": "2026-06-05T12:48:37.263Z"
+      "hash": "12b150ff6cc60c22",
+      "lines": 230,
+      "mtime": "2026-07-07T10:30:58.585Z"
     },
     "artifacts/api-server/src/lib/backtest/time.ts": {
       "hash": "20d69210cdb46c80",
@@ -248,9 +253,9 @@
       "mtime": "2026-06-05T15:01:21.969Z"
     },
     "artifacts/api-server/src/lib/backtest/types.ts": {
-      "hash": "efd54b180928b657",
-      "lines": 345,
-      "mtime": "2026-06-29T06:10:07.428Z"
+      "hash": "b53862bba9cc4150",
+      "lines": 389,
+      "mtime": "2026-07-07T10:29:37.386Z"
     },
     "artifacts/api-server/src/lib/blackScholes.ts": {
       "hash": "183fbca9a3665de6",
@@ -1313,9 +1318,9 @@
       "mtime": "2026-06-05T12:55:17.075Z"
     },
     "lib/api-spec/openapi.yaml": {
-      "hash": "e3a30b95d093ccaf",
-      "lines": 6863,
-      "mtime": "2026-07-03T21:40:52.379Z"
+      "hash": "f1574ddb679aaa55",
+      "lines": 6887,
+      "mtime": "2026-07-07T10:40:10.789Z"
     },
     "artifacts/scanner/src/pages/admin.tsx": {
       "hash": "4a6ea1da8bb56b02",
@@ -1328,9 +1333,9 @@
       "mtime": "2026-05-15T06:49:45.993Z"
     },
     "artifacts/scanner/src/pages/backtest-lab.tsx": {
-      "hash": "0eb02fe98b77b8d9",
-      "lines": 2154,
-      "mtime": "2026-06-29T10:04:51.828Z"
+      "hash": "ec660c0a2de5f0db",
+      "lines": 2213,
+      "mtime": "2026-07-07T10:38:51.890Z"
     },
     "artifacts/scanner/src/pages/charting.tsx": {
       "hash": "03e1a10b04e5283f",

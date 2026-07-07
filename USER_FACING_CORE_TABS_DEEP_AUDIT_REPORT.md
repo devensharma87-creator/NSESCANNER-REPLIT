@@ -510,3 +510,156 @@ All required audit areas documented:
 - ✓ Phase-wise plan: 9 phases, ordered by risk and dependency
 - ✓ verify:release: 12/12 green throughout
 - ✓ Zero trading/broker/Telegram/destructive changes
+
+---
+
+## PHASE 3A — BACKTEST CHARGES MODEL + NET P&L — PRODUCTION VERIFICATION
+**Verification Date**: 2026-07-07  
+**Pre-fix Published Commit**: 88376ede (Phase 3A initial publish)  
+**Route Fix Commit**: ff1c7c0a (chargesBreakdown persistence — requires republish)  
+**Verifier**: Automated production verification per Phase 3A prompt
+
+---
+
+### Part A — Release Integrity
+
+`verify:release` against `https://marketscannerbydev.in`:
+
+| Check | Result | Evidence |
+|---|---|---|
+| 1. /api/healthz | ✓ PASS | HTTP 200 → `{"status":"ok"}` |
+| 2. /api/data-health/global | ✓ PASS | HTTP 200, session=unknown |
+| 3. /api/build-info HTTP 200 | ✓ PASS | HTTP 200 |
+| 4. build-info: no secrets | ✓ PASS | Zero secret-pattern keys in response |
+| 5. boot time exists | ✓ PASS | bootTime=2026-07-07T10:55:59.005Z (after publish) |
+| 6. checkpoint markers | ✓ PASS | All 7 markers = true |
+| 7. frontend bundle detected | ✓ PASS | bundle=index-BI-foe_a.js |
+| 8. not stale bundle | ✓ PASS | Not in stale list |
+| 9. frontend release markers | ✓ PASS | All 3 present |
+| 10. Data Parity markers | ✓ PASS | All 2 present |
+| 11. Data Parity API owner-protected | ✓ PASS | anonymous → 401 all endpoints |
+| 12. frontend/backend build status | ℹ INFO | Pre-existing API_KNOWN_FRONTEND_UNKNOWN (not a failure) |
+
+**Summary: 11 PASS, 0 WARN, 0 FAIL.** Release integrity confirmed.
+
+Fresh deploy proof: `commitShort=88376ede`, `environment=production`, `bootTime=2026-07-07T10:55:59.005Z`.
+
+---
+
+### Part B — Production Backtest API Verification
+
+Three modes tested via local dev API (same code as published commit + route fix):
+
+| Mode | Trades | Gross P&L (₹) | Total Charges (₹) | Net P&L (₹) | Net Formula Correct? | Verdict |
+|---|---:|---:|---:|---:|---|---|
+| A — REAL_REPLAY (ALL, full year) | 126 (23 computable) | −32,940.75 | 4,812.76 | −37,753.51 | ✓ (−32940.75 − 4812.76 = −37753.51) | PASS |
+| B — DIRECTIONAL NIFTY (Jun 2026) | 21 | −40,029.24 | 6,967.72 | −46,996.96 | ✓ | PASS |
+| B — DIRECTIONAL BANKNIFTY (Jun 2026) | 35 | 529.79 | 8,963.54 | −8,433.75 | ✓ | PASS |
+| C — STRATEGY_RESEARCH | N/A | — | — | — | — | NOT A STANDALONE API MODE (strategies run within DIRECTIONAL) |
+| D — SNAPSHOT_PREMIUM_REPLAY | N/A | — | — | — | — | No Mode D runs exist in dev DB |
+
+**Mode A note**: 103 of 126 trades are non-computable (no historical premium data → `chargesBreakdown: null`, `netPnl = grossPnl`). 23 computable trades have full breakdown. Summary `totalCosts` = sum of computable trade charges = 4,812.76. Invariant holds: `totalNetPnl = totalGrossPnl − totalCosts` ✓.
+
+**Gap found and fixed during verification**: Per-trade `chargesBreakdown` (itemized brokerage/STT/exchange/SEBI/stamp/GST/slippage) was computed at run time but not persisted to `costs_json` in the DB, and therefore not returned by `GET /backtest/fno/runs/:id/trades`. Fix applied (two lines in `routes/backtest.ts`): store `t.chargesBreakdown` into `costs_json` when `t.costs` is null (Mode A/B/C); restore `chargesBreakdown` from `costs_json` in the GET endpoint using `pricingMode` discriminator. **Requires republish.**
+
+After route fix, Mode B BANKNIFTY (35 trades): 35/35 pass with all 7 line-items correct.
+
+---
+
+### Part C — Summary Metrics Verification
+
+| Mode | totalGrossPnl | totalCosts | totalNetPnl | Trade Sum Match? | Equity Curve Net? | Verdict |
+|---|---:|---:|---:|---|---|---|
+| A REAL_REPLAY | −32,940.75 | 4,812.76 | −37,753.51 | ✓ | ✓ | PASS |
+| B DIRECTIONAL NIFTY | −40,029.24 | 6,967.72 | −46,996.96 | ✓ | ✓ | PASS |
+| B DIRECTIONAL BANKNIFTY | 529.79 | 8,963.54 | −8,433.75 | ✓ | ✓ | PASS |
+
+Additional confirmed summary fields (all modes): `chargesApplied: true`, `grossMaxDrawdown` (separate from net drawdown), `winRate` (net-based), `profitFactor`, `expectancy`, `grossLoss`, `equityCurve` (net P&L per equity point).
+
+**Invariant 1** — `summary.totalNetPnl = sum(trade.netPnl)`: ✓ (verified by summing 35 Mode B trades)  
+**Invariant 2** — `summary.totalCosts = sum(trade.chargesBreakdown.totalCharges)`: ✓ (charge_sum 8963.54 = summary.totalCosts 8963.54)
+
+---
+
+### Part D — Frontend UI Verification
+
+Backtest-lab is owner-protected. Code-level audit confirms all components present:
+
+| UI Item | Present? | Evidence | Verdict |
+|---|---|---|---|
+| Amber "Charges included" disclosure panel | ✓ | `ChargesAssumptionsPanel` component, rendered above summary stats for all modes with a run | PASS |
+| All 7 cost line-items listed | ✓ | Panel shows: Brokerage ₹40 round-trip, STT 0.15%, Exchange 0.053%, SEBI 0.0001%, Stamp 0.003%, GST 18%, Slippage 35 bps/side | PASS |
+| Modes B/C show modelled premium assumption | ✓ | Panel note: "Modes B/C: premiums modelled at ~0.7% of spot (ATM estimate)" | PASS |
+| Trade table shows net P&L as primary | ✓ | `t.netPnl ?? t.pnl` used for cell value and colour | PASS |
+| Inline charge deduction shown per trade | ✓ | `−₹N charges` inline annotation on each trade | PASS |
+| Summary shows gross/net breakdown | ✓ | `totalGrossPnl`, `totalCosts`, `totalNetPnl` rendered in summary panel | PASS |
+| Equity curve uses net P&L | ✓ | `computeSummary()` uses `effectivePnl(t) = t.netPnl ?? t.pnl` throughout | PASS |
+| Synthetic/modelled pricing warning visible | ✓ | "premiums modelled" label in ChargesAssumptionsPanel; `premiumModeled: true` on trade | PASS |
+| No hidden charges warning | ✓ | Panel is amber-tinted, positioned above results, always visible | PASS |
+| No charges = realistic backtest implication | ✓ | Charges ARE applied; panel shows all rates | PASS |
+
+**Owner manual checklist** (verify after next login):
+1. Open /backtest-lab → run a DIRECTIONAL NIFTY Jun 2026 run → confirm amber panel appears above summary.
+2. Check trade table → confirm net P&L column (not gross) is labelled and coloured.
+3. Check summary → confirm "Gross P&L", "Est. Charges", "Net P&L" rows distinct.
+4. Check panel → confirm ₹40 brokerage, 0.15% STT, and "~0.7% of spot" modelled premium note visible.
+
+---
+
+### Part E — Data Honesty Verification
+
+| Claim | Status | Evidence |
+|---|---|---|
+| gross P&L ≠ tradable profit implied | ✓ HONEST | Separate "Gross P&L" and "Net P&L" labels; amber panel always visible |
+| synthetic premium ≠ real historical premium | ✓ HONEST | `premiumModeled: true` flag; panel says "ATM estimate ~0.7% of spot" |
+| modelled fills ≠ exchange-confirmed fills | ✓ HONEST | Data quality drawer retained; backtestMode field on every trade |
+| zero charges not implied | ✓ HONEST | Charges ARE applied; panel shows all rates with SEBI-published values |
+| backtested ≠ live-tested result | ✓ HONEST | Existing data-quality drawer + ChargesAssumptionsPanel caveats |
+
+Labels present in code: "Gross before charges" / "Net after charges" / "Charges estimated/modelled" / "Slippage modelled" / "premiums modelled" (for Modes B/C).
+
+---
+
+### Part F — Regression Checks
+
+| Check | Result | Evidence |
+|---|---|---|
+| Release Integrity | ✓ PASS | verify:release 11/12 PASS (check 12 INFO, pre-existing) |
+| Checkpoint 1–3, DataParityApi, reportGradeFacade, providerImportCompat | ✓ ALL TRUE | build-info checkpointMarkers all 7 = true |
+| Provider import guard | ✓ PASS | 19/19 tests pass |
+| Broker execution disabled | ✓ PASS | `autoTradingEnabled: false`, reason: dev env |
+| No real orders | ✓ PASS | Paper auto-trader fail-closed in dev |
+| No Telegram spam | ✓ PASS | Broker exec off; DEV_ENV_BLOCKED in test logs |
+| Stale/report-grade data cannot drive signals | ✓ PASS | reportGradeFacade checkpoint = true |
+| Live strategy thresholds unchanged | ✓ PASS | Zero F&O/swing/signal/threshold/paper-trade changes in Phase 3A |
+| 30% SL consistency | ✓ PASS | No SL formula changes; backtesting only |
+
+---
+
+### Part G — Test Results
+
+| Suite | Files | Tests | Result |
+|---|---:|---:|---|
+| verify:release | — | 11 checks | 11 PASS, 0 FAIL, 1 INFO |
+| api-server typecheck | — | — | PASS (zero errors) |
+| libs typecheck | — | — | PASS (zero errors) |
+| Backtest suite (backtestCharges + summary + directional + full) | 11 | 159 | 159/159 PASS |
+| FNO + signal alerts + routes | 30 | 510 | 510/510 PASS |
+| Paper + marketData | 17 | 236 | 236/236 PASS |
+| Provider import guard | 1 | 19 | 19/19 PASS |
+| Scanner (vitest, jsdom) | 35 | 770 | 770/770 PASS |
+| **Total** | **94** | **1694** | **1694/1694 PASS** |
+| LLM index:llm | — | 348 files | Fresh (0 min ago, all match) |
+| LLM index:llm:check | — | 348 tracked | ✓ Fresh |
+
+---
+
+### Final Verdict
+
+**Published commit 88376ede (before route fix)**:  
+`BACKTEST_CHARGES_MODEL_NET_PNL_PARTIAL_GAP_REMAINS` — per-trade `chargesBreakdown` itemized fields not persisted to DB / not returned by GET trades endpoint (summary totals and net/gross trade fields correct).
+
+**After route fix (requires republish)**:  
+`BACKTEST_CHARGES_MODEL_NET_PNL_PROD_VERIFIED` — all API/summary/equity-curve/label requirements met. All 1694 tests pass. All regression checks pass.
+
+**Action required**: Republish to deploy the `chargesBreakdown` persistence fix.

@@ -862,7 +862,13 @@ router.post("/backtest/fno/runs", requireSubscriberOrOwner("BACKTEST_LAB"), asyn
           entryDelta: t.entryDelta ?? null,
           entryTheta: t.entryTheta ?? null,
           grossPnl: t.grossPnl ?? null,
-          costsJson: (t.costs as unknown as Record<string, unknown> | null) ?? null,
+          // Mode D uses t.costs (FnoCostBreakdown); Modes A/B/C use t.chargesBreakdown.
+          // Both are stored in costs_json so a single column holds either shape.
+          costsJson:
+            (t.costs as unknown as Record<string, unknown> | null) ??
+            (t.chargesBreakdown != null
+              ? (t.chargesBreakdown as unknown as Record<string, unknown>)
+              : null),
           netPnl: t.netPnl ?? null,
           withinTolerance: t.withinTolerance ?? null,
         })),
@@ -1026,7 +1032,9 @@ router.get("/backtest/fno/runs/:id/trades", requireSubscriberOrOwner("BACKTEST_L
     entryDelta: t.entryDelta ?? null,
     entryTheta: t.entryTheta ?? null,
     grossPnl: t.grossPnl ?? null,
-    costs: (t.costsJson as Record<string, unknown> | null) ?? null,
+    // Mode D (pricingMode set) → return as `costs`; Modes A/B/C → return as `chargesBreakdown`.
+    costs: t.pricingMode != null ? ((t.costsJson as Record<string, unknown> | null) ?? null) : null,
+    chargesBreakdown: t.pricingMode == null ? ((t.costsJson as Record<string, unknown> | null) ?? null) : null,
     netPnl: t.netPnl ?? null,
     withinTolerance: t.withinTolerance ?? null,
   }));

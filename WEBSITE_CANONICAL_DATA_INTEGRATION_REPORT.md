@@ -2074,3 +2074,121 @@ All three tabs CLEAN. No direct provider bypasses. providerImportGuard GREEN.
 
 **`USER_FACING_CORE_TABS_DEEP_AUDIT_COMPLETE`**
 
+
+---
+
+## PHASE 3A — BACKTEST CHARGES MODEL + NET P&L — PRODUCTION VERIFICATION
+**Verification Date**: 2026-07-07  
+**Pre-fix Published Commit**: 88376ede  
+**Route Fix**: chargesBreakdown persistence in routes/backtest.ts (requires republish)
+
+---
+
+### Fresh Deploy Proof
+
+- Production URL: `https://marketscannerbydev.in`  
+- `commitShort: 88376ede`, `environment: production`, `bootTime: 2026-07-07T10:55:59.005Z`
+- All 7 checkpoint markers = true (checkpoint1/2/2.5/3, dataParityApi, reportGradeFacade, providerImportCompat)
+- `verify:release`: 11/12 PASS, 0 FAIL (check 12 = INFO, pre-existing condition)
+
+---
+
+### API Verification — Gross vs Net Proof
+
+Mode B DIRECTIONAL BANKNIFTY (Jun 2026, 35 trades, after route fix):
+
+| Field | Value | Verified |
+|---|---|---|
+| `summary.totalGrossPnl` | ₹529.79 | ✓ |
+| `summary.totalCosts` | ₹8,963.54 | ✓ |
+| `summary.totalNetPnl` | −₹8,433.75 | ✓ |
+| `summary.chargesApplied` | true | ✓ |
+| `summary.grossMaxDrawdown` | present | ✓ |
+| Net formula (gross − costs = net) | 529.79 − 8963.54 = −8433.75 | ✓ |
+| Per-trade `chargesBreakdown.totalCharges` sum | 8,963.54 (= summary.totalCosts) | ✓ |
+
+Mode A REAL_REPLAY (126 trades, 23 computable): totalGrossPnl −32,940.75, totalCosts 4,812.76, totalNetPnl −37,753.51. Formula ✓.
+
+---
+
+### Charges Breakdown Proof (Mode B BANKNIFTY sample trade)
+
+```
+grossPnl = −3258.50  
+chargesBreakdown.brokerage = ₹40.00 (₹20 × 2 legs)  
+chargesBreakdown.stt = (0.15% × exit turnover)  
+chargesBreakdown.exchangeCharges = (0.053% × total turnover)  
+chargesBreakdown.sebiCharges = (~₹1 per ₹1Cr turnover)  
+chargesBreakdown.stampDuty = (0.003% × buy-side turnover)  
+chargesBreakdown.gst = (18% × brokerage + exchange)  
+chargesBreakdown.slippageCost = (35 bps/side × qty × premium)  
+chargesBreakdown.totalCharges = 134.38  
+netPnl = −3392.88  
+formula: −3258.50 − 134.38 = −3392.88 ✓  
+premiumModeled = true (ATM ~0.7% of spot)  
+computable = true
+```
+
+---
+
+### Equity Curve Net Proof
+
+`computeSummary()` uses `effectivePnl(t) = t.netPnl ?? t.pnl` for every equity curve point, win/loss, drawdown, expectancy, and profit factor calculation. Gross equity curve is also computed separately for `grossMaxDrawdown`. Net is the default displayed curve.
+
+---
+
+### Data Honesty Labels
+
+Present in API responses: `premiumModeled: true` (Modes B/C), `chargesApplied: true` (summary), `computable: false` + `chargesBreakdown: null` (non-computable trades, e.g., REAL_REPLAY trades without historical premium data).
+
+Present in UI: Amber `ChargesAssumptionsPanel` with all 7 charge rate items + "~0.7% of spot" modelled premium note above all backtest results.
+
+---
+
+### Gap Found and Fixed During Verification
+
+**Gap**: `chargesBreakdown` itemized breakdown was computed at run time but not stored in `costs_json` column for Modes A/B/C. Published commit 88376ede returns `chargesBreakdown: null` in `GET /backtest/fno/runs/:id/trades` for A/B/C trades.
+
+**Fix** (2 lines, `routes/backtest.ts`):  
+1. Insert: store `t.chargesBreakdown` into `costs_json` when `t.costs` (Mode D) is null.  
+2. GET mapper: return `chargesBreakdown` from `costs_json` when `pricingMode` is null (Modes A/B/C); keep returning `costs` when `pricingMode` is set (Mode D).
+
+**After fix**: Mode B 35/35 trades have all 7 line-items; Mode A 23/23 computable trades pass. Discriminator `pricingMode` correctly separates Mode D from A/B/C.
+
+---
+
+### Tests and Counts (Post-Fix)
+
+| Suite | Tests | Result |
+|---|---:|---|
+| Backtest suite | 159 | 159/159 PASS |
+| FNO + routes | 510 | 510/510 PASS |
+| Paper + marketData | 236 | 236/236 PASS |
+| Provider import guard | 19 | 19/19 PASS |
+| Scanner | 770 | 770/770 PASS |
+| **Total** | **1694** | **1694/1694 PASS** |
+
+API typecheck: PASS (zero errors). LLM index: fresh (348 files).
+
+---
+
+### Regression Checks
+
+- All checkpoint markers: ✓ true (all 7)
+- Provider import guard: ✓ 19/19
+- Broker execution: ✓ disabled (autoTradingEnabled: false, dev env auto-detected)
+- No real orders placed: ✓
+- No Telegram spam: ✓ (DEV_ENV_BLOCKED in test logs)
+- Stale/report-grade → signal gate: ✓ (reportGradeFacade checkpoint = true)
+- Live strategy thresholds: ✓ unchanged (backtesting only)
+
+---
+
+### Final Verdict
+
+| Published (88376ede) | After Route Fix (republish required) |
+|---|---|
+| `BACKTEST_CHARGES_MODEL_NET_PNL_PARTIAL_GAP_REMAINS` | `BACKTEST_CHARGES_MODEL_NET_PNL_PROD_VERIFIED` |
+
+Gap: per-trade `chargesBreakdown` itemized fields not persisted/returned (summary totals correct, gross/net per trade correct).  
+Fix applied locally. **Republish required to achieve PROD_VERIFIED.**

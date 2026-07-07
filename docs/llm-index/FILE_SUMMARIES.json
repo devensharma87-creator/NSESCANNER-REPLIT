@@ -129,6 +129,31 @@
     "hash": "966865d58fb46a44"
   },
   {
+    "path": "artifacts/api-server/src/lib/backtest/backtestCharges.test.ts",
+    "purpose": "test",
+    "lines": 248,
+    "exports": [],
+    "externalImports": [
+      "vitest"
+    ],
+    "routes": [],
+    "hash": "d670d0b17399d465"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/backtest/backtestCharges.ts",
+    "purpose": "test",
+    "lines": 159,
+    "exports": [
+      "MODELED_ATM_PREMIUM_PCT",
+      "BACKTEST_CHARGES_ASSUMPTIONS",
+      "BacktestTradeChargesInput",
+      "computeBacktestTradeCost"
+    ],
+    "externalImports": [],
+    "routes": [],
+    "hash": "46cbdd1f655cdd9f"
+  },
+  {
     "path": "artifacts/api-server/src/lib/backtest/candleSource.ts",
     "purpose": "lib",
     "lines": 116,
@@ -200,7 +225,7 @@
   {
     "path": "artifacts/api-server/src/lib/backtest/directional.ts",
     "purpose": "lib",
-    "lines": 337,
+    "lines": 346,
     "exports": [
       "Candle",
       "DirectionalOptions",
@@ -209,7 +234,7 @@
     ],
     "externalImports": [],
     "routes": [],
-    "hash": "472243d0ca35eea3"
+    "hash": "f71187ef32edb5bd"
   },
   {
     "path": "artifacts/api-server/src/lib/backtest/premiumReplay.test.ts",
@@ -264,7 +289,7 @@
   {
     "path": "artifacts/api-server/src/lib/backtest/replay.ts",
     "purpose": "lib",
-    "lines": 224,
+    "lines": 241,
     "exports": [
       "OshRow",
       "FsrAggRow",
@@ -275,7 +300,7 @@
     ],
     "externalImports": [],
     "routes": [],
-    "hash": "e6c8a705580153d1"
+    "hash": "c572a8b341ce0ae2"
   },
   {
     "path": "artifacts/api-server/src/lib/backtest/riskGuardSimulation.ts",
@@ -521,7 +546,7 @@
   {
     "path": "artifacts/api-server/src/lib/backtest/strategies/runner.ts",
     "purpose": "lib",
-    "lines": 328,
+    "lines": 338,
     "exports": [
       "RunOptions",
       "StrategyRunResult",
@@ -531,7 +556,7 @@
       "node:crypto"
     ],
     "routes": [],
-    "hash": "fc5c50bc572ed52d"
+    "hash": "9717725db38b121a"
   },
   {
     "path": "artifacts/api-server/src/lib/backtest/strategies/vwap-pullback.ts",
@@ -558,14 +583,14 @@
   {
     "path": "artifacts/api-server/src/lib/backtest/summary.ts",
     "purpose": "lib",
-    "lines": 166,
+    "lines": 230,
     "exports": [
       "decidedTrades",
       "computeSummary"
     ],
     "externalImports": [],
     "routes": [],
-    "hash": "47eb26695d49566b"
+    "hash": "12b150ff6cc60c22"
   },
   {
     "path": "artifacts/api-server/src/lib/backtest/time.test.ts",
@@ -600,12 +625,13 @@
   {
     "path": "artifacts/api-server/src/lib/backtest/types.ts",
     "purpose": "lib",
-    "lines": 345,
+    "lines": 389,
     "exports": [
       "BacktestMode",
       "BacktestInstrument",
       "PricingMode",
       "FnoCostBreakdown",
+      "BacktestTradeCostResult",
       "BacktestPricingModeMix",
       "SnapshotUnderlyingCoverage",
       "BacktestTradeOut",
@@ -624,7 +650,7 @@
     ],
     "externalImports": [],
     "routes": [],
-    "hash": "efd54b180928b657"
+    "hash": "b53862bba9cc4150"
   },
   {
     "path": "artifacts/api-server/src/lib/blackScholes.ts",
@@ -7819,7 +7845,7 @@
   {
     "path": "artifacts/scanner/src/pages/backtest-lab.tsx",
     "purpose": "ui-page",
-    "lines": 2154,
+    "lines": 2213,
     "exports": [],
     "externalImports": [
       "react",
@@ -7828,7 +7854,7 @@
       "@/components/ui/button"
     ],
     "routes": [],
-    "hash": "0eb02fe98b77b8d9"
+    "hash": "ec660c0a2de5f0db"
   },
   {
     "path": "artifacts/scanner/src/pages/charting.tsx",
