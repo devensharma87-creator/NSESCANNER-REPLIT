@@ -1,0 +1,142 @@
+I have republished the app after the frontend build marker fix.
+
+Run final production verification for Release Integrity only.
+
+Do not write new code unless verification finds a real blocker.
+Do not start any market-data checkpoint.
+Do not migrate scanner/charting/option-chain/OI Lab.
+Do not change trading logic.
+Do not weaken trade-grade checks.
+Do not enable broker execution.
+Do not place real orders.
+Do not send Telegram test messages.
+Do not perform destructive migrations.
+Do not ask for owner/admin password.
+
+Current status:
+
+RELEASE_INTEGRITY_PARTIAL_GAP_REMAINS
+
+Expected final verdict if all checks pass:
+
+RELEASE_INTEGRITY_PROD_VERIFIED
+
+====================================================
+VERIFY DEPLOYMENT FRESHNESS
+====================================================
+
+Confirm production now includes the frontend marker fix.
+
+Check:
+
+1. Production boot is after the main.tsx BUILD_MARKERS commit.
+2. /api/build-info returns HTTP 200.
+3. /api/build-info commitShort is the latest commit or later.
+4. /api/build-info bootTime is after this republish.
+5. /api/build-info exposes no secrets.
+6. Frontend bundle hash changed from the prior index-CeG-UDag.js if the frontend rebuild changed content.
+7. If bundle hash did not change, explain why and prove markers are still present.
+
+====================================================
+RUN RELEASE VERIFICATION
+====================================================
+
+Run:
+
+pnpm --filter @workspace/scripts run verify:release
+
+Expected:
+
+12/12 checks pass.
+
+Specifically confirm the previously failing check now passes:
+
+Frontend release markers:
+- APP_BUILD_ID
+- FRONTEND_BUILD_TIME
+- CHECKPOINT_3_DATA_PARITY_UI
+- DATA_PARITY_INFRA_HEALTH
+- RELEASE_INTEGRITY_ENABLED
+- window.__buildMarkers__
+
+Also confirm:
+
+- Frontend Data Parity markers still present.
+- Data Parity API anonymous access returns 401.
+- /api/healthz works.
+- /api/data-health/global works.
+- /api/build-info works.
+- No secrets exposed.
+
+====================================================
+REGRESSION CHECKS
+====================================================
+
+Confirm:
+
+1. Checkpoint 1 remains PROD_VERIFIED.
+2. Checkpoint 2 remains PROD_VERIFIED.
+3. Checkpoint 2.5 remains PROD_VERIFIED.
+4. Checkpoint 3 remains PROD_VERIFIED.
+5. Data Parity provider-import compat remains PROD_VERIFIED.
+6. Provider import guard remains green.
+7. Broker execution remains disabled.
+8. No real orders placed.
+9. No Telegram spam.
+10. No stale/report-grade data can drive signals or paper trades.
+
+====================================================
+TESTS
+====================================================
+
+Run and report exact counts:
+
+pnpm --filter @workspace/api-server run typecheck
+pnpm --filter @workspace/api-server run typecheck:libs
+pnpm --filter @workspace/api-server exec vitest run src/routes/**/*.test.ts src/lib/*build*.test.ts src/lib/*release*.test.ts src/lib/*dataParity*.test.ts src/lib/*marketData*.test.ts src/lib/*daily*.test.ts src/lib/*paper*.test.ts src/lib/*swing*.test.ts src/lib/*fno*.test.ts src/lib/*dataHealth*.test.ts
+pnpm --filter @workspace/scanner exec vitest run
+pnpm --filter @workspace/scripts run index:llm
+pnpm --filter @workspace/scripts run index:llm:check
+
+====================================================
+REPORT UPDATE
+====================================================
+
+Update:
+
+WEBSITE_CANONICAL_DATA_INTEGRATION_REPORT.md
+
+Under:
+
+P0 Release Integrity + Build Proof Gate
+
+Add final production verification:
+
+1. Fresh deploy evidence.
+2. /api/build-info evidence.
+3. verify:release 12/12 result.
+4. Frontend marker proof.
+5. Bundle hash / bundle marker evidence.
+6. Regression checks.
+7. Tests and counts.
+8. LLM index status.
+9. Final verdict.
+
+====================================================
+FINAL VERDICT
+====================================================
+
+Final verdict must be exactly one:
+
+- RELEASE_INTEGRITY_PROD_VERIFIED
+- RELEASE_INTEGRITY_PARTIAL_GAP_REMAINS
+- RELEASE_INTEGRITY_BUILD_NOT_DEPLOYED
+- ROLLBACK_REQUIRED
+
+Use RELEASE_INTEGRITY_PROD_VERIFIED only if verify:release passes 12/12 and frontend release markers are live.
+
+Use RELEASE_INTEGRITY_PARTIAL_GAP_REMAINS if any marker is still missing.
+
+Use RELEASE_INTEGRITY_BUILD_NOT_DEPLOYED if production still serves the old build.
+
+Use ROLLBACK_REQUIRED if secrets leak, broker execution turns on, real orders are placed, Telegram spam returns, or stale/report-grade data can drive trades.
