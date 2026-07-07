@@ -2316,3 +2316,13 @@ STT=₹54.38, Exchange=₹23.21 — identical across fnoCostModel, paperReportsF
 ### Verdict
 `FNO_COST_MODEL_UNIFICATION_DEV_VERIFIED`
 Upgrade to `PROD_VERIFIED` after republish + re-run of verify:release confirming P0-1 commitShort.
+
+---
+
+## P0-1 Final Production Verification — Second Republish Attempt (2026-07-07 ~13:26 UTC)
+
+Production commitShort: `011f6733` — **UNCHANGED** (bootTime 2026-07-07T11:51:04.797Z). No new deployment boot observed. Two republish attempts, same result.
+
+DEV all green: verify:release 11 PASS · 7 files / 160 tests PASS · 770 scanner PASS · typecheck CLEAN · fnoCostModelGuard 0 violations · LLM index 349 files fresh.
+
+**Verdict: `FNO_COST_MODEL_UNIFICATION_DEV_VERIFIED`**

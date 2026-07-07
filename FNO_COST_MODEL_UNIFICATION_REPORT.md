@@ -311,3 +311,101 @@ FNO_COST_MODEL_UNIFICATION_DEV_VERIFIED
 2. Re-run `pnpm --filter @workspace/scripts run verify:release`
 3. Confirm production commitShort reflects `4c54f2c` or later
 4. Final verdict upgrades to `FNO_COST_MODEL_UNIFICATION_PROD_VERIFIED`
+
+---
+
+## P0-1 Final Production Verification — Second Republish Attempt (2026-07-07 ~13:26 UTC)
+
+### Deploy Status
+
+| Item | Value |
+|---|---|
+| Attempt | Second republish attempt after previous DEV_VERIFIED verdict |
+| Production commitShort | `011f6733` — **UNCHANGED** (bootTime 2026-07-07T11:51:04.797Z) |
+| Deployment log | No new boot event since 11:51 UTC — republish did not produce a new deployment |
+| Local HEAD | `fd90700` (6 commits ahead of `origin/main` at `011f6733`) |
+
+> **Root cause:** Replit's production build system embedded the `commitShort` at build time from the workspace git HEAD. The previous publish occurred before the P0-1 commit (`4c54f2c`). The second republish attempt did not produce a new boot event in the deployment logs, confirming production is still serving the pre-P0-1 build.
+
+---
+
+### Part A — Release Integrity (Second Attempt)
+
+```
+verify:release: 11 PASS | 0 WARN | 0 FAIL ✅
+Check 12 INFO: FRONTEND_BACKEND_BUILD_STATUS=API_KNOWN_FRONTEND_UNKNOWN (known/documented)
+
+Production commitShort:  011f6733  ← predates P0-1 commit 4c54f2c
+Production buildTime:    2026-07-07T11:49:18.488Z
+Production bootTime:     2026-07-07T11:51:04.797Z  (UNCHANGED from previous attempt)
+All 7 checkpoint markers: true
+No secrets exposed
+Data Parity API: 401 on anonymous
+```
+
+---
+
+### Part B — Canonical Model — Code-Level Proof (DEV, confirmed via grep)
+
+```
+artifacts/api-server/src/lib/paperReportsFO.ts
+  line 25: import { computeFnoTradeCost, FNO_COST_PARAMS_ASOF } from "./fnoCostModel";
+  line 94: costModelSource: "fnoCostModel/computeFnoTradeCost"
+  line 95: costModelAsOf: FNO_COST_PARAMS_ASOF
+  → No local STT/exchange constants. No 0.10%. No stale block. ✅
+
+artifacts/api-server/src/lib/backtest/premiumReplay.ts
+  line 24:  import { FNO_COST_PARAMS, FNO_COST_PARAMS_ASOF } from "../fnoCostModel";
+  line 330: const brokerage = FNO_COST_PARAMS.BROKERAGE_PER_SIDE_INR * 2;
+  line 331: const stt = exitTurnover * FNO_COST_PARAMS.STT_RATE_SELL_PREMIUM;   // 0.15%
+  line 332: const exchangeTxn = totalTurnover * FNO_COST_PARAMS.EXCHANGE_TXN_RATE; // 0.03503%
+  line 333: const sebiCharges = totalTurnover * FNO_COST_PARAMS.SEBI_RATE;
+  line 334: const gst = (brokerage + exchangeTxn + sebiCharges) * FNO_COST_PARAMS.GST_RATE;
+  line 335: const stampDuty = entryTurnover * FNO_COST_PARAMS.STAMP_DUTY_RATE_BUY;
+  line 664: P&L label explicitly names "canonical fnoCostModel rates eff. {FNO_COST_PARAMS_ASOF}"
+  → No FNO_COST_RATES block. No 0.05%/0.053%. ✅
+```
+
+**fnoCostModelGuard:** 0 violations ✅  
+**providerImportGuard:** 19/19 PASS ✅  
+**Allowlist:** 16 files / 29 pairs — no bypass added ✅
+
+---
+
+### Part G — Tests (Second Attempt)
+
+```
+verify:release:             11 PASS | 0 WARN | 0 FAIL ✅
+typecheck (api-server):     CLEAN ✅
+typecheck:libs (root):      CLEAN ✅
+
+F&O cost model targeted (7 files):
+  fnoCostModelUnification.test.ts  ✅
+  fnoCostModelGuard.test.ts        ✅
+  premiumReplay.test.ts            ✅
+  backtestCharges.test.ts          ✅
+  paperReportsFoTimeExit.test.ts   ✅
+  fnoCostModel.test.ts             ✅
+  providerImportGuard.test.ts      ✅
+  Test Files: 7 passed | Tests: 160 passed ✅
+
+Scanner suite:
+  Test Files: 35 passed | Tests: 770 passed ✅
+
+LLM index:llm:     updated 2026-07-07T13:26:39Z ✅
+LLM index:llm:check: 349 files, all match ✅
+```
+
+---
+
+### Final Verdict
+
+```
+FNO_COST_MODEL_UNIFICATION_DEV_VERIFIED
+```
+
+Production has not received P0-1 after two republish attempts. Production still serves commit `011f6733` (bootTime 11:51 UTC). No new deployment boot event was observed.
+
+**All DEV checks are fully green.** The canonical F&O cost model (STT=0.15%, Exchange=0.03503%) is confirmed live in the workspace code via direct source grep, 160 targeted tests, 770 scanner tests, typecheck, fnoCostModelGuard (0 violations), and providerImportGuard (19/19).
+
+**To achieve PROD_VERIFIED:** The deployment needs to rebuild from the current workspace state. Once a new boot event appears in deployment logs with a commitShort at or after `4c54f2c`, re-run `pnpm --filter @workspace/scripts run verify:release` to confirm and upgrade the verdict.

@@ -1,0 +1,307 @@
+CODER PROMPT — FINAL PRODUCTION VERIFICATION FOR P0-1 F&O COST MODEL UNIFICATION
+
+I have republished the app after the P0-1 F&O Cost Model Unification commit.
+
+Run final production verification for P0-1 only.
+
+Current verdict before this republish:
+
+FNO_COST_MODEL_UNIFICATION_DEV_VERIFIED
+
+Expected final verdict if production now contains commit 4c54f2c or later:
+
+FNO_COST_MODEL_UNIFICATION_PROD_VERIFIED
+
+====================================================
+STRICT RULES
+====================================================
+
+Do not write new feature code unless production verification finds a real blocker.
+
+Do not start VWAP / Volume Profile fix.
+Do not start trigger wording fix.
+Do not start Charting fixes.
+Do not start Portfolio fixes.
+Do not start Backtesting Phase 3B.
+Do not change live F&O signal logic.
+Do not change detector logic.
+Do not change entry rules.
+Do not change exit rules.
+Do not change SL/target formulas.
+Do not change thresholds.
+Do not change paper-trade opening eligibility.
+Do not change Telegram.
+Do not enable broker execution.
+Do not place real orders.
+Do not perform destructive migrations.
+Do not rewrite historical DB rows.
+Do not ask for owner/admin password.
+
+This is verification-only.
+
+====================================================
+PART A — RELEASE INTEGRITY / FRESH DEPLOY PROOF
+====================================================
+
+Run:
+
+pnpm --filter @workspace/scripts run verify:release
+
+Expected:
+
+PASS, with only known INFO allowed if already documented.
+
+Also verify:
+
+1. /api/build-info HTTP 200.
+2. production commitShort is 4c54f2c or later.
+3. production bootTime is after this republish.
+4. all 7 checkpoint markers remain true.
+5. no secrets exposed.
+6. Data Parity API remains owner-protected.
+7. frontend release markers remain live.
+
+Important:
+
+Previous production commit was 011f6733.
+That predates P0-1.
+Do not mark PROD_VERIFIED unless production is now running 4c54f2c or later.
+
+If production is still on 011f6733 or any commit before 4c54f2c, verdict must remain:
+
+FNO_COST_MODEL_UNIFICATION_DEV_VERIFIED
+
+or:
+
+FNO_COST_MODEL_UNIFICATION_BUILD_NOT_DEPLOYED
+
+if you use that as an explanatory sub-status.
+
+====================================================
+PART B — CONFIRM CANONICAL COST MODEL IS LIVE
+====================================================
+
+Verify production now contains the unified F&O cost model.
+
+Confirm:
+
+1. paperReportsFO.ts uses canonical computeFnoTradeCost / FNO_COST_PARAMS_ASOF.
+2. premiumReplay.ts uses canonical FNO_COST_PARAMS.
+3. backtestCharges.ts continues to use canonical computeFnoTradeCost.
+4. No local stale 0.10% option STT remains in paperReportsFO.
+5. No local 0.05% option STT remains in premiumReplay.
+6. No old 0.053% exchange-rate block remains in premiumReplay.
+7. fnoCostModelGuard passes.
+8. providerImportGuard still passes.
+9. No allowlist bypass was added.
+
+Report:
+
+| File | Uses Canonical Model? | Local Stale Constants? | Verdict |
+|---|---:|---:|---|
+| fnoCostModel.ts |
+| paperReportsFO.ts |
+| premiumReplay.ts |
+| backtestCharges.ts |
+
+====================================================
+PART C — PAPER REPORTS F&O PRODUCTION VERIFICATION
+====================================================
+
+Verify F&O Paper Reports output in production or production-equivalent API.
+
+For at least one closed F&O trade/report row or shadow-cost row, confirm:
+
+1. grossPnl
+2. brokerage
+3. stt
+4. exchangeCharges / transactionCharges
+5. sebiCharges
+6. stampDuty
+7. gst
+8. totalCharges
+9. netPnl
+10. chargesBreakdown or equivalent audit field
+
+Formula invariant:
+
+netPnl = grossPnl - totalCharges
+
+Charge invariant:
+
+totalCharges = brokerage + stt + exchangeCharges + sebiCharges + stampDuty + gst
+
+Confirm STT uses canonical 0.15% option sell-premium rate, not stale 0.10%.
+
+Confirm exchange charge uses canonical 0.03503%, not stale 0.053%.
+
+Report:
+
+| Trade/Row | Gross P&L | STT | Exchange | Total Charges | Net P&L | Formula Correct? | Verdict |
+|---|---:|---:|---:|---:|---:|---:|---|
+
+====================================================
+PART D — STAGE-4 PREMIUM REPLAY PRODUCTION VERIFICATION
+====================================================
+
+Trigger or inspect a Stage-4 REAL_REPLAY run using production-safe data.
+
+Confirm:
+
+1. Stage-4 replay uses canonical F&O cost model.
+2. STT is canonical options sell-premium STT.
+3. Exchange rate is canonical.
+4. grossPnl is preserved.
+5. totalCharges is calculated correctly.
+6. netPnl = grossPnl - totalCharges.
+7. replay assumptions remain labelled.
+8. missing premium data is not fabricated.
+9. old cached runs are not silently mixed with post-fix interpretation.
+
+Report:
+
+| Replay Run | Gross P&L | STT | Exchange | Total Charges | Net P&L | Formula Correct? | Verdict |
+|---|---:|---:|---:|---:|---:|---:|---|
+
+====================================================
+PART E — GOLDEN NUMBER PROOF
+====================================================
+
+Re-run the same golden-number proof after production republish.
+
+Use:
+
+NIFTY 10 lots
+entry premium ₹120
+exit premium ₹145
+qty 250
+
+Expected:
+
+Paper Reports, premiumReplay, backtestCharges, and fnoCostModel must agree on canonical STT and exchange rate.
+
+Report:
+
+| Consumer | STT | Exchange | Total Charges | Net P&L | Matches Canonical? |
+|---|---:|---:|---:|---:|---:|
+| fnoCostModel |
+| paperReportsFO |
+| premiumReplay |
+| backtestCharges |
+
+Note:
+
+premiumReplay may omit slippage by design if that is the existing FnoCostBreakdown behavior, but STT and exchange must match canonical values.
+
+====================================================
+PART F — REGRESSION CHECKS
+====================================================
+
+Confirm:
+
+1. Release Integrity remains PROD_VERIFIED.
+2. Checkpoint 1 remains PROD_VERIFIED.
+3. Checkpoint 2 remains PROD_VERIFIED.
+4. Checkpoint 2.5 remains PROD_VERIFIED.
+5. Checkpoint 3 remains PROD_VERIFIED.
+6. Data Parity compat remains PROD_VERIFIED.
+7. Backtest Charges Model + Net P&L remains PROD_VERIFIED.
+8. Provider import guard remains green.
+9. F&O cost model guard remains green.
+10. Broker execution remains disabled.
+11. No real orders placed.
+12. No Telegram spam.
+13. No strategy/threshold change.
+14. No destructive migration.
+15. No stale/report-grade data can drive live trades.
+
+====================================================
+PART G — TESTS
+====================================================
+
+Run and report exact counts:
+
+pnpm --filter @workspace/scripts run verify:release
+
+pnpm --filter @workspace/api-server run typecheck
+
+pnpm --filter @workspace/api-server run typecheck:libs
+
+pnpm --filter @workspace/api-server exec vitest run src/lib/*fnoCost*.test.ts src/lib/*paperReportsFO*.test.ts src/lib/*premiumReplay*.test.ts src/lib/*backtest*.test.ts src/lib/*charges*.test.ts src/lib/*paper*.test.ts src/lib/*fno*.test.ts src/routes/**/*.test.ts
+
+pnpm --filter @workspace/scanner exec vitest run
+
+pnpm --filter @workspace/scripts run index:llm
+
+pnpm --filter @workspace/scripts run index:llm:check
+
+If any suite times out, split into smaller batches and report exact counts.
+
+====================================================
+PART H — REPORT UPDATE
+====================================================
+
+Update:
+
+1. FNO_COST_MODEL_UNIFICATION_REPORT.md
+2. USER_FACING_CORE_TABS_DEEP_AUDIT_REPORT.md
+3. WEBSITE_CANONICAL_DATA_INTEGRATION_REPORT.md
+
+Add final production verification section:
+
+P0-1 F&O COST MODEL UNIFICATION — FINAL PRODUCTION VERIFICATION
+
+Include:
+
+1. Fresh deploy proof.
+2. Production commit proof.
+3. Canonical model production proof.
+4. Paper Reports F&O proof.
+5. Stage-4 premium replay proof.
+6. Golden-number proof.
+7. Guard test proof.
+8. Regression checks.
+9. Tests and counts.
+10. Final verdict.
+
+====================================================
+FINAL VERDICT
+====================================================
+
+Final verdict must be exactly one:
+
+- FNO_COST_MODEL_UNIFICATION_PROD_VERIFIED
+- FNO_COST_MODEL_UNIFICATION_DEV_VERIFIED
+- FNO_COST_MODEL_UNIFICATION_PARTIAL_GAP_REMAINS
+- RELEASE_INTEGRITY_REGRESSION_FOUND
+- ROLLBACK_REQUIRED
+
+Use:
+
+FNO_COST_MODEL_UNIFICATION_PROD_VERIFIED
+
+only if production is running commit 4c54f2c or later and Paper Reports + Stage-4 replay both use the canonical F&O cost model, formulas match, tests pass, verify:release is green, and no regressions are found.
+
+Use:
+
+FNO_COST_MODEL_UNIFICATION_DEV_VERIFIED
+
+if production still predates commit 4c54f2c.
+
+Use:
+
+FNO_COST_MODEL_UNIFICATION_PARTIAL_GAP_REMAINS
+
+if any F&O report/replay path still uses stale local constants or formulas disagree.
+
+Use:
+
+RELEASE_INTEGRITY_REGRESSION_FOUND
+
+if verify:release has a real FAIL.
+
+Use:
+
+ROLLBACK_REQUIRED
+
+if secrets leak, broker execution turns on, real orders are placed, Telegram spam occurs, destructive migration happens, or stale/report-grade data can drive live trades.

@@ -842,3 +842,15 @@ All requirements met:
 
 ### Verdict
 `FNO_COST_MODEL_UNIFICATION_DEV_VERIFIED` — republish required for PROD_VERIFIED.
+
+---
+
+## P0-1 Final Production Verification — Second Republish Attempt (2026-07-07 ~13:26 UTC)
+
+Production commitShort unchanged: `011f6733` (bootTime 2026-07-07T11:51:04.797Z). No new boot event in deployment logs after second republish attempt. DEV checks all green (7 files / 160 tests PASS, 770 scanner PASS, typecheck CLEAN, fnoCostModelGuard 0 violations, verify:release 11 PASS). LLM index fresh (349 files, 13:26 UTC).
+
+Code-level proof confirmed via grep:
+- `paperReportsFO.ts` L25: `import { computeFnoTradeCost, FNO_COST_PARAMS_ASOF }` — no stale constants
+- `premiumReplay.ts` L24: `import { FNO_COST_PARAMS, FNO_COST_PARAMS_ASOF }` — all 6 rates via `FNO_COST_PARAMS.*`, label names "canonical fnoCostModel rates"
+
+**Verdict: `FNO_COST_MODEL_UNIFICATION_DEV_VERIFIED`** — republish did not produce a new production deployment.
