@@ -1,0 +1,130 @@
+CODER PROMPT — FIX DEPLOYMENT SOURCE SYNC FOR P0-1 F&O COST MODEL UNIFICATION
+
+Current status:
+
+FNO_COST_MODEL_UNIFICATION_DEV_VERIFIED
+
+Do not write new feature code.
+Do not change app logic.
+Do not start VWAP / Volume Profile fix.
+Do not start Charting / Portfolio / Backtesting work.
+Do not change trading logic.
+Do not enable broker execution.
+Do not send Telegram tests.
+Do not perform destructive migrations.
+
+This is deployment-source sync only.
+
+====================================================
+ROOT CAUSE
+====================================================
+
+Production is still running commit:
+
+011f6733
+
+P0-1 F&O Cost Model Unification commit is:
+
+4c54f2c
+
+The workspace contains the P0-1 commits, but origin/main is still at 011f6733.
+
+The production build system appears to read origin/main, so republishing keeps deploying the old code.
+
+Result:
+
+FNO_COST_MODEL_UNIFICATION_DEV_VERIFIED remains correct.
+Do not mark PROD_VERIFIED.
+
+====================================================
+TASK
+====================================================
+
+Fix the deployment source mismatch.
+
+1. Check current branch:
+
+git branch --show-current
+
+2. Check local vs remote status:
+
+git status -sb
+git log --oneline origin/main..HEAD
+git log --oneline -10
+git log --oneline origin/main -5
+
+3. Confirm the local commits ahead of origin/main include:
+
+- P0-1 F&O Cost Model Unification
+- fnoCostModelGuard
+- FNO_COST_MODEL_UNIFICATION_REPORT.md
+- any related report updates
+
+4. Push/sync local commits to origin/main, if safe and if this is the correct production branch.
+
+Use the repo-correct safe push method.
+
+Before pushing, report:
+
+| Check | Result |
+|---|---|
+| Current branch |
+| origin/main commit |
+| local HEAD commit |
+| commits ahead |
+| commits behind |
+| files changed |
+| whether push is safe |
+
+5. After push/sync, confirm:
+
+git fetch origin
+git rev-parse --short HEAD
+git rev-parse --short origin/main
+
+Expected:
+
+origin/main must be at or after 4c54f2c.
+
+6. After origin/main is updated, trigger a fresh Replit deployment/publish.
+
+7. Confirm production boot is fresh and /api/build-info shows a commitShort at or after 4c54f2c.
+
+====================================================
+STRICT RULES
+====================================================
+
+Do not rewrite history.
+Do not force push unless explicitly required and approved.
+Do not reset local commits.
+Do not discard files.
+Do not start new work.
+Do not change code to work around deployment.
+Do not mark P0-1 PROD_VERIFIED until production /api/build-info proves the new commit is live.
+
+====================================================
+AFTER DEPLOYMENT
+====================================================
+
+Once production shows commitShort at or after 4c54f2c, rerun only the final P0-1 production verification:
+
+1. pnpm --filter @workspace/scripts run verify:release
+2. /api/build-info commit proof
+3. fnoCostModelGuard
+4. providerImportGuard
+5. Paper Reports canonical cost proof
+6. Stage-4 premium replay canonical cost proof
+7. Golden-number proof
+8. No broker execution
+9. No real orders
+10. No Telegram spam
+
+Final verdict must remain one of:
+
+- FNO_COST_MODEL_UNIFICATION_PROD_VERIFIED
+- FNO_COST_MODEL_UNIFICATION_DEV_VERIFIED
+- FNO_COST_MODEL_UNIFICATION_PARTIAL_GAP_REMAINS
+- RELEASE_INTEGRITY_REGRESSION_FOUND
+- ROLLBACK_REQUIRED
+
+Use FNO_COST_MODEL_UNIFICATION_PROD_VERIFIED only after production /api/build-info proves the new commit is live.
