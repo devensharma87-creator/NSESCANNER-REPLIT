@@ -2326,3 +2326,31 @@ Production commitShort: `011f6733` — **UNCHANGED** (bootTime 2026-07-07T11:51:
 DEV all green: verify:release 11 PASS · 7 files / 160 tests PASS · 770 scanner PASS · typecheck CLEAN · fnoCostModelGuard 0 violations · LLM index 349 files fresh.
 
 **Verdict: `FNO_COST_MODEL_UNIFICATION_DEV_VERIFIED`**
+
+---
+
+## P0-1 F&O COST MODEL UNIFICATION — FINAL VERIFICATION AFTER MANUAL PUBLISH
+**Timestamp:** 2026-07-07T13:58 UTC  
+**Verdict: `FNO_COST_MODEL_UNIFICATION_DEV_VERIFIED`**
+
+Production `commitShort` remains `011f6733` (bootTime 2026-07-07T11:51:04.797Z). No new deployment triggered despite manual publish. Root cause: GitHub `origin/main` = `011f6733`; workspace is 7 commits ahead but GitHub push failed (no credentials in sandbox).
+
+### Key Results
+
+**Canonical rates confirmed live (DEV shadow-costs, 7 computable trades):**
+- `STT_RATE_SELL_PREMIUM`: `0.0015` (0.15%) ✅
+- `EXCHANGE_TXN_RATE`: `0.0003503` (0.03503%) ✅
+- Formula: grossPnl ₹6,508.30 − charges ₹1,074.42 = netPnl ₹5,433.88 ✅
+
+**Golden number agreement across all 4 consumers (NIFTY 250 qty, entry ₹120 / exit ₹145):**
+- STT ₹54.38 · Exchange ₹23.21 · Total charges ₹129.94 · Net P&L ₹6,120.06 — all 4 consumers agree ✅
+
+**Tests:** 7 files / 160 targeted PASS · 770 scanner PASS · typecheck CLEAN · verify:release 11 PASS · LLM index 349 files fresh ✅
+
+**Regression:** All checkpoints true, 0 guard violations, broker execution disabled, no real orders, no destructive migration ✅
+
+### To reach PROD_VERIFIED
+1. `git push origin main` with GitHub credentials (local machine or GitHub token secret)
+2. Republish from Replit editor
+3. Confirm production `/api/build-info` → `commitShort` ≥ `4c54f2c`, new `bootTime`
+4. Re-run `pnpm --filter @workspace/scripts run verify:release`

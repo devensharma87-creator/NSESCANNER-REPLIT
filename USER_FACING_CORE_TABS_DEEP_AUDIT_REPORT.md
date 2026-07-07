@@ -854,3 +854,37 @@ Code-level proof confirmed via grep:
 - `premiumReplay.ts` L24: `import { FNO_COST_PARAMS, FNO_COST_PARAMS_ASOF }` — all 6 rates via `FNO_COST_PARAMS.*`, label names "canonical fnoCostModel rates"
 
 **Verdict: `FNO_COST_MODEL_UNIFICATION_DEV_VERIFIED`** — republish did not produce a new production deployment.
+
+---
+
+## P0-1 F&O COST MODEL UNIFICATION — FINAL VERIFICATION AFTER MANUAL PUBLISH
+**Timestamp:** 2026-07-07T13:58 UTC  
+**Verdict: `FNO_COST_MODEL_UNIFICATION_DEV_VERIFIED`**
+
+### Production State
+- `commitShort`: `011f6733` — **BEFORE `4c54f2c`** ❌
+- `bootTime`: 2026-07-07T11:51:04.797Z (unchanged)
+- No new boot event in deployment logs despite manual publish
+- Root cause: `origin/main` (GitHub) = `011f6733`; local workspace is 7 commits ahead; GitHub push failed (no credentials)
+
+### Workspace (DEV) Verification — All Green
+
+| Check | Result |
+|---|---|
+| paperReportsFO.ts — canonical import | ✅ `import { computeFnoTradeCost, FNO_COST_PARAMS_ASOF }` |
+| paperReportsFO.ts — stale 0.10% STT | ✅ Zero |
+| premiumReplay.ts — canonical import | ✅ `import { FNO_COST_PARAMS, FNO_COST_PARAMS_ASOF }` |
+| premiumReplay.ts — stale 0.05%/0.053% | ✅ Zero |
+| fnoCostModelGuard violations | ✅ 0 |
+| shadow-costs STT_RATE_SELL_PREMIUM | ✅ 0.0015 (0.15%) |
+| shadow-costs EXCHANGE_TXN_RATE | ✅ 0.0003503 (0.03503%) |
+| shadow-costs formula (gross−charges=net) | ✅ 6508.30−1074.42=5433.88 |
+| Golden number STT (NIFTY 250 qty) | ✅ ₹54.38 |
+| Golden number Exchange | ✅ ₹23.21 |
+| 7-file / 160 targeted tests | ✅ 160/160 PASS |
+| 770 scanner tests | ✅ 770/770 PASS |
+| typecheck api-server + libs | ✅ CLEAN |
+| verify:release | ✅ 11 PASS \| 0 WARN \| 0 FAIL |
+| LLM index | ✅ 349 files fresh |
+
+**To reach PROD_VERIFIED:** Push 7 local commits to `origin/main` via GitHub credentials, then republish.

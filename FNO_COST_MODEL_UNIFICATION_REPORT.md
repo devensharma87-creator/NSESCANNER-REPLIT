@@ -409,3 +409,185 @@ Production has not received P0-1 after two republish attempts. Production still 
 **All DEV checks are fully green.** The canonical F&O cost model (STT=0.15%, Exchange=0.03503%) is confirmed live in the workspace code via direct source grep, 160 targeted tests, 770 scanner tests, typecheck, fnoCostModelGuard (0 violations), and providerImportGuard (19/19).
 
 **To achieve PROD_VERIFIED:** The deployment needs to rebuild from the current workspace state. Once a new boot event appears in deployment logs with a commitShort at or after `4c54f2c`, re-run `pnpm --filter @workspace/scripts run verify:release` to confirm and upgrade the verdict.
+
+---
+
+## P0-1 F&O COST MODEL UNIFICATION — FINAL PRODUCTION VERIFICATION AFTER MANUAL PUBLISH
+**Timestamp:** 2026-07-07T13:58 UTC  
+**Triggered by:** User manual publish from Replit editor  
+**Verdict: `FNO_COST_MODEL_UNIFICATION_DEV_VERIFIED`**
+
+---
+
+### PART A — FRESH DEPLOY PROOF
+
+| Field | Value | Status |
+|---|---|---|
+| HTTP status | 200 | ✅ |
+| `commitShort` | `011f6733` | ❌ BEFORE 4c54f2c |
+| `buildTime` | 2026-07-07T11:49:18.488Z | ❌ unchanged |
+| `bootTime` | 2026-07-07T11:51:04.797Z | ❌ unchanged |
+| `environment` | production | ✅ |
+| All 7 checkpoint markers | true | ✅ |
+| No secrets exposed | confirmed | ✅ |
+| **Deploy result** | **NO NEW DEPLOYMENT** | ❌ |
+
+Production served pid=18 continuously from 11:51 UTC through all verification polls. Deployment logs show zero new boot events. Manual publish did not trigger a new build.
+
+**Root cause:** `origin/main` (GitHub) remains at `011f6733`. Local workspace is 7 commits ahead. GitHub push failed (no credentials in sandbox). Replit's production build system reads from GitHub origin — repeated "Publish" clicks rebuild from `011f6733`. **Fix:** push local commits to GitHub via the user's local machine or a GitHub token secret, then republish.
+
+---
+
+### PART B — RELEASE INTEGRITY
+
+`pnpm --filter @workspace/scripts run verify:release` result:
+
+| # | Check | Result |
+|---|---|---|
+| 1 | /api/healthz | ✅ PASS |
+| 2 | /api/data-health/global | ✅ PASS |
+| 3 | /api/build-info HTTP 200 | ✅ PASS |
+| 4 | build-info: no secrets | ✅ PASS |
+| 5 | boot time exists | ✅ PASS |
+| 6 | checkpoint markers | ✅ PASS (all 7 true) |
+| 7 | frontend bundle detected | ✅ PASS |
+| 8 | not a stale known bundle | ✅ PASS |
+| 9 | frontend: release markers | ✅ PASS |
+| 10 | frontend: Data Parity markers | ✅ PASS |
+| 11 | Data Parity API: owner-protected | ✅ PASS |
+| 12 | frontend/backend build status | ℹ INFO (known, documented) |
+
+**Summary: 11 PASS \| 0 WARN \| 0 FAIL** ✅  
+Check 12 INFO is documented/known — not a regression.
+
+---
+
+### PART C — CANONICAL F&O COST MODEL PROOF
+
+| File | Uses Canonical Model? | Local Stale Constants? | Verdict |
+|---|---|---|---|
+| `fnoCostModel.ts` | ✅ Defines canonical `FNO_COST_PARAMS` | None | CANONICAL SOURCE |
+| `paperReportsFO.ts` | ✅ L25: `import { computeFnoTradeCost, FNO_COST_PARAMS_ASOF }` | Zero (no 0.10%, no 0.053%) | ✅ UNIFIED |
+| `premiumReplay.ts` | ✅ L24: `import { FNO_COST_PARAMS, FNO_COST_PARAMS_ASOF }` | Zero (all 6 rates via `FNO_COST_PARAMS.*`) | ✅ UNIFIED |
+| `backtestCharges.ts` | ✅ L18: `import { computeFnoTradeCost, FNO_COST_PARAMS, FNO_COST_PARAMS_ASOF }` | Zero | ✅ UNIFIED |
+
+Canonical rates in `fnoCostModel.ts`:
+- `STT_RATE_SELL_PREMIUM: 0.0015` (0.15%, eff. 2026-04-01) ✅
+- `EXCHANGE_TXN_RATE: 0.0003503` (0.03503%, NSE+BSE blended) ✅
+- `FNO_COST_PARAMS_ASOF: "2026-04-01"` ✅
+
+`fnoCostModelGuard`: **8/8 tests PASS, 0 violations** ✅  
+`providerImportGuard`: **PASS** (included in 160-test suite) ✅  
+No allowlist bypass added ✅
+
+---
+
+### PART D — PAPER REPORTS F&O PROOF (DEV shadow-costs)
+
+Live DEV endpoint `GET /api/paper/analytics/fo/shadow-costs` at 2026-07-07T13:58:32Z:
+
+**`parameters` block confirms canonical rates:**
+```
+STT_RATE_SELL_PREMIUM:  0.0015  (= 0.15%) ✅
+EXCHANGE_TXN_RATE:      0.0003503  (= 0.03503%) ✅
+BROKERAGE_PER_SIDE_INR: 20  ✅
+GST_RATE:               0.18  ✅
+SEBI_RATE:              0.000001  (= ₹10/crore) ✅
+STAMP_DUTY_RATE_BUY:    0.00003  (= 0.003%) ✅
+```
+
+**Live trade data (7 computable trades):**
+
+| Source | Gross P&L | Total Charges | Net P&L | Formula Correct? | Verdict |
+|---|---|---|---|---|---|
+| DEV shadow-costs | ₹6,508.30 | ₹1,074.42 | ₹5,433.88 | 6508.30−1074.42=5433.88 ✅ | ✅ CANONICAL |
+
+No stale 0.10% STT ✅ | grossPnl preserved ✅ | netPnl = grossPnl − charges ✅
+
+---
+
+### PART E — STAGE-4 PREMIUM REPLAY PROOF
+
+Direct API trigger not available in current session (requires a live completed REAL_REPLAY run). Code-level proof:
+
+`premiumReplay.ts` L330–335:
+```typescript
+const stt = exitTurnover * FNO_COST_PARAMS.STT_RATE_SELL_PREMIUM;       // 0.15% sell side
+const exchangeTxn = totalTurnover * FNO_COST_PARAMS.EXCHANGE_TXN_RATE;  // 0.03503% both legs
+const sebiCharges = totalTurnover * FNO_COST_PARAMS.SEBI_RATE;
+const gst = (brokerage + exchangeTxn + sebiCharges) * FNO_COST_PARAMS.GST_RATE;
+const stampDuty = entryTurnover * FNO_COST_PARAMS.STAMP_DUTY_RATE_BUY;
+```
+
+All 6 rates from `FNO_COST_PARAMS` — no inline literals, no stale values. Confirmed by 160-test suite including `premiumReplay.test.ts`. ✅
+
+---
+
+### PART F — GOLDEN NUMBER PROOF
+
+**NIFTY 10 lots, entry ₹120, exit ₹145, qty=250**
+
+| Consumer | STT | Exchange | Total Charges | Net P&L (gross ₹6,250) | Matches Canonical? |
+|---|---|---|---|---|---|
+| `fnoCostModel.computeFnoTradeCost` | ₹54.38 | ₹23.21 | ₹129.94 | ₹6,120.06 | ✅ |
+| `paperReportsFO` (via computeFnoTradeCost) | ₹54.38 | ₹23.21 | ₹129.94 | ₹6,120.06 | ✅ |
+| `premiumReplay` (via FNO_COST_PARAMS) | ₹54.38 | ₹23.21 | ₹129.94* | ₹6,120.06* | ✅ |
+| `backtestCharges` (via computeFnoTradeCost) | ₹54.38 | ₹23.21 | ₹129.94 | ₹6,120.06 | ✅ |
+
+*premiumReplay omits slippage/spread by design for this test vector; STT and Exchange agree exactly.
+
+Computation: sellTurnover=₹36,250 × 0.0015 = **₹54.38** ✅ | totalTurnover=₹66,250 × 0.0003503 = **₹23.21** ✅  
+Confirmed by: independent Python computation + `fnoCostModelUnification.test.ts` (160 tests PASS).
+
+---
+
+### PART G — REGRESSION CHECKS
+
+| # | Check | Status |
+|---|---|---|
+| 1 | Release Integrity verify:release | ✅ 11 PASS |
+| 2 | Checkpoint 1 marker | ✅ true |
+| 3 | Checkpoint 2 marker | ✅ true |
+| 4 | Checkpoint 2.5 marker | ✅ true |
+| 5 | Checkpoint 3 marker | ✅ true |
+| 6 | Data Parity compat marker | ✅ true |
+| 7 | Backtest Charges Model + Net P&L | ✅ PROD_VERIFIED (prior checkpoint) |
+| 8 | Provider import guard | ✅ PASS |
+| 9 | F&O cost model guard | ✅ 0 violations |
+| 10 | Broker execution disabled | ✅ confirmed |
+| 11 | No real orders placed | ✅ confirmed |
+| 12 | No Telegram spam | ✅ confirmed |
+| 13 | No strategy/threshold change | ✅ confirmed |
+| 14 | No destructive migration | ✅ confirmed |
+| 15 | Stale/report-grade data cannot drive trades | ✅ confirmed |
+
+---
+
+### PART H — TEST COUNTS
+
+| Suite | Files | Tests | Result |
+|---|---|---|---|
+| verify:release | — | 11 checks | ✅ 11 PASS \| 0 WARN \| 0 FAIL |
+| api-server typecheck | — | — | ✅ CLEAN |
+| root typecheck:libs | — | — | ✅ CLEAN |
+| P0-1 targeted (7 files) | 7 | 160 | ✅ 160/160 PASS |
+| scanner suite | 35 | 770 | ✅ 770/770 PASS |
+| LLM index | 349 files | — | ✅ fresh (13:54 UTC) |
+
+**P0-1 targeted files:** `fnoCostModelUnification.test.ts` · `fnoCostModelGuard.test.ts` · `premiumReplay.test.ts` · `backtestCharges.test.ts` · `paperReportsFoTimeExit.test.ts` · `fnoCostModel.test.ts` · `providerImportGuard.test.ts`
+
+---
+
+### FINAL VERDICT
+
+**`FNO_COST_MODEL_UNIFICATION_DEV_VERIFIED`**
+
+Production commitShort = `011f6733` — before `4c54f2c`. No new deployment boot triggered despite manual publish.
+
+All workspace (DEV) verification is fully green. Production cannot be upgraded to `PROD_VERIFIED` until the 7 local commits (including `4c54f2c`) are pushed to GitHub origin and a fresh publish is completed.
+
+**Required action to reach PROD_VERIFIED:**  
+1. `git push origin main` from a machine/environment with GitHub credentials (or via Replit Git integration with a GitHub token secret)  
+2. Click "Publish" in the Replit editor  
+3. Confirm production `/api/build-info` returns `commitShort` at or after `4c54f2c` with a new `bootTime`  
+4. Re-run `pnpm --filter @workspace/scripts run verify:release`
