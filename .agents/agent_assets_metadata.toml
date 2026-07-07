@@ -126,3 +126,9 @@ id = "Od_Zd8HrDjj4z7wq3KNKA"
 uri = "file://WEBSITE_CANONICAL_DATA_INTEGRATION_REPORT.md"
 type = "text"
 title = "Website Canonical Data Integration Report (incl. Phase 3A final verdict)"
+
+[[outputs]]
+id = "73cHgFEyqkuLBKkFMOqQt"
+uri = "file://project-source.zip"
+type = "unspecified"
+title = "Full Project Source Code (all TypeScript/React source, configs, docs — 12 MB)"
