@@ -239,22 +239,21 @@
   {
     "path": "artifacts/api-server/src/lib/backtest/premiumReplay.test.ts",
     "purpose": "test",
-    "lines": 410,
+    "lines": 418,
     "exports": [],
     "externalImports": [
       "vitest"
     ],
     "routes": [],
-    "hash": "b439b1ecb3a0a612"
+    "hash": "cd07bf5bf40c3fd7"
   },
   {
     "path": "artifacts/api-server/src/lib/backtest/premiumReplay.ts",
     "purpose": "lib",
-    "lines": 681,
+    "lines": 690,
     "exports": [
       "REPLAY_ENTRY_TOLERANCE_MIN",
       "REPLAY_MIN_COVERAGE_PCT",
-      "FNO_COST_RATES",
       "SnapshotRow",
       "SnapshotFetcher",
       "ExpiryFetcher",
@@ -273,7 +272,7 @@
     ],
     "externalImports": [],
     "routes": [],
-    "hash": "18a72198b8543c91"
+    "hash": "f7348429aee7539b"
   },
   {
     "path": "artifacts/api-server/src/lib/backtest/replay.test.ts",
@@ -650,7 +649,7 @@
     ],
     "externalImports": [],
     "routes": [],
-    "hash": "b53862bba9cc4150"
+    "hash": "a10fa476cf4e2c07"
   },
   {
     "path": "artifacts/api-server/src/lib/blackScholes.ts",
@@ -1286,6 +1285,45 @@
     "externalImports": [],
     "routes": [],
     "hash": "9b9d082e60eed242"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/fnoCostModelGuard.test.ts",
+    "purpose": "test",
+    "lines": 75,
+    "exports": [],
+    "externalImports": [
+      "vitest",
+      "node:path"
+    ],
+    "routes": [],
+    "hash": "275bfc50d5e74ce0"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/fnoCostModelGuard.ts",
+    "purpose": "fno-engine",
+    "lines": 148,
+    "exports": [
+      "FnoCostModelViolation",
+      "FnoCostModelGuardResult",
+      "runFnoCostModelGuard"
+    ],
+    "externalImports": [
+      "node:fs",
+      "node:path"
+    ],
+    "routes": [],
+    "hash": "c6545a319a209523"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/fnoCostModelUnification.test.ts",
+    "purpose": "test",
+    "lines": 403,
+    "exports": [],
+    "externalImports": [
+      "vitest"
+    ],
+    "routes": [],
+    "hash": "ab08d24f5ff686b7"
   },
   {
     "path": "artifacts/api-server/src/lib/fnoDataHealthAlerts.test.ts",
@@ -4026,7 +4064,7 @@
   {
     "path": "artifacts/api-server/src/lib/paperReportsFO.ts",
     "purpose": "paper-trading",
-    "lines": 515,
+    "lines": 549,
     "exports": [
       "ChargesBreakdown",
       "computeFOCharges",
@@ -4043,7 +4081,7 @@
       "drizzle-orm"
     ],
     "routes": [],
-    "hash": "d9b255fe7afc28e2"
+    "hash": "c99b264c389c2f6e"
   },
   {
     "path": "artifacts/api-server/src/lib/paperReportsFoTimeExit.test.ts",

@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-07T12:00:11.149Z",
+  "generatedAt": "2026-07-07T12:38:22.843Z",
   "generatorVersion": "1.0.0",
   "files": {
     "artifacts/api-server/src/routes/admin.ts": {
@@ -218,9 +218,9 @@
       "mtime": "2026-07-07T10:32:09.217Z"
     },
     "artifacts/api-server/src/lib/backtest/premiumReplay.ts": {
-      "hash": "18a72198b8543c91",
-      "lines": 681,
-      "mtime": "2026-06-29T06:24:42.920Z"
+      "hash": "f7348429aee7539b",
+      "lines": 690,
+      "mtime": "2026-07-07T12:31:11.482Z"
     },
     "artifacts/api-server/src/lib/backtest/replay.ts": {
       "hash": "c572a8b341ce0ae2",
@@ -253,9 +253,9 @@
       "mtime": "2026-06-05T15:01:21.969Z"
     },
     "artifacts/api-server/src/lib/backtest/types.ts": {
-      "hash": "b53862bba9cc4150",
+      "hash": "a10fa476cf4e2c07",
       "lines": 389,
-      "mtime": "2026-07-07T10:29:37.386Z"
+      "mtime": "2026-07-07T12:30:05.475Z"
     },
     "artifacts/api-server/src/lib/blackScholes.ts": {
       "hash": "183fbca9a3665de6",
@@ -371,6 +371,11 @@
       "hash": "9b9d082e60eed242",
       "lines": 256,
       "mtime": "2026-06-04T13:03:56.669Z"
+    },
+    "artifacts/api-server/src/lib/fnoCostModelGuard.ts": {
+      "hash": "c6545a319a209523",
+      "lines": 148,
+      "mtime": "2026-07-07T12:33:19.535Z"
     },
     "artifacts/api-server/src/lib/fnoDataRecoveryTransition.ts": {
       "hash": "f0c2350bc0e1eb20",
@@ -898,9 +903,9 @@
       "mtime": "2026-05-04T18:53:53.360Z"
     },
     "artifacts/api-server/src/lib/paperReportsFO.ts": {
-      "hash": "d9b255fe7afc28e2",
-      "lines": 515,
-      "mtime": "2026-06-04T07:31:23.800Z"
+      "hash": "c99b264c389c2f6e",
+      "lines": 549,
+      "mtime": "2026-07-07T12:29:34.906Z"
     },
     "artifacts/api-server/src/lib/paperTradingCombo.ts": {
       "hash": "34825b318a617d5b",

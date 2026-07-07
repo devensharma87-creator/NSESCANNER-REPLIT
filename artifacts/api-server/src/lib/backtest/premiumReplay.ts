@@ -21,6 +21,7 @@
  */
 
 import type { BacktestTradeOut, FnoCostBreakdown, BacktestPricingModeMix, BacktestDataQualityOut, SnapshotUnderlyingCoverage } from "./types";
+import { FNO_COST_PARAMS, FNO_COST_PARAMS_ASOF } from "../fnoCostModel";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -34,20 +35,21 @@ export const REPLAY_ENTRY_TOLERANCE_MIN = 5;
 export const REPLAY_MIN_COVERAGE_PCT = 60;
 
 /**
- * F&O cost model rates (NSE, effective 2026-04-01).
- * Cite: SEBI circular + NSE/BSE fee schedule + Finance Act 2023.
- * Update this block (and bump BACKTEST_ENGINE_VERSION) when rates change.
+ * F&O cost rates for Stage-4 premium replay are now sourced exclusively from
+ * the canonical `fnoCostModel.FNO_COST_PARAMS` (imported above).
+ *
+ * DO NOT add local rate constants here. All statutory rates (STT, exchange,
+ * SEBI, GST, stamp duty) must come from `FNO_COST_PARAMS` so that every
+ * F&O report and replay surface agrees on the same numbers.
+ *
+ * Rates in effect (via FNO_COST_PARAMS, as-of FNO_COST_PARAMS_ASOF):
+ *   STT: 0.15% on sell-side option premium (Budget 2026, eff. 2026-04-01)
+ *   Exchange txn: 0.03503% on total premium turnover (NSE)
+ *   SEBI: ₹10 per crore on total turnover
+ *   GST: 18% on (brokerage + exchange + SEBI)
+ *   Stamp duty: 0.003% on buy-side premium
+ *   Default spread: SPREAD_BPS_PER_SIDE bps per side (25 bps)
  */
-export const FNO_COST_RATES = {
-  BROKERAGE_PER_ORDER: 20,                 // ₹ flat per order (Zerodha/Groww/Dhan style)
-  STT_SELL_PCT: 0.05 / 100,               // 0.05% on exit (sell) side premium × qty
-  EXCHANGE_TXN_PCT: 0.053 / 100,          // 0.053% NSE transaction charge on each leg
-  SEBI_CHARGE_PCT: 10 / 1e7,             // ₹10 per crore = 0.000001% per ₹ turnover
-  GST_PCT: 18 / 100,                      // 18% on (brokerage + exchange + SEBI charges)
-  STAMP_DUTY_PCT: 0.003 / 100,           // 0.003% on entry (buy) side premium × qty
-  /** Default half-spread fraction used when no real bid/ask in snapshot. */
-  DEFAULT_HALF_SPREAD_PCT: 0.5 / 100,
-} as const;
 
 /** Risk-free rate for Black-Scholes (RBI repo rate approximation, 2026). */
 const BS_RISK_FREE_RATE = 0.065;
@@ -303,10 +305,16 @@ export function assignPricingMode(
 // ---------------------------------------------------------------------------
 
 /**
- * Compute itemised F&O round-trip costs for one trade.
- * STT: sell side only. Stamp duty: buy side only.
- * Exchange txn + SEBI: both legs. GST: on brokerage + exchange + SEBI.
- * Spread cost: half-spread on each leg (real when available, default when not).
+ * Compute itemised F&O round-trip costs for one Stage-4 replay trade.
+ * All rate constants come from the canonical FNO_COST_PARAMS — no local
+ * rate literals are allowed in this module.
+ *
+ * STT: sell side only (0.15%, eff. 2026-04-01).
+ * Stamp duty: buy side only (0.003%).
+ * Exchange txn + SEBI: both legs.
+ * GST: on (brokerage + exchange + SEBI).
+ * Spread cost: half-spread on each leg (real when captured, canonical
+ *   SPREAD_BPS_PER_SIDE default when not).
  */
 export function computeFnoCosts(
   entryPremium: number,
@@ -315,18 +323,19 @@ export function computeFnoCosts(
   entrySpread: number | null,
   exitSpread: number | null,
 ): FnoCostBreakdown {
-  const r = FNO_COST_RATES;
   const entryTurnover = entryPremium * qty;
   const exitTurnover = exitPremium * qty;
   const totalTurnover = entryTurnover + exitTurnover;
 
-  const brokerage = r.BROKERAGE_PER_ORDER * 2;       // ₹20 × 2 orders
-  const stt = exitTurnover * r.STT_SELL_PCT;          // sell side only (0.05%)
-  const exchangeTxn = totalTurnover * r.EXCHANGE_TXN_PCT;
-  const sebiCharges = totalTurnover * r.SEBI_CHARGE_PCT;
-  const gst = (brokerage + exchangeTxn + sebiCharges) * r.GST_PCT;
-  const stampDuty = entryTurnover * r.STAMP_DUTY_PCT; // buy side only (0.003%)
+  const brokerage = FNO_COST_PARAMS.BROKERAGE_PER_SIDE_INR * 2;             // ₹20 × 2 orders
+  const stt = exitTurnover * FNO_COST_PARAMS.STT_RATE_SELL_PREMIUM;          // 0.15% sell side
+  const exchangeTxn = totalTurnover * FNO_COST_PARAMS.EXCHANGE_TXN_RATE;     // 0.03503% both legs
+  const sebiCharges = totalTurnover * FNO_COST_PARAMS.SEBI_RATE;             // ₹10/crore both legs
+  const gst = (brokerage + exchangeTxn + sebiCharges) * FNO_COST_PARAMS.GST_RATE;
+  const stampDuty = entryTurnover * FNO_COST_PARAMS.STAMP_DUTY_RATE_BUY;     // 0.003% buy only
 
+  // Spread: use real bid-ask half-spread when available; canonical default bps otherwise.
+  const defaultSpreadRate = FNO_COST_PARAMS.SPREAD_BPS_PER_SIDE / 10_000;   // 25 bps per side
   let spreadCost: number;
   let spreadModelled: boolean;
   if (entrySpread !== null && exitSpread !== null) {
@@ -334,7 +343,7 @@ export function computeFnoCosts(
     spreadModelled = false;
   } else {
     spreadCost =
-      (entryPremium * r.DEFAULT_HALF_SPREAD_PCT + exitPremium * r.DEFAULT_HALF_SPREAD_PCT) * qty;
+      (entryPremium * defaultSpreadRate + exitPremium * defaultSpreadRate) * qty;
     spreadModelled = true;
   }
 
@@ -652,8 +661,8 @@ export function buildSnapshotPremiumDataQuality(params: {
 
   notes.push(modeSummary);
   notes.push(
-    `P&L = net of F&O costs (brokerage ₹${FNO_COST_RATES.BROKERAGE_PER_ORDER * 2}/trade, STT 0.05% sell, exchange 0.053%, SEBI, GST 18%, stamp 0.003% buy). ` +
-    `Spread cost ${mix.realCaptured + mix.realPartial > 0 ? "from real bid-ask where captured" : "defaulted to 0.5% of premium"}.`,
+    `P&L = net of F&O costs (brokerage ₹${FNO_COST_PARAMS.BROKERAGE_PER_SIDE_INR * 2}/trade, STT ${(FNO_COST_PARAMS.STT_RATE_SELL_PREMIUM * 100).toFixed(2)}% sell, exchange ${(FNO_COST_PARAMS.EXCHANGE_TXN_RATE * 100).toFixed(5)}%, SEBI, GST ${FNO_COST_PARAMS.GST_RATE * 100}%, stamp ${(FNO_COST_PARAMS.STAMP_DUTY_RATE_BUY * 100).toFixed(3)}% buy; canonical fnoCostModel rates eff. ${FNO_COST_PARAMS_ASOF}). ` +
+    `Spread cost ${mix.realCaptured + mix.realPartial > 0 ? "from real bid-ask where captured" : `defaulted to ${FNO_COST_PARAMS.SPREAD_BPS_PER_SIDE} bps of premium per side`}.`,
   );
   notes.push(
     `Directional signals (EMA/RSI/ATR/regime) from real 15-min spot candles. Option premiums from captured option_chain_snapshot rows (${REPLAY_ENTRY_TOLERANCE_MIN}-min tolerance). Position size: ${lots} lot${lots === 1 ? "" : "s"}.`,

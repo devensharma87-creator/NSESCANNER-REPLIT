@@ -48,7 +48,7 @@ export type PricingMode =
 export interface FnoCostBreakdown {
   /** Flat brokerage per order × 2 (entry + exit). ₹ */
   brokerage: number;
-  /** STT on the exit (sell) leg: 0.05% of exit premium × qty. ₹ */
+  /** STT on the exit (sell) leg: 0.15% of exit premium × qty (eff. 2026-04-01, canonical fnoCostModel). ₹ */
   stt: number;
   /** Exchange transaction charge on both legs (NSE rate). ₹ */
   exchangeTxn: number;

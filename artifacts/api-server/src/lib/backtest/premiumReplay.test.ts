@@ -15,13 +15,13 @@ import {
   computeRunCoverage,
   priceTradeFromSnapshots,
   bsOptionPrice,
-  FNO_COST_RATES,
   REPLAY_ENTRY_TOLERANCE_MIN,
   REPLAY_MIN_COVERAGE_PCT,
   type SnapshotRow,
   type SnapshotFetcher,
   type ExpiryFetcher,
 } from "./premiumReplay";
+import { FNO_COST_PARAMS } from "../fnoCostModel";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -203,11 +203,11 @@ describe("computeFnoCosts", () => {
     // Brokerage: ₹40 (₹20 × 2)
     expect(costs.brokerage).toBe(40);
 
-    // STT on sell side: 0.05% × exitPremium × qty = 0.0005 × 150 × 25 = 1.875
-    expect(costs.stt).toBeCloseTo(1.88, 1);
+    // STT on sell side: 0.15% × exitPremium × qty = 0.0015 × 150 × 25 = 5.625 → r2 = 5.63
+    expect(costs.stt).toBeCloseTo(5.63, 1);
 
-    // Exchange txn on both: 0.053% × (120+150) × 25 = 0.00053 × 6750 = 3.5775
-    expect(costs.exchangeTxn).toBeCloseTo(3.58, 1);
+    // Exchange txn on both: 0.03503% × (120+150) × 25 = 0.0003503 × 6750 = 2.364525 → r2 = 2.36
+    expect(costs.exchangeTxn).toBeCloseTo(2.36, 1);
 
     // SEBI: tiny — ₹10/crore on 6750 turnover = 0.00675, rounds to 0.01
     expect(costs.sebiCharges).toBeGreaterThan(0);
@@ -231,8 +231,8 @@ describe("computeFnoCosts", () => {
   it("uses default half-spread when no real spread", () => {
     const costs = computeFnoCosts(120, 150, 25, null, null);
     expect(costs.spreadModelled).toBe(true);
-    // Default: 0.5% of entry + 0.5% of exit = (0.6 + 0.75) × 25 = 33.75
-    expect(costs.spreadCost).toBeCloseTo(33.75, 1);
+    // Default: 25 bps per side of premium = 0.0025 × (120 + 150) × 25 = 16.875 → r2 = 16.88
+    expect(costs.spreadCost).toBeCloseTo(16.88, 1);
   });
 
   it("total = sum of all items", () => {
@@ -398,12 +398,20 @@ describe("computeRunCoverage", () => {
     expect(REPLAY_MIN_COVERAGE_PCT).toBe(60);
   });
 
-  it("cost rate constants are present and positive", () => {
-    expect(FNO_COST_RATES.BROKERAGE_PER_ORDER).toBeGreaterThan(0);
-    expect(FNO_COST_RATES.STT_SELL_PCT).toBeGreaterThan(0);
-    expect(FNO_COST_RATES.EXCHANGE_TXN_PCT).toBeGreaterThan(0);
-    expect(FNO_COST_RATES.SEBI_CHARGE_PCT).toBeGreaterThan(0);
-    expect(FNO_COST_RATES.GST_PCT).toBeGreaterThan(0);
-    expect(FNO_COST_RATES.STAMP_DUTY_PCT).toBeGreaterThan(0);
+  it("canonical cost rate constants are present and positive (sourced from fnoCostModel)", () => {
+    expect(FNO_COST_PARAMS.BROKERAGE_PER_SIDE_INR).toBeGreaterThan(0);
+    expect(FNO_COST_PARAMS.STT_RATE_SELL_PREMIUM).toBeGreaterThan(0);
+    expect(FNO_COST_PARAMS.EXCHANGE_TXN_RATE).toBeGreaterThan(0);
+    expect(FNO_COST_PARAMS.SEBI_RATE).toBeGreaterThan(0);
+    expect(FNO_COST_PARAMS.GST_RATE).toBeGreaterThan(0);
+    expect(FNO_COST_PARAMS.STAMP_DUTY_RATE_BUY).toBeGreaterThan(0);
+  });
+
+  it("canonical STT rate is 0.15% (Budget 2026, not the stale 0.05% futures rate)", () => {
+    expect(FNO_COST_PARAMS.STT_RATE_SELL_PREMIUM).toBeCloseTo(0.0015, 6);
+  });
+
+  it("canonical exchange rate is 0.03503% (not the stale 0.053% pre-Oct-2024 rate)", () => {
+    expect(FNO_COST_PARAMS.EXCHANGE_TXN_RATE).toBeCloseTo(0.0003503, 7);
   });
 });

@@ -22,6 +22,7 @@ import {
   lifecycleKeyOf,
   type FnoSpotLifecycle,
 } from "./fnoSpotLifecycle";
+import { computeFnoTradeCost, FNO_COST_PARAMS_ASOF, type FnoTradeCostBreakdown } from "./fnoCostModel";
 
 function num(v: string | number | null | undefined): number {
   if (v == null) return 0;
@@ -46,18 +47,21 @@ function requireNum(v: string | number | null | undefined, field: string, id: st
 }
 
 /**
- * Standard discount-broker option F&O charges (Zerodha-equivalent
- * schedule, effective FY 2025-26 — STT was raised to 0.1% on options
- * sell-side in the Union Budget 2024 with effect from 1-Oct-2024):
+ * F&O charges breakdown returned by Paper Reports, routed through the
+ * canonical fnoCostModel (single source of truth, effective 2026-04-01):
  *
  *   - Brokerage: ₹20 flat per executed order. A round-trip = 2 orders.
- *   - STT: 0.1% on sell-side option premium turnover.
+ *   - STT: 0.15% on sell-side option premium turnover (Budget 2026, eff 2026-04-01).
  *   - Exchange transaction charges: 0.03503% on total option premium turnover (NSE).
  *   - SEBI charges: ₹10 per crore of total turnover.
  *   - GST: 18% on (brokerage + transaction charges + SEBI charges).
  *   - Stamp duty: 0.003% on buy-side option premium turnover.
+ *   - Spread cost: 25 bps per side of premium turnover (bid-ask spread estimate).
+ *   - Slippage cost: 10 bps per side of premium turnover (fill slippage estimate).
  *
  * All values returned in ₹.
+ * costModelSource identifies the canonical function used for auditability.
+ * costModelAsOf is the statutory-rate effective date for the rates above.
  */
 export interface ChargesBreakdown {
   brokerage: number;
@@ -66,31 +70,55 @@ export interface ChargesBreakdown {
   sebiCharges: number;
   gst: number;
   stampDuty: number;
+  spreadCost: number;
+  slippageCost: number;
   total: number;
+  /** Identifies the canonical cost-model function used. */
+  costModelSource: string;
+  /** Statutory-rate effective date for the rates above. */
+  costModelAsOf: string;
 }
 
+/** Map the canonical FnoTradeCostBreakdown to the ChargesBreakdown shape. */
+function mapCostToChargesBreakdown(bd: FnoTradeCostBreakdown): ChargesBreakdown {
+  return {
+    brokerage: bd.brokerage,
+    stt: bd.stt,
+    transactionCharges: bd.exchangeTxn,
+    sebiCharges: bd.sebi,
+    gst: bd.gst,
+    stampDuty: bd.stampDuty,
+    spreadCost: bd.spreadCost,
+    slippageCost: bd.slippageCost,
+    total: bd.totalCost,
+    costModelSource: "fnoCostModel/computeFnoTradeCost",
+    costModelAsOf: FNO_COST_PARAMS_ASOF,
+  };
+}
+
+/**
+ * Compute F&O round-trip charges from premium turnover using the canonical
+ * fnoCostModel. Accepts aggregate turnover values (premium × qty per side)
+ * as used by the report layer.
+ *
+ * @deprecated Prefer calling computeFnoTradeCost directly when premium+qty
+ *   are individually available, for maximum precision. This adapter is kept
+ *   for any external callers that only have turnover totals.
+ */
 export function computeFOCharges(
   buyTurnover: number,
   sellTurnover: number,
 ): ChargesBreakdown {
-  const totalTurnover = buyTurnover + sellTurnover;
-  const brokerage = 40; // 2 orders × ₹20
-  const stt = 0.001 * sellTurnover; // 0.1% of sell-side option premium (post 1-Oct-2024)
-  const transactionCharges = 0.0003503 * totalTurnover;
-  const sebiCharges = (10 / 1e7) * totalTurnover;
-  const gst = 0.18 * (brokerage + transactionCharges + sebiCharges);
-  const stampDuty = 0.00003 * buyTurnover;
-  const total =
-    brokerage + stt + transactionCharges + sebiCharges + gst + stampDuty;
-  return {
-    brokerage,
-    stt,
-    transactionCharges,
-    sebiCharges,
-    gst,
-    stampDuty,
-    total,
-  };
+  // Pass turnover as entryPremium/exitPremium with lots=1, lotSize=1 so that
+  // all charge formulas (which operate on premium × qty) receive the correct
+  // aggregate turnover value. Brokerage is always ₹40 flat — independent of qty.
+  const bd = computeFnoTradeCost({
+    entryPremium: buyTurnover,
+    exitPremium: sellTurnover > 0 ? sellTurnover : null,
+    lots: 1,
+    lotSize: 1,
+  });
+  return mapCostToChargesBreakdown(bd);
 }
 
 /** Per-trade detail row exposed in the trade-detail table. */
@@ -113,8 +141,11 @@ export interface TradeDetailRow {
   target2Premium: number;
   capitalDeployed: number;
   realizedPnl: number;
+  /** Total charges (canonical model, incl. spread + slippage). */
   charges: number;
   netPnl: number;
+  /** Full canonical charges breakdown for display / audit. */
+  chargesBreakdown: ChargesBreakdown;
   /** Planned R = (entry - stop) per share. */
   plannedRiskPerShare: number;
   /** Achieved (exit - entry) per share, signed in trade direction. */
@@ -168,9 +199,11 @@ export function rowToDetail(
   const realized = requireNum(r.realizedPnl, "realizedPnl", r.id);
   const lots = r.lots;
   const lotSize = r.lotSize;
-  const buyTurnover = entry * lots * lotSize;
-  const sellTurnover = exit * lots * lotSize;
-  const charges = computeFOCharges(buyTurnover, sellTurnover).total;
+  // Use the canonical model directly with premium + qty for maximum precision.
+  // Costs recomputed on fetch using canonical F&O cost model (fnoCostModel.ts).
+  const costResult = computeFnoTradeCost({ entryPremium: entry, exitPremium: exit, lots, lotSize });
+  const chargesDetail = mapCostToChargesBreakdown(costResult);
+  const charges = costResult.totalCost;
   const plannedRiskPerShare = Math.abs(entry - stop);
   // Option buying P&L is (exit - entry) per share regardless of CALL/PUT
   // because direction is already encoded in the choice of CALL vs PUT.
@@ -200,6 +233,7 @@ export function rowToDetail(
     realizedPnl: realized,
     charges,
     netPnl: realized - charges,
+    chargesBreakdown: chargesDetail,
     plannedRiskPerShare,
     achievedPerShare,
     rMultiple,

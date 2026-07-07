@@ -1,0 +1,384 @@
+CODER PROMPT — P0-1 F&O COST MODEL UNIFICATION + POST-FIX RE-AUDIT
+
+Current accepted production status:
+
+RELEASE_INTEGRITY_PROD_VERIFIED
+USER_FACING_CORE_TABS_DEEP_AUDIT_COMPLETE
+BACKTEST_CHARGES_MODEL_NET_PNL_PROD_VERIFIED
+
+verify:release is green.
+Build-info endpoint is live.
+Checkpoint 1 / 2 / 2.5 / 3 are PROD_VERIFIED.
+Data Parity provider-import compat is PROD_VERIFIED.
+Backtest Charges Model + Net P&L is PROD_VERIFIED.
+Broker execution is disabled.
+No real orders.
+No Telegram spam.
+
+Uploaded audit reports to read before coding:
+
+1. FULL_MARKET_SCANNER_DEEP_AUDIT_REPORT_2026-07-07.md
+2. MARKET_SCANNER_INDEPENDENT_DEEP_AUDIT_2026-07-07.md
+3. USER_FACING_CORE_TABS_DEEP_AUDIT_REPORT.md, if present in repo
+4. WEBSITE_CANONICAL_DATA_INTEGRATION_REPORT.md
+
+This phase implements ONLY the remaining P0-1 finding:
+
+F&O COST MODEL UNIFICATION
+
+====================================================
+WHY THIS PHASE IS REQUIRED
+====================================================
+
+The audit reports show:
+
+1. fnoCostModel.ts has the canonical F&O cost model.
+2. backtestCharges.ts correctly imports the canonical model.
+3. paperReportsFO.ts still has its own local stale cost block.
+4. premiumReplay.ts still has its own local Stage-4 replay cost block.
+5. Therefore Paper Reports, Stage-4 replay, and canonical backtest charges can disagree.
+6. That makes F&O net P&L, scoreboards, and historical replay conclusions unreliable.
+
+This must be fixed before trusting F&O Paper Reports or Stage-4 replay performance.
+
+====================================================
+STRICT SCOPE
+====================================================
+
+Allowed:
+
+1. Re-audit current code first.
+2. Confirm whether paperReportsFO.ts and premiumReplay.ts still contain local F&O charge constants.
+3. Unify F&O options charges to one canonical model.
+4. Route Paper Reports F&O charges through canonical fnoCostModel.ts.
+5. Route Stage-4 premium replay charges through canonical fnoCostModel.ts or a thin adapter using the same canonical constants.
+6. Preserve existing public API shapes where possible.
+7. Add tests.
+8. Update reports.
+9. Run production-safe verification.
+
+Not allowed:
+
+Do not change live F&O signal logic.
+Do not change detector logic.
+Do not change VWAP/Volume Profile logic in this phase.
+Do not change trigger touch/close semantics in this phase.
+Do not change Swing logic.
+Do not change Auto Strong Buy logic.
+Do not change entries.
+Do not change exits.
+Do not change SL/target formulas.
+Do not change thresholds.
+Do not change paper-trade opening eligibility.
+Do not change Telegram.
+Do not enable broker execution.
+Do not place real orders.
+Do not perform destructive migrations.
+Do not rewrite historical DB rows unless explicitly approved.
+Do not silently change historical reports without labelling the cost-model version.
+Do not touch Charting or Portfolio.
+Do not start P0-2 or P0-3.
+
+====================================================
+PART A — PRE-FIX RE-AUDIT
+====================================================
+
+Before coding, inspect current repo and report:
+
+Files to inspect:
+
+1. artifacts/api-server/src/lib/fnoCostModel.ts
+2. artifacts/api-server/src/lib/paperReportsFO.ts
+3. artifacts/api-server/src/lib/backtest/premiumReplay.ts
+4. artifacts/api-server/src/lib/backtest/backtestCharges.ts
+5. artifacts/api-server/src/routes/backtest.ts
+6. Any F&O paper report route or export route
+7. Any frontend display of F&O charges/net P&L
+8. Any OpenAPI schema that exposes F&O charges
+
+Produce this table:
+
+| File | Current Cost Source | Local Constants? | Uses Canonical fnoCostModel? | Issue | Severity |
+|---|---|---:|---:|---|---|
+
+Specifically confirm:
+
+1. Does paperReportsFO.ts still calculate STT locally?
+2. Does paperReportsFO.ts still use 0.10% option STT?
+3. Does premiumReplay.ts still define FNO_COST_RATES locally?
+4. Does premiumReplay.ts still use 0.05% options STT or old exchange charge?
+5. Does backtestCharges.ts already use computeFnoTradeCost / FNO_COST_PARAMS?
+6. Do Paper Reports and Stage-4 replay produce different net P&L for the same round-trip?
+7. Are any old labels claiming “effective 2026-04-01” while using stale constants?
+
+If the audit finding is already fixed in current code, do not rewrite. Mark as already fixed with evidence and tests.
+
+====================================================
+PART B — CANONICAL COST MODEL RULE
+====================================================
+
+There must be one canonical F&O options cost source.
+
+Canonical source:
+
+artifacts/api-server/src/lib/fnoCostModel.ts
+
+Allowed consumers:
+
+1. F&O Paper Trading shadow costs.
+2. F&O Paper Reports.
+3. Backtest Charges Model.
+4. Stage-4 premium replay.
+5. Any F&O export/report.
+
+No F&O options consumer may maintain its own independent STT / exchange / SEBI / stamp / GST / brokerage constants.
+
+If a module needs a different shape, create an adapter that calls the canonical model and maps fields, but do not duplicate rate constants.
+
+====================================================
+PART C — IMPLEMENTATION REQUIREMENTS
+====================================================
+
+1. Replace paperReportsFO.ts local computeFOCharges logic with canonical model usage.
+
+Required:
+
+- Keep report output shape stable unless there is already a better schema.
+- Map canonical fields to existing report fields.
+- Preserve gross P&L.
+- Recalculate net P&L using canonical costs.
+- Show total charges.
+- Show cost model version/source if possible.
+
+2. Replace premiumReplay.ts local FNO_COST_RATES usage.
+
+Required:
+
+- Remove stale local rates.
+- Use canonical fnoCostModel.ts or a canonical adapter.
+- Ensure Stage-4 replay uses same F&O options sell STT and exchange charges as canonical model.
+- Keep replay assumptions labelled.
+- Preserve real-premium replay logic.
+- Do not alter strategy logic.
+- Do not alter premium data matching.
+- Do not fabricate missing premiums.
+
+3. Historical data handling.
+
+If Paper Reports recompute costs on fetch:
+- Add a visible/report-level note:
+  “Costs recomputed using canonical F&O cost model.”
+
+If historical rows store already-calculated charges:
+- Do not mutate them.
+- Add a legacy-vs-current label.
+- Propose separate migration only if needed.
+
+If Stage-4 replay results are cached:
+- Ensure new runs use canonical costs.
+- Mark old cached runs as pre-fix if possible.
+- Do not silently mix old and new cost models.
+
+====================================================
+PART D — REQUIRED OUTPUT FIELDS
+====================================================
+
+Every F&O report/replay output should support:
+
+1. grossPnl
+2. brokerage
+3. stt
+4. exchangeCharges / transactionCharges
+5. sebiCharges
+6. stampDuty
+7. gst
+8. totalCharges
+9. netPnl
+10. costModelSource
+11. costModelVersion, if available
+
+Formula invariant:
+
+netPnl = grossPnl - totalCharges
+
+Report invariant:
+
+totalCharges = brokerage + stt + exchangeCharges + sebiCharges + stampDuty + gst
+
+Do not hide gross vs net difference.
+
+====================================================
+PART E — TESTS REQUIRED
+====================================================
+
+Add/update tests for:
+
+1. paperReportsFO uses canonical F&O cost model.
+2. premiumReplay uses canonical F&O cost model.
+3. backtestCharges continues to use canonical F&O cost model.
+4. No local F&O options STT constants remain outside canonical model or approved tests.
+5. No local F&O options exchange-charge constants remain outside canonical model or approved tests.
+6. Paper Reports net P&L formula:
+   netPnl = realized/gross P&L - totalCharges
+7. Stage-4 replay net P&L formula:
+   netPnl = grossPnl - totalCharges
+8. Paper Reports and Stage-4 replay agree on canonical cost math for the same buy/sell turnover.
+9. Golden-number test for one sample option round trip.
+10. Historical/legacy label test if applicable.
+11. Existing Backtest Charges Phase 3A tests remain green.
+12. No live strategy threshold changed.
+13. No broker execution path touched.
+14. No Telegram send occurs.
+
+Also add a structural guard similar to providerImportGuard:
+
+- fail if paperReportsFO.ts defines independent STT rate constants,
+- fail if premiumReplay.ts defines independent FNO_COST_RATES for options charges,
+- allow only canonical fnoCostModel.ts to define core F&O cost params.
+
+====================================================
+PART F — COMMANDS TO RUN
+====================================================
+
+Run:
+
+pnpm --filter @workspace/scripts run verify:release
+
+pnpm --filter @workspace/api-server run typecheck
+
+pnpm --filter @workspace/api-server run typecheck:libs
+
+pnpm --filter @workspace/api-server exec vitest run src/lib/*fnoCost*.test.ts src/lib/*paperReportsFO*.test.ts src/lib/*premiumReplay*.test.ts src/lib/*backtest*.test.ts src/lib/*charges*.test.ts src/lib/*paper*.test.ts src/lib/*fno*.test.ts src/routes/**/*.test.ts
+
+pnpm --filter @workspace/scanner exec vitest run
+
+pnpm --filter @workspace/scripts run index:llm
+
+pnpm --filter @workspace/scripts run index:llm:check
+
+If any suite times out, split into smaller batches and report exact counts.
+
+Do not summarize partial tests as green.
+
+====================================================
+PART G — POST-FIX RE-AUDIT
+====================================================
+
+After implementation, re-audit the original uploaded findings:
+
+F-01 / R1 / R2 / R3 / R4
+
+Report:
+
+| Finding | Pre-Fix Status | Post-Fix Status | Evidence | Verdict |
+|---|---|---|---|---|
+
+Expected:
+
+R1 Three contradictory F&O cost models = FIXED
+R2 Paper Reports STT stale = FIXED
+R3 Stage-4 replay STT/exchange stale = FIXED
+R4 backtestCharges canonical import = STILL CORRECT
+
+Also confirm:
+
+1. No duplicate F&O options cost model remains.
+2. All F&O report/replay consumers use canonical model or approved adapter.
+3. Existing Phase 3A backtest charges fix remains intact.
+4. No strategy behavior changed.
+5. No paper trades created.
+6. No real orders placed.
+7. No Telegram spam.
+8. verify:release remains green.
+
+====================================================
+PART H — REPORT UPDATE
+====================================================
+
+Update:
+
+1. FULL_MARKET_SCANNER_DEEP_AUDIT_REPORT_2026-07-07.md, if it is part of repo/docs
+2. MARKET_SCANNER_INDEPENDENT_DEEP_AUDIT_2026-07-07.md, if it is part of repo/docs
+3. USER_FACING_CORE_TABS_DEEP_AUDIT_REPORT.md
+4. WEBSITE_CANONICAL_DATA_INTEGRATION_REPORT.md
+
+If the uploaded audit files are only reference artifacts and not in repo, do not overwrite them. Instead update the repo’s current integration report and create:
+
+FNO_COST_MODEL_UNIFICATION_REPORT.md
+
+Include:
+
+1. Original issue.
+2. Current-state audit.
+3. Files changed.
+4. Canonical model used.
+5. Formula summary.
+6. Golden-number proof.
+7. Tests and counts.
+8. Release integrity result.
+9. Safety confirmation.
+10. Final verdict.
+
+====================================================
+PART I — PRODUCTION VERIFICATION AFTER PUBLISH
+====================================================
+
+If code/tests pass but production publish is pending, final verdict should be DEV_VERIFIED.
+
+After owner publishes, verify:
+
+1. /api/build-info live with new commit.
+2. verify:release green.
+3. Paper Reports F&O endpoint/output uses canonical charges.
+4. Stage-4 premium replay output uses canonical charges.
+5. Gross/net/charges formulas correct.
+6. No secrets exposed.
+7. Broker execution disabled.
+8. No real orders.
+9. No Telegram spam.
+
+====================================================
+FINAL VERDICT
+====================================================
+
+Final verdict must be exactly one:
+
+- FNO_COST_MODEL_UNIFICATION_DEV_VERIFIED
+- FNO_COST_MODEL_UNIFICATION_PROD_VERIFIED
+- FNO_COST_MODEL_UNIFICATION_PARTIAL_GAP_REMAINS
+- RELEASE_INTEGRITY_REGRESSION_FOUND
+- ROLLBACK_REQUIRED
+
+Use:
+
+FNO_COST_MODEL_UNIFICATION_DEV_VERIFIED
+
+if code/tests pass but production publish is pending.
+
+Use:
+
+FNO_COST_MODEL_UNIFICATION_PROD_VERIFIED
+
+only if production Paper Reports and Stage-4 replay both use canonical F&O cost model, formulas match, tests pass, verify:release is green, and no regressions are found.
+
+Use:
+
+FNO_COST_MODEL_UNIFICATION_PARTIAL_GAP_REMAINS
+
+if any F&O report/replay path still uses local stale constants or formulas disagree.
+
+Use:
+
+RELEASE_INTEGRITY_REGRESSION_FOUND
+
+if verify:release has a real FAIL.
+
+Use:
+
+ROLLBACK_REQUIRED
+
+if secrets leak, broker execution turns on, real orders are placed, Telegram spam occurs, stale/report-grade data can drive live trades, or destructive migration happens.
+
+Expected result before owner republish:
+
+FNO_COST_MODEL_UNIFICATION_DEV_VERIFIED
