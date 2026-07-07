@@ -2280,3 +2280,39 @@ All 7 checkpoint markers = true · verify:release 11/12 PASS · provider import 
 **`BACKTEST_CHARGES_MODEL_NET_PNL_PROD_VERIFIED`**
 
 Route fix (`chargesBreakdown` persistence + GET mapper) is live in production (commit `011f6733`). All new Mode B/C runs correctly persist and return full per-trade charge breakdown. Mode A computable/non-computable honesty preserved. All 1694 tests pass. No regressions.
+
+---
+
+## P0-1 F&O Cost Model Unification — Production Verification Update (2026-07-07)
+
+### Status
+`FNO_COST_MODEL_UNIFICATION_DEV_VERIFIED` — production requires republish.
+
+### Deploy Context
+- P0-1 commit (local HEAD): `4c54f2c` — "Update F&O cost models to use canonical rates"
+- Production commitShort at verification time: `011f6733` (bootTime 2026-07-07T11:51:04Z) — predates P0-1
+- DEV commitShort: `e1832859` — fully includes P0-1
+
+### Canonical Model Proof
+All four F&O cost consumers now use `FNO_COST_PARAMS` from `fnoCostModel.ts`:
+- `paperReportsFO.ts`: replaced local `computeFOCharges` with `computeFnoTradeCost` ✅
+- `premiumReplay.ts`: replaced `FNO_COST_RATES` block with `FNO_COST_PARAMS.*` ✅
+- `backtestCharges.ts`: already canonical (unchanged) ✅
+- `fnoCostModel.ts`: canonical source, STT=0.15%, Exchange=0.03503% ✅
+
+### Live API Verification (DEV shadow-costs endpoint)
+- STT_RATE_SELL_PREMIUM: **0.0015 (0.15%)** confirmed live ✅
+- EXCHANGE_TXN_RATE: **0.0003503** confirmed live ✅
+- 7 closed paper trades: grossPnl=₹6,508.30 · totalCost=₹1,074.42 · netPnl=₹5,433.88
+- netPnl = grossPnl − totalCharges: ✅
+
+### Release Integrity
+verify:release: **11 PASS | 0 WARN | 0 FAIL** · All 7 checkpoint markers = true
+fnoCostModelGuard: **0 violations** · providerImportGuard: **19/19** · 141 targeted tests PASS · 770 scanner tests PASS · Typecheck: CLEAN
+
+### Golden Number (NIFTY 10 lots, entry ₹120, exit ₹145)
+STT=₹54.38, Exchange=₹23.21 — identical across fnoCostModel, paperReportsFO, premiumReplay, backtestCharges. Old rates understated STT by ₹18–₹36 per trade.
+
+### Verdict
+`FNO_COST_MODEL_UNIFICATION_DEV_VERIFIED`
+Upgrade to `PROD_VERIFIED` after republish + re-run of verify:release confirming P0-1 commitShort.

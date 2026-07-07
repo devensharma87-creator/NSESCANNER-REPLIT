@@ -112,3 +112,202 @@ Total: 107 tests, 0 failures
 2. **Structural guard**: `fnoCostModelGuard.ts` / `fnoCostModelGuard.test.ts` — fails CI if forbidden patterns re-appear.
 3. **Rate pin test**: `fnoCostModelUnification.test.ts` pinpoints 0.15% and 0.03503% — any rate change requires explicit test update.
 4. **Cross-consumer agreement test**: STT and exchange must agree across paperReportsFO, premiumReplay, and backtestCharges.
+
+---
+
+## P0-1 Production Verification — 2026-07-07
+
+### Deploy Context
+
+| Item | Value |
+|---|---|
+| Verification date | 2026-07-07 |
+| P0-1 commit (local HEAD) | `4c54f2c` — "Update F&O cost models to use canonical rates" |
+| Production commitShort | `011f6733` (bootTime 2026-07-07T11:51:04.797Z) |
+| Production status | **PENDING REPUBLISH** — production deployed before P0-1 commit |
+| DEV commitShort | `e1832859` (includes P0-1 and subsequent commits) |
+
+> **Note:** The production deployment at `marketscannerbydev.in` was published at 11:51 UTC, before the P0-1 commit was made (~12:38 UTC). The user must republish for production to receive P0-1. All DEV-environment checks below are fully green.
+
+---
+
+### Part A — Release Integrity
+
+```
+verify:release target: https://marketscannerbydev.in
+Result: 11 PASS | 0 WARN | 0 FAIL
+
+Check 1:  /api/healthz               PASS  HTTP 200 → {"status":"ok"}
+Check 2:  /api/data-health/global    PASS  HTTP 200
+Check 3:  /api/build-info HTTP 200   PASS  HTTP 200
+Check 4:  build-info: no secrets     PASS  Zero secret-pattern keys
+Check 5:  boot time exists           PASS  bootTime=2026-07-07T11:51:04.797Z
+Check 6:  checkpoint markers         PASS  All 7 markers = true
+Check 7:  frontend bundle detected   PASS  bundle=index-BI-foe_a.js
+Check 8:  not a stale known bundle   PASS
+Check 9:  frontend release markers   PASS  All 3 markers present
+Check 10: Data Parity markers        PASS  All 2 markers present
+Check 11: Data Parity API owner-gated PASS  anonymous → 401 on all endpoints
+Check 12: frontend/backend build     INFO  FRONTEND_BACKEND_BUILD_STATUS=API_KNOWN_FRONTEND_UNKNOWN
+
+RELEASE_INTEGRITY: PASS (pre-P0-1 deploy — republish required to include P0-1)
+```
+
+---
+
+### Part B — Canonical Model (DEV — code-level proof)
+
+| File | Uses Canonical Model? | Local Stale Constants? | Verdict |
+|---|---|---|---|
+| `fnoCostModel.ts` | ✅ Defines canonical `FNO_COST_PARAMS` (STT=0.15%, Exch=0.03503%) | None | ✅ CANONICAL SOURCE |
+| `paperReportsFO.ts` | ✅ Imports `computeFnoTradeCost`, `FNO_COST_PARAMS_ASOF` — delegates every cost call | None (`computeFOCharges` local stale block removed) | ✅ UNIFIED |
+| `premiumReplay.ts` | ✅ Imports `FNO_COST_PARAMS`, `FNO_COST_PARAMS_ASOF` — all 6 rate uses via `FNO_COST_PARAMS.*` | None (`FNO_COST_RATES` block removed) | ✅ UNIFIED |
+| `backtestCharges.ts` | ✅ Imports `computeFnoTradeCost` (was already canonical) | None | ✅ ALREADY CORRECT |
+
+**Allowlist check:** providerImportAllowlist.json = 16 files / 29 pairs. `fnoCostModel`, `paperReportsFO`, `premiumReplay` are NOT in the allowlist (correct — no bypass added).
+
+**fnoCostModelGuard:** PASS — 0 violations detected.
+
+---
+
+### Part C — Paper Reports F&O (DEV)
+
+No closed F&O paper trades are available via `/api/paper/reports/fo/monthly` in the DEV environment (paper auto-trading disabled by design in dev). The shadow-costs analytics endpoint (`/api/paper/analytics/fo/shadow-costs`) — which reads the same canonical cost model — confirms 7 live closed paper trades processed through the unified model:
+
+| Metric | Value |
+|---|---|
+| Closed trades (computable) | 7 |
+| Gross P&L | ₹6,508.30 |
+| Total charges | ₹1,074.42 |
+| Net P&L | ₹5,433.88 |
+| netPnl = grossPnl − totalCharges | ✅ (diff < ₹0.01) |
+| STT_RATE_SELL_PREMIUM (live) | **0.0015 (0.15% canonical)** |
+| EXCHANGE_TXN_RATE (live) | **0.0003503 (0.03503% canonical)** |
+
+**Formula invariant:** PASS. **Stale 0.10% STT:** NOT PRESENT.
+
+---
+
+### Part D — Stage-4 Premium Replay (DEV)
+
+The `premiumReplay.ts` module is the Stage-4 replay cost engine. Source verification confirms all rate constants are sourced from `FNO_COST_PARAMS`:
+
+```
+stt          = exitTurnover  × FNO_COST_PARAMS.STT_RATE_SELL_PREMIUM  (0.15%)
+exchangeTxn  = totalTurnover × FNO_COST_PARAMS.EXCHANGE_TXN_RATE       (0.03503%)
+sebiCharges  = totalTurnover × FNO_COST_PARAMS.SEBI_RATE               (₹10/crore)
+gst          = (brokerage + exchangeTxn + sebiCharges) × FNO_COST_PARAMS.GST_RATE (18%)
+stampDuty    = entryTurnover × FNO_COST_PARAMS.STAMP_DUTY_RATE_BUY     (0.003%)
+```
+
+A live REAL_REPLAY backtest run (id `73ad9216`, 23 trades) shows `totalCosts = ₹4,812.76` computed via canonical rates. The P&L label string embedded in replay output explicitly names `fnoCostModel rates eff. 2026-04-01`.
+
+**Missing premium data fabrication:** NONE — `computeFnoCosts` returns `null` costs when premium data is absent, per existing `premiumReplay.test.ts` coverage.
+
+**Old cached runs:** Not mutated. Pre-fix runs are labelled as legacy in the UI; post-fix rates apply only to new replay executions.
+
+| Replay Type | Canonical Rates? | STT | Exchange | Formula Correct? | Verdict |
+|---|---|---|---|---|---|
+| REAL_REPLAY (id 73ad9216) | ✅ | 0.15% | 0.03503% | ✅ | PASS |
+| DIRECTIONAL (code path) | ✅ | 0.15% | 0.03503% | ✅ | PASS |
+
+---
+
+### Part E — Golden Number Proof
+
+**Setup:** NIFTY 10 lots, entry ₹120, exit ₹145, qty = 250 shares  
+buyTurnover = ₹30,000 · sellTurnover = ₹36,250 · grossPnl = ₹6,250
+
+| Consumer | STT | Exchange | Total Charges | Net P&L | Matches Canonical? |
+|---|---:|---:|---:|---:|---|
+| `fnoCostModel` (canonical) | **₹54.38** | **₹23.21** | ₹361.81 | ₹5,888.19 | CANONICAL |
+| `paperReportsFO` | ₹54.38 | ₹23.21 | ₹361.81 | ₹5,888.19 | ✅ YES |
+| `premiumReplay` | ₹54.38 | ₹23.21 | ₹295.58¹ | ₹5,954.42 | ✅ YES (STT+Exch identical) |
+| `backtestCharges` | ₹54.38 | ₹23.21 | ₹361.81 | ₹5,888.19 | ✅ YES |
+
+¹ `premiumReplay` uses `FnoCostBreakdown` which includes spread but excludes slippage (by design — `SLIPPAGE_BPS_PER_SIDE` is reporting-only in the replay shape). STT and exchange are identical to canonical.
+
+**Pre-fix comparison (per 10-lot NIFTY trade):**
+
+| Rate | Old paperReportsFO | Old premiumReplay | Canonical |
+|---|---|---|---|
+| STT | ₹36.25 (0.10%) | ₹18.13 (0.05%) | **₹54.38 (0.15%)** |
+| Understatement | −₹18.13 | −₹36.25 | — |
+
+---
+
+### Part F — Regression Checks
+
+| Check | Result |
+|---|---|
+| Release Integrity (verify:release) | ✅ 11 PASS |
+| Checkpoint 1 | ✅ true |
+| Checkpoint 2 | ✅ true |
+| Checkpoint 2.5 | ✅ true |
+| Checkpoint 3 | ✅ true |
+| Data Parity compat | ✅ true |
+| reportGradeFacade | ✅ true |
+| providerImportCompat | ✅ true |
+| Data Parity API owner-gated | ✅ 401 on anonymous |
+| Provider import guard | ✅ 19 tests PASS |
+| F&O cost model guard | ✅ 0 violations |
+| Broker execution disabled | ✅ PAPER_TRADING_ENABLED not set in dev |
+| No real orders placed | ✅ |
+| No Telegram spam | ✅ |
+| No strategy/threshold change | ✅ |
+| No destructive migration | ✅ |
+| Stale/report-grade data driving trades | ✅ IMPOSSIBLE (trust-tier gate enforced) |
+
+---
+
+### Part G — Tests and Counts
+
+```
+pnpm --filter @workspace/scripts run verify:release
+  11 PASS | 0 WARN | 0 FAIL ✅
+
+pnpm --filter @workspace/api-server run typecheck
+  CLEAN — zero errors ✅
+
+pnpm --filter @workspace/api-server run typecheck:libs  (root typecheck:libs)
+  CLEAN — zero errors ✅
+
+F&O cost model targeted suite (6 files):
+  src/lib/fnoCostModelUnification.test.ts   ✅
+  src/lib/fnoCostModelGuard.test.ts         ✅
+  src/lib/backtest/premiumReplay.test.ts    ✅
+  src/lib/backtest/backtestCharges.test.ts  ✅
+  src/lib/paperReportsFoTimeExit.test.ts    ✅
+  src/lib/fnoCostModel.test.ts              ✅
+  Test Files: 6 passed | Tests: 141 passed ✅
+
+Provider import guard:
+  src/lib/marketData/providerImportGuard.test.ts  ✅  19 tests PASS
+
+Scanner suite:
+  Test Files: 35 passed | Tests: 770 passed ✅
+
+pnpm --filter @workspace/scripts run index:llm
+  LLM index updated at 2026-07-07T13:11:38.092Z ✅
+
+pnpm --filter @workspace/scripts run index:llm:check
+  349 tracked files — all match (fresh, 30 min ago) ✅
+```
+
+---
+
+### Final Verdict
+
+```
+FNO_COST_MODEL_UNIFICATION_DEV_VERIFIED
+```
+
+**DEV environment:** All checks pass. Canonical model confirmed live. STT=0.15%, Exchange=0.03503% verified via code scan, shadow-costs live API, providerImportGuard, fnoCostModelGuard, and 141 targeted + 770 scanner tests.
+
+**Production:** Requires republish. Current production (`011f6733`, bootTime 11:51 UTC) predates the P0-1 commit (`4c54f2c`, ~12:38 UTC). Once republished, production verification can be re-run and the verdict upgraded to `FNO_COST_MODEL_UNIFICATION_PROD_VERIFIED`.
+
+**Upgrade path:**
+1. Publish the app from Replit
+2. Re-run `pnpm --filter @workspace/scripts run verify:release`
+3. Confirm production commitShort reflects `4c54f2c` or later
+4. Final verdict upgrades to `FNO_COST_MODEL_UNIFICATION_PROD_VERIFIED`

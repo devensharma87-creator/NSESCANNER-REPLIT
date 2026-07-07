@@ -800,3 +800,45 @@ All requirements met:
 - All net/gross/charges formulas correct
 - Mode A honesty: computable trades have breakdown, non-computable have honest null
 - 1694/1694 tests pass, no regressions
+
+---
+
+## P0-1 F&O Cost Model Unification — Production Verification Update (2026-07-07)
+
+### Status
+`FNO_COST_MODEL_UNIFICATION_DEV_VERIFIED` — production requires republish (see below).
+
+### Deploy Context
+- P0-1 commit (local HEAD): `4c54f2c` — "Update F&O cost models to use canonical rates"
+- Production commitShort at verification time: `011f6733` (bootTime 2026-07-07T11:51:04Z) — predates P0-1
+- DEV commitShort: `e1832859` — fully includes P0-1 and subsequent commits
+
+### Canonical Model — Code-Level Proof (DEV)
+| File | Uses Canonical? | Stale Constants? | Verdict |
+|---|---|---|---|
+| `fnoCostModel.ts` | ✅ Source of truth | None | ✅ CANONICAL |
+| `paperReportsFO.ts` | ✅ `computeFnoTradeCost` + `FNO_COST_PARAMS_ASOF` | None | ✅ UNIFIED |
+| `premiumReplay.ts` | ✅ `FNO_COST_PARAMS.*` for all 6 rate constants | None | ✅ UNIFIED |
+| `backtestCharges.ts` | ✅ `computeFnoTradeCost` | None | ✅ ALREADY CORRECT |
+
+### Live API Proof (DEV shadow-costs)
+- 7 closed paper trades processed via canonical model
+- STT_RATE_SELL_PREMIUM = **0.0015 (0.15%)** · EXCHANGE_TXN_RATE = **0.0003503**
+- grossPnl=₹6,508.30 · totalCost=₹1,074.42 · netPnl=₹5,433.88 · formula correct ✅
+
+### Golden Number — NIFTY 10 lots, entry ₹120, exit ₹145 (qty=250)
+| Consumer | STT | Exchange | Matches Canonical? |
+|---|---:|---:|---|
+| `fnoCostModel` | ₹54.38 | ₹23.21 | CANONICAL |
+| `paperReportsFO` | ₹54.38 | ₹23.21 | ✅ YES |
+| `premiumReplay` | ₹54.38 | ₹23.21 | ✅ YES |
+| `backtestCharges` | ₹54.38 | ₹23.21 | ✅ YES |
+
+### Tests (2026-07-07)
+- F&O cost model suite: **141/141 PASS** (6 files) · providerImportGuard: **19/19** · Scanner: **770/770** · Typecheck: CLEAN
+- fnoCostModelGuard: **0 violations** · Allowlist: 16 files / 29 pairs (no bypass)
+- verify:release: **11 PASS | 0 WARN | 0 FAIL**
+- LLM index: fresh (349 files, 2026-07-07T13:11:38Z)
+
+### Verdict
+`FNO_COST_MODEL_UNIFICATION_DEV_VERIFIED` — republish required for PROD_VERIFIED.
