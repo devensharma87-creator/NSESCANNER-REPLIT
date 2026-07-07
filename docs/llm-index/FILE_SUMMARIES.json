@@ -80,7 +80,7 @@
   {
     "path": "artifacts/api-server/src/lib/auth.ts",
     "purpose": "auth",
-    "lines": 166,
+    "lines": 167,
     "exports": [
       "setSessionCookie",
       "clearSessionCookie",
@@ -95,7 +95,7 @@
       "node:crypto"
     ],
     "routes": [],
-    "hash": "a24cc8e4e5afd608"
+    "hash": "619ea40928eda46b"
   },
   {
     "path": "artifacts/api-server/src/lib/backboneHealth.test.ts",
@@ -671,6 +671,39 @@
     ],
     "routes": [],
     "hash": "df3c911fcf7d5720"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/buildConstants.d.ts",
+    "purpose": "lib",
+    "lines": 16,
+    "exports": [],
+    "externalImports": [],
+    "routes": [],
+    "hash": "7e694586151243a4"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/buildInfo.test.ts",
+    "purpose": "test",
+    "lines": 120,
+    "exports": [],
+    "externalImports": [
+      "vitest"
+    ],
+    "routes": [],
+    "hash": "50e2e211e4d385d5"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/buildInfo.ts",
+    "purpose": "lib",
+    "lines": 109,
+    "exports": [
+      "CheckpointMarkers",
+      "BuildInfo",
+      "getBuildInfo"
+    ],
+    "externalImports": [],
+    "routes": [],
+    "hash": "9d7f5c46f439fef4"
   },
   {
     "path": "artifacts/api-server/src/lib/candleWarehouseIngestor.test.ts",
@@ -5733,6 +5766,21 @@
     "hash": "fc27c7e3499c386e"
   },
   {
+    "path": "artifacts/api-server/src/routes/__tests__/buildInfoRoute.test.ts",
+    "purpose": "api-route",
+    "lines": 126,
+    "exports": [],
+    "externalImports": [
+      "vitest",
+      "express",
+      "cookie-parser",
+      "node:http",
+      "node:net"
+    ],
+    "routes": [],
+    "hash": "48d18dd60e699217"
+  },
+  {
     "path": "artifacts/api-server/src/routes/__tests__/dailyAnalysisTelegramPreviewRoute.test.ts",
     "purpose": "api-route",
     "lines": 267,
@@ -6030,6 +6078,19 @@
     "hash": "9889c16c3f3b779d"
   },
   {
+    "path": "artifacts/api-server/src/routes/buildInfo.ts",
+    "purpose": "api-route",
+    "lines": 21,
+    "exports": [],
+    "externalImports": [
+      "express"
+    ],
+    "routes": [
+      "GET /build-info"
+    ],
+    "hash": "b93c53d113ab07c1"
+  },
+  {
     "path": "artifacts/api-server/src/routes/candleWarehouse.ts",
     "purpose": "api-route",
     "lines": 306,
@@ -6251,13 +6312,13 @@
   {
     "path": "artifacts/api-server/src/routes/index.ts",
     "purpose": "api-route",
-    "lines": 109,
+    "lines": 111,
     "exports": [],
     "externalImports": [
       "express"
     ],
     "routes": [],
-    "hash": "c72f277c2dfd2c67"
+    "hash": "4d76c491dba893e2"
   },
   {
     "path": "artifacts/api-server/src/routes/indices.ts",
@@ -6743,6 +6804,22 @@
     ],
     "routes": [],
     "hash": "61c5270f1ac0dfcf"
+  },
+  {
+    "path": "artifacts/scanner/src/lib/buildMarkers.ts",
+    "purpose": "lib",
+    "lines": 52,
+    "exports": [
+      "APP_BUILD_ID",
+      "FRONTEND_BUILD_TIME",
+      "CHECKPOINT_3_DATA_PARITY_UI",
+      "DATA_PARITY_INFRA_HEALTH",
+      "RELEASE_INTEGRITY_ENABLED",
+      "BUILD_MARKERS"
+    ],
+    "externalImports": [],
+    "routes": [],
+    "hash": "7d1e2ad038ae77a7"
   },
   {
     "path": "artifacts/scanner/src/lib/candleSourceBadge.test.ts",
@@ -8821,5 +8898,14 @@
     ],
     "routes": [],
     "hash": "a55ea67643295b89"
+  },
+  {
+    "path": "scripts/src/verifyRelease.ts",
+    "purpose": "lib",
+    "lines": 270,
+    "exports": [],
+    "externalImports": [],
+    "routes": [],
+    "hash": "6a78014e860e219d"
   }
 ]

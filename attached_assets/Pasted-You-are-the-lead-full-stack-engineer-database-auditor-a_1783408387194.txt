@@ -1,0 +1,907 @@
+You are the lead full-stack engineer, database auditor, and quantitative trading-system analyst for my Indian market F&O signalling and paper-trading platform.
+
+Your task is to create a complete professional-grade Excel report in `.xlsx` format covering the full F&O signalling methodology, logic, structure, signal funnel, trades triggered, trades passed, trades taken, and profit/loss till date since Paper Trading became active.
+
+This is a READ-ONLY audit and reporting task.
+
+Do not change any code.
+Do not modify production data.
+Do not alter signal logic.
+Do not fix the engine.
+Do not delete, update, or backfill anything.
+Do not fabricate missing values.
+Do not create synthetic trades.
+Do not estimate P&L unless it is clearly marked as estimated and separately isolated.
+The report must be based only on actual database records, actual paper-trading records, actual signal history, actual option premium data, and actual available logs.
+
+Primary objective:
+Generate one Excel workbook named:
+
+`FNO_SIGNALLING_AND_PAPER_TRADING_AUDIT_REPORT_TILL_DATE.xlsx`
+
+The report must answer the following questions clearly:
+
+1. What is the current F&O signalling methodology?
+2. What logic is used to generate F&O signals?
+3. What is the full structure/path from market data to signal to paper trade?
+4. How many signals were triggered?
+5. How many signals passed the gate?
+6. How many signals were rejected/skipped?
+7. How many signals became paper trades?
+8. How many trades were actually taken?
+9. What is the profit/loss till date since paper trading became active?
+10. What is the performance index-wise, date-wise, setup-wise, and trade-wise?
+11. Which trades hit SL, target, expiry, manual exit, timeout, or other exits?
+12. Which index/setup/time/session is working and which is failing?
+13. Are any P&L values based on spot index instead of option premium?
+14. Are there any suspicious, missing, fake, incomplete, or unreliable records?
+
+Important context:
+The platform is expected to follow a professional F&O signal architecture:
+
+Market data
+→ market/bias calculation
+→ setup detector/director
+→ mandatory gate
+→ option/strike selection
+→ signal record
+→ paper-trade creation
+→ lifecycle tracking
+→ exit
+→ P&L calculation
+→ outcome attribution
+
+You must verify whether the production code and production database actually follow this path. Do not assume it.
+
+The previous audit warned that the F&O framework is not complete unless option-chain confirmation, premium-based exits, liquidity/spread filters, and setup-wise expectancy are integrated. Therefore, this report must clearly separate implemented logic from planned/documented logic.
+
+Scope:
+Cover all F&O indices and instruments used by the system, including, but not limited to:
+
+* NIFTY
+* BANKNIFTY
+* FINNIFTY
+* MIDCPNIFTY
+* NIFTYNXT50
+* SENSEX
+* BANKEX
+* Any other F&O index or stock for which the system generated signals or paper trades
+
+Period:
+From the first date/time when paper trading became active until the current production date/time.
+
+Do not hardcode the start date.
+Derive the start date from the database using the earliest available paper-trade or F&O signal record.
+
+Timezone:
+Use IST for all timestamps.
+All trade times must be shown in Indian market time.
+Clearly flag any trade/signal created outside Indian market hours.
+
+Indian market hours rule:
+For intraday F&O trades, validate whether the signal/trade timestamp is within 09:15 AM to 03:30 PM IST.
+If anything is generated outside this time, mark it as an exception.
+
+Data discovery requirements:
+Before creating the Excel, inspect the database schema and identify all relevant tables, columns, relations, and logs. Search for tables/columns related to:
+
+* option signals
+* F&O signals
+* paper trades
+* paper orders
+* paper positions
+* option signal history
+* option trade history
+* signal history
+* trade logs
+* option chain snapshots
+* option analytics
+* index candles
+* candle warehouse
+* market data provenance
+* Telegram/bot signal sends
+* rejected/skipped signal reasons
+* strategy results
+* backtest strategy records
+* risk rules
+* stop-loss/target records
+* MFE/MAE records
+* option premium entry/exit fields
+* spot entry/exit fields
+* strike/expiry/option type fields
+* setup/confidence/gate fields
+
+Do not rely on guessed table names only. Discover actual schema using database introspection.
+
+Minimum likely tables to inspect, if present:
+
+* option_signal_history
+* paper_trades
+* paper_orders
+* paper_positions
+* option_chain_snapshot
+* option_chain_analytics
+* candles
+* candle
+* candle_sync_run
+* fno_signals
+* fno_signal_history
+* trading_signals
+* signal_audit_logs
+* telegram_signal_logs
+* strategy_runs
+* backtest_results
+* risk_events
+
+If a table does not exist, record it in the “Schema Gaps” sheet.
+
+Code-path audit requirements:
+Read the actual production code and map the F&O signalling flow. Identify exact files and functions responsible for:
+
+1. Data fetching
+2. Index quote fetching
+3. Candle fetching
+4. Option-chain fetching
+5. Bias calculation
+6. Setup detection
+7. Signal gating
+8. Confidence scoring
+9. Strike selection
+10. Option premium fetching
+11. Signal persistence
+12. Telegram/bot delivery
+13. Paper-trade creation
+14. Paper-trade lifecycle updates
+15. Stop-loss/target handling
+16. Exit handling
+17. P&L calculation
+18. Risk limits/circuit breaker
+19. Rejection/skip reasons
+20. Backtest/manual strategy linkage, if any
+
+The report must include an “Exact Code Map” sheet with:
+
+* Module
+* File path
+* Function/class name
+* Responsibility
+* Input data
+* Output data
+* Tables touched
+* Whether it affects signal generation
+* Whether it affects paper trading
+* Whether it affects P&L
+* Notes/gaps
+
+Definitions to use in the report:
+
+A. Signal Triggered:
+A signal candidate was generated by any F&O signal detector, strategy, setup, baseline engine, or bias engine before final approval.
+
+B. Signal Passed:
+A triggered signal passed the mandatory filters/gates and became eligible for paper trading or alerting.
+
+C. Signal Rejected / Skipped:
+A triggered signal failed due to gate, confidence, HTF veto, data issue, option-chain issue, risk rule, duplicate rule, cooldown, session rule, expiry rule, spread/liquidity rule, or any other reason.
+
+D. Trade Taken:
+A passed signal resulted in an actual paper-trade record or paper position being opened.
+
+E. Trade Not Taken:
+A signal passed but did not become a paper trade. The reason must be identified.
+
+F. P&L:
+Profit/loss must be calculated using option premium entry and option premium exit wherever available. Do not calculate F&O trade P&L using only index spot movement. If the system used spot as proxy, flag it as unreliable.
+
+G. Open Trade:
+A paper trade/position that has not been exited yet.
+
+H. Closed Trade:
+A paper trade/position with valid exit time and exit price/premium.
+
+Excel workbook structure:
+Create the workbook with the following sheets.
+
+Sheet 1: Executive Summary
+Include:
+
+* Report generated timestamp
+* Environment audited: production/dev/local
+* Database source
+* Paper trading active from date
+* Paper trading active till date
+* Total F&O signals triggered
+* Total signals passed
+* Total signals rejected/skipped
+* Total trades taken
+* Total closed trades
+* Total open trades
+* Gross P&L
+* Net P&L, if brokerage/slippage exists
+* Win rate
+* Loss rate
+* Breakeven count
+* Average profit per winning trade
+* Average loss per losing trade
+* Profit factor
+* Expectancy per trade
+* Max drawdown
+* Best trade
+* Worst trade
+* Best index
+* Worst index
+* Best setup
+* Worst setup
+* Biggest concern found
+* Data reliability verdict
+
+Add a clear verdict:
+
+* RELIABLE
+* PARTIALLY RELIABLE
+* UNRELIABLE
+* CANNOT VERIFY
+
+Use “CANNOT VERIFY” if required premium/P&L fields are missing.
+
+Sheet 2: Methodology & Logic
+Document the actual implemented F&O methodology from code, not from assumptions.
+
+Include:
+
+* Market data sources used
+* Data freshness rules
+* Candle timeframe used
+* Bias calculation logic
+* Setup detection logic
+* Gate/filter logic
+* Confidence scoring logic
+* Entry logic
+* Strike selection logic
+* Stop-loss logic
+* Target logic
+* Exit logic
+* P&L logic
+* Paper-trade creation logic
+* Risk control logic
+* Cooldown/duplicate prevention logic
+* Telegram/alert logic
+* Known limitations
+
+Clearly separate:
+
+* Implemented in production
+* Present in code but not active
+* Planned/documented but not implemented
+* Unknown/not verifiable
+
+Sheet 3: Exact Code Map
+Columns:
+
+* Area
+* File path
+* Function/class
+* Responsibility
+* Input
+* Output
+* Tables read
+* Tables written
+* Signal impact
+* Trade impact
+* P&L impact
+* Verification status
+* Notes
+
+Sheet 4: Database Schema Map
+Columns:
+
+* Table name
+* Purpose
+* Relevant columns
+* Primary key
+* Foreign keys/relations
+* Timestamp columns
+* Price/premium columns
+* Status/outcome columns
+* P&L columns
+* Missing columns
+* Data quality notes
+
+Sheet 5: Signal Funnel Summary
+Index-wise and overall funnel:
+
+* Index
+* Total triggered
+* Total passed
+* Total rejected
+* Total trades taken
+* Passed but not traded
+* Trigger to pass %
+* Pass to trade %
+* Trade to close %
+* Win count
+* Loss count
+* Open count
+* Gross P&L
+* Net P&L
+* Win rate
+* Profit factor
+* Average R
+* Max drawdown
+* Reliability notes
+
+Sheet 6: Date-wise Summary
+One row per trading date and index.
+
+Columns:
+
+* Trade date
+* Day
+* Index
+* Market session/regime, if available
+* Signals triggered
+* Signals passed
+* Signals rejected
+* Trades taken
+* Closed trades
+* Open trades
+* Wins
+* Losses
+* Breakeven
+* Gross P&L
+* Net P&L
+* Max intraday drawdown
+* Best trade
+* Worst trade
+* Notes
+
+Sheet 7: Index-wise Summary
+One row per index.
+
+Columns:
+
+* Index
+* First signal date
+* Last signal date
+* Total active days
+* Signals triggered
+* Signals passed
+* Signals rejected
+* Trades taken
+* Trades closed
+* Trades open
+* Win count
+* Loss count
+* Breakeven count
+* Win rate
+* Gross P&L
+* Net P&L
+* Average P&L/trade
+* Average winning trade
+* Average losing trade
+* Profit factor
+* Max drawdown
+* Best setup
+* Worst setup
+* Main failure reason
+
+Sheet 8: Setup-wise Performance
+One row per setup/strategy per index.
+
+Examples:
+
+* BASELINE
+* TREND_CONTINUATION
+* VWAP_RECLAIM
+* EMA_PULLBACK
+* VOLUME_BREAKOUT
+* MEAN_REVERSION
+* ORB
+* Any other implemented setup
+
+Columns:
+
+* Setup name
+* Index
+* Signals triggered
+* Signals passed
+* Signals rejected
+* Trades taken
+* Wins
+* Losses
+* Open
+* Win rate
+* Gross P&L
+* Net P&L
+* Average R
+* Profit factor
+* Average holding time
+* Best trade
+* Worst trade
+* Most common rejection reason
+* Verdict: working / weak / dangerous / insufficient data
+
+Sheet 9: Trade-wise Ledger
+This is the most important sheet. Include every single trade. Do not miss anything.
+
+Columns:
+
+* Trade ID
+* Source signal ID
+* Date
+* Entry timestamp IST
+* Exit timestamp IST
+* Holding time
+* Index
+* Underlying symbol
+* Direction: CALL/PUT/BULLISH/BEARISH
+* Option type: CE/PE
+* Strike
+* Expiry
+* Setup/strategy
+* Signal type/tier
+* Confidence
+* Bias score
+* Gate status
+* Entry spot
+* Exit spot
+* Entry option premium
+* Exit option premium
+* Quantity/lots
+* Lot size
+* Gross P&L
+* Brokerage/slippage/costs
+* Net P&L
+* R multiple
+* Stop loss
+* Target 1
+* Target 2
+* Target 3
+* Highest premium after entry
+* Lowest premium after entry
+* MFE
+* MAE
+* Exit reason
+* Status
+* Telegram sent: yes/no
+* Paper trade created: yes/no
+* Broker execution: disabled/enabled
+* Data source
+* Data freshness
+* P&L reliability: reliable / spot-proxy / missing / cannot verify
+* Exception flag
+* Notes
+
+Sheet 10: Triggered Signals Raw Ledger
+Every triggered signal candidate, whether traded or not.
+
+Columns:
+
+* Signal ID
+* Timestamp IST
+* Index
+* Setup
+* Direction
+* Option type
+* Strike, if selected
+* Expiry, if selected
+* Trigger reason
+* Bias
+* Bias score
+* Confidence
+* Market regime
+* VIX, if available
+* PCR, if available
+* Max pain, if available
+* OI context, if available
+* Gate result
+* Passed yes/no
+* Rejected yes/no
+* Rejection reason
+* Paper trade created yes/no
+* Linked trade ID
+* Telegram sent yes/no
+* Raw payload/reference
+
+Sheet 11: Rejected / Skipped Signals
+Every rejected or skipped signal.
+
+Columns:
+
+* Signal ID
+* Timestamp IST
+* Index
+* Setup
+* Direction
+* Gate/filter failed
+* Rejection reason
+* Confidence
+* Required threshold
+* Data issue yes/no
+* Risk issue yes/no
+* Duplicate/cooldown issue yes/no
+* Option-chain issue yes/no
+* Liquidity/spread issue yes/no
+* Session/time issue yes/no
+* Expiry issue yes/no
+* Notes
+
+Sheet 12: Passed But Not Traded
+Every passed signal where no paper trade was opened.
+
+Columns:
+
+* Signal ID
+* Timestamp IST
+* Index
+* Setup
+* Direction
+* Passed gate
+* Expected paper trade yes/no
+* Paper trade missing reason
+* Error/log reference
+* Data issue
+* Risk/capital issue
+* Duplicate position issue
+* Code path issue
+* Verdict
+
+Sheet 13: Open Trades
+All currently open paper trades/positions.
+
+Columns:
+
+* Trade ID
+* Entry date/time IST
+* Index
+* Direction
+* Option type
+* Strike
+* Expiry
+* Entry premium
+* Current premium, if available
+* Quantity/lots
+* Unrealized P&L
+* Stop loss
+* Target
+* Current status
+* Holding time
+* Data reliability
+* Action needed
+
+Sheet 14: P&L Attribution
+Break down P&L by:
+
+* Index
+* Setup
+* Direction
+* Option type
+* Expiry week/day
+* Entry time bucket
+* Exit reason
+* Confidence bucket
+* Market regime, if available
+
+Include:
+
+* Gross P&L
+* Net P&L
+* Trade count
+* Win rate
+* Avg win
+* Avg loss
+* Profit factor
+* Expectancy
+* Max drawdown
+
+Sheet 15: Time-of-Day Performance
+Group trades by entry time buckets:
+
+* 09:15–09:30
+* 09:30–10:00
+* 10:00–11:00
+* 11:00–12:00
+* 12:00–13:00
+* 13:00–14:00
+* 14:00–15:00
+* 15:00–15:30
+* Outside market hours
+
+Columns:
+
+* Time bucket
+* Index
+* Trades
+* Wins
+* Losses
+* Win rate
+* Gross P&L
+* Net P&L
+* Avg P&L
+* Exit reason concentration
+* Verdict
+
+Sheet 16: Exit Reason Analysis
+Columns:
+
+* Exit reason
+* Index
+* Setup
+* Count
+* Win count
+* Loss count
+* Gross P&L
+* Net P&L
+* Average holding time
+* Notes
+
+Exit reasons may include:
+
+* SL hit
+* Target 1 hit
+* Target 2 hit
+* Target 3 hit
+* Time exit
+* Expiry exit
+* Manual exit
+* Signal reversal
+* Risk exit
+* Data missing exit
+* Unknown exit
+
+Sheet 17: Risk & Drawdown
+Include:
+
+* Equity curve based on closed paper trades
+* Running P&L
+* Peak equity
+* Drawdown
+* Max drawdown
+* Consecutive wins
+* Consecutive losses
+* Biggest losing streak
+* Biggest winning streak
+* Daily loss breach
+* Weekly loss breach
+* Risk rule triggered yes/no
+* Notes
+
+Sheet 18: Data Quality & Reliability
+This sheet must be strict.
+
+Check and report:
+
+* Missing entry premium
+* Missing exit premium
+* Exit price equal to spot index instead of option premium
+* Entry price equal to spot index instead of option premium
+* Missing strike
+* Missing expiry
+* Missing quantity
+* Missing lot size
+* Missing exit reason
+* Missing linked signal ID
+* Missing data source
+* Missing created_at/updated_at
+* Duplicate trade IDs
+* Duplicate signal IDs
+* Signals without trades
+* Trades without signals
+* Trades outside market hours
+* Trades with impossible premium
+* P&L mismatch
+* Negative/zero quantity
+* Open trades older than expected
+* Expired options still open
+* Stale quote usage
+* Yahoo/untrusted data used for trade decision, if applicable
+* Any row where source honesty is unclear
+
+Columns:
+
+* Issue type
+* Severity: Critical / High / Medium / Low
+* Affected table
+* Affected row count
+* Example IDs
+* Impact
+* Recommended correction
+* Whether report P&L is affected
+
+Sheet 19: Reconciliation
+Reconcile:
+
+* Signal table count vs paper trade count
+* Paper trade count vs position count
+* Closed trades vs P&L rows
+* Telegram alerts vs signal records
+* Option signal history vs paper trades
+* Open positions vs expired contracts
+* Database P&L vs recalculated P&L
+
+Columns:
+
+* Reconciliation check
+* Source A
+* Source A count/value
+* Source B
+* Source B count/value
+* Difference
+* Severity
+* Explanation
+* Action required
+
+Sheet 20: Raw Data Export
+Include the raw rows used for the report or provide separate raw tabs if too large.
+
+At minimum include:
+
+* Raw signal rows
+* Raw paper trade rows
+* Raw position rows
+* Raw option-chain rows used, if linked
+* Raw logs used, if available
+
+Do not hide raw data. The workbook must be audit-friendly.
+
+Required calculations:
+For every closed trade:
+
+Gross P&L for long option:
+`(exit_option_premium - entry_option_premium) * quantity`
+
+If quantity is stored in lots:
+`(exit_option_premium - entry_option_premium) * lot_size * lots`
+
+Net P&L:
+`gross_pnl - brokerage - taxes - slippage - other_costs`
+
+If costs are unavailable:
+Show gross P&L and mark net P&L as “cost data unavailable”.
+
+R multiple:
+For long option:
+`(exit_option_premium - entry_option_premium) / (entry_option_premium - stop_loss_premium)`
+
+If stop-loss premium missing:
+Mark R multiple as “cannot calculate”.
+
+MFE:
+`highest_option_premium_after_entry - entry_option_premium`
+
+MAE:
+`lowest_option_premium_after_entry - entry_option_premium`
+
+Win rate:
+`winning closed trades / total closed trades`
+
+Profit factor:
+`gross profit / absolute gross loss`
+
+Expectancy:
+`(win_rate * average_win) - (loss_rate * average_loss)`
+
+Drawdown:
+Calculate from cumulative closed-trade P&L in chronological order.
+
+Important P&L rule:
+If the database only has spot entry/exit but not option premium entry/exit, do not call the P&L reliable.
+Create a separate flag:
+
+* RELIABLE_OPTION_PREMIUM_PNL
+* SPOT_PROXY_ONLY_UNRELIABLE
+* MISSING_EXIT_PREMIUM
+* MISSING_ENTRY_PREMIUM
+* CANNOT_VERIFY
+
+Formatting requirements:
+The Excel file must be clean and professional.
+
+Use:
+
+* Freeze panes
+* Filters on all sheets
+* Bold headers
+* Date formatting
+* Number formatting
+* Conditional formatting for profit/loss
+* Red flags for critical data issues
+* Green for profitable trades
+* Red for losing trades
+* Yellow for incomplete/unverified data
+* Pivot-style summary tables where useful
+* Charts for equity curve, index-wise P&L, setup-wise P&L, daily P&L, and drawdown
+
+Do not make the workbook cosmetic only. Accuracy is more important than design.
+
+Charts required:
+
+1. Cumulative P&L equity curve
+2. Daily P&L bar chart
+3. Index-wise P&L chart
+4. Setup-wise P&L chart
+5. Win/loss count by index
+6. Drawdown curve
+7. Signal funnel chart: triggered → passed → traded → closed → profitable
+
+Audit queries:
+Save all SQL queries used into a separate file:
+
+`FNO_REPORT_SQL_QUERIES.sql`
+
+Also add the key queries into the Excel sheet named “Query Audit”.
+
+The SQL must include:
+
+1. Paper trading active start date
+2. Total signal count
+3. Total passed signal count
+4. Total rejected signal count
+5. Total paper trade count
+6. Closed trade count
+7. Open trade count
+8. Trade ledger extraction
+9. Signal ledger extraction
+10. Rejected signal extraction
+11. P&L recalculation
+12. Data quality checks
+13. Reconciliation checks
+
+Expected final deliverables:
+
+1. `FNO_SIGNALLING_AND_PAPER_TRADING_AUDIT_REPORT_TILL_DATE.xlsx`
+2. `FNO_REPORT_SQL_QUERIES.sql`
+3. `FNO_SIGNALLING_AUDIT_SUMMARY.md`
+
+The markdown summary must include:
+
+* Executive verdict
+* Paper trading active period
+* Total signals generated
+* Total trades taken
+* Net/gross P&L
+* Index-wise verdict
+* Setup-wise verdict
+* Biggest issues found
+* Whether current F&O P&L is reliable
+* Whether signal engine is actually working or only producing weak/baseline signals
+* Whether paper trading uses option premium correctly
+* Whether any signal/trade data appears fake, suspicious, stale, or incomplete
+* Exact next fixes required, but do not implement them
+
+Strict honesty rules:
+If data is missing, say missing.
+If premium-based P&L cannot be verified, say cannot verify.
+If signals exist but trades were not created, show it.
+If trades exist without linked signals, show it.
+If P&L is calculated using spot instead of option premium, mark it as unreliable.
+If any strategy/setup produces zero trades, state exactly why.
+If Telegram/bot shows signal sent but paper trade was not created, show it.
+If paper trade was created but broker execution was disabled, show it.
+If live engine only generated baseline/weak signals, show it.
+If high-conviction setups never fired, show it.
+If stop-loss hit frequently, quantify it setup-wise and index-wise.
+If win rate is poor, show exact numbers and affected setups.
+
+Final acceptance criteria:
+The task is complete only when I can open the Excel workbook and see:
+
+* Every F&O signal since paper trading became active
+* Every passed/rejected signal
+* Every paper trade taken
+* Every trade’s entry/exit/P&L
+* Index-wise performance
+* Date-wise performance
+* Setup-wise performance
+* Trade-wise ledger
+* P&L till date
+* Data reliability flags
+* Exact code-path explanation
+* Exact SQL queries used
+* Clear verdict on whether the F&O signalling and paper-trading P&L are reliable
+
+Do not provide only a summary.
+Do not provide only screenshots.
+Do not provide only logs.
+Do not provide only partial tables.
+Generate the actual `.xlsx` file and attach it as the final output.

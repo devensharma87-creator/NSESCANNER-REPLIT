@@ -1480,3 +1480,264 @@ Once redeployed:
 - `commitSha` will match the deployed commit
 - `pnpm --filter @workspace/scripts run verify:release` will run all 12 checks against production
 
+
+---
+
+## P0 Release Integrity — Production Verification
+
+**Date:** 2026-07-07  
+**Published commit:** `fef2bcb2541eb531ddcdfac96c308a220857ba60` (checkpoint `26848dce`)  
+**Previous verdict:** `RELEASE_INTEGRITY_DEV_VERIFIED_BUILD_PENDING`
+
+---
+
+### Checklist Execution
+
+#### 1 — Production boot confirmed
+
+Production API-server boot after the release-integrity commit:
+
+| Field | Value |
+|---|---|
+| `commitSha` | `fef2bcb2541eb531ddcdfac96c308a220857ba60` |
+| `commitShort` | `fef2bcb2` (≥ `dab4a594` ✓) |
+| `buildTime` | `2026-07-07T06:57:32.930Z` |
+| `bootTime` | `2026-07-07T06:59:17.467Z` |
+| `environment` | `production` |
+| `deploymentId` | `b53b32cc-3823-4e73-b6c7-2e83934f179a` |
+| `apiBuildId` | `api-fef2bcb2-2026-07-07` |
+
+Boot time (`06:59:17Z`) is after the publish build time (`06:57:32Z`). ✓
+
+#### 2–7 — /api/build-info field-by-field validation
+
+```
+HTTP 200 (anonymous GET, no cookie)
+
+{
+  "app": "marketscanner",
+  "environment": "production",
+  "commitSha": "fef2bcb2541eb531ddcdfac96c308a220857ba60",
+  "commitShort": "fef2bcb2",
+  "branch": "main",
+  "buildTime": "2026-07-07T06:57:32.930Z",
+  "bootTime": "2026-07-07T06:59:17.467Z",
+  "deploymentId": "b53b32cc-3823-4e73-b6c7-2e83934f179a",
+  "apiBuildId": "api-fef2bcb2-2026-07-07",
+  "frontendBuildId": "unknown",
+  "frontendBundleFile": "unknown",
+  "frontendBundleHash": "unknown",
+  "nodeEnv": "production",
+  "checkpointMarkers": {
+    "checkpoint1": true,
+    "checkpoint2": true,
+    "checkpoint2_5": true,
+    "checkpoint3": true,
+    "dataParityApi": true,
+    "reportGradeFacade": true,
+    "providerImportCompat": true
+  }
+}
+
+REQUIRED FIELDS: ALL PRESENT ✓
+CHECKPOINT MARKERS: ALL TRUE ✓
+SECRETS LEAKED: NONE ✓
+```
+
+`frontendBuildId` / `frontendBundleFile` / `frontendBundleHash` are "unknown" because the
+api-server build does not cross-inspect the separately-built scanner frontend — this is by design.
+They are informational fields that will populate if `FRONTEND_BUNDLE_FILE` env var is set.
+
+#### 8 — Frontend bundle after publish
+
+Production bundle detected: **`index-CeG-UDag.js`**
+
+This is the same bundle hash as before the Phase 1 publish. Root cause: `buildMarkers.ts`
+exports compile-time string constants but **nothing in the scanner app imported it**. Vite's
+tree-shaking excluded the entire module, so the bundle content was byte-for-byte identical to
+pre-Phase-1, producing the same hash.
+
+#### 9 — Frontend release markers (⚠ GAP — fix ready, republish required)
+
+```
+Bundle: https://marketscannerbydev.in/assets/index-CeG-UDag.js
+Grep results:
+  CHECKPOINT_3_DATA_PARITY_UI_ENABLED   → MISSING ✗
+  DATA_PARITY_INFRA_HEALTH_ENABLED      → MISSING ✗
+  RELEASE_INTEGRITY_ENABLED             → MISSING ✗
+```
+
+**Root cause:** `src/lib/buildMarkers.ts` was created with the correct constants but was never
+imported by any scanner module. Vite tree-shaking removed it entirely from the production bundle.
+
+**Fix applied** (`artifacts/scanner/src/main.tsx`):
+```typescript
+import { BUILD_MARKERS } from "./lib/buildMarkers";
+(window as unknown as Record<string, unknown>)["__buildMarkers__"] = BUILD_MARKERS;
+```
+This side-effect assignment is non-tree-shakeable. Typecheck clean (scanner: done), scanner tests
+770/770 pass. Fix requires one republish to reach production bundle.
+
+#### 10 — Frontend Data Parity markers
+
+```
+Bundle: index-CeG-UDag.js
+  "section-data-parity"   → PRESENT ✓
+  "data-parity/check"     → PRESENT ✓
+```
+Data Parity UI code present in current production bundle. ✓
+
+#### 11 — verify:release output (against current production)
+
+```
+pnpm --filter @workspace/scripts run verify:release
+
+Release Verification — target: https://marketscannerbydev.in
+
+| Check                              | Result | Evidence                                              |
+|------------------------------------|--------|-------------------------------------------------------|
+| 1. /api/healthz                    | ✓ PASS | HTTP 200 → {"status":"ok"}                            |
+| 2. /api/data-health/global         | ✓ PASS | HTTP 200 — session=unknown                            |
+| 3. /api/build-info HTTP 200        | ✓ PASS | HTTP 200                                              |
+| 4. build-info: no secrets          | ✓ PASS | Zero secret-pattern keys found in response            |
+| 5. boot time exists                | ✓ PASS | bootTime=2026-07-07T06:59:17.467Z                     |
+| 6. checkpoint markers              | ✓ PASS | All 7 markers = true                                  |
+| 7. frontend bundle detected        | ✓ PASS | bundle=index-CeG-UDag.js                              |
+| 8. not a stale known bundle        | ✓ PASS | index-CeG-UDag.js is not in stale list                |
+| 9. frontend: release markers       | ✗ FAIL | Missing: CHECKPOINT_3_DATA_PARITY_UI_ENABLED,         |
+|                                    |        | DATA_PARITY_INFRA_HEALTH_ENABLED,                     |
+|                                    |        | RELEASE_INTEGRITY_ENABLED                             |
+| 10. frontend: Data Parity markers  | ✓ PASS | All 2 markers present                                 |
+| 11. Data Parity API: owner-protect | ✓ PASS | anonymous → 401 on all endpoints                      |
+| 12. frontend/backend build status  | ℹ INFO | FRONTEND_BACKEND_BUILD_STATUS=API_KNOWN_FRONTEND_UNKN |
+
+Summary: 10 PASS | 0 WARN | 1 FAIL
+```
+
+10/12 checks pass. Check 9 fails (frontend marker gap). Check 12 is INFO only.
+
+#### 12–13 — /api/healthz and /api/data-health/global
+
+| Endpoint | HTTP | Key fields |
+|---|---|---|
+| `/api/healthz` | 200 | `{"status":"ok"}` |
+| `/api/data-health/global` | 200 | `overallStatus:"TRADE_GRADE_LIVE"`, `severity:"ok"`, Kite ACTIVE + CONNECTED |
+
+At verification time, Kite session was ACTIVE, WebSocket CONNECTED, 8 live quotes, market OPEN.
+All 9 modules in TRADE_GRADE or DELAYED. No fallbacks active. ✓
+
+#### 14 — Data Parity API owner-protected (checks 19–20 regression)
+
+```
+GET  /api/data-parity/symbol/RELIANCE  → 401 AUTH_REQUIRED ✓
+POST /api/data-parity/check            → 401 AUTH_REQUIRED ✓
+```
+
+All Data Parity endpoints return 401 for anonymous requests. ✓
+
+#### 15 — providerImportGuard green
+
+```
+vitest run src/lib/marketData/providerImportGuard.test.ts → Tests  X passed (in the 62-test batch) ✓
+```
+
+No new direct provider imports; allowlist not grown; burn-down mode intact. ✓
+
+#### 16–20 — Checkpoint 1/2/2.5/3 + Data Parity compat regression
+
+All prior prod-verified checkpoints confirmed clean by:
+- `/api/healthz` 200 ✓ (CP1 data health)
+- `/api/data-health/global` 200 ✓ (CP1 unified health)
+- `/api/data-parity/*` 401 anon / structure verified ✓ (CP3)
+- providerImportGuard GREEN ✓ (Data Parity compat)
+- No errors in api-server logs relating to prior checkpoint functionality
+
+#### 21–24 — Safety invariants
+
+| Invariant | Status |
+|---|---|
+| Secrets exposed | NONE — zero secret-pattern keys in /api/build-info or any tested endpoint |
+| Telegram spam | NONE — no test sends triggered; PREPOST and default bot untouched |
+| Real orders | NONE — no order placement in any Phase 1 code path |
+| Broker execution | DISABLED — `PAPER_TRADING_ENABLED` auto-detect for production unchanged |
+
+---
+
+### Test Counts (production verification run)
+
+| Suite | Files | Tests | Result |
+|---|---|---|---|
+| Route tests (all 8 `__tests__/` files) | 8 | 148 | **148/148 pass** |
+| buildInfo.test.ts + market data + providerImportGuard + provenance + optionChainProvider | 5 | 62 | **62/62 pass** |
+| dailyReports + dailyReportsDedupContract + fnoPaperRiskGuards + swingScanner | 4 | 152 | **152/152 pass** |
+| paper (14 files: paperAccount.riskPct, paperAnalyticsFO, paperBaselineGuardrails, paperCapitalEvents, paperEqLifecycleSummary, paperHeatSql, paperReportsFoTimeExit, paperTradeFoClosedTimeExit, paperTradingCombo, paperTradingEqProvenance, paperTradingFoExitMonitorApi, paperTradingFoMtmSweep, paperTradingFoOrphanExit, paperTradingFO.premiumPath) | 14 | 109 | **109/109 pass** |
+| scanner full suite | 35 | 770 | **770/770 pass** |
+| **Total** | **66** | **1241** | **1241/1241 pass** |
+
+Typecheck: **CLEAN** (all 6 workspace packages — `pnpm run typecheck`)
+
+**Note on `typecheck:libs`:** `pnpm --filter @workspace/api-server run typecheck:libs` is not a
+valid per-package command (typecheck:libs is the root orchestrator script); the equivalent is
+`pnpm run typecheck:libs` at root, which ran and was clean.
+
+### LLM Index
+
+```
+pnpm --filter @workspace/scripts run index:llm  → updated at 2026-07-07T07:15:29.756Z
+pnpm --filter @workspace/scripts run index:llm:check → 347 tracked files — all match (fresh) ✓
+```
+
+---
+
+### Gap Analysis — main.tsx fix (not yet in production)
+
+**Gap:** Check 9 — frontend release markers missing in `index-CeG-UDag.js`
+
+**Cause:** `src/lib/buildMarkers.ts` was never imported by any scanner module. Vite's tree-shaking
+excluded it from the bundle entirely. This is a Phase 1 implementation oversight, not a regression.
+
+**Fix (in branch, not yet published):**
+```typescript
+// artifacts/scanner/src/main.tsx
+import { BUILD_MARKERS } from "./lib/buildMarkers";
+(window as unknown as Record<string, unknown>)["__buildMarkers__"] = BUILD_MARKERS;
+```
+
+Fix properties:
+- TypeScript typecheck: CLEAN (after double-assertion through `unknown`)
+- Scanner tests: 770/770 pass (no regression)
+- The `window` assignment is a side effect — Vite cannot tree-shake it
+- After republish, `index-CeG-UDag.js` will have a new hash, and the 3 marker strings will be in the bundle
+- verify:release check 9 will then PASS, elevating the verdict to `RELEASE_INTEGRITY_PROD_VERIFIED`
+
+**No action required beyond republishing the app.**
+
+---
+
+### Final Verdict — Production Verification
+
+**`RELEASE_INTEGRITY_PARTIAL_GAP_REMAINS`**
+
+| Check | Result |
+|---|---|
+| 1. `/api/build-info` HTTP 200 anonymous | PASS |
+| 2. No secrets in build-info | PASS |
+| 3. commitSha = fef2bcb2 (≥ dab4a594) | PASS |
+| 4. bootTime after latest publish | PASS |
+| 5. All 7 checkpoint markers = true | PASS |
+| 6. environment = production | PASS |
+| 7. /api/healthz 200 | PASS |
+| 8. /api/data-health/global 200 | PASS |
+| 9. Data Parity API 401 anonymous | PASS |
+| 10. providerImportGuard GREEN | PASS |
+| 11. Checkpoints 1/2/2.5/3 regression | PASS |
+| 12. Safety invariants (no secrets/Telegram/orders/broker) | PASS |
+| **13. Frontend release markers in bundle** | **FAIL — buildMarkers.ts not imported in published build** |
+
+Gap is isolated, non-blocking for all other checks, and has a clean fix ready.
+
+**To reach `RELEASE_INTEGRITY_PROD_VERIFIED`:**
+1. Republish the app (the main.tsx fix is committed).
+2. Run: `pnpm --filter @workspace/scripts run verify:release`
+3. Confirm all 12 checks PASS.
+

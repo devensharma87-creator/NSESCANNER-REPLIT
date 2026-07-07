@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-07T06:32:15.565Z",
+  "generatedAt": "2026-07-07T07:15:29.756Z",
   "generatorVersion": "1.0.0",
   "files": {
     "artifacts/api-server/src/routes/admin.ts": {
@@ -21,6 +21,11 @@
       "hash": "9889c16c3f3b779d",
       "lines": 1268,
       "mtime": "2026-06-29T10:55:55.508Z"
+    },
+    "artifacts/api-server/src/routes/buildInfo.ts": {
+      "hash": "b93c53d113ab07c1",
+      "lines": 21,
+      "mtime": "2026-07-07T06:43:06.589Z"
     },
     "artifacts/api-server/src/routes/candleWarehouse.ts": {
       "hash": "72aac1b8a34cf0d7",
@@ -83,9 +88,9 @@
       "mtime": "2026-06-17T03:43:06.668Z"
     },
     "artifacts/api-server/src/routes/index.ts": {
-      "hash": "c72f277c2dfd2c67",
-      "lines": 109,
-      "mtime": "2026-07-04T10:20:51.711Z"
+      "hash": "4d76c491dba893e2",
+      "lines": 111,
+      "mtime": "2026-07-07T06:43:22.230Z"
     },
     "artifacts/api-server/src/routes/indices.ts": {
       "hash": "c4053f741bc8676a",
@@ -183,9 +188,9 @@
       "mtime": "2026-06-23T13:53:55.298Z"
     },
     "artifacts/api-server/src/lib/auth.ts": {
-      "hash": "a24cc8e4e5afd608",
-      "lines": 166,
-      "mtime": "2026-07-02T14:37:12.568Z"
+      "hash": "619ea40928eda46b",
+      "lines": 167,
+      "mtime": "2026-07-07T06:43:18.312Z"
     },
     "artifacts/api-server/src/lib/backboneHealth.ts": {
       "hash": "966865d58fb46a44",
@@ -256,6 +261,16 @@
       "hash": "df3c911fcf7d5720",
       "lines": 112,
       "mtime": "2026-07-02T06:29:30.730Z"
+    },
+    "artifacts/api-server/src/lib/buildConstants.d.ts": {
+      "hash": "7e694586151243a4",
+      "lines": 16,
+      "mtime": "2026-07-07T06:42:52.005Z"
+    },
+    "artifacts/api-server/src/lib/buildInfo.ts": {
+      "hash": "9d7f5c46f439fef4",
+      "lines": 109,
+      "mtime": "2026-07-07T06:43:03.568Z"
     },
     "artifacts/api-server/src/lib/candleWarehouseIngestor.ts": {
       "hash": "1a4fe4fad0862adf",
@@ -1517,6 +1532,11 @@
       "lines": 104,
       "mtime": "2026-06-09T07:27:49.423Z"
     },
+    "artifacts/scanner/src/lib/buildMarkers.ts": {
+      "hash": "7d1e2ad038ae77a7",
+      "lines": 52,
+      "mtime": "2026-07-07T06:43:45.073Z"
+    },
     "artifacts/scanner/src/lib/charting/indicators.ts": {
       "hash": "55d16b95635b4ab4",
       "lines": 615,
@@ -1706,6 +1726,11 @@
       "hash": "a55ea67643295b89",
       "lines": 425,
       "mtime": "2026-06-04T09:32:34.893Z"
+    },
+    "scripts/src/verifyRelease.ts": {
+      "hash": "6a78014e860e219d",
+      "lines": 270,
+      "mtime": "2026-07-07T06:44:29.577Z"
     },
     "pnpm-workspace.yaml": {
       "hash": "368c68d39ef0267a",
