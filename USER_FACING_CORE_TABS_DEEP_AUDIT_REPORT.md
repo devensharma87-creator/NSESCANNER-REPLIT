@@ -888,3 +888,25 @@ Code-level proof confirmed via grep:
 | LLM index | ✅ 349 files fresh |
 
 **To reach PROD_VERIFIED:** Push 7 local commits to `origin/main` via GitHub credentials, then republish.
+
+---
+
+## P0-1 F&O COST MODEL UNIFICATION — PRODUCTION VERIFIED
+**Timestamp:** 2026-07-07T14:37 UTC  
+**Verdict: `FNO_COST_MODEL_UNIFICATION_PROD_VERIFIED`** ✅
+
+| Check | Value | Status |
+|---|---|---|
+| Production `commitShort` | `646e43be` | ✅ AFTER `4c54f2c` |
+| `bootTime` | 2026-07-07T14:34:23.730Z | ✅ NEW |
+| `buildTime` | 2026-07-07T14:31:27.607Z | ✅ NEW |
+| Production STT_RATE_SELL_PREMIUM | 0.0015 (0.15%) | ✅ CANONICAL |
+| Production EXCHANGE_TXN_RATE | 0.0003503 (0.03503%) | ✅ CANONICAL |
+| Production formula (28 trades) | 5716.90 − 7476.63 = −1759.73 | ✅ |
+| Golden number all 4 consumers | STT ₹54.38 · Exchange ₹23.21 | ✅ |
+| verify:release | 11 PASS \| 0 WARN \| 0 FAIL | ✅ |
+| 160 targeted tests | 160/160 PASS | ✅ |
+| 770 scanner tests | 770/770 PASS | ✅ |
+| typecheck + libs | CLEAN | ✅ |
+| fnoCostModelGuard violations | 0 | ✅ |
+| All checkpoints | true | ✅ |

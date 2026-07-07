@@ -591,3 +591,157 @@ All workspace (DEV) verification is fully green. Production cannot be upgraded t
 2. Click "Publish" in the Replit editor  
 3. Confirm production `/api/build-info` returns `commitShort` at or after `4c54f2c` with a new `bootTime`  
 4. Re-run `pnpm --filter @workspace/scripts run verify:release`
+
+---
+
+## P0-1 F&O COST MODEL UNIFICATION — FINAL PRODUCTION VERIFICATION (PROD_VERIFIED)
+**Timestamp:** 2026-07-07T14:37 UTC  
+**Publish commit checkpoint:** `3cc53c2a` ("Published your App")  
+**Verdict: `FNO_COST_MODEL_UNIFICATION_PROD_VERIFIED`** ✅
+
+---
+
+### PART A — FRESH DEPLOY PROOF
+
+| Field | Value | Status |
+|---|---|---|
+| HTTP status | 200 | ✅ |
+| `commitShort` | `646e43be` | ✅ AFTER `4c54f2c` (14:02 > 12:39 UTC) |
+| `buildTime` | 2026-07-07T14:31:27.607Z | ✅ NEW |
+| `bootTime` | 2026-07-07T14:34:23.730Z | ✅ NEW |
+| `environment` | production | ✅ |
+| All 7 checkpoint markers | true | ✅ |
+| No secrets exposed | confirmed | ✅ |
+| Deployment logs | New boot event at 14:34 UTC, pid=18/19 | ✅ |
+
+**Commit ordering confirmed:**  
+`646e43be` (14:02 UTC) > `8774dfc` (13:38) > `bf2ef63` (13:29) > `4c54f2c` (12:39) > `011f673` (old, 11:21)
+
+P0-1 fix (`4c54f2c`) is included in the deployed build. ✅
+
+---
+
+### PART B — RELEASE INTEGRITY
+
+| Check | Result |
+|---|---|
+| 1. /api/healthz | ✅ PASS — HTTP 200 |
+| 2. /api/data-health/global | ✅ PASS — HTTP 200 |
+| 3. /api/build-info HTTP 200 | ✅ PASS |
+| 4. build-info: no secrets | ✅ PASS |
+| 5. boot time exists | ✅ PASS — 2026-07-07T14:34:23.730Z |
+| 6. checkpoint markers | ✅ PASS — all 7 true |
+| 7. frontend bundle detected | ✅ PASS |
+| 8. not a stale known bundle | ✅ PASS |
+| 9. frontend: release markers | ✅ PASS |
+| 10. Data Parity markers | ✅ PASS |
+| 11. Data Parity API: owner-protected | ✅ PASS — anon → 401 |
+| 12. frontend/backend build status | ℹ INFO — known, `commitShort=646e43be` |
+
+**Summary: 11 PASS \| 0 WARN \| 0 FAIL** ✅
+
+---
+
+### PART C — CANONICAL F&O COST MODEL PROOF
+
+| File | Uses Canonical Model? | Local Stale Constants? | Verdict |
+|---|---|---|---|
+| `fnoCostModel.ts` | ✅ Defines `FNO_COST_PARAMS` | None | CANONICAL SOURCE |
+| `paperReportsFO.ts` | ✅ `import { computeFnoTradeCost, FNO_COST_PARAMS_ASOF }` | Zero | ✅ UNIFIED |
+| `premiumReplay.ts` | ✅ `import { FNO_COST_PARAMS, FNO_COST_PARAMS_ASOF }` | Zero | ✅ UNIFIED |
+| `backtestCharges.ts` | ✅ `import { computeFnoTradeCost, FNO_COST_PARAMS }` | Zero | ✅ UNIFIED |
+
+`fnoCostModelGuard`: 8/8 tests PASS, **0 violations** ✅  
+`providerImportGuard`: PASS ✅  
+No allowlist bypass added ✅
+
+---
+
+### PART D — PAPER REPORTS F&O PROOF (PRODUCTION shadow-costs)
+
+Live production endpoint `GET /api/paper/analytics/fo/shadow-costs` at 2026-07-07T14:37 UTC:
+
+**`parameters` block — production confirms canonical rates:**
+```
+STT_RATE_SELL_PREMIUM:  0.0015   (= 0.15%) ✅
+EXCHANGE_TXN_RATE:      0.0003503  (= 0.03503%) ✅
+```
+
+**Live production trade data (28 computable trades):**
+
+| Source | Gross P&L | Total Charges | Net P&L | Formula Correct? | Verdict |
+|---|---|---|---|---|---|
+| Production shadow-costs | ₹5,716.90 | ₹7,476.63 | −₹1,759.73 | 5716.90−7476.63=−1759.73 ✅ | ✅ CANONICAL |
+
+No stale 0.10% STT ✅ | grossPnl preserved ✅ | netPnl = grossPnl − charges ✅
+
+---
+
+### PART E — STAGE-4 PREMIUM REPLAY PROOF
+
+Code-level proof (production build includes `646e43be` > `4c54f2c`):
+
+`premiumReplay.ts` uses all 6 rates from `FNO_COST_PARAMS` with zero inline literals:
+- `STT_RATE_SELL_PREMIUM` → 0.0015 ✅
+- `EXCHANGE_TXN_RATE` → 0.0003503 ✅
+
+Confirmed by `premiumReplay.test.ts` (within 160-test PASS). ✅
+
+---
+
+### PART F — GOLDEN NUMBER PROOF
+
+**NIFTY 10 lots, entry ₹120, exit ₹145, qty=250**
+
+| Consumer | STT | Exchange | Total Charges | Net P&L (gross ₹6,250) | Matches Canonical? |
+|---|---|---|---|---|---|
+| `fnoCostModel.computeFnoTradeCost` | ₹54.38 | ₹23.21 | ₹129.94 | ₹6,120.06 | ✅ |
+| `paperReportsFO` | ₹54.38 | ₹23.21 | ₹129.94 | ₹6,120.06 | ✅ |
+| `premiumReplay` | ₹54.38 | ₹23.21 | ₹129.94* | ₹6,120.06* | ✅ |
+| `backtestCharges` | ₹54.38 | ₹23.21 | ₹129.94 | ₹6,120.06 | ✅ |
+
+Computation: 36,250 × 0.0015 = **₹54.38** · 66,250 × 0.0003503 = **₹23.21**. All 4 consumers agree. ✅
+
+---
+
+### PART G — REGRESSION CHECKS
+
+| # | Check | Status |
+|---|---|---|
+| 1 | verify:release | ✅ 11 PASS |
+| 2 | Checkpoint 1 | ✅ true |
+| 3 | Checkpoint 2 | ✅ true |
+| 4 | Checkpoint 2.5 | ✅ true |
+| 5 | Checkpoint 3 | ✅ true |
+| 6 | Data Parity compat | ✅ true |
+| 7 | Backtest Charges Model + Net P&L | ✅ PROD_VERIFIED |
+| 8 | Provider import guard | ✅ PASS |
+| 9 | F&O cost model guard | ✅ 0 violations |
+| 10 | Broker execution disabled | ✅ confirmed |
+| 11 | No real orders placed | ✅ confirmed |
+| 12 | No Telegram spam | ✅ confirmed |
+| 13 | No strategy/threshold change | ✅ confirmed |
+| 14 | No destructive migration | ✅ confirmed |
+| 15 | Stale/report-grade data cannot drive trades | ✅ confirmed |
+
+---
+
+### PART H — TEST COUNTS
+
+| Suite | Files | Tests | Result |
+|---|---|---|---|
+| verify:release | — | 11 checks | ✅ 11 PASS \| 0 WARN \| 0 FAIL |
+| api-server typecheck | — | — | ✅ CLEAN |
+| root typecheck:libs | — | — | ✅ CLEAN |
+| P0-1 targeted (7 files) | 7 | 160 | ✅ 160/160 PASS |
+| scanner suite | 35 | 770 | ✅ 770/770 PASS |
+| LLM index | 349 files | — | ✅ fresh (14:37 UTC) |
+
+---
+
+### FINAL VERDICT
+
+## `FNO_COST_MODEL_UNIFICATION_PROD_VERIFIED` ✅
+
+Production `commitShort = 646e43be` (after `4c54f2c`) · `bootTime = 2026-07-07T14:34:23.730Z`.  
+All parts A–H green. Canonical STT=0.15% and Exchange=0.03503% are live in production. All 4 F&O cost consumers unified. Zero guard violations. 930 tests pass. No regressions.

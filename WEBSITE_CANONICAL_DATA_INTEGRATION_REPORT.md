@@ -2354,3 +2354,13 @@ Production `commitShort` remains `011f6733` (bootTime 2026-07-07T11:51:04.797Z).
 2. Republish from Replit editor
 3. Confirm production `/api/build-info` → `commitShort` ≥ `4c54f2c`, new `bootTime`
 4. Re-run `pnpm --filter @workspace/scripts run verify:release`
+
+---
+
+## P0-1 F&O COST MODEL UNIFICATION — PRODUCTION VERIFIED
+**Timestamp:** 2026-07-07T14:37 UTC  
+**Verdict: `FNO_COST_MODEL_UNIFICATION_PROD_VERIFIED`** ✅
+
+Production `commitShort = 646e43be` (after `4c54f2c`), `bootTime = 2026-07-07T14:34:23.730Z`.  
+Production shadow-costs: STT=0.0015, EXCH=0.0003503 confirmed live across 28 trades.  
+Formula: 5716.90 − 7476.63 = −1759.73 ✅. All 4 F&O cost consumers unified. 930 tests pass. Zero regressions.
