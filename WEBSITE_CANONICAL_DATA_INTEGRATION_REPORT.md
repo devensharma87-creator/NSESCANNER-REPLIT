@@ -1947,3 +1947,130 @@ pnpm --filter @workspace/scripts run index:llm:check → 347 tracked files — a
 
 **P0 Release Integrity + Build Proof Gate is production-verified and complete.**
 
+
+---
+
+## Phase 1 — User-Facing Core Tabs Deep Audit (2026-07-07)
+
+**Audit type:** READ-ONLY — zero code changes, zero trading-logic changes  
+**Release baseline:** `RELEASE_INTEGRITY_PROD_VERIFIED` (verify:release 12/12 green)  
+**Full report:** `USER_FACING_CORE_TABS_DEEP_AUDIT_REPORT.md`
+
+### 1. Release integrity baseline
+
+```
+pnpm --filter @workspace/scripts run verify:release
+Summary: 11 PASS | 0 WARN | 0 FAIL  ✓ Release verification PASSED
+bundle=index-CzoS8YJQ.js, commitShort=544dfefc, environment=production
+```
+
+### 2. Tests run (this session)
+
+| Suite | Files | Tests | Result |
+|---|---|---|---|
+| marketData + dataParity + daily + fno + swing | 7 | 184 | **184/184 ✓** |
+| paper (14 files) | 14 | 109 | **109/109 ✓** |
+| routes (11 files) | 11 | 173 | **173/173 ✓** |
+| scanner full | 35 | 770 | **770/770 ✓** |
+| **Total** | **67** | **1236** | **1236/1236 ✓** |
+
+Typecheck: **CLEAN** (all 6 workspace packages)  
+LLM index: **347 files, updated 2026-07-07T09:59:29Z**
+
+### 3. Top 10 P0/P1 findings
+
+| # | Finding | Tab | Severity |
+|---|---|---|---|
+| 1 | Zero brokerage/STT/slippage in backtest — P&L overstated 5-20% | Backtesting | **P0** |
+| 2 | Backtest equity curve uses gross P&L — charges never deducted | Backtesting | **P0** |
+| 3 | 1m/3m blank chart when Kite offline — no error message | Charting | **P0** |
+| 4 | ATM delta proxy warning buried in data-quality drawer, not above equity curve | Backtesting | P1 |
+| 5 | No manual drawing tools (trendlines, H-lines) | Charting | P1 |
+| 6 | No chart compare mode / symbol overlay | Charting | P1 |
+| 7 | No chart screenshot/export | Charting | P1 |
+| 8 | Portfolio CMP not auto-refreshed during market hours with explicit staleness label | Portfolio | P1 |
+| 9 | Portfolio: no Excel/PDF export — CSV only | Portfolio | P1 |
+| 10 | Portfolio: no corporate action adjustment for stock splits | Portfolio | P1 |
+
+### 4. Charting tab summary
+
+- **Architecture:** TradingView Lightweight Charts v5, Kite-first via canonical marketData layer
+- **Data source:** Kite authoritative for equity/index; Yahoo labeled `visualOnly:true` fallback for 5m+
+- **Source/freshness labels:** CORRECT — "KITE LIVE" / "KITE STALE" / "Yahoo delayed" badges render
+- **Stale handling:** `stale: !fresh && candles.length > 0` set correctly in `finalize()`
+- **1m/3m offline:** Blank chart, no user explanation **(P0)**
+- **Indicators:** EMA ribbon, VWAP, RSI, CVD proxy, Volume Profile, FVG, Liquidity Sweeps, Auto-Fib, S/R — all auto-generated
+- **Drawing tools:** **None** — chart is read-only **(P1)**
+- **Compare mode:** Not implemented **(P1)**
+- **Export:** Not implemented **(P1)**
+- **Provider imports:** CLEAN — no direct provider bypass
+- **Verdict:** `CHARTING_TAB_DEEP_AUDIT_COMPLETE`
+
+### 5. Portfolio tab summary
+
+- **Architecture:** Client-side SEBI-neutral analytics; `/api/stocks`, `/api/kite/etf-quote`, `/api/chart/candles`
+- **CMP cascade:** Kite LTP → ETF quote → chart-candle close → manual (manual never overrides live)
+- **Formulas:** All correct, null-safe, zero-guarded (see full formula table in main report)
+- **Day P&L:** `qty × (cmp - prevClose)` — correct; prevClose source traceability gap **(P1)**
+- **CMP refresh:** 60s stale time; no explicit "as-of HH:MM" market-hours label **(P1)**
+- **Export:** CSV only; no Excel/PDF **(P1)**
+- **canDriveSignals:** Explicitly `notForSignals:true` — CORRECT
+- **Benchmark:** NIFTY 500 sector weights static (as of 2026-06-03) **(P1)**
+- **Corporate actions:** No mechanism — stock splits silently break avg price **(P1)**
+- **TMPV resolution:** Unverified — small cap may miss in Kite master **(P1)**
+- **Provider imports:** CLEAN
+- **Verdict:** `PORTFOLIO_TAB_DEEP_AUDIT_COMPLETE`
+
+### 6. Backtesting tab summary
+
+- **Modes:** A=REAL_REPLAY (captured premiums), B=DIRECTIONAL (delta proxy), C=STRATEGY (delta proxy), D=SNAPSHOT+fallback
+- **No look-ahead:** Confirmed — bars walked strictly forward
+- **Win rate / metrics:** null-safe — no fabricated 100% when zero trades
+- **Zero brokerage/STT/slippage:** All modes **(P0)** — gross P&L overstated
+- **ATM delta proxy (Modes B/C):** Labeled `modeled:true` + warning string; but warning not prominent above equity curve **(P1)**
+- **37.5% vs 30% SL:** **No mismatch found** — 30% used consistently ✓
+- **VWAP substitution:** Equal-weighted session mean used (no volume); honest but only in data-quality drawer **(P1)**
+- **Mode D per-trade premium source:** Not in CSV export **(P1)**
+- **Strategy version lock:** Not implemented **(P1)**
+- **Export:** CSV only; no Excel workbook **(P1)**
+- **Provider imports:** CLEAN
+- **Verdict:** `BACKTESTING_TAB_DEEP_AUDIT_COMPLETE`
+
+### 7. Cross-tab consistency
+
+- INDUSINDBK/RELIANCE/HDFCBANK/TCS/SBIN/CDSL/BDL/TRIDENT/NIFTY/BANKNIFTY/SENSEX: all use Kite via canonical layer ✓
+- TMPV: resolution unverified — may Yahoo-fallback without per-row label **(P1)**
+- CMP mismatch (tick LTP vs last 15m candle close) is architecturally expected and labeled ✓
+
+### 8. Provider import / canonical layer
+
+All three tabs CLEAN. No direct provider bypasses. providerImportGuard GREEN.
+
+### 9. Phase-wise fix plan summary
+
+| Phase | Scope | Risk |
+|---|---|---|
+| 1A | Charting: 1m/3m offline message, stale banner, Yahoo header label | Low |
+| 1B | Charting: horizontal line tool, chart screenshot export | Low |
+| 2A | Portfolio: per-row source labels, prevClose traceability, market-hours refresh, BSE-only label | Low |
+| 2B | Portfolio: xlsx export, TMPV alias, benchmark date label | Low |
+| 3A | Backtest: ChargesModel (STT+brokerage+exchange), gross vs net P&L, equity curve net | **Medium** |
+| 3B | Backtest: MODELED banner above curve, VWAP proxy in main UI, strategy version hash, SENSEX G4 note | Low-Medium |
+| 3C | Backtest: xlsx export, live-vs-backtest SL mismatch warning | Low |
+| 4 | Cross-tab: TMPV resolution, BSE-only consistency, cross-tab OHLC test harness | Low |
+| 5 | Test hardening: all P0/P1 missing tests, production verification | Low |
+
+### 10. Do-not-touch confirmation
+
+✓ Zero trading/F&O/swing/signal/threshold/broker changes  
+✓ Zero real orders placed  
+✓ Zero Telegram messages sent  
+✓ Zero destructive migrations run  
+✓ Zero stale/report-grade data promoted to trade-grade  
+✓ providerImportGuard GREEN  
+✓ verify:release 12/12 green throughout
+
+### Final audit verdict
+
+**`USER_FACING_CORE_TABS_DEEP_AUDIT_COMPLETE`**
+

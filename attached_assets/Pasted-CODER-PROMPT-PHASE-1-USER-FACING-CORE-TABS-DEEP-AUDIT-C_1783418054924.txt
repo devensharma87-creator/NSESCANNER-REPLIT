@@ -1,0 +1,671 @@
+CODER PROMPT — PHASE 1 USER-FACING CORE TABS DEEP AUDIT
+
+Current confirmed production status:
+
+RELEASE_INTEGRITY_PROD_VERIFIED
+
+verify:release = 12/12 PASS
+/api/build-info is live
+Frontend release markers are live
+Bundle proof = index-CzoS8YJQ.js
+Checkpoint 1 = PROD_VERIFIED
+Checkpoint 2 = PROD_VERIFIED
+Checkpoint 2.5 = PROD_VERIFIED
+Checkpoint 3 = PROD_VERIFIED
+Data Parity provider-import compat = PROD_VERIFIED
+Provider import guard = GREEN
+Broker execution = DISABLED
+Real orders = 0
+Telegram spam = 0
+
+Now start:
+
+PHASE 1 — USER-FACING CORE TABS DEEP AUDIT
+
+Tabs to audit:
+
+1. Charting Tab
+2. Portfolio Tab
+3. Backtesting Tab
+
+This is an AUDIT-ONLY task.
+
+Do not write feature code.
+Do not start fixes.
+Do not change trading logic.
+Do not change strategy thresholds.
+Do not change F&O logic.
+Do not change Swing logic.
+Do not change Auto Strong Buy logic.
+Do not change SL/target formulas.
+Do not enable broker execution.
+Do not place real orders.
+Do not send Telegram test messages.
+Do not perform destructive migrations.
+Do not delete rows.
+Do not ask for owner/admin password.
+Do not weaken trade-grade checks.
+Do not allow stale/report-grade data to drive signals.
+Do not allow stale/report-grade data to drive paper trades.
+Do not expand scope into scanner, option-chain, OI Lab, Telegram, or reports unless required only for cross-tab audit.
+Do not mark anything complete without hard evidence.
+
+====================================================
+MAIN OBJECTIVE
+====================================================
+
+Perform a professional, line-by-line, route-by-route, data-path-by-data-path audit of the three major user-facing tabs:
+
+1. Charting Tab
+2. Portfolio Tab
+3. Backtesting Tab
+
+The goal is to identify every issue before coding:
+
+- broken UI,
+- weak user experience,
+- wrong data source,
+- duplicate data source,
+- stale data,
+- fake/synthetic data,
+- missing source/as-of/freshness labels,
+- calculation mistakes,
+- wrong P&L formula,
+- weak or fake recommendations,
+- unsafe backtesting assumptions,
+- hidden Yahoo/proxy usage,
+- provider import bypasses,
+- mismatch with canonical data layer,
+- mismatch across tabs for same symbol,
+- missing tests,
+- missing professional trader features,
+- missing export/reporting capability.
+
+Do not fix anything in this phase.
+
+Only audit, document, classify severity, and create a phase-wise implementation plan.
+
+====================================================
+GLOBAL DATA RULES FOR ALL THREE TABS
+====================================================
+
+Apply these rules everywhere:
+
+1. Kite / governed canonical layer is trade-grade priority.
+2. Yahoo/proxy/display-only data must never drive signals.
+3. Report-grade data must never drive paper trades.
+4. Stale data must be shown honestly.
+5. Missing data must be shown honestly.
+6. Synthetic/modelled data must be clearly labeled.
+7. No fake CMP.
+8. No fake OHLC.
+9. No fake option premium.
+10. No fake recommendation.
+11. No fake backtest fill.
+12. No fake P&L.
+13. Same symbol + same timeframe must not show different OHLC across tabs.
+14. Same stock must resolve consistently across Charting, Portfolio, Scanner, Watchlist, Backtesting.
+15. Every data point should have source/as-of/freshness where technically possible.
+16. If a tab uses display-grade data, it must be labeled display/report-grade and cannot drive trade logic.
+
+Severity classification:
+
+P0 = wrong, misleading, unsafe, fake, stale-as-live, or trade-impacting  
+P1 = major professional gap or major missing feature  
+P2 = useful improvement but not dangerous  
+INFO = acceptable/current behavior but document clearly
+
+====================================================
+PART A — RELEASE INTEGRITY BASELINE CHECK
+====================================================
+
+Before auditing tabs, verify the release gate remains clean.
+
+Run:
+
+pnpm --filter @workspace/scripts run verify:release
+
+Expected:
+
+12/12 PASS
+
+Also check:
+
+GET /api/build-info
+
+Confirm:
+
+- HTTP 200
+- environment = production
+- checkpoint markers true
+- no secrets
+- frontend markers live
+- broker execution disabled
+- no real orders
+- no Telegram spam
+
+If verify:release fails, stop and report:
+
+RELEASE_INTEGRITY_REGRESSION_FOUND
+
+Do not continue tab audit until release integrity is green.
+
+====================================================
+PART B — CHARTING TAB DEEP AUDIT
+====================================================
+
+Audit the complete Charting tab.
+
+Find and document all files, components, hooks, routes, services, API endpoints, and data providers used by the Charting tab.
+
+Check at minimum:
+
+1. Route/page/component structure.
+2. Chart rendering library.
+3. Symbol search/autocomplete.
+4. NSE/BSE symbol resolution.
+5. Index symbol support: NIFTY, BANKNIFTY, SENSEX.
+6. F&O symbol/contract charting support.
+7. Candle API endpoint.
+8. Intraday candle source.
+9. Daily candle source.
+10. Historical candle source.
+11. OHLC calculation.
+12. Volume source.
+13. Timeframe support.
+14. Candle freshness.
+15. Source/as-of/freshness badge.
+16. Trade-grade vs display-grade label.
+17. Stale candle warning.
+18. Missing candle handling.
+19. Loading state.
+20. Empty state.
+21. Error state.
+22. Crosshair OHLC display.
+23. Indicator support.
+24. Indicator calculation correctness.
+25. Indicator data source.
+26. Drawing tools.
+27. Support/resistance tools.
+28. Trendline tools.
+29. Fibonacci tools.
+30. Horizontal/vertical line tools.
+31. Compare mode.
+32. Chart snapshot/export.
+33. Mobile/responsive layout.
+34. Whether Yahoo/proxy/raw provider is used.
+35. Whether direct provider imports bypass canonical layer.
+36. Whether chart data can be stale but shown as live.
+37. Whether same symbol/timeframe OHLC matches scanner/watchlist/portfolio/backtest.
+
+Required Charting audit table:
+
+| Area | File/Route | Current Behavior | Data Source | Issue | Severity | Required Fix |
+|---|---|---|---|---|---|---|
+
+Also provide a professional feature gap table:
+
+| Feature | Exists? | Quality | Gap | Severity |
+|---|---:|---|---|---|
+
+Required Charting expected audit verdict:
+
+CHARTING_TAB_DEEP_AUDIT_COMPLETE
+
+====================================================
+PART C — PORTFOLIO TAB DEEP AUDIT
+====================================================
+
+Audit the complete Portfolio tab.
+
+Find and document all files, components, hooks, routes, services, database tables, formulas, and data providers used by Portfolio.
+
+Check at minimum:
+
+1. Route/page/component structure.
+2. Holdings data model.
+3. Manual add flow.
+4. Manual edit/delete flow.
+5. Symbol autocomplete.
+6. Full Kite instrument master usage.
+7. NSE/BSE exchange resolution.
+8. BSE-only stock support.
+9. Alias handling, including TMPV/TMCV-like cases.
+10. CMP source.
+11. Previous close source.
+12. Day P&L formula.
+13. Total P&L formula.
+14. Average price handling.
+15. Quantity handling.
+16. Current value formula.
+17. Invested value formula.
+18. Holding weight formula.
+19. Portfolio total P&L.
+20. Portfolio day P&L.
+21. Sector allocation.
+22. Market cap allocation.
+23. Risk/concentration analysis.
+24. Benchmark comparison.
+25. Benchmark source.
+26. Recommendation panel.
+27. Whether recommendation is real/rule-based/fake.
+28. Whether recommendation has evidence.
+29. Whether portfolio can incorrectly drive signals.
+30. Whether portfolio source is incorrectly marked trade-grade.
+31. Source/as-of/freshness label.
+32. Stale CMP warning.
+33. Corporate action adjustment gaps.
+34. Import/export support.
+35. Excel/PDF export gaps.
+36. Empty state.
+37. Error state.
+38. Mobile/responsive layout.
+39. Whether Yahoo/proxy/raw provider is used.
+40. Whether direct provider imports bypass canonical layer.
+41. Whether CMP matches Charting/Scanner/Watchlist for same symbol.
+
+Required Portfolio audit table:
+
+| Area | File/Route | Current Behavior | Formula/Source | Issue | Severity | Required Fix |
+|---|---|---|---|---|---|---|
+
+Required Portfolio formula table:
+
+| Calculation | Current Formula | Correct Formula Needed | Issue | Severity |
+|---|---|---|---|---|
+
+Required Portfolio expected audit verdict:
+
+PORTFOLIO_TAB_DEEP_AUDIT_COMPLETE
+
+====================================================
+PART D — BACKTESTING TAB DEEP AUDIT
+====================================================
+
+Audit the complete Backtesting tab.
+
+This area requires strict honesty because fake backtests are dangerous and misleading.
+
+Find and document all files, components, hooks, routes, services, engines, strategy files, pricing assumptions, database tables, and export logic used by Backtesting.
+
+Check at minimum:
+
+1. Route/page/component structure.
+2. Strategy selection.
+3. Strategy version lock.
+4. Whether backtest strategy matches live strategy.
+5. Historical candle source.
+6. Candle freshness/provenance.
+7. Option premium source.
+8. Whether option premium is real chain / modelled / synthetic.
+9. Whether synthetic proxy is clearly labeled.
+10. Whether Black-Scholes/modelled pricing is clearly labeled.
+11. Whether fixed delta proxy is used.
+12. Known SL mismatch risk, including 37.5% vs 30% issue.
+13. Entry rule trace.
+14. Exit rule trace.
+15. SL formula.
+16. Target formula.
+17. Trailing stop logic if any.
+18. Expiry calendar source.
+19. Lot size source.
+20. Brokerage model.
+21. STT/tax/charges model.
+22. Slippage model.
+23. Spread model.
+24. Execution assumption.
+25. Gap-up/gap-down handling.
+26. Intraday candle alignment.
+27. Option chain availability.
+28. Trade fill assumptions.
+29. Whether fake historical fills are possible.
+30. Index-wise backtest.
+31. Date-wise backtest.
+32. Trade-wise report.
+33. P&L summary.
+34. Max drawdown.
+35. Win rate.
+36. Profit factor.
+37. Expectancy.
+38. Risk/reward.
+39. Export to Excel.
+40. Whether stale/display-grade data can be used.
+41. Whether backtest output visually overstates confidence.
+42. Whether backtest can be confused with live-tested result.
+
+Required Backtesting audit table:
+
+| Area | File/Route | Current Behavior | Assumption/Source | Issue | Severity | Required Fix |
+|---|---|---|---|---|---|---|
+
+Required Backtesting honesty table:
+
+| Pricing Mode | Used? | Label Present? | Risk | Required Fix |
+|---|---:|---:|---|---|
+
+Modes:
+
+- REAL_CHAIN
+- BLACK_SCHOLES_MODELLED
+- SYNTHETIC_DELTA_PROXY
+- UNKNOWN
+
+Required Backtesting expected audit verdict:
+
+BACKTESTING_TAB_DEEP_AUDIT_COMPLETE
+
+====================================================
+PART E — CROSS-TAB DATA CONSISTENCY AUDIT
+====================================================
+
+Check whether the same symbol shows the same core data across:
+
+1. Charting
+2. Portfolio
+3. Scanner
+4. Watchlist
+5. Backtesting
+6. Stock detail page if available
+
+Test symbols:
+
+1. INDUSINDBK
+2. RELIANCE
+3. HDFCBANK
+4. TCS
+5. SBIN
+6. CDSL
+7. BDL
+8. TRIDENT
+9. TMPV
+10. NIFTY
+11. BANKNIFTY
+12. SENSEX
+
+Check:
+
+- symbol resolution,
+- exchange resolution,
+- CMP,
+- previous close,
+- daily OHLC,
+- intraday OHLC where available,
+- source,
+- source-as-of,
+- freshness,
+- tradeGrade/reportGrade,
+- canDriveSignals,
+- canDrivePaperTrades.
+
+Required cross-tab table:
+
+| Symbol | Chart Source/OHLC | Portfolio CMP | Scanner CMP | Watchlist CMP | Backtest Candle | Match? | Issue | Severity |
+|---|---|---|---|---|---|---:|---|---|
+
+If values differ, identify exact reason.
+
+====================================================
+PART F — PROVIDER IMPORT / CANONICAL LAYER AUDIT
+====================================================
+
+Run provider import guard.
+
+Find direct imports in Charting, Portfolio, and Backtesting from:
+
+- kiteFeed
+- kiteAuth
+- raw Kite clients
+- Yahoo clients
+- raw provider clients
+- ungoverned quote sources
+- ungoverned candle sources
+- synthetic fallback sources
+
+Required provider table:
+
+| File | Module | Direct Provider Import | Allowed? | Existing Allowlist? | Severity | Required Fix |
+|---|---|---|---:|---:|---|---|
+
+No allowlist growth without explicit justification.
+
+If a direct provider import exists in a user-facing tab, classify it at least P1, or P0 if it can affect trade-grade/signals/paper trades.
+
+====================================================
+PART G — UI/UX PROFESSIONAL GAP AUDIT
+====================================================
+
+Compare each tab with professional user expectations.
+
+Charting should be judged against a TradingView-like professional expectation.
+
+Portfolio should be judged against a serious investor/trader portfolio dashboard.
+
+Backtesting should be judged against an honest strategy research engine.
+
+Required UI/UX table:
+
+| Tab | Missing Feature | Current Impact | Severity | Required Fix |
+|---|---|---|---|---|
+
+Minimum features to evaluate:
+
+Charting:
+- multi-timeframe,
+- volume,
+- indicators,
+- drawing tools,
+- crosshair,
+- OHLC box,
+- source/freshness,
+- stale warning,
+- F&O contract chart,
+- index chart,
+- compare mode,
+- export/screenshot,
+- Pine-style custom indicator feasibility.
+
+Portfolio:
+- holdings table,
+- clean add/edit/delete,
+- P&L accuracy,
+- allocation,
+- risk,
+- recommendation evidence,
+- benchmark,
+- source/freshness,
+- stale warning,
+- import/export,
+- mobile layout.
+
+Backtesting:
+- strategy version lock,
+- assumptions panel,
+- pricing mode label,
+- charges/slippage,
+- trade logs,
+- metrics,
+- drawdown,
+- Excel export,
+- realistic warnings,
+- live-vs-backtest mismatch warning.
+
+====================================================
+PART H — TEST COVERAGE AUDIT
+====================================================
+
+Identify current tests and missing tests for:
+
+1. Charting tab.
+2. Portfolio tab.
+3. Backtesting tab.
+4. Symbol resolution.
+5. Candle source.
+6. OHLC consistency.
+7. CMP consistency.
+8. Portfolio P&L formulas.
+9. Allocation formulas.
+10. Recommendation logic.
+11. Backtest entry/exit rules.
+12. Backtest SL/target.
+13. Backtest charges/slippage.
+14. Backtest pricing mode labels.
+15. Export logic.
+16. Provider import guard.
+17. Source/as-of/freshness labels.
+18. Stale data warnings.
+
+Required test coverage table:
+
+| Area | Existing Tests | Missing Tests | Required New Tests | Severity |
+|---|---:|---|---|---|
+
+====================================================
+PART I — PHASE-WISE FIX PLAN
+====================================================
+
+After the audit, propose the correct implementation sequence.
+
+Do not implement fixes yet.
+
+Expected phase structure:
+
+Phase 1A — Charting canonical candle/source/freshness fixes  
+Phase 1B — Charting professional UI tools and indicators  
+Phase 2A — Portfolio canonical valuation and P&L fixes  
+Phase 2B — Portfolio analytics/recommendations/export  
+Phase 3A — Backtesting honesty/source/pricing labels  
+Phase 3B — Backtesting realistic P&L, charges, slippage, exports  
+Phase 4 — Cross-tab consistency enforcement  
+Phase 5 — Test hardening and production verification
+
+Required implementation plan table:
+
+| Phase | Scope | Files Likely Touched | Risk | Tests Needed | Expected Verdict |
+|---|---|---|---|---|---|
+
+Do not recommend doing all tabs together.
+
+Fix order must be one controlled phase at a time.
+
+====================================================
+PART J — REPORT REQUIRED
+====================================================
+
+Update:
+
+WEBSITE_CANONICAL_DATA_INTEGRATION_REPORT.md
+
+Add a new section:
+
+PHASE 1 — USER-FACING CORE TABS DEEP AUDIT
+
+Include:
+
+1. Release integrity baseline result.
+2. Charting tab deep audit.
+3. Portfolio tab deep audit.
+4. Backtesting tab deep audit.
+5. Cross-tab data consistency findings.
+6. Provider import / canonical layer findings.
+7. Source/as-of/freshness gaps.
+8. Calculation/formula gaps.
+9. UI/UX professional gaps.
+10. Test coverage gaps.
+11. Phase-wise implementation plan.
+12. Do-not-touch confirmation.
+13. Final audit verdict.
+
+Also create or update a dedicated audit report if appropriate:
+
+USER_FACING_CORE_TABS_DEEP_AUDIT_REPORT.md
+
+But the main integration report must still be updated.
+
+====================================================
+COMMANDS TO RUN
+====================================================
+
+Run:
+
+pnpm --filter @workspace/scripts run verify:release
+
+pnpm --filter @workspace/api-server run typecheck
+
+pnpm --filter @workspace/api-server run typecheck:libs
+
+pnpm --filter @workspace/api-server exec vitest run src/lib/*marketData*.test.ts src/lib/*dataParity*.test.ts src/lib/*paper*.test.ts src/lib/*swing*.test.ts src/lib/*fno*.test.ts src/routes/**/*.test.ts
+
+pnpm --filter @workspace/scanner exec vitest run
+
+pnpm --filter @workspace/scripts run index:llm
+
+pnpm --filter @workspace/scripts run index:llm:check
+
+If any command times out, run in smaller batches and report exact counts.
+
+Do not summarize partial tests as green.
+
+====================================================
+FINAL VERDICT
+====================================================
+
+Final verdict must be exactly one:
+
+- USER_FACING_CORE_TABS_DEEP_AUDIT_COMPLETE
+- USER_FACING_CORE_TABS_AUDIT_PARTIAL_GAP_REMAINS
+- RELEASE_INTEGRITY_REGRESSION_FOUND
+- ROLLBACK_REQUIRED
+
+Use:
+
+USER_FACING_CORE_TABS_DEEP_AUDIT_COMPLETE
+
+only if all of the following are documented:
+
+1. Charting tab audit.
+2. Portfolio tab audit.
+3. Backtesting tab audit.
+4. Cross-tab consistency audit.
+5. Provider import/canonical layer audit.
+6. UI/UX professional gap audit.
+7. Test coverage audit.
+8. Phase-wise fix plan.
+9. verify:release remains green.
+10. No trading/broker/Telegram/destructive changes occurred.
+
+Use:
+
+USER_FACING_CORE_TABS_AUDIT_PARTIAL_GAP_REMAINS
+
+if any tab or audit area is incomplete.
+
+Use:
+
+RELEASE_INTEGRITY_REGRESSION_FOUND
+
+if verify:release fails.
+
+Use:
+
+ROLLBACK_REQUIRED
+
+if secrets leak, broker execution turns on, real orders are placed, Telegram spam occurs, stale/report-grade data can drive trades, or destructive changes occur.
+
+====================================================
+EXPECTED OUTPUT FORMAT
+====================================================
+
+Return a professional summary with:
+
+1. Final verdict.
+2. Tests run and counts.
+3. Top 10 P0/P1 findings.
+4. Charting tab audit summary.
+5. Portfolio tab audit summary.
+6. Backtesting tab audit summary.
+7. Cross-tab consistency summary.
+8. Provider import summary.
+9. Missing tests summary.
+10. Recommended next implementation phase.
+
+Do not start implementation until owner approves the next phase.
