@@ -3,8 +3,23 @@ import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import path from "path";
 import runtimeErrorOverlay from "@replit/vite-plugin-runtime-error-modal";
+import { execSync } from "node:child_process";
 
 const isBuild = process.argv.includes("build");
+
+function gitValue(cmd: string): string {
+  try {
+    return execSync(cmd, { encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] }).trim();
+  } catch {
+    return "unknown";
+  }
+}
+
+const commitShort = (() => {
+  const sha = gitValue("git rev-parse HEAD");
+  return sha !== "unknown" ? sha.slice(0, 8) : "unknown";
+})();
+const frontendBuildTime = new Date().toISOString();
 
 const rawPort = process.env.PORT;
 
@@ -24,6 +39,10 @@ const basePath = process.env.BASE_PATH ?? "/";
 
 export default defineConfig({
   base: basePath,
+  define: {
+    __APP_BUILD_ID__:        JSON.stringify(`fe-${commitShort}-${frontendBuildTime.slice(0, 10)}`),
+    __FRONTEND_BUILD_TIME__: JSON.stringify(frontendBuildTime),
+  },
   plugins: [
     react(),
     tailwindcss(),

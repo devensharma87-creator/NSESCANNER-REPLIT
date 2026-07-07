@@ -73,6 +73,7 @@ interface PublicRoute {
 }
 const PUBLIC_ROUTES: PublicRoute[] = [
   { path: "/api/healthz" },
+  { path: "/api/build-info", methods: ["GET"] },        // PUBLIC: safe build/deploy identity (no secrets); release integrity proof gate
   { path: "/api/auth/" },
   { path: "/api/kite/callback" },                       // Zerodha redirect (auth = request_token + KITE_API_SECRET)
   { path: "/api/kite/export-session", methods: ["GET"] }, // Cross-env mirror; gated by X-App-Password header inside the route

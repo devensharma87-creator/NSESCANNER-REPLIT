@@ -4,11 +4,28 @@ import { fileURLToPath } from "node:url";
 import { build as esbuild } from "esbuild";
 import esbuildPluginPino from "esbuild-plugin-pino";
 import { rm } from "node:fs/promises";
+import { execSync } from "node:child_process";
 
 // Plugins (e.g. 'esbuild-plugin-pino') may use `require` to resolve dependencies
 globalThis.require = createRequire(import.meta.url);
 
 const artifactDir = path.dirname(fileURLToPath(import.meta.url));
+
+/** Safely read a git value; returns "unknown" if git is unavailable. */
+function gitValue(cmd) {
+  try {
+    return execSync(cmd, { encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] }).trim();
+  } catch {
+    return "unknown";
+  }
+}
+
+const COMMIT_SHA   = gitValue("git rev-parse HEAD");
+const COMMIT_SHORT = COMMIT_SHA !== "unknown" ? COMMIT_SHA.slice(0, 8) : "unknown";
+const GIT_BRANCH   = gitValue("git rev-parse --abbrev-ref HEAD");
+const BUILD_TIME   = new Date().toISOString();
+
+console.log(`[build] commit=${COMMIT_SHORT} branch=${GIT_BRANCH} buildTime=${BUILD_TIME}`);
 
 async function buildAll() {
   const distDir = path.resolve(artifactDir, "dist");
@@ -102,6 +119,13 @@ async function buildAll() {
       "electron",
     ],
     sourcemap: "linked",
+    define: {
+      __COMMIT_SHA__:       JSON.stringify(COMMIT_SHA),
+      __COMMIT_SHORT__:     JSON.stringify(COMMIT_SHORT),
+      __GIT_BRANCH__:       JSON.stringify(GIT_BRANCH),
+      __BUILD_TIME__:       JSON.stringify(BUILD_TIME),
+      __FRONTEND_BUILD_ID__: JSON.stringify("unknown"),   // set by Vite build; api-server doesn't build the frontend
+    },
     plugins: [
       // pino relies on workers to handle logging, instead of externalizing it we use a plugin to handle it
       esbuildPluginPino({ transports: ["pino-pretty"] })

@@ -1250,3 +1250,233 @@ All conditions met:
 8. Checkpoints 1 / 2 / 2.5 / 3 all remain PROD_VERIFIED (regression checks clean). ✓
 9. 893/893 targeted tests pass across 44 test files; typecheck and typecheck:libs clean. ✓
 10. LLM index fresh (342 files, 0 stale). ✓
+
+---
+
+## Phase 1 — P0 Build Proof Gate: Build Information Endpoint
+
+**Accepted:** 2026-07-07  
+**Previous verdict:** `DATA_PARITY_PROVIDER_IMPORT_COMPAT_PROD_VERIFIED` (compat-fix verification, 2026-07-07T01:02:10Z)
+
+### Objective
+
+Implement a public, secret-free `/api/build-info` endpoint that captures build-time constants
+(commit SHA, branch, build timestamp) injected via esbuild `define` and exposes compile-time
+checkpoint markers. Frontend receives parallel treatment via Vite `define`. Enables release
+verification scripts to confirm which version is deployed in production without requiring owner
+authentication.
+
+### Files Created / Modified
+
+| File | Action | Purpose |
+|---|---|---|
+| `artifacts/api-server/src/lib/buildConstants.d.ts` | created | `declare const` for esbuild-injected globals |
+| `artifacts/api-server/src/lib/buildInfo.ts` | created | Singleton: boot time + build-time constants + checkpoint markers |
+| `artifacts/api-server/src/lib/buildInfo.test.ts` | created | 9 unit tests (shape, no-secrets, unknown-in-dev, markers) |
+| `artifacts/api-server/src/routes/buildInfo.ts` | created | `GET /build-info` — public, no auth required |
+| `artifacts/api-server/src/routes/__tests__/buildInfoRoute.test.ts` | created | 6 route contract tests (anon-200, no-secrets, shape, markers) |
+| `artifacts/api-server/src/routes/index.ts` | modified | Added `buildInfoRouter` registration |
+| `artifacts/api-server/src/lib/auth.ts` | modified | Added `{ path: "/api/build-info", methods: ["GET"] }` to `PUBLIC_ROUTES` |
+| `artifacts/api-server/build.mjs` | modified | Git SHA/branch/buildTime via `execSync`; injected via esbuild `define` |
+| `artifacts/scanner/vite.config.ts` | modified | Git commit + timestamp injected as `__APP_BUILD_ID__` / `__FRONTEND_BUILD_TIME__` via Vite `define` |
+| `artifacts/scanner/src/lib/buildMarkers.ts` | created | Compile-time string constants searchable in the production bundle |
+| `artifacts/scanner/src/vite-env.d.ts` | created | TypeScript declarations for Vite-defined globals |
+| `scripts/src/verifyRelease.ts` | created | 12-check release verification script |
+| `scripts/package.json` | modified | Added `verify:release` script |
+
+### Design Decisions
+
+**esbuild `define` pattern:**
+- `build.mjs` captures `git rev-parse HEAD` + `git rev-parse --abbrev-ref HEAD` + `new Date().toISOString()` via `execSync` (fail-safe: returns "unknown" on any git error).
+- Injects as `__COMMIT_SHA__`, `__COMMIT_SHORT__`, `__GIT_BRANCH__`, `__BUILD_TIME__`, `__FRONTEND_BUILD_ID__` via esbuild's `define` option — replaces identifiers in the compiled bundle with string literals.
+- In dev/test (no esbuild pass), the identifiers throw `ReferenceError` — `buildInfo.ts` accesses them inside `readDefine(access: () => unknown)` IIFE try-catch blocks that return "unknown" safely.
+- TypeScript sees them as `declare const string` (from `buildConstants.d.ts`) and does not error.
+
+**Safety contract (no secrets):**
+- Only exposes: `app`, `environment` (derived from `REPLIT_DEPLOYMENT`/`NODE_ENV`), `commitSha`, `commitShort`, `branch`, `buildTime`, `bootTime`, `deploymentId` (Replit deployment ID, non-sensitive), `apiBuildId`, `frontendBuildId`, `frontendBundleFile` (from `FRONTEND_BUNDLE_FILE` env var), `frontendBundleHash`, `nodeEnv`.
+- Never reads: `APP_ACCESS_PASSWORD`, `SESSION_SECRET`, `TELEGRAM_*`, `DATABASE_URL`, or any other secret.
+- Route verified as public in `PUBLIC_ROUTES` (bypasses session gate); endpoint returns 200 anonymous regardless of public-access mode.
+
+**Frontend markers (`buildMarkers.ts`):**
+- `CHECKPOINT_3_DATA_PARITY_UI_ENABLED` — string constant, always present in compiled bundle.
+- `DATA_PARITY_INFRA_HEALTH_ENABLED` — same.
+- `RELEASE_INTEGRITY_ENABLED` — same.
+- `APP_BUILD_ID` and `FRONTEND_BUILD_TIME` — set to `fe-<commitShort>-<YYYY-MM-DD>` / ISO timestamp at Vite build time via `define`.
+
+**`verifyRelease.ts` (12 checks):**
+1. `/api/healthz` → 200 + `{"status":"ok"}`
+2. `/api/data-health/global` → 200 + `marketSession` field present
+3. `/api/build-info` → 200
+4. No secret-pattern keys in build-info body
+5. `bootTime` exists and is not "unknown"
+6. All 7 checkpoint markers = `true`
+7. Frontend bundle filename detectable from homepage HTML
+8. Bundle filename not in stale-known list
+9. Frontend bundle contains all release markers
+10. Frontend bundle contains Data Parity markers
+11. `/api/data-parity/*` endpoints return 401 for anonymous
+12. Frontend/backend build identity status INFO row
+
+### Verification Results
+
+#### V1 — Typecheck
+```
+$ pnpm run typecheck
+→ typecheck:libs (tsc --build): clean
+→ artifacts/api-server: clean
+→ artifacts/scanner: clean
+→ artifacts/global: clean
+→ scripts: clean
+→ artifacts/mockup-sandbox: clean
+```
+**Full typecheck: CLEAN**
+
+#### V2 — Unit tests
+
+```
+$ pnpm --filter @workspace/api-server exec vitest run --pool=threads "src/lib/buildInfo.test.ts"
+→ Test Files  1 passed (1)
+→ Tests  9 passed (9)
+
+$ pnpm --filter @workspace/api-server exec vitest run --pool=threads "src/routes/__tests__/buildInfoRoute.test.ts"
+→ Test Files  1 passed (1)
+→ Tests  6 passed (6)
+```
+
+Test coverage (buildInfo.test.ts, 9 tests):
+- All required top-level fields present
+- `app === "marketscanner"`
+- `environment` in `["production", "development"]`
+- All string fields are non-empty (value or "unknown")
+- `bootTime` is valid ISO 8601
+- In test/dev context, build-time constants → "unknown" (no esbuild pass)
+- All 7 checkpoint markers = `true`
+- No secret-pattern keys in response JSON
+- `bootTime` is stable (singleton captured at module load)
+
+Test coverage (buildInfoRoute.test.ts, 6 tests):
+- A) anonymous, public-mode OFF → 200
+- B) anonymous, public-mode ON → 200
+- C) response has all expected top-level fields
+- D) response contains no secret-pattern keys
+- E) all checkpointMarkers = `true`
+- F) `app === "marketscanner"`
+
+#### V3 — Auth regression
+
+```
+$ pnpm --filter @workspace/api-server exec vitest run --pool=threads \
+    "src/routes/__tests__/dataParityRouteAuth.test.ts" \
+    "src/routes/__tests__/diagnosticRouteAuth.test.ts" \
+    "src/routes/__tests__/backboneRouteAuth.test.ts"
+→ Test Files  3 passed (3)
+→ Tests  91 passed (91)
+```
+PUBLIC_ROUTES addition does not regress any existing auth gate.
+
+#### V4 — Scanner suite
+
+```
+$ pnpm --filter @workspace/scanner run test
+→ Test Files  35 passed (35)
+→ Tests  770 passed (770)
+```
+vite.config.ts modification (execSync + define) does not affect scanner tests.
+
+#### V5 — Live endpoint probe (dev environment)
+
+```
+GET http://localhost:80/api/build-info (anonymous, no cookie)
+HTTP 200 — response:
+{
+  "app": "marketscanner",
+  "environment": "development",
+  "commitSha": "dab4a59451142779840d523f257f9a729654eef4",
+  "commitShort": "dab4a594",
+  "branch": "main",
+  "buildTime": "2026-07-07T06:48:15.356Z",
+  "bootTime": "2026-07-07T06:48:18.337Z",
+  "deploymentId": "unknown",
+  "apiBuildId": "api-dab4a594-2026-07-07",
+  "frontendBuildId": "unknown",
+  "frontendBundleFile": "unknown",
+  "frontendBundleHash": "unknown",
+  "nodeEnv": "development",
+  "checkpointMarkers": {
+    "checkpoint1": true,
+    "checkpoint2": true,
+    "checkpoint2_5": true,
+    "checkpoint3": true,
+    "dataParityApi": true,
+    "reportGradeFacade": true,
+    "providerImportCompat": true
+  }
+}
+```
+
+Notes:
+- `commitSha` / `commitShort` / `branch` / `buildTime` correctly injected by esbuild define at server build time.
+- `deploymentId` = "unknown" in dev (no `REPLIT_DEPLOYMENT_ID` env var).
+- `frontendBuildId` / `frontendBundleFile` = "unknown" in dev (those are populated from Vite-side env vars / FRONTEND_BUNDLE_FILE, not set in dev workflow).
+- `apiBuildId` = "api-dab4a594-2026-07-07" — correct formula: `api-<commitShort>-<YYYY-MM-DD>`.
+- No secrets in response.
+
+#### V6 — Safety invariants
+
+| Invariant | Status |
+|---|---|
+| Broker execution | Unchanged — paper auto-trading gate untouched |
+| Telegram | Not sent — no notification side-effects in any Phase 1 file |
+| Real orders | None placed |
+| Secrets | Zero leaked — verified in both unit and route tests + live endpoint |
+| Trading logic | Not touched — Phase 1 is pure infrastructure |
+| F&O / swing signals | Not touched |
+| Schema / DB | Not touched |
+
+#### V7 — Test totals (Phase 1)
+
+| Suite | Files | Tests | Result |
+|---|---|---|---|
+| `buildInfo.test.ts` | 1 | 9 | **9/9 pass** |
+| `buildInfoRoute.test.ts` | 1 | 6 | **6/6 pass** |
+| `dataParityRouteAuth.test.ts` + `diagnosticRouteAuth.test.ts` + `backboneRouteAuth.test.ts` | 3 | 91 | **91/91 pass** |
+| scanner full suite | 35 | 770 | **770/770 pass** |
+| **Phase 1 total** | **40** | **876** | **876/876 pass** |
+
+Typecheck: **CLEAN** (all 6 workspace packages)
+
+### How to run the release verification script
+
+```bash
+# Against production (default: https://marketscannerbydev.in)
+pnpm --filter @workspace/scripts run verify:release
+
+# Against a specific base URL
+pnpm --filter @workspace/scripts run verify:release https://my-custom-domain.replit.app
+```
+
+Output is a table of 12 checks; exits 0 on all-PASS, 1 on any FAIL.
+
+### Phase 1 Verdict
+
+**`DEV_VERIFIED_BUILD_PENDING`**
+
+All conditions met in dev environment:
+1. `/api/build-info` responds 200 anonymous, no secrets, correct shape. ✓
+2. `commitSha`, `commitShort`, `branch`, `buildTime` injected by esbuild `define` at build time. ✓
+3. All 7 checkpoint markers = `true`. ✓
+4. `bootTime` is stable ISO 8601 singleton (module-load capture). ✓
+5. `apiBuildId` formula correct: `api-<commitShort>-<YYYY-MM-DD>`. ✓
+6. `PUBLIC_ROUTES` entry added; no auth required for GET. ✓
+7. Frontend `buildMarkers.ts` exports compile-time string constants. ✓
+8. Vite `define` injects `APP_BUILD_ID` + `FRONTEND_BUILD_TIME` at Vite build time. ✓
+9. `verifyRelease.ts` script: 12-check table output, exits 0/1. ✓
+10. Full typecheck clean; 876/876 targeted tests pass; no trading/signal/broker changes. ✓
+
+**Production deployment needed to get `RELEASE_INTEGRITY_PROD_VERIFIED`.**  
+Once redeployed:
+- `environment` will be "production"
+- `deploymentId` will contain the Replit deployment ID
+- `commitSha` will match the deployed commit
+- `pnpm --filter @workspace/scripts run verify:release` will run all 12 checks against production
+
