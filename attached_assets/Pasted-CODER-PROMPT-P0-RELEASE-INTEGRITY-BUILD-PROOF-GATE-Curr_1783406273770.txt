@@ -1,0 +1,296 @@
+CODER PROMPT — P0 RELEASE INTEGRITY + BUILD PROOF GATE
+
+Current accepted milestones:
+
+1. SIGNAL_DATA_NOTIFICATION_PARITY_DETERMINISTIC_PROD_VERIFIED_LIVE_SMOKE_PENDING
+2. GLOBAL_DATA_HEALTH_KITE_RESILIENCE_PROD_VERIFIED
+3. SWING_TTL_LIFECYCLE_PROD_VERIFIED
+4. TELEGRAM_ALERT_QUALITY_PROD_VERIFIED
+5. FNO_EXIT_MONITORING_DEV_VERIFIED
+6. CANONICAL_DATA_CHECKPOINT_1_PROD_VERIFIED
+7. CANONICAL_DATA_CHECKPOINT_2_PROD_VERIFIED
+8. CANONICAL_DATA_CHECKPOINT_2_5_PROD_VERIFIED
+9. CANONICAL_DATA_CHECKPOINT_3_PROD_VERIFIED
+10. DATA_PARITY_PROVIDER_IMPORT_COMPAT_PROD_VERIFIED
+
+Now build the permanent release integrity system.
+
+Objective:
+
+No future checkpoint should depend on guessing whether production is really running the latest code.
+
+The app must expose safe build/deploy proof showing:
+
+1. backend commit/build identity,
+2. frontend bundle/build identity,
+3. boot time,
+4. deployment environment,
+5. checkpoint markers,
+6. frontend/backend build match,
+7. whether the running production build is stale or current.
+
+====================================================
+STRICT DO-NOT-DO RULES
+====================================================
+
+Do not change trading strategy logic.
+Do not change F&O logic.
+Do not change Swing logic.
+Do not change Auto Strong Buy logic.
+Do not change thresholds.
+Do not change SL/target formulas.
+Do not weaken trade-grade checks.
+Do not allow report-grade/stale data to drive trades.
+Do not enable broker execution.
+Do not place real orders.
+Do not send Telegram test messages.
+Do not perform destructive migrations.
+Do not start scanner/charting/option-chain migration.
+Do not ask for owner/admin password.
+Do not trim, rewrite, reorganize, or mention replit.md.
+
+====================================================
+PHASE 0 — CURRENT STATE AUDIT
+====================================================
+
+Before coding, document:
+
+| Item | Current Value |
+|---|---|
+| Current git HEAD |
+| Latest production boot time |
+| Current frontend bundle filename |
+| Current frontend bundle Last-Modified |
+| Data Parity marker present? |
+| Data Parity API live? |
+| Provider import guard status |
+| Current accepted verdict chain |
+
+Do not code before this is written.
+
+====================================================
+PHASE 1 — BUILD INFO ENDPOINT
+====================================================
+
+Add a public-safe endpoint:
+
+GET /api/build-info
+
+Response must include these fields, even if some values are "unknown":
+
+{
+  "app": "marketscanner",
+  "environment": "production",
+  "commitSha": "...",
+  "commitShort": "...",
+  "branch": "...",
+  "buildTime": "...",
+  "bootTime": "...",
+  "deploymentId": "...",
+  "apiBuildId": "...",
+  "frontendBuildId": "...",
+  "frontendBundleFile": "...",
+  "frontendBundleHash": "...",
+  "nodeEnv": "production",
+  "checkpointMarkers": {
+    "checkpoint1": true,
+    "checkpoint2": true,
+    "checkpoint2_5": true,
+    "checkpoint3": true,
+    "dataParityApi": true,
+    "reportGradeFacade": true,
+    "providerImportCompat": true
+  }
+}
+
+Rules:
+
+1. No secrets.
+2. No tokens.
+3. No DB passwords.
+4. No private env dump.
+5. Unknown values must be returned as "unknown", not omitted.
+6. Boot time must be current process boot time.
+7. Build time must be build-time value if available.
+8. Endpoint must work in production.
+
+====================================================
+PHASE 2 — FRONTEND BUILD MARKER
+====================================================
+
+Add frontend-safe build markers.
+
+Required searchable markers in the built frontend bundle:
+
+- APP_BUILD_ID
+- FRONTEND_BUILD_TIME
+- CHECKPOINT_3_DATA_PARITY_UI
+- DATA_PARITY_INFRA_HEALTH
+- RELEASE_INTEGRITY_ENABLED
+
+Add to Infra Health if safe:
+
+- API build ID
+- frontend build ID
+- API boot time
+- frontend build time
+- deployment ID if available
+- frontend/backend match status
+
+If frontend and backend identifiers are different or unknown, show:
+
+FRONTEND_BACKEND_BUILD_STATUS: UNKNOWN / MATCH / MISMATCH
+
+====================================================
+PHASE 3 — RELEASE VERIFICATION SCRIPT
+====================================================
+
+Add a release verification script.
+
+Suggested command:
+
+pnpm --filter @workspace/scripts run verify:release
+
+or repo-correct equivalent.
+
+It must check:
+
+1. /api/build-info returns 200.
+2. build-info exposes no secrets.
+3. production boot time exists.
+4. frontend bundle filename is detected.
+5. frontend bundle contains release markers.
+6. frontend bundle contains Data Parity markers.
+7. Data Parity API routes are live and owner-protected.
+8. /api/healthz works.
+9. /api/data-health/global works.
+10. frontend/backend build status is reported.
+11. providerImportGuard is green.
+12. no stale known bundle is being served.
+
+Output must be a clear table:
+
+| Check | Result | Evidence |
+|---|---|---|
+
+====================================================
+PHASE 4 — QUALITY GATE RULES
+====================================================
+
+Update WEBSITE_CANONICAL_DATA_INTEGRATION_REPORT.md with a permanent rule:
+
+No checkpoint may be marked PROD_VERIFIED unless:
+
+1. Build-info endpoint proves production freshness.
+2. Frontend bundle proof exists if frontend changed.
+3. Backend route proof exists if API changed.
+4. Required owner-only auth gates are verified.
+5. Tests pass.
+6. No secrets exposed.
+7. Broker execution disabled.
+8. No real orders placed.
+9. No Telegram spam.
+10. Final verdict uses allowed values only.
+
+====================================================
+PHASE 5 — TESTS REQUIRED
+====================================================
+
+Add/update tests:
+
+1. /api/build-info returns expected shape.
+2. /api/build-info works when env vars are missing.
+3. /api/build-info exposes no secrets.
+4. checkpoint markers exist.
+5. boot time exists.
+6. frontend build markers exist.
+7. Infra Health build section renders if added.
+8. release verification script detects markers.
+9. release verification script fails on missing marker.
+10. Data Parity tests remain green.
+11. providerImportGuard remains green.
+12. Checkpoint 1/2/2.5/3 regression tests remain green.
+13. No broker execution path touched.
+14. No Telegram send occurs.
+
+Run:
+
+pnpm --filter @workspace/api-server run typecheck
+pnpm --filter @workspace/api-server run typecheck:libs
+pnpm --filter @workspace/api-server exec vitest run src/routes/**/*.test.ts src/lib/*build*.test.ts src/lib/*release*.test.ts src/lib/*dataParity*.test.ts src/lib/*marketData*.test.ts src/lib/*daily*.test.ts src/lib/*paper*.test.ts src/lib/*swing*.test.ts src/lib/*fno*.test.ts src/lib/*dataHealth*.test.ts
+pnpm --filter @workspace/scanner exec vitest run
+pnpm --filter @workspace/scripts run index:llm
+pnpm --filter @workspace/scripts run index:llm:check
+
+Report exact counts.
+
+====================================================
+PHASE 6 — PRODUCTION VERIFICATION
+====================================================
+
+After publish, verify:
+
+1. /api/build-info live.
+2. No secrets exposed.
+3. Boot time is after publish.
+4. Frontend bundle contains release markers.
+5. Data Parity markers still present.
+6. Data Parity API still live.
+7. Release verification script passes.
+8. /api/healthz works.
+9. /api/data-health/global works.
+10. Provider import guard remains green.
+11. Checkpoint 1 remains prod verified.
+12. Checkpoint 2 remains prod verified.
+13. Checkpoint 2.5 remains prod verified.
+14. Checkpoint 3 remains prod verified.
+15. Compat fix remains prod verified.
+16. Broker execution disabled.
+17. No real orders.
+18. No Telegram spam.
+
+====================================================
+REPORT REQUIRED
+====================================================
+
+Update:
+
+WEBSITE_CANONICAL_DATA_INTEGRATION_REPORT.md
+
+Add section:
+
+P0 Release Integrity + Build Proof Gate
+
+Include:
+
+1. Why this was needed.
+2. Root cause of earlier deployment confusion.
+3. Build-info endpoint details.
+4. Frontend build marker details.
+5. Release verification script.
+6. Future PROD_VERIFIED rules.
+7. Tests and counts.
+8. Production evidence.
+9. Final verdict.
+
+====================================================
+FINAL VERDICT
+====================================================
+
+Final verdict must be exactly one:
+
+- RELEASE_INTEGRITY_PROD_VERIFIED
+- RELEASE_INTEGRITY_DEV_VERIFIED_BUILD_PENDING
+- RELEASE_INTEGRITY_PARTIAL_GAP_REMAINS
+- RELEASE_INTEGRITY_BUILD_NOT_DEPLOYED
+- ROLLBACK_REQUIRED
+
+Use RELEASE_INTEGRITY_PROD_VERIFIED only if build-info, frontend markers, release verification script, and production checks all pass.
+
+Use RELEASE_INTEGRITY_DEV_VERIFIED_BUILD_PENDING if implementation/tests pass but production publish is pending.
+
+Use RELEASE_INTEGRITY_PARTIAL_GAP_REMAINS if build-info exists but frontend/backend proof is incomplete.
+
+Use RELEASE_INTEGRITY_BUILD_NOT_DEPLOYED if production still serves the old build.
+
+Use ROLLBACK_REQUIRED if secrets leak, broker execution turns on, real orders are placed, stale/report-grade data can drive trades, Telegram spam returns, or destructive migration occurs.
