@@ -114,3 +114,15 @@ id = "TqcexNoIeOYeFaIaFZg0a"
 uri = "file://exports/project-source.tar.gz"
 type = "unspecified"
 title = "Indian Stock Market Scanner — Full Project Source"
+
+[[outputs]]
+id = "1ZNKnvQyedF7yuzxlwy_j"
+uri = "file://USER_FACING_CORE_TABS_DEEP_AUDIT_REPORT.md"
+type = "text"
+title = "User-Facing Core Tabs Deep Audit Report (incl. Phase 3A verification)"
+
+[[outputs]]
+id = "Od_Zd8HrDjj4z7wq3KNKA"
+uri = "file://WEBSITE_CANONICAL_DATA_INTEGRATION_REPORT.md"
+type = "text"
+title = "Website Canonical Data Integration Report (incl. Phase 3A final verdict)"
