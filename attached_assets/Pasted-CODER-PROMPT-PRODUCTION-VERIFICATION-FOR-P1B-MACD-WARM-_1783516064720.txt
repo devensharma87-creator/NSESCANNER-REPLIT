@@ -1,0 +1,286 @@
+CODER PROMPT — PRODUCTION VERIFICATION FOR P1B MACD WARM-UP FIX
+
+I have republished the app.
+
+Run production verification for:
+
+P1B — MACD WARM-UP FIX
+
+Current accepted dev status:
+
+P1B_MACD_WARMUP_FIX_DEV_VERIFIED
+
+Expected final verdict if production verification passes:
+
+P1B_MACD_WARMUP_FIX_PROD_VERIFIED
+
+====================================================
+STRICT RULES
+====================================================
+
+This is production verification only.
+
+Do not write new feature code unless production verification finds a real blocker.
+
+Do not change:
+- F&O signal thresholds,
+- swing thresholds,
+- scanner scoring weights,
+- detector weights,
+- entry logic,
+- exit logic,
+- SL/target formulas,
+- paper-trade open/close logic,
+- account balance logic,
+- realized P&L logic,
+- DB/schema,
+- market shadow logic,
+- broker execution,
+- Telegram.
+
+Do not place real orders.
+Do not send Telegram test messages.
+Do not perform destructive migrations.
+Do not rewrite historical trades.
+Do not backfill historical signals.
+
+====================================================
+PART A — FRESH PRODUCTION DEPLOY PROOF
+====================================================
+
+Check:
+
+GET https://marketscannerbydev.in/api/build-info
+
+Confirm:
+
+1. HTTP 200.
+2. production commitShort is after MACD fix commit f224e41.
+3. production is no longer only the old P1A STT commit 64337231.
+4. buildTime is after latest publish.
+5. bootTime is after latest publish.
+6. environment = production.
+7. all checkpoint markers remain true.
+8. no secrets exposed.
+
+Run:
+
+pnpm --filter @workspace/scripts run verify:release
+
+Expected:
+
+11 / 11 PASS
+
+If production still shows old commit 64337231, stop and report:
+
+P1B_MACD_WARMUP_FIX_BUILD_NOT_DEPLOYED
+
+====================================================
+PART B — PRODUCTION CODE / BUNDLE PROOF
+====================================================
+
+Confirm production code/bundle/API corresponds to the MACD fix.
+
+Verify the deployed source or bundle contains the corrected MACD warm-up behavior:
+
+Required proof:
+
+1. No canonical MACD signal EMA trained from:
+
+   macdLine.map(v => v ?? 0)
+
+   over the full array.
+
+2. Canonical MACD uses first-valid MACD slicing pattern:
+
+   - find first valid MACD index,
+   - slice valid MACD values,
+   - compute signal EMA only from valid MACD values,
+   - pad earlier output with nulls.
+
+3. Histogram remains null until both MACD and signal are valid.
+
+4. Output length remains equal to input length.
+
+Required table:
+
+| Production Proof Item | Expected | Result |
+|---|---|---|
+| Full-array zero-fill removed |
+| first valid MACD index used |
+| signal EMA computed from valid MACD only |
+| null padding preserved |
+| histogram waits for valid signal |
+| output length unchanged |
+
+====================================================
+PART C — FUNCTIONAL PRODUCTION VERIFICATION
+====================================================
+
+Use a production-safe test or diagnostic method. Do not write trades. Do not mutate DB.
+
+Validate MACD behavior using fixture-level execution or deployed server-side test path if available.
+
+Required fixtures:
+
+1. n=10 short series
+2. n=26 slow-period boundary
+3. n=33 MACD-only but no signal
+4. n=34 minimum valid signal
+5. n=50 medium series
+6. n=200 long series
+
+Expected:
+
+| Fixture | Expected MACD Behavior |
+|---|---|
+| n=10 | MACD/signal/hist null |
+| n=26 | no fake signal trained on zeros |
+| n=33 | signal/hist still null |
+| n=34 | first valid signal/hist appears correctly |
+| n=50 | bars 25–32 no longer show distorted histogram |
+| n=200 | long-history last-bar impact negligible |
+
+Do not mark PROD_VERIFIED if production still produces fake early histogram values.
+
+====================================================
+PART D — IMPACT CONFIRMATION
+====================================================
+
+Confirm and document:
+
+1. Short-history/new-listing symbols may have different MACD histogram/scoring behavior.
+2. This is expected and correct.
+3. This is an indicator-correctness change, not a trading-rule change.
+4. Scoring Rule 6 weight remains unchanged.
+5. Scanner/swing thresholds remain unchanged.
+6. F&O signal pipeline does not use MACD.
+7. Paper trade execution does not use MACD.
+8. Account balance/realized P&L do not use MACD.
+
+Required table:
+
+| Consumer | Uses MACD? | Production Impact | Trading Rule Changed? |
+|---|---:|---|---:|
+
+====================================================
+PART E — SAFETY / REGRESSION CHECKS
+====================================================
+
+Confirm all remain true:
+
+1. RELEASE_INTEGRITY_PROD_VERIFIED
+2. BACKTEST_CHARGES_MODEL_NET_PNL_PROD_VERIFIED
+3. FNO_COST_MODEL_UNIFICATION_PROD_VERIFIED
+4. FNO_VWAP_VOLUME_PROFILE_HONESTY_PROD_VERIFIED
+5. FNO_TRIGGER_WORDING_SEMANTICS_PROD_VERIFIED
+6. KITE_OI_UNIT_VERIFICATION_CONFIRMED_CORRECT
+7. P1A_PAPER_TRADING_GROSS_NET_DISPLAY_PROD_VERIFIED
+8. EXIT_PREMIUM_MARKET_SHADOW_PROD_INFRA_VERIFIED_LIVE_SAMPLE_PENDING
+9. POST_P0_SIGNAL_SYSTEM_REBASELINE_PARTIAL_GAP_REMAINS
+
+Also confirm:
+
+- no broker execution,
+- no real orders,
+- no Telegram messages,
+- no DB/schema migration,
+- no account balance change,
+- no realized P&L change,
+- no historical trade rewrite,
+- no stale/report-grade data driving live trades.
+
+====================================================
+PART F — TESTS
+====================================================
+
+Run and report exact counts:
+
+pnpm --filter @workspace/scripts run verify:release
+
+pnpm --filter @workspace/api-server run typecheck
+
+pnpm --filter @workspace/api-server run typecheck:libs
+
+pnpm --filter @workspace/api-server exec vitest run src/lib/*indicator*.test.ts src/lib/*technical*.test.ts src/lib/*scanner*.test.ts src/lib/*swing*.test.ts
+
+pnpm --filter @workspace/scanner run typecheck
+
+pnpm --filter @workspace/scanner exec vitest run
+
+pnpm --filter @workspace/scripts run index:llm
+
+pnpm --filter @workspace/scripts run index:llm:check
+
+If any suite times out, split it and report exact counts.
+
+Do not say only “all green.”
+
+====================================================
+PART G — REPORT UPDATE
+====================================================
+
+Update:
+
+1. P1B_MACD_WARMUP_FIX_REPORT.md
+2. P1_CONSOLIDATED_REMAINING_WORK_AUDIT_REPORT.md
+3. WEBSITE_CANONICAL_DATA_INTEGRATION_REPORT.md
+4. USER_FACING_CORE_TABS_DEEP_AUDIT_REPORT.md
+5. POST_P0_SIGNAL_SYSTEM_REBASELINE_REPORT.md
+
+Add production verification section:
+
+P1B MACD WARM-UP FIX — PRODUCTION VERIFICATION
+
+Include:
+
+1. fresh deploy proof,
+2. production commit,
+3. before/after behavior,
+4. production proof that zero-fill full-array MACD is removed,
+5. test counts,
+6. safety confirmation,
+7. expected short-history indicator drift note,
+8. final verdict.
+
+====================================================
+FINAL VERDICT
+====================================================
+
+Final verdict must be exactly one:
+
+- P1B_MACD_WARMUP_FIX_PROD_VERIFIED
+- P1B_MACD_WARMUP_FIX_DEV_VERIFIED
+- P1B_MACD_WARMUP_FIX_PARTIAL_GAP_REMAINS
+- RELEASE_INTEGRITY_REGRESSION_FOUND
+- ROLLBACK_REQUIRED
+
+Use:
+
+P1B_MACD_WARMUP_FIX_PROD_VERIFIED
+
+only if production build-info confirms the MACD fix commit is live, tests pass, and the canonical MACD no longer trains signal EMA on full-array zero-filled nulls.
+
+Use:
+
+P1B_MACD_WARMUP_FIX_DEV_VERIFIED
+
+if production still shows old commit 64337231.
+
+Use:
+
+P1B_MACD_WARMUP_FIX_PARTIAL_GAP_REMAINS
+
+if tests, report updates, or production proof are incomplete.
+
+Use:
+
+RELEASE_INTEGRITY_REGRESSION_FOUND
+
+if verify:release has a real FAIL.
+
+Use:
+
+ROLLBACK_REQUIRED
+
+if secrets leak, broker execution turns on, real orders are placed, Telegram spam occurs, destructive migration happens, realized P&L/account balance changes, or stale/report-grade data drives live trades.
