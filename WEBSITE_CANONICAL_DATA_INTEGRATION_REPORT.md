@@ -2547,6 +2547,6 @@ All 8 P1A bundle markers found in `/assets/index-CbJlIIQb.js`:
 | `"deducted above"` | 1 |
 | `"DD / heat"` | 1 |
 | `"brokerage"` | 3 |
-| `"STT 0.05"` | 1 |
+| `"STT 0.15% on option sell premium"` | 1 (after STT label fix; prior "STT 0.05%" was wrong futures rate) |
 
 verify:release: 11/11 PASS. All prior milestones unchanged.

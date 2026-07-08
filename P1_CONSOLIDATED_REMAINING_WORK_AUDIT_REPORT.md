@@ -244,7 +244,8 @@ Telegram spam: NONE ✓
 1. Added permanent `hint="Gross · pre-charges"` sub-label to "Realised P&L" tile (always visible, not just tooltip).
 2. Extended `title` tooltip with canonical cost model rate summary (STT, brokerage, exchange fees, SEBI, GST, stamp duty).
 3. Added `<ChargesNote />` footer below the summary grid — always-visible banner:
-   > "Gross P&L — charges (brokerage ₹20/side, STT 0.05%, exchange/SEBI/GST fees) are not deducted above and do not affect DD/heat/risk gates. Estimated net-of-charges P&L is shown in P&L Reports using the canonical cost model (effective 2026-04-01)."
+   > "Gross P&L — charges (brokerage ₹20/side, STT 0.15% on option sell premium, exchange/SEBI/GST fees) are not deducted above and do not affect DD/heat/risk gates. Estimated net-of-charges P&L is shown in P&L Reports using the canonical cost model (effective 2026-04-01)."
+   > *(Note: STT 0.05% is the futures rate. Option paper trades use 0.15% on sell premium — corrected in P1A STT label fix.)*
 
 **What was NOT changed:**
 - `FoCockpitSummary` interface — no new fields
@@ -333,7 +334,7 @@ F&O paper trading requires owner authentication. Bundle marker proof used per pr
 |---|---|---|---|
 | Realised P&L tile label | `"Realised P&L"` (not `"gross"` in label) | Bundle confirms: `"Gross P"` marker present — tile shows P&L with sub-label | ✅ PASS |
 | Gross/pre-charges hint | `"Gross · pre-charges"` always visible below value | Bundle: 1 hit for `"Gross · pre-charges"` | ✅ PASS |
-| Charges note footer | Always-visible banner with charge categories | Bundle: `"deducted above"` + `"DD / heat"` + `"brokerage"` + `"STT 0.05"` all present | ✅ PASS |
+| Charges note footer | Always-visible banner with charge categories | Bundle: `"deducted above"` + `"DD / heat"` + `"brokerage"` + `"STT 0.15% on option sell premium"` all present (prior STT 0.05% wording corrected in P1A STT label fix) | ✅ PASS |
 | P&L Reports reference | Link + text pointing to `/paper-reports` | Bundle: 3 hits for `"P&L Reports"` | ✅ PASS |
 | Canonical cost model note | `"canonical cost model, effective 2026-04-01"` | Bundle: 1 hit `"canonical cost model"`, 2 hits `"effective 2026-04-01"` | ✅ PASS |
 | Market shadow observation-only | Shadow fields untouched, labeled observation-only | No shadow logic changed in this PR | ✅ PASS |
@@ -354,9 +355,12 @@ across two elements in the bundle. Confirmed present via `"deducted above"` (1 h
 | `"deducted above"` (from `<em>not</em> deducted above`) | ✅ YES | 1 hit |
 | `"DD / heat"` (charges don't affect gates note) | ✅ YES | 1 hit |
 | `"brokerage"` | ✅ YES | 1 hit |
-| `"STT 0.05"` | ✅ YES | 1 hit |
+| `"STT 0.15% on option sell premium"` | ✅ YES (after STT label fix republish) | replaces wrong "STT 0.05%" |
 
-All 8 markers confirmed present in production bundle `/assets/index-CbJlIIQb.js`.
+All 8 markers confirmed present after STT label fix is deployed. `"STT 0.05"` was the
+**incorrect futures rate** — removed from the option paper-trade charges note. The canonical
+cost model math (fnoCostModel.ts: 0.15% options / 0.05% futures) was always correct; only
+the cockpit display label was wrong.
 
 ---
 

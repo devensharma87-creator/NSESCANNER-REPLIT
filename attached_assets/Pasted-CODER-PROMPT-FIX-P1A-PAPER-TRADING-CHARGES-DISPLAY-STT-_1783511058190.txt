@@ -1,0 +1,83 @@
+CODER PROMPT — FIX P1A PAPER TRADING CHARGES DISPLAY STT LABEL
+
+Do not start any new work.
+
+P1A production verification is NOT accepted yet.
+
+Current verdict:
+
+P1A_PAPER_TRADING_GROSS_NET_DISPLAY_PARTIAL_GAP_REMAINS
+
+Reason:
+The production bundle and final report state that the F&O cockpit charges note displays:
+
+STT 0.05%
+
+This is wrong/misleading for option paper trades.
+
+P0-1 F&O Cost Model Unification already established the canonical rule:
+
+- Options sell-premium STT = 0.15%
+- Futures STT = 0.05%
+
+The F&O cockpit paper trades are options-based, so the UI must not show “STT 0.05%” as the option paper-trade cost note.
+
+STRICT SCOPE:
+
+Only fix the P1A display text / tooltip / report wording.
+
+Do not change:
+- cost model math,
+- realized P&L,
+- account balance,
+- paper trade logic,
+- signal logic,
+- entry/exit logic,
+- SL/target formulas,
+- strategy thresholds,
+- broker execution,
+- Telegram,
+- DB schema.
+
+Required fix:
+
+1. Replace cockpit UI text showing “STT 0.05%” with the correct option-specific wording:
+
+   “STT 0.15% on option sell premium”
+
+2. If the UI wants to mention futures separately, write:
+
+   “Futures STT is 0.05%, but option paper trades use STT 0.15% on sell premium.”
+
+3. Ensure tooltip and always-visible footer both use canonical P0-1 wording.
+
+4. Ensure reports do not repeat the wrong “STT 0.05%” wording for option paper trades.
+
+5. Confirm the canonical F&O cost model remains unchanged.
+
+6. Confirm no accounting/trading logic changed.
+
+Tests required:
+
+pnpm --filter @workspace/scripts run verify:release
+pnpm --filter @workspace/scanner run typecheck
+pnpm --filter @workspace/scanner exec vitest run src/lib/foCockpitView.test.ts
+pnpm --filter @workspace/api-server exec vitest run src/lib/*fnoCost*.test.ts
+pnpm --filter @workspace/scripts run index:llm
+pnpm --filter @workspace/scripts run index:llm:check
+
+After publish, verify the production bundle no longer contains the wrong marker:
+
+- “STT 0.05” should not appear in the option paper-trade charges note.
+- “STT 0.15” should appear.
+- “option sell premium” should appear.
+- “canonical cost model” should still appear.
+
+Final verdict must be exactly one:
+
+- P1A_PAPER_TRADING_GROSS_NET_DISPLAY_PROD_VERIFIED
+- P1A_PAPER_TRADING_GROSS_NET_DISPLAY_PARTIAL_GAP_REMAINS
+- RELEASE_INTEGRITY_REGRESSION_FOUND
+- ROLLBACK_REQUIRED
+
+Use P1A_PAPER_TRADING_GROSS_NET_DISPLAY_PROD_VERIFIED only after production bundle proves the corrected 0.15% option STT wording is live.

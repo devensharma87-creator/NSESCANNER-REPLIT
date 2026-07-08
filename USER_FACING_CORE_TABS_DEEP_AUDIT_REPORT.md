@@ -1035,8 +1035,10 @@ Production commit `41075693` confirmed live (after P1A commit `a3c3de4`).
 
 **Paper Trading tab — F&O Cockpit production state:**
 - `"Realised P&L"` tile: `hint="Gross · pre-charges"` confirmed in bundle (1 hit)
-- Always-visible charges note footer confirmed: charges categories (brokerage, STT 0.05%,
-  exchange/SEBI/GST), "not deducted" note, "DD / heat" gates unaffected, P&L Reports link
+- Always-visible charges note footer confirmed: charges categories (brokerage,
+  STT 0.15% on option sell premium, exchange/SEBI/GST), "not deducted" note,
+  "DD / heat" gates unaffected, P&L Reports link
+  *(Prior "STT 0.05%" wording was the futures rate — corrected in P1A STT label fix)*
 - Canonical cost model reference confirmed: `"canonical cost model"` + `"effective 2026-04-01"`
 - Market shadow exit premium: unchanged (observation-only, no new coupling)
 

@@ -82,7 +82,7 @@ export function FoCockpitSummaryCards({
                 value={signed(summary.realizedPnl)}
                 tone={toneOf(summary.realizedPnl)}
                 hint="Gross · pre-charges"
-                title="Gross (pre-cost) booked P&L from F&O paper trades closed today (IST). Locked in — no longer moves with price. Brokerage/STT/charges are tracked separately and are NOT deducted here, nor from DD/heat/risk gates. Canonical cost model (2026-04-01): STT 0.05% on sell turnover, brokerage ₹20/side flat, exchange txn 0.053%, SEBI 0.0001%, GST 18% on (brokerage+exchange+SEBI), stamp duty 0.003% on buy turnover. See P&L Reports for estimated net-of-charges breakdown."
+                title="Gross (pre-cost) booked P&L from F&O paper trades closed today (IST). Locked in — no longer moves with price. Brokerage/STT/charges are tracked separately and are NOT deducted here, nor from DD/heat/risk gates. Canonical cost model (2026-04-01): STT 0.15% on option sell premium, brokerage ₹20/side flat, exchange txn 0.053%, SEBI 0.0001%, GST 18% on (brokerage+exchange+SEBI), stamp duty 0.003% on buy turnover. (Futures STT is 0.05% on sell turnover — option paper trades use 0.15%.) See P&L Reports for estimated net-of-charges breakdown."
               />
               <Tile
                 label="Unrealised MTM"
@@ -118,7 +118,7 @@ export function FoCockpitSummaryCards({
 
             <div className="rounded-md border border-slate-700/40 bg-slate-800/20 px-3 py-2 text-[11px] text-slate-400">
               <span className="font-medium text-slate-300">Gross P&amp;L</span>
-              {" — "}charges (brokerage ₹20/side, STT 0.05%, exchange/SEBI/GST fees) are{" "}
+              {" — "}charges (brokerage ₹20/side, STT 0.15% on option sell premium, exchange/SEBI/GST fees) are{" "}
               <em>not</em> deducted above and do not affect DD / heat / risk gates.{" "}
               See{" "}
               <a
