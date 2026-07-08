@@ -1,0 +1,90 @@
+Do not mark this complete yet.
+
+Your current reply is only a progress update. I need the final professional verification summary before accepting.
+
+Confirm all of the following:
+
+1. Final verdict must be exactly one of:
+
+- P1_CONSOLIDATED_AUDIT_COMPLETE_IMPLEMENTATION_PENDING_OWNER_APPROVAL
+- P1A_PAPER_TRADING_GROSS_NET_DISPLAY_DEV_VERIFIED
+- P1_CONSOLIDATED_PARTIAL_GAP_REMAINS
+- RELEASE_INTEGRITY_REGRESSION_FOUND
+- ROLLBACK_REQUIRED
+
+2. Confirm whether P1_CONSOLIDATED_REMAINING_WORK_AUDIT_REPORT.md was created.
+
+3. Confirm all five P1 items were audited:
+
+- Paper Trading gross-vs-net display
+- MACD warm-up fix
+- NSE holiday calendar
+- Equity gap-through exit realism
+- Charting professional upgrade
+
+Provide table:
+
+| Item | Current State | Risk | Implementation Decision | Next Phase |
+|---|---|---|---|---|
+
+4. Confirm exactly what was implemented for P1A.
+
+Required:
+
+- Gross P&L label visible
+- Estimated Net P&L label visible
+- Estimated charges visible
+- Charges explanation visible
+- Canonical F&O cost model used
+- Account balance unchanged
+- Realized P&L unchanged
+- Trade decision logic unchanged
+- Market shadow remains observation-only
+
+5. Confirm files changed.
+
+Provide table:
+
+| File | Change | Reason |
+|---|---|---|
+
+6. Confirm tests and exact counts.
+
+At minimum:
+
+- verify:release result
+- api-server typecheck
+- typecheck:libs
+- foCockpitView tests
+- relevant paper/F&O cost tests
+- scanner/frontend tests
+- LLM index check
+
+Do not say “all green” without exact counts.
+
+7. Confirm reports updated:
+
+- P1_CONSOLIDATED_REMAINING_WORK_AUDIT_REPORT.md
+- WEBSITE_CANONICAL_DATA_INTEGRATION_REPORT.md
+- USER_FACING_CORE_TABS_DEEP_AUDIT_REPORT.md
+- POST_P0_SIGNAL_SYSTEM_REBASELINE_REPORT.md, if relevant
+
+8. Confirm safety:
+
+- No broker execution
+- No real orders
+- No Telegram spam
+- No destructive migration
+- No strategy thresholds changed
+- No entries/exits changed
+- No SL/target formulas changed
+- No account balance logic changed
+- No realized P&L changed
+
+9. If everything is complete, final verdict should be:
+
+P1A_PAPER_TRADING_GROSS_NET_DISPLAY_DEV_VERIFIED
+
+If any audit/report/test item is incomplete, use:
+
+P1_CONSOLIDATED_PARTIAL_GAP_REMAINS
