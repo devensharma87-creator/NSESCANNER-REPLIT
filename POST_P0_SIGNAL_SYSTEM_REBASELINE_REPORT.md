@@ -287,3 +287,19 @@ All tests executed in batches to stay within 120s tool timeout. No test failures
 The gap is not a defect — it is the expected state when a baseline is freshly set during a trading session (2026-07-08T12:24 IST). No signals or trades can accumulate until the next market session.
 
 **Next action:** Wait for market sessions to generate post-P0 signals and trades, then run `POST_P0_SIGNAL_SAMPLE_REVIEW`. Recommended trigger: ≥5 trading sessions (≈ 2026-07-15) or ≥20 post-P0 signals across the three F&O indices.
+
+---
+
+## Addendum — P1 Exit Premium Market Shadow Column (2026-07-08)
+
+**Verdict: `EXIT_PREMIUM_MARKET_SHADOW_DEV_VERIFIED`**
+
+The Rank-1 P1 priority identified in this report has been implemented. The shadow column
+infrastructure is now in place on `paper_trade_fo`. Once post-P0 paper trades accumulate,
+`exit_premium_market` (real Kite chain LTP at exit) can be compared against `exit_premium`
+(frozen synthetic MTM price) to evaluate exit-price quality and slippage magnitude.
+
+**No signal/decision/P&L/balance code was changed.** The shadow is purely observational.
+Production publish remains pending — shadow capture activates in prod after the next deploy.
+
+Full detail: `EXIT_PREMIUM_MARKET_SHADOW_REPORT.md`

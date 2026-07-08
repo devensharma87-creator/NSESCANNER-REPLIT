@@ -2408,3 +2408,25 @@ All P0 fixes confirmed live (commit `eb09789d`, bootTime 2026-07-08T06:54:45Z). 
 **Next P1:** Exit premium market shadow column (Rank 1) — enables real vs synthetic exit price comparison once post-P0 paper trades accumulate.
 
 Full report: `POST_P0_SIGNAL_SYSTEM_REBASELINE_REPORT.md`
+
+---
+
+## P1 — Exit Premium Market Shadow Column — 2026-07-08
+
+**Timestamp:** 2026-07-08 (after POST_P0_CLEAN_BASELINE_2026_07_08)
+**Verdict: `EXIT_PREMIUM_MARKET_SHADOW_DEV_VERIFIED`**
+
+Shadow observation field capturing the real Kite option-chain LTP at exit time. Zero impact on realized P&L, account balance, exit decisions, signal scoring, DD/heat caps, or any Telegram alert. Fire-and-forget at both close paths (orphan sweep reuses cached chain; 15:20 sweep fetches chain per-index).
+
+**8 nullable columns added to `paper_trade_fo`:**
+`exit_premium_market`, `exit_premium_market_source`, `exit_premium_market_as_of`, `exit_premium_market_age_sec`, `exit_premium_market_gap`, `exit_premium_market_gap_pct`, `market_shadow_gross_pnl`, `exit_premium_market_unavailable_reason`.
+
+`market_shadow_gross_pnl` = `(market_ltp − entry_premium) × lots × lot_size` — observation only, never credited to the paper account.
+
+**Migration:** raw `ALTER TABLE … ADD COLUMN IF NOT EXISTS` (8 statements, idempotent). Applied to dev DB. Auto-applies to prod on first shadow write post-deploy via `ensureFoMarketShadowColumns()` lazy singleton — no manual prod migration step required.
+
+**Tests:** 29 new unit tests (pure, no DB) + `fnoPremiumExitOverlay.test.ts` `beforeAll` migration guard added. All api-server chunks + scanner 770/770 green. typecheck clean.
+
+**Production publish:** still pending (commit `eb09789d` is the current prod baseline).
+
+Full report: `EXIT_PREMIUM_MARKET_SHADOW_REPORT.md`

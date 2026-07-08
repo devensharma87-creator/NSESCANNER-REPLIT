@@ -938,3 +938,12 @@ Code-level proof confirmed via grep:
 | All checkpoints | true | ✅ |
 | buildTime | 2026-07-07T15:48:40.240Z | ✅ NEW |
 | bootTime | 2026-07-07T15:50:28.613Z | ✅ NEW |
+
+---
+
+## P1 — Exit Premium Market Shadow Column — 2026-07-08
+
+**Verdict: `EXIT_PREMIUM_MARKET_SHADOW_DEV_VERIFIED`**
+**Scope note:** P1 is purely backend (DB schema + server-side capture logic). No user-facing tab was changed — no chart component, no scanner page, no option-chain UI, no frontend rendering. This entry is recorded for audit trail completeness only.
+
+Shadow observation column (`exit_premium_market`) added to `paper_trade_fo` capturing real Kite chain LTP at exit time. Zero impact on any user-facing tab, signal display, or trading decision. API response (`GET /api/paper/positions/fo/closed`) now includes 8 nullable shadow fields; no frontend component consumes them yet (deferred). Full detail: `EXIT_PREMIUM_MARKET_SHADOW_REPORT.md`.
