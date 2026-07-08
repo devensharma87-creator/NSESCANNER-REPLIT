@@ -1024,3 +1024,23 @@ No change.
 - STOPPED/TRAIL_STOP_HIT exits use stop price, not LTP when stock gaps below stop.
 - HIGH risk to fix — changes realized P&L, account balance.
 - Not implemented — deferred to P1D (explicit owner sign-off required first).
+
+---
+
+## P1A Production Verification — 2026-07-08
+
+**Verdict: `P1A_PAPER_TRADING_GROSS_NET_DISPLAY_PROD_VERIFIED`**
+
+Production commit `41075693` confirmed live (after P1A commit `a3c3de4`).
+
+**Paper Trading tab — F&O Cockpit production state:**
+- `"Realised P&L"` tile: `hint="Gross · pre-charges"` confirmed in bundle (1 hit)
+- Always-visible charges note footer confirmed: charges categories (brokerage, STT 0.05%,
+  exchange/SEBI/GST), "not deducted" note, "DD / heat" gates unaffected, P&L Reports link
+- Canonical cost model reference confirmed: `"canonical cost model"` + `"effective 2026-04-01"`
+- Market shadow exit premium: unchanged (observation-only, no new coupling)
+
+**No visual confusion between gross cockpit P&L and Reports net P&L** — the footer
+explicitly states "See P&L Reports for estimated net-of-charges P&L."
+
+Tests: 138/138 foCockpitView, 70/70 cost model, 11/11 verify:release, 350/350 LLM index.

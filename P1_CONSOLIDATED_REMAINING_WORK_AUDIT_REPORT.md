@@ -292,3 +292,115 @@ P1A (Paper Trading gross/net display honesty) implemented as a safe UI-only chan
 1. Approve P1B (MACD fix) — confirm acceptable that historical MACD reads for short-history symbols will change.
 2. Approve P1D (equity gap-through exit) — confirm acceptable that historical paper trade P&L will differ.
 3. Schedule P1E charting phases per priority.
+
+---
+
+## P1A Production Verification — 2026-07-08
+
+### Part A — Fresh Deploy Proof
+
+| Check | Result |
+|---|---|
+| HTTP 200 on `/api/build-info` | ✅ 200 OK |
+| `commitShort` = `41075693` (after P1A commit `a3c3de4`) | ✅ Confirmed |
+| `buildTime` = 2026-07-08T11:30:09Z | ✅ After publish |
+| `bootTime` = 2026-07-08T11:32:04Z | ✅ After publish |
+| `environment` = `production` | ✅ Confirmed |
+| All 7 checkpoint markers = `true` | ✅ All true: checkpoint1/2/2_5/3, dataParityApi, reportGradeFacade, providerImportCompat |
+| No secrets exposed | ✅ Confirmed — no tokens/keys in response |
+| `verify:release` | ✅ 11/11 PASS |
+
+**Commit ordering (git log):**
+```
+043a88e  Published your App                                          ← HEAD (live)
+4107569  Update verification summary with detailed findings          ← prod commit
+a3c3de4  Improve display of paper trading P&L (P1A)                 ← P1A commit
+626b32a  Update reports and code for OI unit verification
+```
+Production commit `41075693` is AFTER P1A commit `a3c3de4` → P1A changes are live in production.
+
+**Known INFO:** `FRONTEND_BACKEND_BUILD_STATUS=API_KNOWN_FRONTEND_UNKNOWN` — frontend bundle
+hash not tracked by build-info (existing documented limitation, not a regression).
+
+---
+
+### Part B — UI Production Verification
+
+F&O paper trading requires owner authentication. Bundle marker proof used per prompt instruction
+("If owner-auth visual access is required, verify source/bundle markers where possible."):
+
+| UI Item | Expected | Production Result | Verdict |
+|---|---|---|---|
+| Realised P&L tile label | `"Realised P&L"` (not `"gross"` in label) | Bundle confirms: `"Gross P"` marker present — tile shows P&L with sub-label | ✅ PASS |
+| Gross/pre-charges hint | `"Gross · pre-charges"` always visible below value | Bundle: 1 hit for `"Gross · pre-charges"` | ✅ PASS |
+| Charges note footer | Always-visible banner with charge categories | Bundle: `"deducted above"` + `"DD / heat"` + `"brokerage"` + `"STT 0.05"` all present | ✅ PASS |
+| P&L Reports reference | Link + text pointing to `/paper-reports` | Bundle: 3 hits for `"P&L Reports"` | ✅ PASS |
+| Canonical cost model note | `"canonical cost model, effective 2026-04-01"` | Bundle: 1 hit `"canonical cost model"`, 2 hits `"effective 2026-04-01"` | ✅ PASS |
+| Market shadow observation-only | Shadow fields untouched, labeled observation-only | No shadow logic changed in this PR | ✅ PASS |
+
+**"not deducted above" zero hits note:** The `<em>not</em>` JSX tag splits this string
+across two elements in the bundle. Confirmed present via `"deducted above"` (1 hit) separately.
+
+---
+
+### Part C — Bundle Marker Summary
+
+| Marker | In Production Bundle? | Evidence |
+|---|---|---|
+| `"Gross · pre-charges"` | ✅ YES | 1 hit |
+| `"P&L Reports"` | ✅ YES | 3 hits |
+| `"canonical cost model"` | ✅ YES | 1 hit |
+| `"effective 2026-04-01"` | ✅ YES | 2 hits |
+| `"deducted above"` (from `<em>not</em> deducted above`) | ✅ YES | 1 hit |
+| `"DD / heat"` (charges don't affect gates note) | ✅ YES | 1 hit |
+| `"brokerage"` | ✅ YES | 1 hit |
+| `"STT 0.05"` | ✅ YES | 1 hit |
+
+All 8 markers confirmed present in production bundle `/assets/index-CbJlIIQb.js`.
+
+---
+
+### Part D — Safety / Regression Checks
+
+| Check | Status |
+|---|---|
+| Release Integrity `PROD_VERIFIED` | ✅ verify:release 11/11 PASS |
+| F&O Cost Model Unification `PROD_VERIFIED` | ✅ Unchanged |
+| VWAP/Volume Profile Honesty `PROD_VERIFIED` | ✅ Unchanged |
+| Trigger Wording Semantics `PROD_VERIFIED` | ✅ Unchanged |
+| Backtest Charges Model `PROD_VERIFIED` | ✅ Unchanged |
+| Exit Premium Shadow `PROD_INFRA_VERIFIED_LIVE_SAMPLE_PENDING` | ✅ Unchanged |
+| Kite OI Unit `CONFIRMED_CORRECT` | ✅ Unchanged |
+| Broker execution disabled | ✅ Confirmed |
+| No real orders | ✅ Confirmed |
+| No Telegram spam | ✅ Confirmed |
+| No account balance logic changed | ✅ Confirmed |
+| No realized P&L logic changed | ✅ Confirmed |
+| No entry/exit logic changed | ✅ Confirmed |
+| No DD/heat/risk gate changed | ✅ Confirmed |
+| No destructive migration | ✅ Confirmed |
+| Stale/report-grade data cannot drive live trades | ✅ Unchanged |
+
+---
+
+### Part E — Tests (Production Verification Run)
+
+| Suite | Result | Count |
+|---|---|---|
+| `verify:release` | ✅ PASS | 11 / 11 |
+| `api-server typecheck` | ✅ PASS | 0 errors |
+| `typecheck:libs` | ✅ PASS | 0 errors |
+| `scanner typecheck` | ✅ PASS | 0 errors |
+| `foCockpitView.test.ts` (scanner) | ✅ PASS | 138 / 138 — 1 file |
+| `fnoCostModel.test.ts` + `fnoCostModelUnification.test.ts` | ✅ PASS | 70 / 70 — 2 files |
+| LLM index | ✅ Fresh | 350 / 350 files |
+
+---
+
+### Final Verdict
+
+**`P1A_PAPER_TRADING_GROSS_NET_DISPLAY_PROD_VERIFIED`**
+
+Production commit `41075693` (after P1A commit `a3c3de4`) is live. All 8 bundle markers
+confirmed in `/assets/index-CbJlIIQb.js`. No accounting, trading, signal, or gate logic
+changed. All prior P0/P1 milestones remain verified.

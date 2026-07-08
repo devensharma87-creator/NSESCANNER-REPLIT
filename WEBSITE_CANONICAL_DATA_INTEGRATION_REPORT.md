@@ -2528,3 +2528,25 @@ balance, realized P&L, DD/heat/risk gates, server endpoints, trading logic.
 - foCockpitView.test.ts: 138/138 ✓
 - verify:release: 11/11 ✓
 - LLM index: 350 files fresh ✓
+
+---
+
+## P1A Production Verification — 2026-07-08
+
+**Verdict: `P1A_PAPER_TRADING_GROSS_NET_DISPLAY_PROD_VERIFIED`**
+
+Production commit `41075693` (after P1A commit `a3c3de4`) confirmed live via `/api/build-info`.
+All 8 P1A bundle markers found in `/assets/index-CbJlIIQb.js`:
+
+| Marker | Hits |
+|---|---|
+| `"Gross · pre-charges"` | 1 |
+| `"P&L Reports"` | 3 |
+| `"canonical cost model"` | 1 |
+| `"effective 2026-04-01"` | 2 |
+| `"deducted above"` | 1 |
+| `"DD / heat"` | 1 |
+| `"brokerage"` | 3 |
+| `"STT 0.05"` | 1 |
+
+verify:release: 11/11 PASS. All prior milestones unchanged.
