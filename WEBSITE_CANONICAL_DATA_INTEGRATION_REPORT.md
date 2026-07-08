@@ -2451,3 +2451,39 @@ Full report: `EXIT_PREMIUM_MARKET_SHADOW_REPORT.md`
 **Tests:** 626 targeted api-server tests across 39 file-invocations pass. Scanner 770/770. LLM index 350 files fresh. typecheck CLEAN.
 
 **Full production detail:** `EXIT_PREMIUM_MARKET_SHADOW_REPORT.md` §13.
+
+---
+
+## P1 — Kite OI Unit Verification — 2026-07-08
+
+**Verdict: `KITE_OI_UNIT_VERIFICATION_LABEL_ONLY_GAP`**
+
+**Scope:** Read-only verification audit — no web-visible page, data feed, or integration
+was changed. No canonical data layer change. Recorded here for completeness.
+
+**Objective:** Confirm whether Kite `q.oi` (option open interest) is contracts or shares,
+and whether GEX/notional/gate formulas use the correct unit.
+
+**Key findings:**
+
+| Surface | Unit Used | Formula | Canonical? | Trading Impact |
+|---|---|---|---|---|
+| PCR / MaxPain / SentimentScore | Raw OI (ratio-based) | Unit-agnostic | ✓ | None |
+| GEX magnitude | Contracts × lotSize | `gamma × oi × lotSize × spot² × 0.01` | ✓ (display only, MODELLED label) | None |
+| OI rupee notional (heatmap) | Contracts × lotSize | `ltp × oi × lotSize` | ✓ (display only) | None |
+| FNO_LIQUIDITY gate | Contracts | `oi >= 50,000` | ✓ verified by live data | Paper trade open gate |
+| OI Lab narrative "Cr" label | Contracts / 1e7 | Display text only | ✗ LABEL GAP | None |
+
+**Live data confirmation:** 9 NIFTY/BANKNIFTY/SENSEX strike-side pairs from production
+`option_chain_snapshot` (2026-07-08 15:30 IST). All 9 consistent with contracts. Thin
+NIFTY 23450 CE (OI = 7,215) correctly rejected by FNO_LIQUIDITY gate; liquid NIFTY 23500
+PE (OI = 5,695,820 = 56.9L contracts) correctly passes. NSE direct comparison:
+`NSE_LIVE_VERIFICATION_PENDING` (geo-restricted from Replit cloud IPs).
+
+**Two gaps fixed in this session:**
+1. `gex.ts` + `gex.test.ts` stale comment: "oiLab.ts line 1716" → "oiLab.ts line 1746"
+2. `oiLab.ts` `flowText`: "Cr" → "Cr contracts" unit qualifier added
+
+**Tests:** 404 unique api-server tests pass (13 files). Scanner 770/770. verify:release 11/11.
+
+Full detail: `KITE_OI_UNIT_VERIFICATION_REPORT.md`

@@ -14,7 +14,7 @@
  *   effectiveUnderlyingQuantity = rawOI_contracts × lotSize
  *   where lotSize = number of underlying shares per contract
  *
- * PROOF: oiLab.ts line 1716 computes rupee notional as:
+ * PROOF: oiLab.ts line 1746 computes rupee notional as:
  *   `notional = ltp * q.oi * lot_size`
  *   This is correct ONLY when q.oi is in contracts (lots), because:
  *   rupee_notional = option_ltp × contracts × shares_per_contract

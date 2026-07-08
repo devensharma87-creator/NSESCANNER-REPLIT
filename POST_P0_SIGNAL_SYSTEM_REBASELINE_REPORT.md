@@ -311,3 +311,30 @@ Full detail: `EXIT_PREMIUM_MARKET_SHADOW_REPORT.md`
 **Verdict: `EXIT_PREMIUM_MARKET_SHADOW_PROD_INFRA_VERIFIED_LIVE_SAMPLE_PENDING`**
 
 Production deployed at commit `a8e0a6a6` (2026-07-08T10:19:32Z boot). All 8 shadow columns confirmed present and nullable in production DB. Legacy trades correctly return null for all shadow fields. No post-deploy F&O exits have occurred yet (`NO_LIVE_EXIT_SAMPLE_YET`). Shadow capture infrastructure is live. Full PROD_VERIFIED pending a real exit sample. See `EXIT_PREMIUM_MARKET_SHADOW_REPORT.md` §13 for complete evidence.
+
+---
+
+## Addendum — P1 Kite OI Unit Verification (2026-07-08)
+
+**Verdict: `KITE_OI_UNIT_VERIFICATION_LABEL_ONLY_GAP`**
+
+Completed as a separate P1 verification task on 2026-07-08.
+
+**Scope:** Read-only audit. Verified whether Kite option-chain `q.oi` values are in
+contracts or quantity. Covered gex.ts, kiteOptionChain.ts, oiLab.ts, optionAnalytics.ts,
+paperAccount.ts, and production `option_chain_snapshot` table (9 strike-side pairs).
+
+**Key finding:** Kite `q.oi` is in **CONTRACTS**. All code files are internally consistent.
+GEX formula, OI notional, PCR/MaxPain, sentimentScore all correct. The `FNO_LIQUIDITY`
+paper-trade gate (`MIN_OPTION_OI = 50,000`) is correctly calibrated and discriminates liquid
+from illiquid strikes in live production data. NSE direct comparison was `NSE_LIVE_VERIFICATION_PENDING`
+(geo-restricted from Replit), but 9-pair magnitude analysis strongly confirms contracts.
+
+**OI gate impact on signal system:** OI_VETO and ATM OI conflict gates are unit-agnostic
+(ratio-based). The only unit-sensitive gate (`FNO_LIQUIDITY.MIN_OPTION_OI`) is correct.
+No signal logic changes required.
+
+**Two documentation gaps (no trading impact):** stale line reference in gex.ts comment
+(line 1716 → 1746) and OI Lab narrative "Cr" label without "contracts" qualifier.
+
+Full detail: `KITE_OI_UNIT_VERIFICATION_REPORT.md`

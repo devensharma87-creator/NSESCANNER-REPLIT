@@ -601,9 +601,9 @@ function buildMarketInsight(
   const callDom = args.callOiAdded > Math.abs(args.putOiAdded) * 1.3;
   const putDom  = args.putOiAdded  > Math.abs(args.callOiAdded) * 1.3;
   const flowText = callDom
-    ? `Heavy call accumulation (+${(args.callOiAdded / 1e7).toFixed(2)} Cr) vs puts (${(args.putOiAdded / 1e7).toFixed(2)} Cr) shows bearish positioning.`
+    ? `Heavy call accumulation (+${(args.callOiAdded / 1e7).toFixed(2)} Cr contracts) vs puts (${(args.putOiAdded / 1e7).toFixed(2)} Cr contracts) shows bearish positioning.`
     : putDom
-    ? `Heavy put accumulation (+${(args.putOiAdded / 1e7).toFixed(2)} Cr) vs calls (${(args.callOiAdded / 1e7).toFixed(2)} Cr) shows bullish positioning.`
+    ? `Heavy put accumulation (+${(args.putOiAdded / 1e7).toFixed(2)} Cr contracts) vs calls (${(args.callOiAdded / 1e7).toFixed(2)} Cr contracts) shows bullish positioning.`
     : `OI flow is balanced between calls and puts.`;
 
   const analysis =

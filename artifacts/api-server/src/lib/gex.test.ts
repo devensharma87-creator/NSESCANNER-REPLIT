@@ -6,7 +6,7 @@
  * OI UNIT MODEL UNDER TEST:
  *   Kite `q.oi` = number of CONTRACTS (lots), NOT underlying quantity
  *   NSE `openInterest` = number of CONTRACTS (lots)
- *   Proof: oiLab.ts L1716 `notional = ltp * q.oi * lot_size`
+ *   Proof: oiLab.ts L1746 `notional = ltp * q.oi * lot_size`
  *   GEX = gamma × rawOI_contracts × lotSize × spot² × 0.01
  *       = gamma × effectiveUnderlyingQty × spot² × 0.01
  * ═══════════════════════════════════════════════════════════════════════

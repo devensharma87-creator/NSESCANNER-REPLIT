@@ -1,0 +1,387 @@
+CODER PROMPT — P1 KITE OI UNIT VERIFICATION AGAINST NSE
+
+Current accepted production status:
+
+RELEASE_INTEGRITY_PROD_VERIFIED
+BACKTEST_CHARGES_MODEL_NET_PNL_PROD_VERIFIED
+FNO_COST_MODEL_UNIFICATION_PROD_VERIFIED
+FNO_VWAP_VOLUME_PROFILE_HONESTY_PROD_VERIFIED
+FNO_TRIGGER_WORDING_SEMANTICS_PROD_VERIFIED
+POST_P0_SIGNAL_SYSTEM_REBASELINE_PARTIAL_GAP_REMAINS
+EXIT_PREMIUM_MARKET_SHADOW_PROD_INFRA_VERIFIED_LIVE_SAMPLE_PENDING
+
+Important pending future tasks:
+
+1. POST_P0_SIGNAL_SAMPLE_REVIEW
+   Run only after at least 5 trading sessions or 20+ post-P0 signals across NIFTY / BANKNIFTY / SENSEX.
+
+2. EXIT_PREMIUM_MARKET_SHADOW full PROD_VERIFIED
+   Run only after a new actual F&O paper trade exits and records exit_premium_market or an honest unavailable reason.
+
+Now start:
+
+P1 — KITE OI UNIT VERIFICATION AGAINST NSE
+
+====================================================
+PURPOSE
+====================================================
+
+This is a verification-only audit.
+
+The audit reports flagged that Kite option-chain OI unit interpretation may be unverified.
+
+The platform currently needs to confirm whether Kite option-chain OI values are:
+
+1. contracts, or
+2. quantity units / shares, or
+3. already lot-adjusted, or
+4. source-dependent / inconsistent.
+
+This matters because GEX, OI notional, OI concentration, flip zones, option-chain analytics, and any displayed rupee notional may be inflated if the platform multiplies by lot size when Kite OI is already in units.
+
+The goal is to compare live Kite OI against NSE official option-chain OI for the exact same:
+
+- underlying,
+- expiry,
+- strike,
+- CE / PE side,
+- timestamp,
+- lot size.
+
+====================================================
+STRICT SCOPE
+====================================================
+
+Allowed:
+
+1. Read current code.
+2. Read current production/API data.
+3. Compare Kite OI values against NSE official option chain.
+4. Compare 5–10 liquid strikes across NIFTY, BANKNIFTY, and SENSEX if available.
+5. Check how current code interprets OI.
+6. Check GEX / OI notional math.
+7. Create verification report.
+8. Add recommendations.
+9. Add tests only if they are pure non-invasive unit/fixture tests.
+10. Update reports.
+
+Not allowed:
+
+Do not change production trading logic.
+Do not change signal logic.
+Do not change GEX formula yet.
+Do not change OI Lab formula yet.
+Do not change Option Chain UI.
+Do not change Scanner.
+Do not change Backtesting.
+Do not change Paper Trading.
+Do not enable broker execution.
+Do not place real orders.
+Do not send Telegram tests.
+Do not perform destructive migrations.
+Do not rewrite historical rows.
+Do not silently “fix” OI units without evidence.
+Do not guess NSE/Kite units.
+Do not fabricate NSE comparison data.
+
+This phase is audit / verification first.
+
+====================================================
+PART A — CURRENT CODE AUDIT
+====================================================
+
+Inspect all OI/GEX related files.
+
+Likely files:
+
+1. artifacts/api-server/src/lib/gex.ts
+2. artifacts/api-server/src/lib/oiLab.ts
+3. artifacts/api-server/src/lib/optionAnalytics.ts
+4. artifacts/api-server/src/lib/optionChain.ts
+5. artifacts/api-server/src/lib/kiteOptionChain.ts
+6. artifacts/api-server/src/routes/optionChain.ts
+7. artifacts/api-server/src/routes/oiLab.ts
+8. artifacts/scanner frontend option-chain / OI Lab pages
+9. Any OpenAPI schemas exposing OI, GEX, max pain, PCR, notional values
+10. Any report/export using OI notional
+
+Create table:
+
+| File | Function | Current OI Assumption | Multiplies By Lot Size? | User-Facing Impact | Risk |
+|---|---|---|---:|---|---|
+
+Specifically confirm:
+
+1. Where Kite raw `oi` enters the system.
+2. Whether code assumes `oi` = contracts.
+3. Whether code multiplies `oi * lotSize`.
+4. Whether code displays OI as contracts, lots, quantity, or notional.
+5. Whether GEX multiplies by lot size.
+6. Whether OI rupee notional multiplies by lot size.
+7. Whether any code comment claims proof without external verification.
+8. Whether UI labels OI units clearly.
+9. Whether any trading signal uses GEX/OI notional directly.
+10. Whether OI/GEX can drive paper trade opening.
+
+====================================================
+PART B — LIVE DATA VERIFICATION PLAN
+====================================================
+
+Use live or most recent market data.
+
+For each selected underlying:
+
+1. NIFTY
+2. BANKNIFTY
+3. SENSEX, if available from both sources
+
+Select:
+
+- nearest weekly/monthly expiry,
+- 3 CE strikes around ATM,
+- 3 PE strikes around ATM,
+- optionally 2 deep OTM liquid strikes.
+
+For each strike and side, collect:
+
+1. Underlying.
+2. Expiry.
+3. Strike.
+4. CE/PE.
+5. Lot size.
+6. Kite raw OI.
+7. Kite source timestamp/as-of.
+8. NSE official OI.
+9. NSE timestamp/as-of.
+10. NSE OI unit label, if available.
+11. Ratio:
+
+   Kite OI / NSE OI
+
+12. Ratio vs lot size:
+
+   Kite OI / (NSE OI * lotSize)
+
+13. Conclusion:
+
+   - Kite OI matches NSE contracts
+   - Kite OI matches NSE quantity units
+   - Kite OI appears lot-adjusted
+   - Inconclusive
+
+Required comparison table:
+
+| Underlying | Expiry | Strike | Side | Lot Size | Kite OI | NSE OI | Kite/NSE | Kite/(NSE×Lot) | Unit Verdict |
+|---|---|---:|---|---:|---:|---:|---:|---:|---|
+
+====================================================
+PART C — ACCEPTABLE EVIDENCE RULES
+====================================================
+
+Do not rely on one strike only.
+
+Minimum acceptable sample:
+
+- At least 5 liquid strike-side comparisons from one index, or
+- Preferred: 15+ strike-side comparisons across NIFTY / BANKNIFTY / SENSEX.
+
+Each comparison must be close in timestamp.
+
+If timestamps differ materially, mark:
+
+TIMESTAMP_MISMATCH — verification weaker
+
+If NSE access fails, mark:
+
+NSE_LIVE_VERIFICATION_PENDING
+
+If Kite access fails, mark:
+
+KITE_LIVE_VERIFICATION_PENDING
+
+If market is closed, use last available snapshot only if both sources are from the same session and clearly timestamped.
+
+Do not mark VERIFIED if data is stale, mismatched, or from different expiries.
+
+====================================================
+PART D — GEX / OI NOTIONAL IMPACT AUDIT
+====================================================
+
+After unit verdict, audit the effect on platform calculations.
+
+Check:
+
+1. GEX magnitude.
+2. Flip zone ranking.
+3. OI rupee notional.
+4. PCR OI.
+5. Max Pain.
+6. OI concentration.
+7. OI Lab displayed totals.
+8. Option Chain displayed totals.
+9. F&O signal confirmations that reference OI buildup.
+10. Whether any paper-trade gate uses OI.
+
+Important:
+
+- PCR and Max Pain may be unaffected if both CE and PE use same unit scale.
+- GEX magnitude / rupee notional may be inflated if unit scale is wrong.
+- Ranking may or may not be affected depending on uniform scale.
+- UI labels may still be wrong even if relative calculations are okay.
+
+Create table:
+
+| Calculation | Uses OI? | Unit-Sensitive? | Affected If Wrong? | Trading Impact | UI Impact |
+|---|---:|---:|---:|---|---|
+
+====================================================
+PART E — SIGNAL / TRADE SAFETY AUDIT
+====================================================
+
+Confirm whether OI/GEX affects actual signal/trade paths.
+
+Report:
+
+1. Does GEX directly drive trade signals?
+2. Does OI notional directly drive trade signals?
+3. Does option-chain OI gate paper trade opening?
+4. Does raw OI = 0 block premium trust / liquidity?
+5. Does wrong unit scale change tradeability?
+6. Does wrong unit scale only affect analytics display?
+7. Are labels clear enough for user?
+
+Required table:
+
+| Path | Uses OI? | Uses OI Scale? | Can Open Trade? | Risk |
+|---|---:|---:|---:|---|
+
+====================================================
+PART F — RECOMMENDED FIX PLAN
+====================================================
+
+Do not implement yet unless the finding is trivial label-only.
+
+Recommend one of these:
+
+1. NO_CODE_CHANGE_NEEDED — Kite OI unit is confirmed and code is correct.
+2. LABEL_ONLY_FIX_NEEDED — math is okay but UI labels are unclear.
+3. UNIT_NORMALIZATION_FIX_NEEDED — code multiplies incorrectly or stores unclear units.
+4. GEX_NOTIONAL_FIX_NEEDED — only GEX/notional scale is wrong.
+5. LIVE_DATA_VERIFICATION_PENDING — no reliable comparison could be completed.
+
+For each recommendation, include:
+
+| Recommendation | Required Change | Risk | Files Likely Touched | Tests Needed |
+|---|---|---|---|---|
+
+====================================================
+PART G — TESTS / COMMANDS
+====================================================
+
+Run:
+
+pnpm --filter @workspace/scripts run verify:release
+
+pnpm --filter @workspace/api-server run typecheck
+
+pnpm --filter @workspace/api-server run typecheck:libs
+
+pnpm --filter @workspace/api-server exec vitest run src/lib/*gex*.test.ts src/lib/*optionChain*.test.ts src/lib/*oiLab*.test.ts src/lib/*option*.test.ts src/routes/**/*.test.ts
+
+pnpm --filter @workspace/scanner exec vitest run
+
+pnpm --filter @workspace/scripts run index:llm
+
+pnpm --filter @workspace/scripts run index:llm:check
+
+If any suite times out, split into smaller batches and report exact counts.
+
+Do not summarize partial tests as green.
+
+====================================================
+PART H — REPORT UPDATE
+====================================================
+
+Create:
+
+KITE_OI_UNIT_VERIFICATION_REPORT.md
+
+Update:
+
+1. WEBSITE_CANONICAL_DATA_INTEGRATION_REPORT.md
+2. POST_P0_SIGNAL_SYSTEM_REBASELINE_REPORT.md, if relevant
+3. USER_FACING_CORE_TABS_DEEP_AUDIT_REPORT.md, if relevant
+
+Report must include:
+
+1. Objective.
+2. Current code audit.
+3. Live comparison method.
+4. NSE vs Kite comparison table.
+5. Timestamp/as-of proof.
+6. Unit verdict.
+7. GEX/OI notional impact.
+8. Signal/trade safety audit.
+9. Recommended fix plan.
+10. Tests and counts.
+11. Final verdict.
+
+====================================================
+FINAL VERDICT
+====================================================
+
+Final verdict must be exactly one:
+
+- KITE_OI_UNIT_VERIFICATION_CONFIRMED_CORRECT
+- KITE_OI_UNIT_VERIFICATION_LABEL_ONLY_GAP
+- KITE_OI_UNIT_VERIFICATION_UNIT_NORMALIZATION_FIX_NEEDED
+- KITE_OI_UNIT_VERIFICATION_GEX_NOTIONAL_FIX_NEEDED
+- KITE_OI_UNIT_VERIFICATION_LIVE_DATA_PENDING
+- RELEASE_INTEGRITY_REGRESSION_FOUND
+- ROLLBACK_REQUIRED
+
+Use:
+
+KITE_OI_UNIT_VERIFICATION_CONFIRMED_CORRECT
+
+only if live NSE/Kite comparison proves the current code’s OI unit assumption is correct and labels are clear.
+
+Use:
+
+KITE_OI_UNIT_VERIFICATION_LABEL_ONLY_GAP
+
+if math is correct but labels/source wording are unclear.
+
+Use:
+
+KITE_OI_UNIT_VERIFICATION_UNIT_NORMALIZATION_FIX_NEEDED
+
+if current code is using wrong OI units in calculations.
+
+Use:
+
+KITE_OI_UNIT_VERIFICATION_GEX_NOTIONAL_FIX_NEEDED
+
+if relative OI analytics are okay but GEX/notional magnitudes are wrong.
+
+Use:
+
+KITE_OI_UNIT_VERIFICATION_LIVE_DATA_PENDING
+
+if live or comparable same-session NSE/Kite data cannot be collected.
+
+Use:
+
+RELEASE_INTEGRITY_REGRESSION_FOUND
+
+if verify:release has a real FAIL.
+
+Use:
+
+ROLLBACK_REQUIRED
+
+if secrets leak, broker execution turns on, real orders are placed, Telegram spam occurs, destructive migration happens, or stale/report-grade data can drive live trades.
+
+Expected result if market data is unavailable right now:
+
+KITE_OI_UNIT_VERIFICATION_LIVE_DATA_PENDING

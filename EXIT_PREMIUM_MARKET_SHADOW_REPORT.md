@@ -350,3 +350,33 @@ The API layer exposes all 8 fields. A dedicated frontend panel showing "REALIZED
 **`EXIT_PREMIUM_MARKET_SHADOW_PROD_INFRA_VERIFIED_LIVE_SAMPLE_PENDING`**
 
 Production is live at commit `a8e0a6a6`. All 8 shadow columns are present in the production DB (additive, nullable, no historical rewrites). The API exposes all shadow fields. Legacy trades correctly return null. No post-deploy F&O paper trade exits have occurred yet — shadow capture will record on the next real exit. Full PROD_VERIFIED requires a live sample trade confirming capture or honest unavailability recording.
+
+---
+
+## 14. Cross-Reference — P1 Kite OI Unit Verification (2026-07-08)
+
+**Verdict: `KITE_OI_UNIT_VERIFICATION_LABEL_ONLY_GAP`**
+
+Completed as a separate P1 verification task on 2026-07-08, after this report's §13.
+
+**Scope:** Read-only code audit + production DB magnitude analysis of Kite `q.oi` values to
+confirm whether they are in contracts (lots) or quantity (shares). Covers gex.ts,
+kiteOptionChain.ts, oiLab.ts, optionAnalytics.ts, paperAccount.ts, and the
+`option_chain_snapshot` production table (9 strike-side pairs queried).
+
+**Key finding:** Kite `q.oi` is in **CONTRACTS** (lots), consistent with NSE published
+convention. All four code files treat OI uniformly as contracts. GEX formula, OI rupee
+notional, PCR/MaxPain, sentimentScore, and `FNO_LIQUIDITY.MIN_OPTION_OI = 50,000` are all
+mathematically correct for the contracts assumption. Live-data gate discrimination confirmed:
+NIFTY 23450 CE (7,215 contracts) correctly rejected; NIFTY 23500 PE (5,695,820 contracts)
+correctly passed.
+
+**Two label/documentation gaps (no trading impact):**
+1. `gex.ts` header cites `oiLab.ts line 1716` as proof but that line now contains baseline
+   OI estimation code — actual notional formula is at line 1746.
+2. OI Lab narrative displays OI flow as `"X Cr"` without specifying "contracts" — may
+   mislead users into thinking crore rupees or shares.
+
+**No code, formula, gate, or trading logic change required.** Label fixes are trivial.
+
+Full detail: `KITE_OI_UNIT_VERIFICATION_REPORT.md`

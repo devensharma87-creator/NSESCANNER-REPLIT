@@ -949,3 +949,40 @@ Code-level proof confirmed via grep:
 Shadow observation column (`exit_premium_market`) added to `paper_trade_fo` capturing real Kite chain LTP at exit time. Zero impact on any user-facing tab, signal display, or trading decision. API response (`GET /api/paper/positions/fo/closed`) now includes 8 nullable shadow fields; no frontend component consumes them yet (deferred). Full detail: `EXIT_PREMIUM_MARKET_SHADOW_REPORT.md`.
 
 **Production verification (2026-07-08):** `EXIT_PREMIUM_MARKET_SHADOW_PROD_INFRA_VERIFIED_LIVE_SAMPLE_PENDING`. Commit `a8e0a6a6` live, all 8 prod DB columns confirmed, legacy trades null-safe, no live exit sample yet. verify:release 11 PASS. No user-facing tab changes in this P1.
+
+---
+
+## P1 — Kite OI Unit Verification — 2026-07-08
+
+**Verdict: `KITE_OI_UNIT_VERIFICATION_LABEL_ONLY_GAP`**
+
+**Scope note:** This P1 is a pure verification audit — no user-facing tab component was
+changed. Recorded here for audit trail completeness.
+
+**Objective:** Verify whether Kite `q.oi` (option open interest) is in contracts (lots)
+or quantity (underlying shares), and whether GEX/notional/gate formulas are correct.
+
+**Findings affecting user-facing tabs:**
+
+| Tab | OI Display Surface | Unit Sensitivity | Finding |
+|---|---|---|---|
+| Option Chain (OI bar chart, OI buildup) | Raw `OcSide.oi` | NONE — raw contracts displayed | Correct |
+| OI Lab (PCR, sentimentScore, Max Pain) | Ratio-derived | NONE — unit-agnostic | Correct |
+| OI Lab (notional display in heatmap) | `ltp × oi × lotSize` | YES | Formula correct for contracts |
+| OI Lab (narrative "X Cr" label) | `callOiAdded / 1e7` displayed as "Cr" | YES — display only | **LABEL GAP**: "Cr" without "contracts" qualifier |
+| GEX chart (flip-point, magnitude) | `gamma × oi × lotSize × spot² × 0.01` | YES | Formula correct; label says "MODELLED" ✓ |
+| Paper Trading | `FNO_LIQUIDITY.MIN_OPTION_OI = 50,000` gate | YES — trade gate | **Correct**: gate verified against live data |
+
+**Two label/documentation gaps identified (no trading decision affected):**
+1. `gex.ts` header comment cites `oiLab.ts line 1716` as proof — that line now contains
+   different code; actual notional formula is at line 1746.
+2. OI Lab narrative displays OI flow as `"X Cr"` without unit qualifier.
+
+**Live data verification:** 9 NIFTY/BANKNIFTY/SENSEX strike-side pairs from prod
+`option_chain_snapshot` (2026-07-08 15:30 IST). All 9 consistent with contracts.
+NIFTY 23450 CE: OI = 7,215 (plausible as contracts; 289 as quantity is implausible for a
+listed NIFTY option). NSE direct comparison: `NSE_LIVE_VERIFICATION_PENDING` (geo-restricted).
+
+**No code/formula/gate/tab change required.** Label fixes deferred to a follow-up commit.
+
+Full detail: `KITE_OI_UNIT_VERIFICATION_REPORT.md`

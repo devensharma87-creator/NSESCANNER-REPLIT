@@ -47,3 +47,4 @@
 - [executeSql "ROLLBACK" masks a real SQL error](executesql-rollback-masks-column-error.md) — success:true + `START TRANSACTION\nROLLBACK` with no rows means the query errored (e.g. bad column name), not tool flakiness; re-check schema before retrying.
 - [Report-grade vs trade-grade quote facades](report-grade-vs-trade-grade-quotes.md) — display/report consumers need a looser same-day-accept policy than the 10min trade-grade router; hard-code tradeGrade/canDriveSignals false.
 - [VWAP availability flag pattern](vwap-availability-flag-pattern.md) — cash indices (NIFTY/BANKNIFTY/SENSEX) have volume=0 → VWAP/VP structurally null; gate detectors on vwapAvailable, never include in fullIndicators warm-up gate.
+- [Kite option-chain OI is in CONTRACTS](kite-oi-unit-contracts.md) — `q.oi` and NSE `openInterest` are both in contracts (lots), not underlying shares; multiply by lot_size for quantity; verified 2026-07-08 via prod snapshot magnitude analysis.
