@@ -1524,6 +1524,39 @@
     "hash": "d79a129ed5830c52"
   },
   {
+    "path": "artifacts/api-server/src/lib/fnoMarketShadowCapture.test.ts",
+    "purpose": "test",
+    "lines": 328,
+    "exports": [],
+    "externalImports": [
+      "vitest"
+    ],
+    "routes": [],
+    "hash": "07af2cb9142c9df4"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/fnoMarketShadowCapture.ts",
+    "purpose": "fno-engine",
+    "lines": 320,
+    "exports": [
+      "ExitPremiumMarketUnavailableReason",
+      "ExitMarketShadowResult",
+      "extractStrikeLtpFromChain",
+      "computeMarketShadow",
+      "captureExitMarketPremium",
+      "applyFoMarketShadowColumns",
+      "ensureFoMarketShadowColumns",
+      "__resetFoMarketShadowColumnsGuardForTests",
+      "applyMarketShadowToDb"
+    ],
+    "externalImports": [
+      "@workspace/db",
+      "drizzle-orm"
+    ],
+    "routes": [],
+    "hash": "5b29a3e39c25ae01"
+  },
+  {
     "path": "artifacts/api-server/src/lib/fnoObservability.test.ts",
     "purpose": "test",
     "lines": 128,
@@ -1567,7 +1600,7 @@
   {
     "path": "artifacts/api-server/src/lib/fnoPremiumExitOverlay.test.ts",
     "purpose": "test",
-    "lines": 475,
+    "lines": 480,
     "exports": [],
     "externalImports": [
       "vitest",
@@ -1576,7 +1609,7 @@
       "@workspace/db"
     ],
     "routes": [],
-    "hash": "c1789d3fce27e3f9"
+    "hash": "e13bc12bc4847da2"
   },
   {
     "path": "artifacts/api-server/src/lib/fnoPremiumExitOverlay.ts",
@@ -4244,7 +4277,7 @@
   {
     "path": "artifacts/api-server/src/lib/paperTradingFO.ts",
     "purpose": "paper-trading",
-    "lines": 3246,
+    "lines": 3272,
     "exports": [
       "TradeTier",
       "LifecycleHookInput",
@@ -4273,7 +4306,7 @@
       "@workspace/api-zod"
     ],
     "routes": [],
-    "hash": "d3b05ac1187fb8e9"
+    "hash": "21d61449d698606d"
   },
   {
     "path": "artifacts/api-server/src/lib/paperTradingFoExitMonitorApi.test.ts",
@@ -6558,7 +6591,7 @@
   {
     "path": "artifacts/api-server/src/routes/paper.ts",
     "purpose": "api-route",
-    "lines": 1972,
+    "lines": 1992,
     "exports": [],
     "externalImports": [
       "express",
@@ -6587,7 +6620,7 @@
       "GET /paper/diagnostics/fo/exit-safety",
       "GET /paper/diagnostics/fo/exit-monitor/status"
     ],
-    "hash": "3f1144d4235c51c4"
+    "hash": "7d07b11cde1a8d44"
   },
   {
     "path": "artifacts/api-server/src/routes/paperCombo.ts",
@@ -8779,7 +8812,7 @@
   {
     "path": "lib/db/src/schema/paperTrading.ts",
     "purpose": "db-schema",
-    "lines": 474,
+    "lines": 502,
     "exports": [
       "paperAccountTable",
       "PaperAccountRow",
@@ -8805,7 +8838,7 @@
       "drizzle-orm"
     ],
     "routes": [],
-    "hash": "ca219a6badb12ad5"
+    "hash": "bba7a9f13ed1b79b"
   },
   {
     "path": "lib/db/src/schema/portfolio.ts",

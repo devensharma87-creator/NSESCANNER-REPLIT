@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-08T07:57:55.434Z",
+  "generatedAt": "2026-07-08T10:21:46.439Z",
   "generatorVersion": "1.0.0",
   "files": {
     "artifacts/api-server/src/routes/admin.ts": {
@@ -128,9 +128,9 @@
       "mtime": "2026-05-13T13:57:43.155Z"
     },
     "artifacts/api-server/src/routes/paper.ts": {
-      "hash": "3f1144d4235c51c4",
-      "lines": 1972,
-      "mtime": "2026-07-03T21:49:31.259Z"
+      "hash": "7d07b11cde1a8d44",
+      "lines": 1992,
+      "mtime": "2026-07-08T09:44:09.626Z"
     },
     "artifacts/api-server/src/routes/paperCombo.ts": {
       "hash": "ce6ef9a7fdbb135d",
@@ -401,6 +401,11 @@
       "hash": "d79a129ed5830c52",
       "lines": 1375,
       "mtime": "2026-07-03T19:45:52.891Z"
+    },
+    "artifacts/api-server/src/lib/fnoMarketShadowCapture.ts": {
+      "hash": "5b29a3e39c25ae01",
+      "lines": 320,
+      "mtime": "2026-07-08T09:42:10.173Z"
     },
     "artifacts/api-server/src/lib/fnoPaperRiskGuards.ts": {
       "hash": "a9a9da9867ca3b0b",
@@ -918,9 +923,9 @@
       "mtime": "2026-07-03T21:48:35.599Z"
     },
     "artifacts/api-server/src/lib/paperTradingFO.ts": {
-      "hash": "d3b05ac1187fb8e9",
-      "lines": 3246,
-      "mtime": "2026-07-02T19:30:50.149Z"
+      "hash": "21d61449d698606d",
+      "lines": 3272,
+      "mtime": "2026-07-08T09:43:58.305Z"
     },
     "artifacts/api-server/src/lib/preMarket.ts": {
       "hash": "77d19a892b79c49f",
@@ -1288,9 +1293,9 @@
       "mtime": "2026-05-13T14:18:21.895Z"
     },
     "lib/db/src/schema/paperTrading.ts": {
-      "hash": "ca219a6badb12ad5",
-      "lines": 474,
-      "mtime": "2026-07-03T21:30:45.879Z"
+      "hash": "bba7a9f13ed1b79b",
+      "lines": 502,
+      "mtime": "2026-07-08T09:41:13.565Z"
     },
     "lib/db/src/schema/portfolio.ts": {
       "hash": "879a6a7b938e6570",
@@ -1323,9 +1328,9 @@
       "mtime": "2026-06-05T12:55:17.075Z"
     },
     "lib/api-spec/openapi.yaml": {
-      "hash": "9491e72354b9e0f8",
-      "lines": 6894,
-      "mtime": "2026-07-08T05:48:37.250Z"
+      "hash": "1687cd0720e09386",
+      "lines": 6927,
+      "mtime": "2026-07-08T09:42:24.149Z"
     },
     "artifacts/scanner/src/pages/admin.tsx": {
       "hash": "4a6ea1da8bb56b02",
