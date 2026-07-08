@@ -284,7 +284,7 @@ P1A (Paper Trading gross/net display honesty) implemented as a safe UI-only chan
 | Item | Session Outcome |
 |---|---|
 | P1A — Paper Trading gross/net | **PROD_VERIFIED** |
-| P1B — MACD warm-up fix | **DEV_VERIFIED** — see P1B section below |
+| P1B — MACD warm-up fix | **PROD_VERIFIED** — see P1B section below |
 | P1C — NSE holiday calendar | Audited — low priority maintenance |
 | P1D — Equity gap-through exit | Audited — HIGH risk, requires explicit owner sign-off |
 | P1E — Charting professional | Audited — medium-large UI, phased separately |
@@ -547,7 +547,36 @@ broker execution, real orders, Telegram, or market shadow coupling changed.
 
 ### Verdict
 
-**`P1B_MACD_WARMUP_FIX_DEV_VERIFIED`**
+**`P1B_MACD_WARMUP_FIX_PROD_VERIFIED`**
 
-Production publish pending. After owner publishes and `build-info` confirms the new commit,
-this upgrades to `P1B_MACD_WARMUP_FIX_PROD_VERIFIED`.
+### Production Verification — 2026-07-08
+
+| Check | Result |
+|---|---|
+| `commitShort` = `8f41f811` (after MACD fix `f224e41`) | ✅ Confirmed |
+| `buildTime` = 2026-07-08T13:07:44Z | ✅ After publish |
+| `bootTime` = 2026-07-08T13:09:39Z | ✅ After publish |
+| `environment` = `production` | ✅ |
+| All 7 checkpoint markers = `true` | ✅ |
+| No secrets exposed | ✅ |
+| `verify:release` | ✅ 11 / 11 PASS |
+| `startIdx` slicing in `indicators.ts` (source) | ✅ Lines 95-102 confirmed |
+| Full-array zero-fill absent | ✅ Grep confirms absent |
+| `indicators.test.ts` + `indicatorsShared.test.ts` | ✅ 83 / 83 |
+| Indicator + scanner + swing (16 files) | ✅ 336 / 336 |
+| Scanner vitest | ✅ 770 / 770 |
+| LLM index | ✅ 350 / 350 fresh |
+
+**Commit ordering:**
+```
+9ec9413  Published your App         ← HEAD (live)
+8f41f81  Verification summary       ← prod commit
+f224e41  Fix MACD warm-up           ← MACD fix
+e64a1c2  Financial reports update
+3336b8b  F&O STT cockpit fix
+```
+
+**Expected indicator drift:** Short-history symbols (< 35 daily bars) now return null
+MACD histogram instead of a distorted zero-seeded value. This is correct and expected.
+Long-history symbols (250+ bars) are materially unaffected. No scoring weights, signal
+thresholds, or trading logic changed.

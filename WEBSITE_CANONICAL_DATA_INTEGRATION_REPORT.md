@@ -2611,7 +2611,17 @@ canonical-vs-global alignment, and output-shape invariant (9 length cases).
 
 ### Verdict
 
-`P1B_MACD_WARMUP_FIX_DEV_VERIFIED` — no trading logic, weights, or thresholds changed.
-Production publish pending.
+`P1B_MACD_WARMUP_FIX_PROD_VERIFIED`
 
-verify:release: 11/11 PASS. All prior milestones unchanged.
+**Production verification — 2026-07-08:**
+- Prod commit `8f41f811` (after MACD fix `f224e41`) confirmed via `/api/build-info`
+- buildTime 2026-07-08T13:07:44Z | bootTime 2026-07-08T13:09:39Z | environment=production
+- All 7 checkpoint markers true | verify:release 11/11 PASS
+- Source proof: `startIdx = macdLine.findIndex(v => v !== null)` confirmed at line 95;
+  full-array zero-fill `macdLine.map(v => v ?? 0)` feeding EMA absent (grep-confirmed)
+- Tests: 83/83 indicator | 336/336 scanner/swing | 770/770 scanner | 350/350 LLM index
+
+No trading logic, weights, thresholds, account balance, realized P&L, or signal gates changed.
+**Expected indicator-correctness drift:** Short-history new listings (< 35 daily bars) now
+return null MACD histogram instead of a zero-seeded distorted value. Long-history: unaffected.
+All prior P0/P1 milestones remain verified.

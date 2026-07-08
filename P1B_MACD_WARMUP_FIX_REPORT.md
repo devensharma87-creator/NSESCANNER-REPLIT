@@ -217,13 +217,131 @@ as required by the prompt.
 
 ## 10. Final Verdict
 
-**`P1B_MACD_WARMUP_FIX_DEV_VERIFIED`**
+**`P1B_MACD_WARMUP_FIX_PROD_VERIFIED`**
 
-The zero-fill bug in canonical NSE MACD warm-up is confirmed and fixed. Signal EMA
-is now seeded only from the first valid MACD value, matching the global implementation
-and standard financial library behavior. All 1,189 tests pass. Production publish is
-pending — verdict upgrades to `P1B_MACD_WARMUP_FIX_PROD_VERIFIED` after owner publishes
-and production `build-info` confirms the new commit.
+The zero-fill bug in canonical NSE MACD warm-up is confirmed fixed and live in
+production. Signal EMA is seeded only from the first valid MACD value, matching
+the global implementation and standard financial library behavior.
+See "Production Verification" section below.
+
+---
+
+## Production Verification — 2026-07-08
+
+### Part A — Fresh Deploy Proof
+
+| Check | Detail | Result |
+|---|---|---|
+| HTTP 200 on `/api/build-info` | — | ✅ 200 OK |
+| `commitShort` after MACD fix `f224e41` | `8f41f811` ← prod commit | ✅ Confirmed |
+| Production no longer shows old P1A STT commit `64337231` | Different commit confirmed | ✅ Confirmed |
+| `buildTime` | 2026-07-08T13:07:44.329Z | ✅ After publish |
+| `bootTime` | 2026-07-08T13:09:39.402Z | ✅ After publish |
+| `environment` | `production` | ✅ |
+| All 7 checkpoint markers | `checkpoint1/2/2_5/3`, `dataParityApi`, `reportGradeFacade`, `providerImportCompat` = `true` | ✅ All true |
+| No secrets exposed | No tokens/keys in response | ✅ |
+| `verify:release` | **11 / 11 PASS** | ✅ |
+
+**Commit ordering (git log):**
+```
+9ec9413  Published your App                                    ← HEAD (live)
+8f41f81  Update verification summary                          ← prod commit
+f224e41  Fix MACD calculation for short-history symbols       ← MACD fix commit
+e64a1c2  Update financial reports
+3336b8b  Update F&O cockpit STT fix
+cdd0fa3  Update STT label fix
+```
+Production commit `8f41f811` is AFTER MACD fix `f224e41` → fix is live.
+
+### Part B — Production Code Proof
+
+`indicators.ts` is server-side Express code — it is NOT bundled into the frontend JS.
+Proof via source verification + commit ordering:
+
+| Production Proof Item | Expected | Result |
+|---|---|---|
+| Full-array zero-fill `macdLine.map(v => v ?? 0)` feeding EMA | Absent | ✅ Absent — confirmed via grep |
+| `startIdx = macdLine.findIndex(v => v !== null)` | Present (line 95) | ✅ Confirmed |
+| `ema(macdLine.slice(startIdx).map(v => v ?? 0), signalP)` | Present (line 97) | ✅ Confirmed |
+| Null padding: `sigLine[startIdx + i] = sigSeed[i] ?? null` | Present (line 102) | ✅ Confirmed |
+| Histogram waits for valid signal: `m == null \|\| s == null ? null : m - s` | Present | ✅ Confirmed |
+| Output length = input length: `new Array(values.length).fill(null)` | Present (line 102) | ✅ Confirmed |
+| Production deploy includes MACD fix commit `f224e41` | `8f41f811` > `f224e41` in git log | ✅ Confirmed |
+
+### Part C — Functional Production Verification
+
+Server-side code verified via source + commit ordering. No dedicated MACD diagnostic
+endpoint exists in production — functional verification is covered by:
+- 57 MACD regression tests in `indicators.test.ts` (all passing against fixed code)
+- Source inspection confirms fix is deployed
+
+| Fixture | Expected | Result |
+|---|---|---|
+| n=10 | MACD/signal/hist all null | ✅ (test-verified) |
+| n=26 | MACD[25] valid, signal null (no zero-seeded fake signal) | ✅ (test-verified) |
+| n=33 | MACD 8 valid bars, signal/hist null | ✅ (test-verified) |
+| n=34 | First valid signal at bar 33, null before | ✅ (test-verified, hand-verified SMA seed) |
+| n=50 | Bars 25–32 correctly null for signal/hist | ✅ (test-verified) |
+| n=200 | Long-history last-bar impact negligible (0.8^167 ≈ 0) | ✅ (test-verified) |
+
+### Part D — Impact Confirmation
+
+**This fix changes MACD histogram/scoring behavior for short-history / new-listing symbols.
+This is expected and correct — it is an indicator-correctness change, not a trading-rule change.**
+
+| Consumer | Uses MACD? | Production Impact | Trading Rule Changed? |
+|---|---|---|---|
+| `scoring.ts` Rule 6 (weight ±8) | `lastNonNull(macdHistSeries)` | New listings < 35 bars: Rule 6 now correctly returns 0 (null hist) instead of distorted ±8. 250+ bars: no change. | No |
+| `scanner.ts` NSE 280-stock | `macdHistSeries` → scoring | Same as above — edge-case new listings only | No |
+| `fullNseScanner.ts` Pro Swing | `lastVal(m.hist)` | 250+ bar stocks only → no change | No |
+| F&O signal pipeline | ❌ Not used | Zero impact | No |
+| Paper trade open/close | ❌ Not used | Zero impact | No |
+| Account balance / realized P&L | ❌ Not used | Zero impact | No |
+| Frontend MACD display | Display only | Null displays as "—" — no UI component change needed | No |
+
+### Part E — Safety / Regression Checks
+
+| Prior Milestone | Status |
+|---|---|
+| `RELEASE_INTEGRITY_PROD_VERIFIED` | ✅ verify:release 11/11 PASS |
+| `BACKTEST_CHARGES_MODEL_NET_PNL_PROD_VERIFIED` | ✅ Unchanged |
+| `FNO_COST_MODEL_UNIFICATION_PROD_VERIFIED` | ✅ Unchanged |
+| `FNO_VWAP_VOLUME_PROFILE_HONESTY_PROD_VERIFIED` | ✅ Unchanged |
+| `FNO_TRIGGER_WORDING_SEMANTICS_PROD_VERIFIED` | ✅ Unchanged |
+| `KITE_OI_UNIT_VERIFICATION_CONFIRMED_CORRECT` | ✅ Unchanged |
+| `P1A_PAPER_TRADING_GROSS_NET_DISPLAY_PROD_VERIFIED` | ✅ Unchanged |
+| `EXIT_PREMIUM_MARKET_SHADOW_PROD_INFRA_VERIFIED_LIVE_SAMPLE_PENDING` | ✅ Unchanged |
+| `POST_P0_SIGNAL_SYSTEM_REBASELINE_PARTIAL_GAP_REMAINS` | ✅ Unchanged |
+| No broker execution | ✅ |
+| No real orders | ✅ |
+| No Telegram messages | ✅ |
+| No DB/schema migration | ✅ |
+| No account balance change | ✅ |
+| No realized P&L change | ✅ |
+| No historical trade rewrite | ✅ |
+| Stale/report-grade data cannot drive live trades | ✅ |
+
+### Part F — Tests (Production Verification Run)
+
+| Suite | Files | Tests | Result |
+|---|---|---|---|
+| `verify:release` | — | **11 / 11** | ✅ PASS |
+| `api-server typecheck` | — | **0 errors** | ✅ PASS |
+| `typecheck:libs` | — | **0 errors** | ✅ PASS |
+| `indicators.test.ts` + `indicatorsShared.test.ts` | **2 / 2** | **83 / 83** | ✅ PASS |
+| Indicator + scanner + swing (16 files) | **16 / 16** | **336 / 336** | ✅ PASS |
+| `scanner typecheck` | — | **0 errors** | ✅ PASS |
+| Scanner vitest full suite | **35 / 35** | **770 / 770** | ✅ PASS |
+| LLM index | — | 350 files | ✅ Fresh |
+| LLM index check | — | **350 / 350** | ✅ PASS |
+
+### Final Verdict
+
+**`P1B_MACD_WARMUP_FIX_PROD_VERIFIED`**
+
+Production commit `8f41f811` (after MACD fix `f224e41`) is live. Source code confirmed:
+`startIdx`-based slicing is present, full-array zero-fill is absent. No accounting,
+signal, trading, or gate logic changed. All prior P0/P1 milestones remain verified.
 
 ---
 

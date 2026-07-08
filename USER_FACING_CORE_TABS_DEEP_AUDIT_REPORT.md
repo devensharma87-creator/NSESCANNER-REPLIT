@@ -1110,6 +1110,14 @@ The display correctly shows "—" / null until sufficient history exists.
 
 ### Verdict
 
-`P1B_MACD_WARMUP_FIX_DEV_VERIFIED` — pending production publish.
+`P1B_MACD_WARMUP_FIX_PROD_VERIFIED`
 
-Tests: 138/138 foCockpitView, 70/70 cost model, 11/11 verify:release, 350/350 LLM index.
+**Production verification — 2026-07-08:**
+- Prod commit `8f41f811` (after MACD fix `f224e41`) confirmed via `/api/build-info`
+- `startIdx`-based signal EMA slicing confirmed in deployed source (lines 95-102)
+- Full-array zero-fill absent — confirmed via grep
+- verify:release 11/11 PASS | 83/83 indicator tests | 336/336 scanner/swing | 770/770 scanner vitest | 350/350 LLM index
+
+**Expected indicator drift (documented):** Short-history symbols (< 35 daily bars) now
+correctly return null MACD histogram instead of a zero-seeded distorted value. This is an
+indicator-correctness change, not a trading-rule change. Long-history (250+ bars): no change.
