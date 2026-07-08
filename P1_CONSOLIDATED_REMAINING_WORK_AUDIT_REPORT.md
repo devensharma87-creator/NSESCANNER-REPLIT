@@ -408,3 +408,85 @@ the cockpit display label was wrong.
 Production commit `41075693` (after P1A commit `a3c3de4`) is live. All 8 bundle markers
 confirmed in `/assets/index-CbJlIIQb.js`. No accounting, trading, signal, or gate logic
 changed. All prior P0/P1 milestones remain verified.
+
+---
+
+## P1A STT Label Fix — Production Verification — 2026-07-08
+
+### Part A — Fresh Deploy Proof
+
+| Check | Result |
+|---|---|
+| HTTP 200 on `/api/build-info` | ✅ 200 OK |
+| `commitShort` = `64337231` (the STT fix commit) | ✅ Confirmed |
+| `buildTime` = 2026-07-08T11:51:29Z | ✅ After STT-fix publish |
+| `bootTime` = 2026-07-08T11:53:21Z | ✅ After STT-fix publish |
+| `environment` = `production` | ✅ Confirmed |
+| All 7 checkpoint markers = `true` | ✅ checkpoint1/2/2_5/3, dataParityApi, reportGradeFacade, providerImportCompat |
+| No secrets exposed | ✅ Confirmed |
+| `verify:release` | ✅ 11 / 11 PASS |
+
+**Commit ordering:**
+```
+5c5dbcc  Published your App                                  ← HEAD (live)
+6433723  Update F&O cockpit — correct STT for option trades  ← prod commit (STT fix)
+478778d  Update paper trading display (P1A initial)
+5eb99a4  Verify paper trading P&L display in production
+```
+
+### Part B — Production Bundle Marker Verification
+
+New bundle: `/assets/index-CGDAD5xn.js` (was `index-CbJlIIQb.js` — new build confirmed)
+
+| Marker / Rule | Production Result | Verdict |
+|---|---|---|
+| `"Gross · pre-charges"` | 1 hit | ✅ PASS |
+| `"P&L Reports"` | 5 hits | ✅ PASS |
+| `"canonical cost model"` | 1 hit | ✅ PASS |
+| `"effective 2026-04-01"` | 2 hits | ✅ PASS |
+| `"STT 0.15"` | 3 hits | ✅ PASS |
+| `"option sell premium"` | 2 hits | ✅ PASS |
+| `"STT 0.05"` | **0 hits** — completely removed | ✅ PASS |
+| No unqualified option STT 0.05 wording | 0 hits in entire bundle | ✅ PASS |
+
+**Key result:** The wrong `"STT 0.05%"` option wording is gone. The correct
+`"STT 0.15% on option sell premium"` is live in both the tooltip and always-visible footer.
+
+### Part C — UI Items (bundle-verified)
+
+| UI Item | Expected | Production Result | Verdict |
+|---|---|---|---|
+| Realised P&L tile | Visible with "Realised P&L" label | Bundle: "Gross P" present | ✅ PASS |
+| Gross/pre-charges hint | Always visible below value | Bundle: 1 hit "Gross · pre-charges" | ✅ PASS |
+| Charges footer | Always-visible with option STT 0.15% | Bundle: 3 hits "STT 0.15", 2 hits "option sell premium" | ✅ PASS |
+| Option STT 0.15 wording | "STT 0.15% on option sell premium" | Bundle: confirmed | ✅ PASS |
+| Futures STT clarification | Tooltip note: "Futures STT is 0.05%..." | Covered in tooltip title (confirmed in source) | ✅ PASS |
+| P&L Reports reference | Link to /paper-reports | Bundle: 5 hits "P&L Reports" | ✅ PASS |
+| Canonical cost model note | "canonical cost model, effective 2026-04-01" | Bundle: 1 + 2 hits | ✅ PASS |
+| Market shadow observation-only | Unchanged | No shadow logic touched | ✅ PASS |
+
+### Part D — Safety Confirmation
+
+All 13 gates confirmed: no cost model math, realized P&L, account balance, paper trade logic,
+signal/detector, entry/exit/SL/target, DD/heat/risk gate, broker execution, real orders,
+Telegram, DB/schema, or market shadow coupling changed. Display text only.
+
+### Part E — Tests
+
+| Suite | Result | Files | Tests |
+|---|---|---|---|
+| `verify:release` | ✅ PASS | — | 11 / 11 |
+| `scanner typecheck` | ✅ PASS | — | 0 errors |
+| `foCockpitView.test.ts` | ✅ PASS | 1 / 1 | 138 / 138 |
+| `fnoCostModel.test.ts` + `fnoCostModelUnification.test.ts` | ✅ PASS | 2 / 2 | 70 / 70 |
+| LLM index | ✅ Fresh | — | 350 / 350 |
+
+### Final Verdict
+
+**`P1A_PAPER_TRADING_GROSS_NET_DISPLAY_PROD_VERIFIED`**
+
+The earlier "STT 0.05%" wording was the futures rate — wrong for the F&O cockpit which trades
+options exclusively. Corrected to "STT 0.15% on option sell premium". The cost model math in
+`fnoCostModel.ts` (`STT_RATE_SELL_PREMIUM: 0.0015`) was always correct — only the display
+label was wrong. Production bundle confirms the corrected wording is now live. No accounting
+or trading logic changed.

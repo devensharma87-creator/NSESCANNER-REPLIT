@@ -2550,3 +2550,31 @@ All 8 P1A bundle markers found in `/assets/index-CbJlIIQb.js`:
 | `"STT 0.15% on option sell premium"` | 1 (after STT label fix; prior "STT 0.05%" was wrong futures rate) |
 
 verify:release: 11/11 PASS. All prior milestones unchanged.
+
+---
+
+## P1A STT Label Fix — Production Verification — 2026-07-08
+
+**Verdict: `P1A_PAPER_TRADING_GROSS_NET_DISPLAY_PROD_VERIFIED`**
+
+Production commit `64337231` confirmed live (STT fix commit) via `/api/build-info`.
+New bundle: `/assets/index-CGDAD5xn.js`
+
+**Root cause of the STT label bug:** The P1A display note initially showed `"STT 0.05%"` — the
+futures STT rate. F&O paper trades are option trades, governed by `STT_RATE_SELL_PREMIUM = 0.0015`
+(0.15% on sell premium). The cost model math was always correct; only the cockpit display label
+was wrong. Corrected to `"STT 0.15% on option sell premium"` with a clarifying note for futures.
+
+**Bundle marker proof:**
+
+| Marker | Hits in `/assets/index-CGDAD5xn.js` |
+|---|---|
+| `"Gross · pre-charges"` | 1 ✅ |
+| `"P&L Reports"` | 5 ✅ |
+| `"canonical cost model"` | 1 ✅ |
+| `"effective 2026-04-01"` | 2 ✅ |
+| `"STT 0.15"` | 3 ✅ |
+| `"option sell premium"` | 2 ✅ |
+| `"STT 0.05"` | **0** ✅ — fully removed |
+
+verify:release: 11/11 PASS. All prior milestones unchanged.

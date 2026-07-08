@@ -1046,3 +1046,32 @@ Production commit `41075693` confirmed live (after P1A commit `a3c3de4`).
 explicitly states "See P&L Reports for estimated net-of-charges P&L."
 
 Tests: 138/138 foCockpitView, 70/70 cost model, 11/11 verify:release, 350/350 LLM index.
+
+---
+
+## P1A STT Label Fix — Production Verification — 2026-07-08
+
+**Verdict: `P1A_PAPER_TRADING_GROSS_NET_DISPLAY_PROD_VERIFIED`**
+
+Production commit `64337231` (STT fix) confirmed live.
+New bundle: `/assets/index-CGDAD5xn.js`
+
+**Paper Trading tab — F&O Cockpit final production state:**
+
+| Item | Status |
+|---|---|
+| "Realised P&L" tile with "Gross · pre-charges" hint | ✅ Live — 1 bundle hit |
+| Always-visible footer: "STT 0.15% on option sell premium" | ✅ Live — 3 hits "STT 0.15", 2 hits "option sell premium" |
+| Footer: "brokerage ₹20/side, exchange/SEBI/GST fees" | ✅ Live |
+| Footer: "not deducted above, do not affect DD / heat / risk gates" | ✅ Live |
+| P&L Reports link | ✅ Live — 5 hits "P&L Reports" |
+| "canonical cost model, effective 2026-04-01" | ✅ Live — 1 + 2 hits |
+| "STT 0.05" (wrong option wording) | ✅ **0 hits** — fully gone |
+| Market shadow: observation-only, no coupling to cockpit P&L | ✅ Unchanged |
+
+**STT correction summary:** The cockpit previously displayed `"STT 0.05%"` — the futures rate.
+Corrected to `"STT 0.15% on option sell premium"` (the canonical P0-1 option rate). The tooltip
+also clarifies: *"Futures STT is 0.05% on sell turnover — option paper trades use 0.15%."*
+The cost model math in `fnoCostModel.ts` was always correct at 0.15% for options.
+
+Tests: 138/138 foCockpitView, 70/70 cost model, 11/11 verify:release, 350/350 LLM index.
