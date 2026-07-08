@@ -303,3 +303,11 @@ infrastructure is now in place on `paper_trade_fo`. Once post-P0 paper trades ac
 Production publish remains pending — shadow capture activates in prod after the next deploy.
 
 Full detail: `EXIT_PREMIUM_MARKET_SHADOW_REPORT.md`
+
+---
+
+## Addendum — P1 Production Verification (2026-07-08)
+
+**Verdict: `EXIT_PREMIUM_MARKET_SHADOW_PROD_INFRA_VERIFIED_LIVE_SAMPLE_PENDING`**
+
+Production deployed at commit `a8e0a6a6` (2026-07-08T10:19:32Z boot). All 8 shadow columns confirmed present and nullable in production DB. Legacy trades correctly return null for all shadow fields. No post-deploy F&O exits have occurred yet (`NO_LIVE_EXIT_SAMPLE_YET`). Shadow capture infrastructure is live. Full PROD_VERIFIED pending a real exit sample. See `EXIT_PREMIUM_MARKET_SHADOW_REPORT.md` §13 for complete evidence.

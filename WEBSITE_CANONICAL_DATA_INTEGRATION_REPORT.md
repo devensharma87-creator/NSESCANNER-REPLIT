@@ -2430,3 +2430,24 @@ Shadow observation field capturing the real Kite option-chain LTP at exit time. 
 **Production publish:** still pending (commit `eb09789d` is the current prod baseline).
 
 Full report: `EXIT_PREMIUM_MARKET_SHADOW_REPORT.md`
+
+---
+
+## P1 Production Verification — Exit Premium Market Shadow Column — 2026-07-08
+
+**Timestamp:** 2026-07-08T10:17–10:24 UTC
+**Verdict: `EXIT_PREMIUM_MARKET_SHADOW_PROD_INFRA_VERIFIED_LIVE_SAMPLE_PENDING`**
+
+**Deploy proof:** commit `a8e0a6a6`, buildTime 2026-07-08T10:17:16Z, bootTime 2026-07-08T10:19:32Z, environment=production. verify:release 11 PASS | 0 WARN | 0 FAIL. All 7 checkpoint markers true. No secrets.
+
+**Production DB schema:** All 8 shadow columns confirmed present and nullable in production (`exit_premium_market`, `exit_premium_market_source`, `exit_premium_market_as_of`, `exit_premium_market_age_sec`, `exit_premium_market_gap`, `exit_premium_market_gap_pct`, `exit_premium_market_unavailable_reason`, `market_shadow_gross_pnl`). Additive migration only — no historical row rewritten.
+
+**Legacy trade handling:** 10 most-recent prod closed trades (pre-deploy) all return `null` for every shadow field. No null-as-zero. No crash.
+
+**Live capture status:** `NO_LIVE_EXIT_SAMPLE_YET` — no F&O paper trade exits occurred post-deploy at verification time. Shadow capture infrastructure is live and fires on next exit.
+
+**Regression:** All P0 fixes PROD_VERIFIED. Provider import guard green. F&O cost model guard green. Broker disabled. Realized P&L unchanged. Account balance unchanged. No destructive migration.
+
+**Tests:** 626 targeted api-server tests across 39 file-invocations pass. Scanner 770/770. LLM index 350 files fresh. typecheck CLEAN.
+
+**Full production detail:** `EXIT_PREMIUM_MARKET_SHADOW_REPORT.md` §13.
