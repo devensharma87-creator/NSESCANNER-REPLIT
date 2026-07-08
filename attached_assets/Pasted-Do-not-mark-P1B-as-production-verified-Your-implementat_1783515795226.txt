@@ -1,0 +1,178 @@
+Do not mark P1B as production verified.
+
+Your implementation appears complete, but I need the final structured verification summary before acceptance.
+
+Current expected verdict, if everything below is confirmed:
+
+P1B_MACD_WARMUP_FIX_DEV_VERIFIED
+
+Production publish is still pending unless explicitly republished and verified with /api/build-info after the MACD fix commit.
+
+====================================================
+CONFIRM FINAL VERDICT
+====================================================
+
+Final verdict must be exactly one:
+
+- P1B_MACD_WARMUP_FIX_DEV_VERIFIED
+- P1B_MACD_WARMUP_FIX_PROD_VERIFIED
+- P1B_MACD_WARMUP_FIX_PARTIAL_GAP_REMAINS
+- P1B_MACD_WARMUP_NO_CODE_CHANGE_NEEDED
+- RELEASE_INTEGRITY_REGRESSION_FOUND
+- ROLLBACK_REQUIRED
+
+Use:
+
+P1B_MACD_WARMUP_FIX_DEV_VERIFIED
+
+if code fix, tests, and reports are complete but production publish is pending.
+
+Do NOT use P1B_MACD_WARMUP_FIX_PROD_VERIFIED unless the app was republished after this fix and production /api/build-info proves the new MACD fix commit is live.
+
+====================================================
+CONFIRM WHAT WAS FIXED
+====================================================
+
+Confirm the exact bug:
+
+Old canonical MACD behavior:
+
+macdLine.map(v => v ?? 0)
+
+This trained the signal EMA on fake zero MACD values before real MACD existed.
+
+Confirm the new behavior:
+
+1. MACD line remains null until enough data exists.
+2. Signal EMA is computed only from valid MACD values.
+3. Signal EMA is not trained on fake zeros.
+4. Histogram remains null until both MACD and signal are valid.
+5. Output array length remains equal to input length.
+6. Canonical NSE MACD behavior is aligned with global MACD behavior.
+7. Short-history symbols no longer get fake early MACD histogram values.
+8. Long-history symbols are materially unaffected except expected warm-up correctness.
+
+====================================================
+CONFIRM FILES CHANGED
+====================================================
+
+Provide table:
+
+| File | Change | Reason |
+|---|---|---|
+
+At minimum confirm whether these were changed:
+
+1. artifacts/api-server/src/lib/indicators.ts
+2. @workspace/indicators package file, if changed
+3. indicators.test.ts or equivalent MACD test file
+4. P1B_MACD_WARMUP_FIX_REPORT.md
+5. P1_CONSOLIDATED_REMAINING_WORK_AUDIT_REPORT.md
+6. WEBSITE_CANONICAL_DATA_INTEGRATION_REPORT.md
+7. USER_FACING_CORE_TABS_DEEP_AUDIT_REPORT.md
+8. POST_P0_SIGNAL_SYSTEM_REBASELINE_REPORT.md
+
+====================================================
+CONFIRM REPORT WORDING
+====================================================
+
+Check the reports.
+
+They must say:
+
+P1B_MACD_WARMUP_FIX_DEV_VERIFIED
+
+unless production was republished and verified.
+
+If any report says “production verification” or “PROD_VERIFIED” for P1B without an actual post-fix production deploy proof, correct it now.
+
+Required report wording:
+
+- “Dev verified”
+- “Production publish pending”
+- “Expected indicator drift for short-history symbols”
+- “No scoring weights, thresholds, signal logic, or trading logic changed”
+
+====================================================
+CONFIRM TEST COUNTS
+====================================================
+
+Give exact counts:
+
+1. verify:release
+2. api-server typecheck
+3. typecheck:libs
+4. MACD / indicators tests
+5. broader technical/scanner/swing tests
+6. scanner typecheck
+7. scanner vitest
+8. LLM index
+9. LLM index check
+
+From your logs I saw references to:
+
+- verify:release 11/11
+- indicator / related tests 83 tests / 2 files
+- full required verification 336/336
+- scanner tests 770/770
+- LLM index 350/350 fresh
+
+Confirm these exact counts in the final table.
+
+====================================================
+CONFIRM SAFETY
+====================================================
+
+Confirm all are unchanged:
+
+1. No F&O signal thresholds changed.
+2. No swing thresholds changed.
+3. No scanner scoring weights changed.
+4. No detector weights changed.
+5. No entry logic changed.
+6. No exit logic changed.
+7. No SL/target formula changed.
+8. No account balance logic changed.
+9. No realized P&L logic changed.
+10. No paper-trade open/close logic changed.
+11. No DB/schema migration.
+12. No historical trade rewrite.
+13. No broker execution.
+14. No real orders.
+15. No Telegram messages.
+16. No market shadow coupling.
+17. No stale/report-grade data can drive live trades.
+
+====================================================
+CONFIRM IMPACT HONESTLY
+====================================================
+
+Add this impact note:
+
+This fix may change MACD histogram/scoring behavior for short-history or newly listed symbols because earlier fake zero-seeded MACD values are now removed.
+
+This is expected and correct.
+
+Do not describe it as “no behavior change.”
+
+It is an indicator correctness change, not a trading-rule change.
+
+====================================================
+FINAL RESPONSE REQUIRED
+====================================================
+
+Return one complete final summary with:
+
+1. Final verdict.
+2. Bug fixed.
+3. Files changed.
+4. Before/after behavior.
+5. Consumer impact.
+6. Tests and exact counts.
+7. Reports updated.
+8. Safety confirmation.
+9. Production status.
+
+If production is not published yet, final line must be:
+
+P1B_MACD_WARMUP_FIX_DEV_VERIFIED
