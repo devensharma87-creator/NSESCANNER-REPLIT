@@ -16,6 +16,7 @@ import type { OptionSignalSetupKey } from "./optionSignalSetupKey";
 import type { OptionSignalStatus } from "./optionSignalStatus";
 import type { OptionSignalTier } from "./optionSignalTier";
 import type { OptionSignalTradeClass } from "./optionSignalTradeClass";
+import type { OptionSignalTriggerSemantics } from "./optionSignalTriggerSemantics";
 import type { SignalReason } from "./signalReason";
 
 export interface OptionSignal {
@@ -69,8 +70,10 @@ export interface OptionSignal {
   setupName?: string;
   /** One-line trade idea explanation */
   setupSummary?: string;
-  /** Precise condition to enter (e.g. 15-min close above level X) */
+  /** Honest entry trigger condition. The paper engine uses touch semantics: CALL fires when bar high or live tick >= entry; PUT fires when bar low or live tick <= entry. The candle does NOT need to close at the level. */
   entryTrigger?: string;
+  /** TOUCH_OR_TICK: entry fires when bar high/low or live tick reaches the entry level — the candle does not need to close there. CLOSE_CONFIRMED: reserved for future setups that explicitly require a candle close at the level. All current F&O paper engine setups use TOUCH_OR_TICK. */
+  triggerSemantics?: OptionSignalTriggerSemantics;
   leg: OptionLeg;
   drivers: SignalReason[];
   invalidation?: string;

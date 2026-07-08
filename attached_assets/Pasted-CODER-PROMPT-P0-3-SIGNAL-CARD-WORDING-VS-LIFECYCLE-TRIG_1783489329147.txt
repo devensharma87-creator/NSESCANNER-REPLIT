@@ -1,0 +1,372 @@
+CODER PROMPT — P0-3 SIGNAL CARD WORDING VS LIFECYCLE TRIGGER SEMANTICS AUDIT + FIX
+
+Current accepted production status:
+
+RELEASE_INTEGRITY_PROD_VERIFIED
+BACKTEST_CHARGES_MODEL_NET_PNL_PROD_VERIFIED
+FNO_COST_MODEL_UNIFICATION_PROD_VERIFIED
+FNO_VWAP_VOLUME_PROFILE_HONESTY_PROD_VERIFIED
+
+Production is live at commitShort 8051c74f or later.
+Broker execution is disabled.
+No real orders.
+No Telegram spam.
+
+Now start only:
+
+P0-3 — SIGNAL CARD WORDING VS LIFECYCLE TRIGGER SEMANTICS
+
+====================================================
+WHY THIS PHASE IS REQUIRED
+====================================================
+
+The audit found that F&O signal cards say things like:
+
+“15-min close above entry level”
+
+But the lifecycle engine appears to trigger paper entries on touch/wick/high-low:
+
+CALL: bar high >= entry
+PUT: bar low <= entry
+
+This creates a serious honesty mismatch:
+
+1. Human sees close-confirmed strategy.
+2. Paper engine executes touch-trigger strategy.
+3. Paper trades may enter on wick pokes that would not satisfy the card wording.
+4. Reported paper results may not match the displayed trade plan.
+5. Future live-trading transition would be unsafe if wording and execution differ.
+
+This must be fixed so there is exactly one truth.
+
+====================================================
+STRICT SCOPE
+====================================================
+
+Allowed:
+
+1. Re-audit current card wording and lifecycle trigger logic.
+2. Identify every place where entry trigger wording is generated.
+3. Identify every place where lifecycle PENDING → TRIGGERED is evaluated.
+4. Decide and implement one consistent behavior:
+   A. Change execution to close-confirmed trigger, OR
+   B. Change card wording to touch-trigger wording.
+5. Add explicit trigger semantics field.
+6. Add tests.
+7. Update reports.
+8. Verify release integrity.
+
+Not allowed:
+
+Do not change F&O detector thresholds.
+Do not tune confidence scores.
+Do not change VWAP / Volume Profile logic.
+Do not change cost model.
+Do not change SL/target formulas.
+Do not change option premium projection.
+Do not change paper-trade eligibility tiers.
+Do not change broker execution.
+Do not enable real orders.
+Do not send Telegram tests.
+Do not perform destructive migrations.
+Do not rewrite historical trades.
+Do not start Charting / Portfolio / Backtesting new phases.
+Do not silently change entry behavior without report and tests.
+
+====================================================
+PART A — PRE-FIX RE-AUDIT
+====================================================
+
+Before coding, inspect:
+
+1. optionSignals.ts
+2. optionSignalLifecycle.ts
+3. paperTradingFO.ts
+4. fno signal route(s)
+5. F&O Cockpit / Options frontend card component
+6. Telegram alert formatting, if it uses entry wording
+7. Paper Reports trade detail wording
+8. Signal history persistence fields
+9. OpenAPI schema / Zod types for signal card
+10. Any tests for trigger lifecycle
+
+Create this table:
+
+| File | Function/Area | Current Wording | Current Execution Logic | Mismatch? | Severity |
+|---|---|---|---|---:|---|
+
+Specifically confirm:
+
+1. Does card say “15-min close > entry” or similar?
+2. Does lifecycle trigger CALL when high >= entry?
+3. Does lifecycle trigger PUT when low <= entry?
+4. Does live tick overlay trigger on touch?
+5. Does same-bar trigger+stop use stop-first handling?
+6. Does Telegram message use close wording?
+7. Does Paper Reports show close wording?
+8. Are historical paper results based on touch triggers?
+
+====================================================
+PART B — DECISION REQUIRED
+====================================================
+
+Choose the safer implementation for this phase.
+
+Preferred for low-risk fix:
+
+OPTION B — Keep existing touch/wick execution, but make wording honest.
+
+Reason:
+- Changing execution to close-confirmed will materially alter live/paper behavior.
+- Touch execution is already what historical paper records used.
+- A wording fix is lower risk and makes the system truthful immediately.
+- A later separate phase can add close-confirmed mode behind a feature flag.
+
+Implement:
+
+1. Rename card wording from:
+   “15-min close above/below entry”
+   to:
+   “Spot touches / crosses entry level”
+   or:
+   “Trigger: touch of entry level within monitored candle/tick”
+
+2. Add explicit field:
+
+triggerSemantics = "TOUCH_OR_TICK"
+
+3. Add explanation:
+
+“Paper engine triggers when the monitored candle high/low or live tick touches the entry level. This is not close-confirmed.”
+
+4. If any strategy truly requires close confirmation, mark:
+
+triggerSemantics = "CLOSE_CONFIRMED"
+
+but do not claim close-confirmed unless the engine actually waits for candle close.
+
+====================================================
+PART C — IMPLEMENTATION REQUIREMENTS
+====================================================
+
+Add or expose fields where appropriate:
+
+1. triggerSemantics
+2. triggerConditionText
+3. triggerUsesCandleHighLow
+4. triggerUsesLiveTick
+5. triggerRequiresCloseConfirmation
+6. sameBarStopPolicy
+
+Expected values for current engine:
+
+triggerSemantics: TOUCH_OR_TICK
+triggerUsesCandleHighLow: true
+triggerUsesLiveTick: true, if tick overlay is used
+triggerRequiresCloseConfirmation: false
+sameBarStopPolicy: STOP_FIRST
+
+Card text must be honest:
+
+For CALL:
+
+“Trigger: spot touches or crosses above ₹X.”
+
+For PUT:
+
+“Trigger: spot touches or crosses below ₹X.”
+
+Add small explanatory text:
+
+“Touch trigger: the paper engine may enter during the candle if high/low or live tick reaches the level. It does not wait for candle close.”
+
+Do not use the phrase “15-min close” unless the execution actually waits for a 15-min close.
+
+====================================================
+PART D — HISTORICAL / REPORT HONESTY
+====================================================
+
+Historical paper trades were triggered using touch semantics.
+
+Do not rewrite history.
+
+Add report note:
+
+“Historical F&O paper entries before this wording fix used touch/wick trigger semantics. The wording previously implied close confirmation but execution was touch-based.”
+
+If Paper Reports have trigger fields, label:
+
+triggerSemantics: TOUCH_OR_TICK
+
+====================================================
+PART E — TELEGRAM / ALERT HONESTY
+====================================================
+
+If Telegram or alert card wording includes “close above/below”, update wording to touch semantics.
+
+Do not send Telegram test messages.
+
+Only update formatting code and tests.
+
+Required alert wording:
+
+“Entry trigger: touch/cross ₹X”
+or
+“Paper trigger: touch/tick-based, not close-confirmed”
+
+====================================================
+PART F — TESTS REQUIRED
+====================================================
+
+Add/update tests for:
+
+1. Signal card does not say “15-min close” for touch-based trigger.
+2. Signal card says touch/cross wording.
+3. OptionSignal includes triggerSemantics.
+4. triggerRequiresCloseConfirmation=false for current F&O paper engine.
+5. CALL lifecycle still triggers on high >= entry.
+6. PUT lifecycle still triggers on low <= entry.
+7. Same-bar trigger+stop still uses STOP_FIRST if existing behavior.
+8. Telegram alert formatting does not use close-confirm wording.
+9. Paper Reports expose or document touch semantics.
+10. No detector threshold changed.
+11. No SL/target formula changed.
+12. No broker execution path touched.
+13. No Telegram send occurs.
+14. Existing P0-1 cost model tests remain green.
+15. Existing P0-2 VWAP/VP honesty tests remain green.
+
+====================================================
+PART G — COMMANDS TO RUN
+====================================================
+
+Run:
+
+pnpm --filter @workspace/scripts run verify:release
+
+pnpm --filter @workspace/api-server run typecheck
+
+pnpm --filter @workspace/api-server run typecheck:libs
+
+pnpm --filter @workspace/api-server exec vitest run src/lib/*optionSignal*.test.ts src/lib/*fno*.test.ts src/lib/*paper*.test.ts src/lib/*fnoCost*.test.ts src/lib/*indicator*.test.ts src/lib/*confluence*.test.ts src/routes/**/*.test.ts
+
+pnpm --filter @workspace/scanner exec vitest run
+
+pnpm --filter @workspace/scripts run index:llm
+
+pnpm --filter @workspace/scripts run index:llm:check
+
+If any suite times out, split into smaller batches and report exact counts.
+
+====================================================
+PART H — POST-FIX RE-AUDIT
+====================================================
+
+After implementation, re-audit:
+
+R12 / F-03 — Card says “15-min close” but lifecycle enters on touch.
+
+Report:
+
+| Finding | Pre-Fix Status | Post-Fix Status | Evidence | Verdict |
+|---|---|---|---|---|
+
+Expected:
+
+- Execution remains touch-based unless explicitly changed.
+- Wording becomes touch-based.
+- Signal card and lifecycle now agree.
+- Historical report note added.
+- No strategy threshold change.
+
+====================================================
+PART I — REPORT UPDATE
+====================================================
+
+Create:
+
+FNO_TRIGGER_SEMANTICS_HONESTY_REPORT.md
+
+Also update:
+
+1. USER_FACING_CORE_TABS_DEEP_AUDIT_REPORT.md
+2. WEBSITE_CANONICAL_DATA_INTEGRATION_REPORT.md
+3. FULL_MARKET_SCANNER_DEEP_AUDIT_REPORT_2026-07-07.md, if present in repo/docs
+
+Include:
+
+1. Original issue.
+2. Current-state re-audit.
+3. Decision: wording fix vs execution change.
+4. Files changed.
+5. Trigger semantics fields added.
+6. Card/alert/report wording changes.
+7. Tests and counts.
+8. Release integrity result.
+9. Regression checks.
+10. Final verdict.
+
+====================================================
+PART J — PRODUCTION VERIFICATION AFTER PUBLISH
+====================================================
+
+If code/tests pass but production publish is pending, final verdict should be DEV_VERIFIED.
+
+After owner publishes, verify:
+
+1. /api/build-info live with new commit.
+2. verify:release green.
+3. F&O signal cards no longer say “15-min close” for touch triggers.
+4. Signal API includes triggerSemantics.
+5. Alerts/reports use honest trigger wording.
+6. No broker execution.
+7. No real orders.
+8. No Telegram spam.
+9. Existing P0-1 cost model remains PROD_VERIFIED.
+10. Existing P0-2 VWAP/VP honesty remains PROD_VERIFIED.
+
+====================================================
+FINAL VERDICT
+====================================================
+
+Final verdict must be exactly one:
+
+- FNO_TRIGGER_SEMANTICS_HONESTY_DEV_VERIFIED
+- FNO_TRIGGER_SEMANTICS_HONESTY_PROD_VERIFIED
+- FNO_TRIGGER_SEMANTICS_HONESTY_PARTIAL_GAP_REMAINS
+- RELEASE_INTEGRITY_REGRESSION_FOUND
+- ROLLBACK_REQUIRED
+
+Use:
+
+FNO_TRIGGER_SEMANTICS_HONESTY_DEV_VERIFIED
+
+if code/tests pass but production publish is pending.
+
+Use:
+
+FNO_TRIGGER_SEMANTICS_HONESTY_PROD_VERIFIED
+
+only if production shows the fix live, signal cards/API/alerts/reports use honest trigger wording, tests pass, and no regressions are found.
+
+Use:
+
+FNO_TRIGGER_SEMANTICS_HONESTY_PARTIAL_GAP_REMAINS
+
+if any user-facing F&O signal path still says close-confirmed while execution is touch-based.
+
+Use:
+
+RELEASE_INTEGRITY_REGRESSION_FOUND
+
+if verify:release has a real FAIL.
+
+Use:
+
+ROLLBACK_REQUIRED
+
+if secrets leak, broker execution turns on, real orders are placed, Telegram spam occurs, destructive migration happens, or stale/report-grade data can drive live trades.
+
+Expected result before owner republish:
+
+FNO_TRIGGER_SEMANTICS_HONESTY_DEV_VERIFIED

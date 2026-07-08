@@ -2986,7 +2986,11 @@ components:
           description: "Type of intraday setup"
         setupName: { type: string, description: "Human-readable setup label" }
         setupSummary: { type: string, description: "One-line trade idea explanation" }
-        entryTrigger: { type: string, description: "Precise condition to enter (e.g. 15-min close above level X)" }
+        entryTrigger: { type: string, description: "Honest entry trigger condition. The paper engine uses touch semantics: CALL fires when bar high or live tick >= entry; PUT fires when bar low or live tick <= entry. The candle does NOT need to close at the level." }
+        triggerSemantics:
+          type: string
+          enum: [TOUCH_OR_TICK, CLOSE_CONFIRMED]
+          description: "TOUCH_OR_TICK: entry fires when bar high/low or live tick reaches the entry level — the candle does not need to close there. CLOSE_CONFIRMED: reserved for future setups that explicitly require a candle close at the level. All current F&O paper engine setups use TOUCH_OR_TICK."
         leg: { $ref: "#/components/schemas/OptionLeg" }
         drivers:
           type: array

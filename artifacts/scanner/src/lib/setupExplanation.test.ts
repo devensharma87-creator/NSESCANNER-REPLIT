@@ -27,7 +27,7 @@ const sig = (over: Partial<OptionSignal> = {}): OptionSignal => ({
   dataQuality: "LIVE_KITE_FULL",
   regime: "TREND_UP",
   regimeReason: "EMA stack rising, spot above VWAP",
-  entryTrigger: "15-min close above 23,050",
+  entryTrigger: "Spot touches/crosses above ₹23,050",
   tags: [],
   leg: {
     type: "CALL",
@@ -92,7 +92,7 @@ describe("deriveSetupExplanation — surfaces existing fields only", () => {
     expect(e.direction).toBe("BUY CALL (bullish)");
     expect(e.tier).toBe("HIGH_CONVICTION");
     expect(e.regime).toBe("TREND_UP");
-    expect(e.trigger).toBe("15-min close above 23,050");
+    expect(e.trigger).toBe("Spot touches/crosses above ₹23,050");
     expect(e.premiumSource).toBe("kite");
     expect(e.premiumTrusted).toBe(true);
     expect(e.dataQuality).toBe("LIVE_KITE_FULL");

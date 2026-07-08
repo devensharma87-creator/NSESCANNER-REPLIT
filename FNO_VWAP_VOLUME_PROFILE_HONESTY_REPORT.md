@@ -1,6 +1,7 @@
 # P0-2 Zero-Volume VWAP / Volume Profile Honesty Fix
 **Status:** `FNO_VWAP_VOLUME_PROFILE_HONESTY_PROD_VERIFIED`
 **Date:** 2026-07-07
+**Related:** P0-3 trigger-semantics honesty fix (`FNO_TRIGGER_SEMANTICS_HONESTY_REPORT.md`) — 2026-07-08. All `entryTrigger` strings now say `"Spot touches/crosses above/below ₹X (touch trigger)"` to match the `evaluateTransition()` touch execution model. New `triggerSemantics: "TOUCH_OR_TICK"` field added to `OptionSignal`.
 
 ---
 

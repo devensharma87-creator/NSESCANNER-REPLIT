@@ -582,6 +582,10 @@ interface Detected {
   confidence: number;
   drivers: SignalReason[];
   entryTrigger: string;
+  /** Honest execution semantics. All current setups use TOUCH_OR_TICK: the paper
+   * engine fires PENDING→TRIGGERED when bar.high (CALL) or bar.low (PUT) reaches
+   * the entry level — the candle does NOT need to close there. */
+  triggerSemantics?: "TOUCH_OR_TICK" | "CLOSE_CONFIRMED";
   entryLevel: number;
   stopLevel: number;
   targetLevel: number;
@@ -676,8 +680,8 @@ function detectTrendContinuation(c: Ctx): Detected | null {
     const t2 = dir === "BULLISH" ? c.piv.r2 : c.piv.s2;
     const dist = Math.abs(c.spot - trigger);
     const triggerDesc = dir === "BULLISH"
-      ? `15-min close > ${trigger.toFixed(2)} (intraday swing high)`
-      : `15-min close < ${trigger.toFixed(2)} (intraday swing low)`;
+      ? `Spot touches/crosses above ₹${trigger.toFixed(2)} (intraday swing high — touch trigger)`
+      : `Spot touches/crosses below ₹${trigger.toFixed(2)} (intraday swing low — touch trigger)`;
     return {
       setupKey: "TREND_CONTINUATION",
       setupName: dir === "BULLISH" ? "Trend Continuation — Long" : "Trend Continuation — Short",
@@ -693,8 +697,8 @@ function detectTrendContinuation(c: Ctx): Detected | null {
       targetLevel: t1,
       target2Level: t2,
       invalidation: dir === "BULLISH"
-        ? `Sustained 15-min close below EMA21 ${c.ema21.toFixed(2)} or below S1 ${c.piv.s1.toFixed(2)}.`
-        : `Sustained 15-min close above EMA21 ${c.ema21.toFixed(2)} or above R1 ${c.piv.r1.toFixed(2)}.`,
+        ? `Close below EMA21 ${c.ema21.toFixed(2)} or below S1 ${c.piv.s1.toFixed(2)}.`
+        : `Close above EMA21 ${c.ema21.toFixed(2)} or above R1 ${c.piv.r1.toFixed(2)}.`,
     };
   }
   // ── VWAP-AVAILABLE PATH (equity stocks / equity-index futures with real volume) ──
@@ -749,8 +753,8 @@ function detectTrendContinuation(c: Ctx): Detected | null {
   const t2 = dir === "BULLISH" ? c.piv.r2 : c.piv.s2;
   const dist = Math.abs(c.spot - trigger);
   const triggerDesc = dir === "BULLISH"
-    ? `15-min close > ${trigger.toFixed(2)} (intraday swing high)`
-    : `15-min close < ${trigger.toFixed(2)} (intraday swing low)`;
+    ? `Spot touches/crosses above ₹${trigger.toFixed(2)} (intraday swing high — touch trigger)`
+    : `Spot touches/crosses below ₹${trigger.toFixed(2)} (intraday swing low — touch trigger)`;
 
   return {
     setupKey: "TREND_CONTINUATION",
@@ -767,8 +771,8 @@ function detectTrendContinuation(c: Ctx): Detected | null {
     targetLevel: t1,
     target2Level: t2,
     invalidation: dir === "BULLISH"
-      ? `Sustained 15-min close below VWAP ${c.vwap.toFixed(2)} or below S1 ${c.piv.s1.toFixed(2)}.`
-      : `Sustained 15-min close above VWAP ${c.vwap.toFixed(2)} or above R1 ${c.piv.r1.toFixed(2)}.`,
+      ? `Close below VWAP ${c.vwap.toFixed(2)} or below S1 ${c.piv.s1.toFixed(2)}.`
+      : `Close above VWAP ${c.vwap.toFixed(2)} or above R1 ${c.piv.r1.toFixed(2)}.`,
   };
 }
 
@@ -844,8 +848,8 @@ function detectVwapReclaim(c: Ctx): Detected | null {
     confidence: conf,
     drivers,
     entryTrigger: dir === "BULLISH"
-      ? `15-min close > ${trigger.toFixed(2)} with VWAP holding`
-      : `15-min close < ${trigger.toFixed(2)} with VWAP rejecting`,
+      ? `Spot touches/crosses above ₹${trigger.toFixed(2)} with VWAP holding (touch trigger)`
+      : `Spot touches/crosses below ₹${trigger.toFixed(2)} with VWAP rejecting (touch trigger)`,
     entryLevel: trigger,
     stopLevel: stop,
     targetLevel: t1,
@@ -911,8 +915,8 @@ function detectVolumeBreakout(c: Ctx): Detected | null {
     confidence: conf,
     drivers,
     entryTrigger: dir === "BULLISH"
-      ? `15-min close > ${trigger.toFixed(2)} (VAH) with volume > 20-bar avg`
-      : `15-min close < ${trigger.toFixed(2)} (VAL) with volume > 20-bar avg`,
+      ? `Spot touches/crosses above ₹${trigger.toFixed(2)} (VAH) with volume > 20-bar avg (touch trigger)`
+      : `Spot touches/crosses below ₹${trigger.toFixed(2)} (VAL) with volume > 20-bar avg (touch trigger)`,
     entryLevel: trigger,
     stopLevel: stop,
     targetLevel: t1,
@@ -985,8 +989,8 @@ function detectEmaPullback(c: Ctx): Detected | null {
     confidence: conf,
     drivers,
     entryTrigger: dir === "BULLISH"
-      ? `15-min close > ${trigger.toFixed(2)} (last bar high)`
-      : `15-min close < ${trigger.toFixed(2)} (last bar low)`,
+      ? `Spot touches/crosses above ₹${trigger.toFixed(2)} (last bar high — touch trigger)`
+      : `Spot touches/crosses below ₹${trigger.toFixed(2)} (last bar low — touch trigger)`,
     entryLevel: trigger,
     stopLevel: stop,
     targetLevel: t1,
@@ -1029,8 +1033,8 @@ function detectMeanReversion(c: Ctx): Detected | null {
   if (conf < 50) return null;
 
   const trigger = dir === "BULLISH"
-    ? c.bars.h.at(-1)! // close above last bar high
-    : c.bars.l.at(-1)!; // close below last bar low
+    ? c.bars.h.at(-1)! // above last bar high (touch trigger)
+    : c.bars.l.at(-1)!; // below last bar low (touch trigger)
   const stop = dir === "BULLISH" ? c.spot - c.atr15 * 0.6 : c.spot + c.atr15 * 0.6;
   const t1 = dir === "BULLISH" ? c.vwap : c.vwap;
   const t2 = dir === "BULLISH" ? c.ema21 : c.ema21;
@@ -1045,8 +1049,8 @@ function detectMeanReversion(c: Ctx): Detected | null {
     confidence: conf,
     drivers,
     entryTrigger: dir === "BULLISH"
-      ? `15-min close > ${trigger.toFixed(2)} (reversal confirmation)`
-      : `15-min close < ${trigger.toFixed(2)} (reversal confirmation)`,
+      ? `Spot touches/crosses above ₹${trigger.toFixed(2)} (reversal — touch trigger)`
+      : `Spot touches/crosses below ₹${trigger.toFixed(2)} (reversal — touch trigger)`,
     entryLevel: trigger,
     stopLevel: stop,
     targetLevel: t1,
@@ -1131,8 +1135,8 @@ function detectBaselineOutlook(c: Ctx): Detected | null {
     confidence: conf,
     drivers,
     entryTrigger: dir === "BULLISH"
-      ? `15-min close > ${trigger.toFixed(2)} (intraday swing high) — wait for confirmation`
-      : `15-min close < ${trigger.toFixed(2)} (intraday swing low) — wait for confirmation`,
+      ? `Spot touches/crosses above ₹${trigger.toFixed(2)} (intraday swing high) — touch trigger; wait for follow-through`
+      : `Spot touches/crosses below ₹${trigger.toFixed(2)} (intraday swing low) — touch trigger; wait for follow-through`,
     entryLevel: trigger,
     stopLevel: stop,
     targetLevel: t1,
@@ -1194,8 +1198,8 @@ function applyTriggerRealism(d: Detected, c: Ctx): Detected {
     targetLevel: d.targetLevel + sgn * shift,
     target2Level: d.target2Level + sgn * shift,
     entryTrigger: dir === "BULLISH"
-      ? `15-min close > ${newEntry.toFixed(2)} (reachable trigger pulled in from ${d.entryLevel.toFixed(2)})`
-      : `15-min close < ${newEntry.toFixed(2)} (reachable trigger pulled in from ${d.entryLevel.toFixed(2)})`,
+      ? `Spot touches/crosses above ₹${newEntry.toFixed(2)} (pulled in from ₹${d.entryLevel.toFixed(2)} — touch trigger)`
+      : `Spot touches/crosses below ₹${newEntry.toFixed(2)} (pulled in from ₹${d.entryLevel.toFixed(2)} — touch trigger)`,
   };
 }
 
@@ -1371,6 +1375,7 @@ function toSignal(c: Ctx, d: Detected, tier: "HIGH_CONVICTION" | "BASELINE"): Op
     setupName: d.setupName,
     setupSummary: d.setupSummary,
     entryTrigger: d.entryTrigger,
+    triggerSemantics: (d.triggerSemantics ?? "TOUCH_OR_TICK") as "TOUCH_OR_TICK" | "CLOSE_CONFIRMED",
     leg: {
       type: d.direction === "BULLISH" ? "CALL" : "PUT",
       strike,

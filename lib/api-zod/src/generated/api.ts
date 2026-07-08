@@ -3902,7 +3902,13 @@ export const GetOptionSignalsResponse = zod.object({
         .string()
         .optional()
         .describe(
-          "Precise condition to enter (e.g. 15-min close above level X)",
+          "Honest entry trigger condition. The paper engine uses touch semantics: CALL fires when bar high or live tick >= entry; PUT fires when bar low or live tick <= entry. The candle does NOT need to close at the level.",
+        ),
+      triggerSemantics: zod
+        .enum(["TOUCH_OR_TICK", "CLOSE_CONFIRMED"])
+        .optional()
+        .describe(
+          "TOUCH_OR_TICK: entry fires when bar high\/low or live tick reaches the entry level — the candle does not need to close there. CLOSE_CONFIRMED: reserved for future setups that explicitly require a candle close at the level. All current F&O paper engine setups use TOUCH_OR_TICK.",
         ),
       leg: zod.object({
         type: zod.enum(["CALL", "PUT"]),
