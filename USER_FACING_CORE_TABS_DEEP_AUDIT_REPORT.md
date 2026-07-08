@@ -986,3 +986,41 @@ listed NIFTY option). NSE direct comparison: `NSE_LIVE_VERIFICATION_PENDING` (ge
 **No code/formula/gate/tab change required.** Label fixes deferred to a follow-up commit.
 
 Full detail: `KITE_OI_UNIT_VERIFICATION_REPORT.md`
+
+---
+
+## P1 Consolidated Audit — 2026-07-08
+
+**Verdict: `P1A_PAPER_TRADING_GROSS_NET_DISPLAY_DEV_VERIFIED`**
+
+Five P1 candidate items audited. Full detail in `P1_CONSOLIDATED_REMAINING_WORK_AUDIT_REPORT.md`.
+
+### Tab-by-tab impact
+
+**Paper Trading tab (F&O Cockpit):**
+- `FoCockpitSummaryCards.tsx` — Realised P&L tile updated:
+  - Label: `"Realised P&L (gross)"` → `"Realised P&L"` with always-visible
+    sub-label `"Gross · pre-charges"` (was tooltip-only)
+  - `title` tooltip extended with canonical cost model rate summary
+  - Added always-visible charges disclaimer footer with link to P&L Reports
+
+**Paper Reports tab:** Already correct — full gross/net/charges breakdown.
+No change.
+
+**Charting tab (Item 5 audit):**
+- Already has: offline message, stale banner, source honesty, auto horizontal
+  lines (S/R, POC, Fib), indicator pill toolbar (EMA, VWAP, RSI, CVD, FVG,
+  Liq.Sweeps, AutoFib, VP, Key Levels), volume-honesty guards, F&O OI context
+- Missing: manual drawing tools, screenshot/export, compare mode
+- Phased as P1E (UI-only, separate sessions)
+
+**Scanner tab (MACD audit):**
+- Gap found: canonical `indicators.ts` zero-fills null MACD values before
+  signal EMA (`v ?? 0`). Global implementation correctly seeds from first valid value.
+- Risk: medium — changes historical MACD reads for short-history symbols.
+- Not implemented — deferred to P1B (standalone session, owner awareness needed).
+
+**Equity paper-trading (gap-through audit):**
+- STOPPED/TRAIL_STOP_HIT exits use stop price, not LTP when stock gaps below stop.
+- HIGH risk to fix — changes realized P&L, account balance.
+- Not implemented — deferred to P1D (explicit owner sign-off required first).

@@ -2487,3 +2487,44 @@ PE (OI = 5,695,820 = 56.9L contracts) correctly passes. NSE direct comparison:
 **Tests:** 404 unique api-server tests pass (13 files). Scanner 770/770. verify:release 11/11.
 
 Full detail: `KITE_OI_UNIT_VERIFICATION_REPORT.md`
+
+---
+
+## P1 Consolidated Audit + P1A Implementation — 2026-07-08
+
+**Verdict: `P1A_PAPER_TRADING_GROSS_NET_DISPLAY_DEV_VERIFIED`**
+
+Five P1 items audited. One (P1A) implemented as a safe UI-only change. Full detail in
+`P1_CONSOLIDATED_REMAINING_WORK_AUDIT_REPORT.md`.
+
+### P1A — Paper Trading Gross/Net Display (IMPLEMENTED)
+
+**Gap found:** F&O cockpit "Realised P&L (gross)" tile had charges explanation in a
+hover-only `title` tooltip. Non-hovering users saw no indication of how to find estimated
+net P&L. The P&L Reports page already had a full gross/net/charges breakdown.
+
+**Fix (UI/display only):**
+- `FoCockpitSummaryCards.tsx`: tile now has permanent sub-label `"Gross · pre-charges"`
+  (always visible, not just tooltip)
+- Extended `title` tooltip with canonical cost model rates (STT, brokerage, exchange,
+  SEBI, GST, stamp duty, effective 2026-04-01)
+- Added always-visible charges disclaimer footer below the summary grid with a link to
+  P&L Reports for net-of-charges estimate
+
+**Not changed:** FoCockpitSummary interface, summarizeFoCockpit computation, account
+balance, realized P&L, DD/heat/risk gates, server endpoints, trading logic.
+
+### Audit Summary — Other P1 Items
+
+| Item | Risk | Verdict | Phase |
+|---|---|---|---|
+| MACD warm-up fix | Medium — changes historical MACD reads for short-history symbols | Not implemented — standalone session required | P1B |
+| NSE holiday calendar | Low-Medium — maintenance only; live session already handles holidays | Not implemented — maintenance PR | P1C |
+| Equity gap-through exit realism | HIGH — P&L-changing, balance-changing, historical | Not implemented — **explicit owner sign-off required** | P1D |
+| Charting professional upgrade | Medium-Large UI | Not implemented — phased UI sessions | P1E |
+
+### Tests (post-P1A)
+- Scanner typecheck: PASS ✓
+- foCockpitView.test.ts: 138/138 ✓
+- verify:release: 11/11 ✓
+- LLM index: 350 files fresh ✓

@@ -78,10 +78,11 @@ export function FoCockpitSummaryCards({
                 title="F&O paper trades closed today (IST)."
               />
               <Tile
-                label="Realised P&L (gross)"
+                label="Realised P&L"
                 value={signed(summary.realizedPnl)}
                 tone={toneOf(summary.realizedPnl)}
-                title="Gross (pre-cost) booked profit/loss from F&O paper trades closed today (IST). Locked in — no longer moves with price. Brokerage/STT/charges are tracked separately as a shadow estimate and are NOT deducted here, nor from DD/heat/risk gates."
+                hint="Gross · pre-charges"
+                title="Gross (pre-cost) booked P&L from F&O paper trades closed today (IST). Locked in — no longer moves with price. Brokerage/STT/charges are tracked separately and are NOT deducted here, nor from DD/heat/risk gates. Canonical cost model (2026-04-01): STT 0.05% on sell turnover, brokerage ₹20/side flat, exchange txn 0.053%, SEBI 0.0001%, GST 18% on (brokerage+exchange+SEBI), stamp duty 0.003% on buy turnover. See P&L Reports for estimated net-of-charges breakdown."
               />
               <Tile
                 label="Unrealised MTM"
@@ -113,6 +114,20 @@ export function FoCockpitSummaryCards({
                 }
                 title="Average maximum adverse excursion (worst in-trade drawdown, from per-trade maxDrawdown) across closed F&O paper trades that have a genuinely-recorded premium path. Trades without a recorded path are excluded — never counted as zero."
               />
+            </div>
+
+            <div className="rounded-md border border-slate-700/40 bg-slate-800/20 px-3 py-2 text-[11px] text-slate-400">
+              <span className="font-medium text-slate-300">Gross P&amp;L</span>
+              {" — "}charges (brokerage ₹20/side, STT 0.05%, exchange/SEBI/GST fees) are{" "}
+              <em>not</em> deducted above and do not affect DD / heat / risk gates.{" "}
+              See{" "}
+              <a
+                href="/paper-reports"
+                className="text-sky-400 underline underline-offset-2 hover:text-sky-300"
+              >
+                P&amp;L Reports
+              </a>
+              {" "}for estimated net-of-charges P&amp;L (canonical cost model, effective 2026-04-01).
             </div>
 
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">

@@ -1,0 +1,403 @@
+CODER PROMPT — P1 CONSOLIDATED AUDIT + SAFE IMPLEMENTATION SEQUENCING
+
+Current accepted production status:
+
+RELEASE_INTEGRITY_PROD_VERIFIED
+BACKTEST_CHARGES_MODEL_NET_PNL_PROD_VERIFIED
+FNO_COST_MODEL_UNIFICATION_PROD_VERIFIED
+FNO_VWAP_VOLUME_PROFILE_HONESTY_PROD_VERIFIED
+FNO_TRIGGER_WORDING_SEMANTICS_PROD_VERIFIED
+KITE_OI_UNIT_VERIFICATION_CONFIRMED_CORRECT
+EXIT_PREMIUM_MARKET_SHADOW_PROD_INFRA_VERIFIED_LIVE_SAMPLE_PENDING
+POST_P0_SIGNAL_SYSTEM_REBASELINE_PARTIAL_GAP_REMAINS
+
+Important pending future tasks:
+
+1. POST_P0_SIGNAL_SAMPLE_REVIEW
+   Run only after at least 5 trading sessions or 20+ post-P0 signals across NIFTY / BANKNIFTY / SENSEX.
+
+2. EXIT_PREMIUM_MARKET_SHADOW full PROD_VERIFIED
+   Run only after a new actual F&O paper trade exits and records exit_premium_market or an honest unavailable reason.
+
+Now start:
+
+P1 CONSOLIDATED AUDIT + SAFE IMPLEMENTATION SEQUENCING
+
+====================================================
+IMPORTANT OWNER INSTRUCTION
+====================================================
+
+Do not implement all P1 items randomly together.
+
+This task is to:
+
+1. audit all remaining P1 items,
+2. classify risk,
+3. identify files touched,
+4. identify test coverage,
+5. recommend safe order,
+6. implement only the lowest-risk approved sub-phase if clearly safe,
+7. otherwise stop after audit and ask for approval.
+
+====================================================
+P1 ITEMS TO AUDIT
+====================================================
+
+Audit these five items:
+
+1. Paper Trading gross-vs-net display
+2. MACD warm-up fix
+3. NSE holiday calendar
+4. Equity gap-through exit realism
+5. Charting professional upgrade
+
+====================================================
+STRICT RULES
+====================================================
+
+Do not change live trading logic unless the sub-phase explicitly requires it and is approved.
+Do not change F&O signal thresholds.
+Do not change F&O detector weights.
+Do not change entry/exit logic for F&O.
+Do not change SL/target formulas.
+Do not change paper-trade opening eligibility.
+Do not enable broker execution.
+Do not place real orders.
+Do not send Telegram tests.
+Do not perform destructive migrations.
+Do not rewrite historical trades.
+Do not mix unrelated UI and engine changes in one commit.
+Do not mark PROD_VERIFIED without production build proof.
+Do not judge F&O edge until POST_P0_SIGNAL_SAMPLE_REVIEW.
+
+====================================================
+PART A — BASELINE VERIFICATION
+====================================================
+
+Before audit, run:
+
+pnpm --filter @workspace/scripts run verify:release
+
+Confirm:
+
+1. production build-info live,
+2. all checkpoint markers true,
+3. no secrets exposed,
+4. broker execution disabled,
+5. no real orders,
+6. no Telegram spam,
+7. P0 fixes remain live.
+
+If verify:release fails, stop and report:
+
+RELEASE_INTEGRITY_REGRESSION_FOUND
+
+====================================================
+PART B — AUDIT ITEM 1: PAPER TRADING GROSS-VS-NET DISPLAY
+====================================================
+
+Audit the Paper Trading tab and Paper Reports.
+
+Check:
+
+1. Does live Paper Trading show gross P&L where user may assume net?
+2. Does account balance reflect gross or net?
+3. Does F&O paper dashboard clearly show estimated charges?
+4. Does it show net-of-charges P&L?
+5. Does it distinguish realized, unrealized, gross, net, and shadow values?
+6. Does it use canonical F&O cost model?
+7. Does it use market shadow exit premium only as observation-only?
+8. Does the UI make charges visible enough?
+
+Required audit table:
+
+| Area | Current Display | Gross/Net? | User Risk | Required Fix | Severity |
+|---|---|---|---|---|---|
+
+Likely safe fix:
+
+- Add visible “Gross P&L” and “Estimated Net P&L” labels.
+- Add charges line.
+- Add note: “Net is estimated using canonical cost model.”
+- Do not change account balance.
+- Do not change realized P&L.
+- Do not change trade decisions.
+
+====================================================
+PART C — AUDIT ITEM 2: MACD WARM-UP FIX
+====================================================
+
+Audit MACD implementation.
+
+Check:
+
+1. Does MACD signal EMA seed from nulls as zero?
+2. Does this distort early bars?
+3. Which tabs use MACD?
+4. Does Deep Scan use it?
+5. Does Swing use it?
+6. Does Stock Detail use it?
+7. Does Scanner use it?
+8. Does changing it affect historical signal behavior?
+9. Do short/new listing series get distorted?
+
+Required audit table:
+
+| File | Function | Current MACD Behavior | Impact | Risk | Required Fix |
+|---|---|---|---|---|---|
+
+If implemented later:
+
+- Seed signal EMA only from valid MACD values.
+- Preserve output length.
+- Null before enough data.
+- Add tests for warm-up.
+- Add report note that historical indicator readings may change.
+
+Do not implement in same commit as Paper Trading display unless specifically approved.
+
+====================================================
+PART D — AUDIT ITEM 3: NSE HOLIDAY CALENDAR
+====================================================
+
+Audit expiry/DTE/trading-day logic.
+
+Check:
+
+1. Does current logic assume Monday–Friday only?
+2. Which files calculate trading days?
+3. Which guards depend on DTE?
+4. Which expiry analytics depend on calendar?
+5. Does it affect F&O expiry-day logic?
+6. Does it affect backtest calendar?
+7. Does it affect reports?
+8. Does it affect market-open/session logic?
+
+Required audit table:
+
+| File | Function | Current Calendar Logic | Holiday Risk | Trading Impact | Required Fix |
+|---|---|---|---|---|---|
+
+If implemented later:
+
+- Add versioned NSE holiday calendar.
+- Add year-wise holiday list.
+- Add tests for expiry-week holidays.
+- Add fallback when holiday list missing.
+- Do not guess future holidays without source.
+
+Do not implement with MACD or Charting in same batch unless approved.
+
+====================================================
+PART E — AUDIT ITEM 4: EQUITY GAP-THROUGH EXIT REALISM
+====================================================
+
+Audit equity paper and swing exit realism.
+
+Check:
+
+1. If LTP gaps below stop, does system close at stop price or actual LTP?
+2. Does delivery/swing paper P&L understate gap risk?
+3. Which modules are affected?
+4. Does account balance get overstated?
+5. Are reports honest?
+6. Is there a gap-through shadow field already?
+7. Is this F&O-specific or equity-only?
+8. Does it affect Auto Strong Buy paper trades?
+
+Required audit table:
+
+| Module | Current Exit Price | Gap Handling | P&L Impact | Risk | Required Fix |
+|---|---|---|---|---|---|
+
+Important:
+
+This is behavior-changing and P&L-changing.
+
+Do not implement this in a mixed batch.
+
+Recommended future design:
+
+- Add gap-through shadow measurement first,
+- or change exits to actual LTP with explicit migration note,
+- add tests,
+- label old data as legacy if needed.
+
+====================================================
+PART F — AUDIT ITEM 5: CHARTING PROFESSIONAL UPGRADE
+====================================================
+
+Audit Charting tab.
+
+Check:
+
+1. 1m/3m offline message.
+2. Stale banner in header.
+3. Drawing tools.
+4. Horizontal line tool.
+5. Screenshot/export.
+6. Compare mode.
+7. Indicators.
+8. F&O contract charting.
+9. Source/as-of/freshness display.
+10. Candle source honesty.
+11. Mobile layout.
+
+Required audit table:
+
+| Feature | Current Status | Gap | Risk | Suggested Phase |
+|---|---|---|---|---|
+
+Important:
+
+Charting is UI-heavy and should be separate from engine fixes.
+
+Possible safe future phases:
+
+- Charting 1A: stale/offline message + source banner
+- Charting 1B: horizontal line + screenshot/export
+- Charting 1C: compare mode + F&O contract charting
+
+Do not implement Charting in same batch as MACD/calendar/equity exit changes.
+
+====================================================
+PART G — RISK CLASSIFICATION
+====================================================
+
+Classify all five P1 items:
+
+| Item | Type | Risk | Can Bundle? | Recommended Phase |
+|---|---|---|---:|---|
+
+Expected classification:
+
+1. Paper Trading gross-vs-net display — low/medium UI/report honesty
+2. MACD warm-up fix — medium indicator-behavior change
+3. NSE holiday calendar — medium calendar/expiry logic
+4. Equity gap-through exit realism — high P&L behavior change
+5. Charting professional upgrade — medium/large UI product work
+
+====================================================
+PART H — IMPLEMENTATION RULE
+====================================================
+
+After audit, implement only if there is a clearly safe low-risk sub-phase.
+
+Allowed safe first implementation:
+
+P1A — PAPER TRADING GROSS-VS-NET DISPLAY HONESTY
+
+Only if you can keep it UI/report-only and not change account balance or realized P&L.
+
+If implementing P1A, do only:
+
+1. Add clear Gross P&L label.
+2. Add Estimated Net P&L label.
+3. Add estimated charges display.
+4. Add tooltip explaining canonical cost model.
+5. Add observation-only market shadow note where applicable.
+6. Add tests.
+7. Update reports.
+
+Do not change accounting.
+
+If audit shows this cannot be safely done alone, stop and report:
+
+P1_CONSOLIDATED_AUDIT_COMPLETE_IMPLEMENTATION_PENDING_OWNER_APPROVAL
+
+====================================================
+PART I — TESTS REQUIRED
+====================================================
+
+For audit-only:
+
+Run:
+
+pnpm --filter @workspace/scripts run verify:release
+pnpm --filter @workspace/api-server run typecheck
+pnpm --filter @workspace/api-server run typecheck:libs
+pnpm --filter @workspace/scanner exec vitest run
+pnpm --filter @workspace/scripts run index:llm
+pnpm --filter @workspace/scripts run index:llm:check
+
+If P1A Paper Trading display is implemented, also run:
+
+pnpm --filter @workspace/api-server exec vitest run src/lib/*paper*.test.ts src/lib/*fnoCost*.test.ts src/routes/**/*.test.ts
+
+and relevant scanner/frontend tests.
+
+Report exact counts.
+
+====================================================
+PART J — REPORT UPDATE
+====================================================
+
+Create:
+
+P1_CONSOLIDATED_REMAINING_WORK_AUDIT_REPORT.md
+
+Update:
+
+1. WEBSITE_CANONICAL_DATA_INTEGRATION_REPORT.md
+2. USER_FACING_CORE_TABS_DEEP_AUDIT_REPORT.md
+3. POST_P0_SIGNAL_SYSTEM_REBASELINE_REPORT.md, if relevant
+
+Report must include:
+
+1. Current production baseline.
+2. All P0/P1 completed statuses.
+3. Audit of all five remaining P1 candidates.
+4. Risk classification.
+5. Recommended order.
+6. Whether P1A was implemented or not.
+7. Tests and counts.
+8. Final verdict.
+
+====================================================
+FINAL VERDICT
+====================================================
+
+Final verdict must be exactly one:
+
+- P1_CONSOLIDATED_AUDIT_COMPLETE_IMPLEMENTATION_PENDING_OWNER_APPROVAL
+- P1A_PAPER_TRADING_GROSS_NET_DISPLAY_DEV_VERIFIED
+- P1A_PAPER_TRADING_GROSS_NET_DISPLAY_PROD_VERIFIED
+- P1_CONSOLIDATED_PARTIAL_GAP_REMAINS
+- RELEASE_INTEGRITY_REGRESSION_FOUND
+- ROLLBACK_REQUIRED
+
+Use:
+
+P1_CONSOLIDATED_AUDIT_COMPLETE_IMPLEMENTATION_PENDING_OWNER_APPROVAL
+
+if only audit/risk sequencing is completed.
+
+Use:
+
+P1A_PAPER_TRADING_GROSS_NET_DISPLAY_DEV_VERIFIED
+
+if the low-risk paper-trading gross/net display fix is implemented and tests pass, but production publish is pending.
+
+Use:
+
+P1A_PAPER_TRADING_GROSS_NET_DISPLAY_PROD_VERIFIED
+
+only after production deploy verifies the gross/net display is live.
+
+Use:
+
+P1_CONSOLIDATED_PARTIAL_GAP_REMAINS
+
+if audit is incomplete or tests are incomplete.
+
+Use:
+
+RELEASE_INTEGRITY_REGRESSION_FOUND
+
+if verify:release has a real FAIL.
+
+Use:
+
+ROLLBACK_REQUIRED
+
+if secrets leak, broker execution turns on, real orders are placed, Telegram spam occurs, destructive migration happens, stale/report-grade data drives live trades, realized P&L is overwritten, or account balance logic changes.
