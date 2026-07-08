@@ -5055,6 +5055,39 @@ components:
           nullable: true
           allOf:
             - $ref: "#/components/schemas/FnoSpotLifecycle"
+        exitPremiumMarket:
+          type: number
+          nullable: true
+          description: "Shadow (observation only): real Kite option-chain LTP at the moment of close. P&L still uses the frozen exitPremium. Null when unavailable."
+        exitPremiumMarketSource:
+          type: string
+          nullable: true
+          description: "Shadow: provenance of the market LTP capture (e.g. KITE_CHAIN). Null when unavailable."
+        exitPremiumMarketAsOf:
+          type: string
+          format: date-time
+          nullable: true
+          description: "Shadow: timestamp of the option-chain snapshot used for the market LTP."
+        exitPremiumMarketAgeSec:
+          type: integer
+          nullable: true
+          description: "Shadow: age of the chain snapshot in seconds at the time of capture."
+        exitPremiumMarketGap:
+          type: number
+          nullable: true
+          description: "Shadow: market LTP minus frozen plan exit premium (signed, Rs). Positive = market was above plan."
+        exitPremiumMarketGapPct:
+          type: number
+          nullable: true
+          description: "Shadow: gap as a percentage of the frozen plan exit premium."
+        marketShadowGrossPnl:
+          type: number
+          nullable: true
+          description: "Shadow: gross P&L computed using the real market LTP instead of the frozen plan: (marketLtp - entryPremium) x lots x lotSize."
+        exitPremiumMarketUnavailableReason:
+          type: string
+          nullable: true
+          description: "Shadow: reason the market LTP capture failed (CHAIN_MISSING | SOURCE_NOT_KITE | STRIKE_NOT_IN_CHAIN | LTP_MISSING | LTP_INVALID | FETCH_ERROR). Null when available."
 
     PaperPositionsFOResponse:
       type: object

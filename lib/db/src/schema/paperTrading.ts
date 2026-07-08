@@ -171,6 +171,34 @@ export const paperTradeFoTable = pgTable(
     lastExitCheckError: text("last_exit_check_error"),
     /** SENT | FAILED | SKIPPED_CONFIG_MISSING — outcome of the exit Telegram notification for this trade, if it closed. */
     exitNotificationStatus: text("exit_notification_status"),
+
+    /**
+     * Exit-premium market shadow capture (additive, P1 2026-07-08, all
+     * nullable — pre-change rows stay honestly NULL, never backfilled).
+     * Applied via raw `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` in
+     * `applyFoMarketShadowColumns()` (fnoMarketShadowCapture.ts), NEVER
+     * `drizzle-kit push` (would attempt to drop out-of-schema tables in
+     * this DB). Observation-only: these fields NEVER affect P&L, exit
+     * decisions, account balance, or signals.
+     *
+     * exitPremiumMarket: real Kite option-chain LTP at the moment of close.
+     *   The authoritative settlement price is still exit_premium (frozen plan).
+     * exitPremiumMarketSource: provenance label ("KITE_CHAIN") or null.
+     * exitPremiumMarketAsOf: option-chain generatedAt timestamp.
+     * exitPremiumMarketAgeSec: chain age in seconds at the time of capture.
+     * exitPremiumMarketGap: market LTP − frozen plan exit (signed, ₹).
+     * exitPremiumMarketGapPct: gap / frozen × 100 (%).
+     * marketShadowGrossPnl: (marketLtp − entryPremium) × lots × lotSize (₹).
+     * exitPremiumMarketUnavailableReason: why capture failed when null.
+     */
+    exitPremiumMarket: numeric("exit_premium_market", { precision: 18, scale: 4 }),
+    exitPremiumMarketSource: text("exit_premium_market_source"),
+    exitPremiumMarketAsOf: timestamp("exit_premium_market_as_of", { withTimezone: true }),
+    exitPremiumMarketAgeSec: integer("exit_premium_market_age_sec"),
+    exitPremiumMarketGap: numeric("exit_premium_market_gap", { precision: 18, scale: 4 }),
+    exitPremiumMarketGapPct: numeric("exit_premium_market_gap_pct", { precision: 8, scale: 4 }),
+    marketShadowGrossPnl: numeric("market_shadow_gross_pnl", { precision: 18, scale: 2 }),
+    exitPremiumMarketUnavailableReason: text("exit_premium_market_unavailable_reason"),
   },
   (t) => ({
     // 1:1 with the underlying signal — prevents the lifecycle hook from

@@ -61,4 +61,20 @@ export interface PaperTradeFOClosed {
   /** Delivery status of the canonical exit Telegram alert for this trade, looked up from notification_delivery_log (null when no record found yet). */
   telegramStatus?: PaperTradeFOClosedTelegramStatus;
   spotLifecycle?: FnoSpotLifecycle | null;
+  /** Shadow (observation only): real Kite option-chain LTP at the moment of close. P&L still uses the frozen exitPremium. Null when unavailable. */
+  exitPremiumMarket?: number | null;
+  /** Shadow: provenance of the market LTP capture (e.g. KITE_CHAIN). Null when unavailable. */
+  exitPremiumMarketSource?: string | null;
+  /** Shadow: timestamp of the option-chain snapshot used for the market LTP. */
+  exitPremiumMarketAsOf?: Date | null;
+  /** Shadow: age of the chain snapshot in seconds at the time of capture. */
+  exitPremiumMarketAgeSec?: number | null;
+  /** Shadow: market LTP minus frozen plan exit premium (signed, Rs). Positive = market was above plan. */
+  exitPremiumMarketGap?: number | null;
+  /** Shadow: gap as a percentage of the frozen plan exit premium. */
+  exitPremiumMarketGapPct?: number | null;
+  /** Shadow: gross P&L computed using the real market LTP instead of the frozen plan: (marketLtp - entryPremium) x lots x lotSize. */
+  marketShadowGrossPnl?: number | null;
+  /** Shadow: reason the market LTP capture failed (CHAIN_MISSING | SOURCE_NOT_KITE | STRIKE_NOT_IN_CHAIN | LTP_MISSING | LTP_INVALID | FETCH_ERROR). Null when available. */
+  exitPremiumMarketUnavailableReason?: string | null;
 }

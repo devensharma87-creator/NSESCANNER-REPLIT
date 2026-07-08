@@ -70,6 +70,10 @@ import {
   buildOptionChainProvenance,
   type OcSourceProvider,
 } from "./marketData/optionChainProvenance";
+import {
+  captureExitMarketPremium,
+  applyMarketShadowToDb,
+} from "./fnoMarketShadowCapture";
 import { logger } from "./logger";
 import { computeMarketStatus } from "./marketEvents";
 import { isActionableForFno, type DataQualityLabel } from "./tradingConfig";
@@ -2119,6 +2123,14 @@ export async function evaluateOrphanedOpenTrades(
                 ? "evaluateOrphanedOpenTrades: ORPHAN_OPEN_STOP_HIT — closed frozen orphan at locked stop"
                 : "evaluateOrphanedOpenTrades: ORPHAN_OPEN_TARGET2_HIT — closed frozen orphan at locked T2",
             );
+            // Shadow market-premium capture (observation only).
+            // Reuses the chain already fetched for this sweep cycle — zero
+            // extra network calls. Fire-and-forget: never affects close,
+            // P&L, balance, or any trading decision.
+            void applyMarketShadowToDb(
+              out.id,
+              captureExitMarketPremium(out, chain),
+            ).catch(() => {});
             // Best-effort lifecycle advance — bookkeeping ONLY. The paper trade
             // is already settled, so a 0-row CAS (concurrent path advanced it)
             // or a failure here cannot reintroduce the wrong-settlement class;
@@ -2577,7 +2589,21 @@ export async function forceCloseAllOpenFnoFor1520(): Promise<number> {
           r.direction as "BULLISH" | "BEARISH",
           "TIME_EXIT_1520",
         );
-        if (out) closed++;
+        if (out) {
+          closed++;
+          // Shadow market-premium capture (observation only, best-effort).
+          // Fetches the chain for the closed trade's index; fire-and-forget.
+          // Never affects close outcome, P&L, or balance.
+          void (async () => {
+            try {
+              const chain = await fetchOptionChain(out.indexSymbol);
+              await applyMarketShadowToDb(
+                out.id,
+                captureExitMarketPremium(out, chain),
+              );
+            } catch { /* shadow observation only */ }
+          })();
+        }
       } catch (err) {
         logger.warn(
           { err: (err as Error).message, indexSymbol: r.indexSymbol, setupKey: r.setupKey },

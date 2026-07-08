@@ -1,4 +1,4 @@
-import { afterAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { TransactionRollbackError } from "drizzle-orm/errors";
 import { and, eq } from "drizzle-orm";
 import { db, pool, paperTradeFoTable } from "@workspace/db";
@@ -12,6 +12,7 @@ import {
   PREMIUM_OVERLAY_FRESHNESS_WINDOW_MS,
   type SimTradeInput,
 } from "./fnoPremiumExitOverlay";
+import { ensureFoMarketShadowColumns } from "./fnoMarketShadowCapture";
 
 /**
  * F&O Premium Exit Overlay v1 tests.
@@ -35,6 +36,10 @@ function skipReasonOf(
 
 const hasDb = Boolean(process.env.DATABASE_URL && !process.env.DATABASE_URL.includes("dummy"));
 const dbit = hasDb ? it : it.skip;
+
+beforeAll(async () => {
+  if (hasDb) await ensureFoMarketShadowColumns();
+});
 
 afterAll(async () => {
   if (hasDb) await pool.end().catch(() => {});

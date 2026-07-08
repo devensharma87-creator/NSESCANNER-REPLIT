@@ -1,0 +1,402 @@
+CODER PROMPT — P1 EXIT PREMIUM MARKET SHADOW COLUMN
+
+Current accepted production status:
+
+RELEASE_INTEGRITY_PROD_VERIFIED
+BACKTEST_CHARGES_MODEL_NET_PNL_PROD_VERIFIED
+FNO_COST_MODEL_UNIFICATION_PROD_VERIFIED
+FNO_VWAP_VOLUME_PROFILE_HONESTY_PROD_VERIFIED
+FNO_TRIGGER_WORDING_SEMANTICS_PROD_VERIFIED
+POST_P0_SIGNAL_SYSTEM_REBASELINE_PARTIAL_GAP_REMAINS
+
+Clean baseline:
+
+POST_P0_CLEAN_BASELINE_2026_07_08 = 2026-07-08T06:54:45Z
+
+Important pending future task:
+
+POST_P0_SIGNAL_SAMPLE_REVIEW
+
+Run only after:
+- at least 5 trading sessions, or
+- 20+ post-P0 signals across NIFTY / BANKNIFTY / SENSEX.
+
+Do not judge F&O edge until that sample exists.
+
+Now start:
+
+P1 — EXIT PREMIUM MARKET SHADOW COLUMN
+
+====================================================
+WHY THIS PHASE IS REQUIRED
+====================================================
+
+Current F&O paper trade exits use frozen/projected premium settlement for realized P&L.
+
+This is acceptable as a directional-accuracy ledger, but not enough to prove real option-market P&L.
+
+We now need a decision-neutral shadow field:
+
+exit_premium_market
+
+This should capture the nearest available real market option premium at exit time from trusted option-chain/Kite source, without changing exit decisions.
+
+Purpose:
+
+1. Compare frozen/projected exit premium vs actual market premium.
+2. Measure paper-P&L realism gap.
+3. Quantify theta/gamma/IV/slippage difference.
+4. Improve future confidence in F&O paper reports.
+5. Do not change trading decisions yet.
+
+====================================================
+STRICT SCOPE
+====================================================
+
+Allowed:
+
+1. Add shadow market-exit premium capture.
+2. Add DB column(s) if needed.
+3. Capture source/as-of/freshness.
+4. Add report fields.
+5. Add diagnostics.
+6. Add tests.
+7. Update reports.
+
+Not allowed:
+
+Do not change exit decision logic.
+Do not change stop/target logic.
+Do not change entry logic.
+Do not change signal generation.
+Do not change strategy thresholds.
+Do not change detector weights.
+Do not change paper trade opening eligibility.
+Do not replace realized P&L with market-shadow P&L yet.
+Do not enable broker execution.
+Do not place real orders.
+Do not send Telegram tests.
+Do not perform destructive migrations.
+Do not rewrite historical trades unless explicitly approved.
+Do not fabricate missing market premiums.
+Do not use Yahoo/delayed/non-trade-grade data for market-exit premium.
+
+This phase is observation-only.
+
+====================================================
+PART A — CURRENT STATE AUDIT
+====================================================
+
+Before coding, inspect and report current F&O exit premium logic.
+
+Files likely involved:
+
+1. paperTradingFO.ts
+2. fnoExitDecision.ts
+3. fnoPremiumExitOverlay.ts
+4. optionSignalLifecycle.ts
+5. optionChainSnapshot / optionChainSnapshotIngestor
+6. kiteOptionChain / trusted option-chain facade
+7. paper reports F&O files
+8. DB schema for F&O paper trades
+9. routes exposing paper trades/reports
+10. frontend paper-trading and paper-reports pages
+
+Create table:
+
+| File | Function | Current Exit Premium Logic | Source | Issue | Required Change |
+|---|---|---|---|---|---|
+
+Confirm:
+
+1. Current realized exit premium is frozen/projected.
+2. Market option LTP at exit is not stored.
+3. Option-chain snapshots exist and can be used.
+4. Trusted option quote/chain path exists.
+5. Exit decisions are already source-gated.
+6. Missing market premium is currently not measured.
+7. Paper Reports do not show frozen-vs-market gap.
+
+====================================================
+PART B — DATA MODEL
+====================================================
+
+Add shadow fields to F&O paper trade storage.
+
+Required fields, if not already present:
+
+1. exit_premium_market
+2. exit_premium_market_source
+3. exit_premium_market_as_of
+4. exit_premium_market_fresh
+5. exit_premium_market_age_seconds
+6. exit_premium_market_available
+7. exit_premium_market_unavailable_reason
+8. exit_premium_model
+9. exit_premium_gap
+10. exit_premium_gap_pct
+11. market_shadow_pnl
+12. market_shadow_net_pnl
+13. market_shadow_total_charges, if calculable
+
+Naming can follow project conventions, but all meaning must be preserved.
+
+Important:
+
+- Existing realizedPnl remains unchanged.
+- Existing exitPremium remains unchanged.
+- Shadow fields are additional only.
+- If market premium unavailable, store null + reason.
+- Do not store fake zero.
+
+Unavailable reasons may include:
+
+- OPTION_CHAIN_UNAVAILABLE
+- OPTION_QUOTE_STALE
+- OPTION_CONTRACT_NOT_FOUND
+- MARKET_PREMIUM_NOT_TRADE_GRADE
+- EXIT_TIME_SNAPSHOT_MISSING
+- KITE_UNAVAILABLE
+- EXIT_PREMIUM_MARKET_NOT_CAPTURED_LEGACY
+
+====================================================
+PART C — CAPTURE LOGIC
+====================================================
+
+At the moment an F&O paper trade exits:
+
+1. Keep existing exit decision unchanged.
+2. Keep existing realized exit premium unchanged.
+3. Attempt to fetch nearest trusted market option premium for the exact contract.
+4. Use only trade-grade trusted source.
+5. Check freshness/as-of.
+6. If available, store exit_premium_market.
+7. If unavailable, store null + reason.
+8. Calculate market shadow P&L separately.
+
+Required formula:
+
+market_shadow_gross_pnl =
+  direction-adjusted quantity * (exit_premium_market - entry_premium)
+
+For long option paper trades:
+
+market_shadow_gross_pnl =
+  (exit_premium_market - entry_premium) * quantity
+
+Then calculate charges using canonical F&O cost model.
+
+market_shadow_net_pnl =
+  market_shadow_gross_pnl - market_shadow_total_charges
+
+Required comparison:
+
+exit_premium_gap =
+  exit_premium_market - exit_premium_realized_or_projected
+
+exit_premium_gap_pct =
+  exit_premium_gap / exit_premium_realized_or_projected
+
+Do not let market shadow values affect:
+
+- exit decision,
+- realized P&L,
+- account balance,
+- trade status,
+- Telegram alerts,
+- signal quality scoring.
+
+====================================================
+PART D — REPORTING
+====================================================
+
+Update F&O Paper Reports and diagnostics to show:
+
+1. Realized/frozen exit premium.
+2. Market shadow exit premium.
+3. Premium gap.
+4. Premium gap percentage.
+5. Realized gross P&L.
+6. Market shadow gross P&L.
+7. Realized net P&L.
+8. Market shadow net P&L.
+9. Source/as-of/freshness.
+10. Unavailable reason.
+
+Use clear labels:
+
+REALIZED PAPER P&L — based on strategy/frozen premium settlement.
+
+MARKET SHADOW P&L — based on nearest trusted market option premium at exit, observation-only.
+
+Do not rename old P&L as real market P&L.
+
+Required report table:
+
+| Trade | Contract | Entry Premium | Realized Exit Premium | Market Exit Premium | Gap | Realized Net P&L | Market Shadow Net P&L | Source | Verdict |
+|---|---|---:|---:|---:|---:|---:|---:|---|---|
+
+====================================================
+PART E — LEGACY HANDLING
+====================================================
+
+For old trades before this deployment:
+
+1. Do not backfill unless explicitly approved.
+2. Show market shadow fields as null.
+3. Use unavailable reason:
+
+EXIT_PREMIUM_MARKET_NOT_CAPTURED_LEGACY
+
+4. Reports must not treat missing shadow premium as zero.
+5. No formula should break on null.
+
+====================================================
+PART F — TESTS REQUIRED
+====================================================
+
+Add/update tests for:
+
+1. Shadow market premium captured when trusted option quote exists.
+2. Shadow market premium remains null when quote unavailable.
+3. Stale quote is rejected.
+4. Non-trade-grade quote is rejected.
+5. Legacy trades show unavailable reason.
+6. Realized P&L remains unchanged.
+7. Account balance remains unchanged.
+8. Exit decision remains unchanged.
+9. market_shadow_gross_pnl formula correct.
+10. market_shadow_net_pnl uses canonical F&O cost model.
+11. gap and gap_pct formula correct.
+12. Paper Reports show both realized and market shadow fields.
+13. Null shadow premium does not crash reports.
+14. No Yahoo/delayed provider can populate market shadow.
+15. Broker execution remains disabled.
+16. No Telegram send occurs.
+17. Existing P0-1, P0-2, P0-3 tests remain green.
+
+====================================================
+PART G — COMMANDS TO RUN
+====================================================
+
+Run:
+
+pnpm --filter @workspace/scripts run verify:release
+
+pnpm --filter @workspace/api-server run typecheck
+
+pnpm --filter @workspace/api-server run typecheck:libs
+
+pnpm --filter @workspace/api-server exec vitest run src/lib/*paper*.test.ts src/lib/*fno*.test.ts src/lib/*fnoCost*.test.ts src/lib/*optionSignal*.test.ts src/lib/*backtest*.test.ts src/routes/**/*.test.ts
+
+pnpm --filter @workspace/scanner exec vitest run
+
+pnpm --filter @workspace/scripts run index:llm
+
+pnpm --filter @workspace/scripts run index:llm:check
+
+If any suite times out, split into smaller batches and report exact counts.
+
+====================================================
+PART H — REPORT UPDATE
+====================================================
+
+Create:
+
+EXIT_PREMIUM_MARKET_SHADOW_REPORT.md
+
+Update:
+
+1. POST_P0_SIGNAL_SYSTEM_REBASELINE_REPORT.md
+2. WEBSITE_CANONICAL_DATA_INTEGRATION_REPORT.md
+3. USER_FACING_CORE_TABS_DEEP_AUDIT_REPORT.md, if relevant
+
+Include:
+
+1. Original realism gap.
+2. Current-state audit.
+3. Files changed.
+4. DB/schema changes.
+5. Capture logic.
+6. Source/freshness rules.
+7. Formula summary.
+8. Legacy handling.
+9. Tests and counts.
+10. Safety confirmation.
+11. Final verdict.
+
+====================================================
+PART I — PRODUCTION VERIFICATION AFTER PUBLISH
+====================================================
+
+If code/tests pass but production publish is pending, final verdict should be DEV_VERIFIED.
+
+After owner publishes, verify:
+
+1. /api/build-info shows new commit.
+2. verify:release green.
+3. New exited F&O paper trade captures exit_premium_market if trusted quote exists.
+4. Missing quote stores null + reason.
+5. Realized P&L remains unchanged.
+6. Market shadow P&L is separate.
+7. Reports show both values.
+8. No broker execution.
+9. No real orders.
+10. No Telegram spam.
+
+If no new exited F&O trade exists yet, verify using safe unit/API fixture and mark:
+
+PROD_INFRA_VERIFIED_LIVE_SAMPLE_PENDING
+
+====================================================
+FINAL VERDICT
+====================================================
+
+Final verdict must be exactly one:
+
+- EXIT_PREMIUM_MARKET_SHADOW_DEV_VERIFIED
+- EXIT_PREMIUM_MARKET_SHADOW_PROD_VERIFIED
+- EXIT_PREMIUM_MARKET_SHADOW_PROD_INFRA_VERIFIED_LIVE_SAMPLE_PENDING
+- EXIT_PREMIUM_MARKET_SHADOW_PARTIAL_GAP_REMAINS
+- RELEASE_INTEGRITY_REGRESSION_FOUND
+- ROLLBACK_REQUIRED
+
+Use:
+
+EXIT_PREMIUM_MARKET_SHADOW_DEV_VERIFIED
+
+if code/tests pass but production publish is pending.
+
+Use:
+
+EXIT_PREMIUM_MARKET_SHADOW_PROD_INFRA_VERIFIED_LIVE_SAMPLE_PENDING
+
+if production is live, schema/routes/reports/tests are verified, but no new real exited F&O paper trade exists yet to prove live capture.
+
+Use:
+
+EXIT_PREMIUM_MARKET_SHADOW_PROD_VERIFIED
+
+only after production captures market shadow premium on an actual new exited F&O paper trade or honestly records unavailable reason from real exit conditions.
+
+Use:
+
+EXIT_PREMIUM_MARKET_SHADOW_PARTIAL_GAP_REMAINS
+
+if shadow field exists but can be fake, stale, non-trade-grade, mixed into realized P&L, or missing from reports.
+
+Use:
+
+RELEASE_INTEGRITY_REGRESSION_FOUND
+
+if verify:release has a real FAIL.
+
+Use:
+
+ROLLBACK_REQUIRED
+
+if secrets leak, broker execution turns on, real orders are placed, Telegram spam occurs, destructive migration happens, or stale/report-grade data can drive live trades.
+
+Expected result before owner publish:
+
+EXIT_PREMIUM_MARKET_SHADOW_DEV_VERIFIED

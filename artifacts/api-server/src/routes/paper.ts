@@ -285,6 +285,26 @@ function toClosedTrade(
     // Batched lookup by the caller; undefined param → null (fail-open).
     telegramStatus: telegramStatus ?? null,
     spotLifecycle: spotLifecycle ?? null,
+    // Exit-premium market shadow (observation only — never affects P&L).
+    // Null for pre-P1 rows (column not captured) and when the chain was
+    // unavailable at exit time.
+    exitPremiumMarket:
+      r.exitPremiumMarket == null ? null : num(r.exitPremiumMarket),
+    exitPremiumMarketSource: r.exitPremiumMarketSource ?? null,
+    exitPremiumMarketAsOf: r.exitPremiumMarketAsOf
+      ? r.exitPremiumMarketAsOf.toISOString()
+      : null,
+    exitPremiumMarketAgeSec: r.exitPremiumMarketAgeSec ?? null,
+    exitPremiumMarketGap:
+      r.exitPremiumMarketGap == null ? null : num(r.exitPremiumMarketGap),
+    exitPremiumMarketGapPct:
+      r.exitPremiumMarketGapPct == null
+        ? null
+        : num(r.exitPremiumMarketGapPct),
+    marketShadowGrossPnl:
+      r.marketShadowGrossPnl == null ? null : num(r.marketShadowGrossPnl),
+    exitPremiumMarketUnavailableReason:
+      r.exitPremiumMarketUnavailableReason ?? null,
   };
 }
 

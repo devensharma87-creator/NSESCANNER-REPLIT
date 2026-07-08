@@ -4724,6 +4724,54 @@ export const GetPaperTradesFOResponse = zod.object({
           "READ-ONLY spot-underlying lifecycle for an F&O paper trade, joined from option_signal_history by the 4-tuple (signalDate, indexSymbol, setupKey, direction). Reporting-only: it NEVER feeds any entry, exit, target, stop, or sizing decision. Every field is nullable — null when the signal row is absent or the column was not recorded.",
         )
         .nullish(),
+      exitPremiumMarket: zod
+        .number()
+        .nullish()
+        .describe(
+          "Shadow (observation only): real Kite option-chain LTP at the moment of close. P&L still uses the frozen exitPremium. Null when unavailable.",
+        ),
+      exitPremiumMarketSource: zod
+        .string()
+        .nullish()
+        .describe(
+          "Shadow: provenance of the market LTP capture (e.g. KITE_CHAIN). Null when unavailable.",
+        ),
+      exitPremiumMarketAsOf: zod.coerce
+        .date()
+        .nullish()
+        .describe(
+          "Shadow: timestamp of the option-chain snapshot used for the market LTP.",
+        ),
+      exitPremiumMarketAgeSec: zod
+        .number()
+        .nullish()
+        .describe(
+          "Shadow: age of the chain snapshot in seconds at the time of capture.",
+        ),
+      exitPremiumMarketGap: zod
+        .number()
+        .nullish()
+        .describe(
+          "Shadow: market LTP minus frozen plan exit premium (signed, Rs). Positive = market was above plan.",
+        ),
+      exitPremiumMarketGapPct: zod
+        .number()
+        .nullish()
+        .describe(
+          "Shadow: gap as a percentage of the frozen plan exit premium.",
+        ),
+      marketShadowGrossPnl: zod
+        .number()
+        .nullish()
+        .describe(
+          "Shadow: gross P&L computed using the real market LTP instead of the frozen plan: (marketLtp - entryPremium) x lots x lotSize.",
+        ),
+      exitPremiumMarketUnavailableReason: zod
+        .string()
+        .nullish()
+        .describe(
+          "Shadow: reason the market LTP capture failed (CHAIN_MISSING | SOURCE_NOT_KITE | STRIKE_NOT_IN_CHAIN | LTP_MISSING | LTP_INVALID | FETCH_ERROR). Null when available.",
+        ),
     }),
   ),
   generatedAt: zod.coerce.date(),
@@ -4859,6 +4907,52 @@ export const ClosePaperPositionFOResponse = zod.object({
       "READ-ONLY spot-underlying lifecycle for an F&O paper trade, joined from option_signal_history by the 4-tuple (signalDate, indexSymbol, setupKey, direction). Reporting-only: it NEVER feeds any entry, exit, target, stop, or sizing decision. Every field is nullable — null when the signal row is absent or the column was not recorded.",
     )
     .nullish(),
+  exitPremiumMarket: zod
+    .number()
+    .nullish()
+    .describe(
+      "Shadow (observation only): real Kite option-chain LTP at the moment of close. P&L still uses the frozen exitPremium. Null when unavailable.",
+    ),
+  exitPremiumMarketSource: zod
+    .string()
+    .nullish()
+    .describe(
+      "Shadow: provenance of the market LTP capture (e.g. KITE_CHAIN). Null when unavailable.",
+    ),
+  exitPremiumMarketAsOf: zod.coerce
+    .date()
+    .nullish()
+    .describe(
+      "Shadow: timestamp of the option-chain snapshot used for the market LTP.",
+    ),
+  exitPremiumMarketAgeSec: zod
+    .number()
+    .nullish()
+    .describe(
+      "Shadow: age of the chain snapshot in seconds at the time of capture.",
+    ),
+  exitPremiumMarketGap: zod
+    .number()
+    .nullish()
+    .describe(
+      "Shadow: market LTP minus frozen plan exit premium (signed, Rs). Positive = market was above plan.",
+    ),
+  exitPremiumMarketGapPct: zod
+    .number()
+    .nullish()
+    .describe("Shadow: gap as a percentage of the frozen plan exit premium."),
+  marketShadowGrossPnl: zod
+    .number()
+    .nullish()
+    .describe(
+      "Shadow: gross P&L computed using the real market LTP instead of the frozen plan: (marketLtp - entryPremium) x lots x lotSize.",
+    ),
+  exitPremiumMarketUnavailableReason: zod
+    .string()
+    .nullish()
+    .describe(
+      "Shadow: reason the market LTP capture failed (CHAIN_MISSING | SOURCE_NOT_KITE | STRIKE_NOT_IN_CHAIN | LTP_MISSING | LTP_INVALID | FETCH_ERROR). Null when available.",
+    ),
 });
 
 /**
