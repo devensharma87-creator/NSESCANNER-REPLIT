@@ -1,0 +1,241 @@
+CODER PROMPT — PRODUCTION VERIFICATION FOR P0-3 F&O TRIGGER WORDING / SEMANTICS FIX
+
+I have published / republished the app.
+
+Run production verification for P0-3 only:
+
+F&O TRIGGER WORDING / EXECUTION SEMANTICS HONESTY FIX
+
+Current status:
+
+FNO_TRIGGER_WORDING_SEMANTICS_DEV_VERIFIED
+
+Expected final verdict if production verification passes:
+
+FNO_TRIGGER_WORDING_SEMANTICS_PROD_VERIFIED
+
+====================================================
+STRICT RULES
+====================================================
+
+Do not write new feature code unless production verification finds a real blocker.
+
+Do not start P0-2 VWAP / Volume Profile fix.
+Do not change F&O signal logic.
+Do not change detector logic.
+Do not change entry rules.
+Do not change lifecycle trigger logic.
+Do not change SL/target formulas.
+Do not change thresholds.
+Do not change paper trade opening eligibility.
+Do not change Backtesting.
+Do not change Charting.
+Do not change Portfolio.
+Do not change Telegram.
+Do not enable broker execution.
+Do not place real orders.
+Do not perform destructive migrations.
+Do not rewrite historical trades.
+
+This is production verification only.
+
+====================================================
+PART A — FRESH DEPLOY PROOF
+====================================================
+
+Check production:
+
+GET https://marketscannerbydev.in/api/build-info
+
+Confirm:
+
+1. HTTP 200.
+2. commitShort is after the P0-3 trigger wording commit.
+3. buildTime is after publish.
+4. bootTime is after publish.
+5. environment = production.
+6. all checkpoint markers remain true.
+7. no secrets exposed.
+
+Run:
+
+pnpm --filter @workspace/scripts run verify:release
+
+Expected:
+
+PASS, with only known documented INFO allowed.
+
+If production still shows old commit, stop and report:
+
+FNO_TRIGGER_WORDING_SEMANTICS_BUILD_NOT_DEPLOYED
+
+Do not mark PROD_VERIFIED.
+
+====================================================
+PART B — PRODUCTION SEMANTICS PROOF
+====================================================
+
+Verify production signal card / API output no longer claims close-confirmed execution where lifecycle uses touch execution.
+
+Confirm:
+
+1. No active F&O signal card says:
+   - “15-min close >”
+   - “15-min close above”
+   - “15-min close below”
+   - “wait for close confirmation”
+   where the lifecycle trigger is touch/high-low based.
+
+2. Signal card wording now honestly says touch / trades through / reaches / high-low trigger, or equivalent.
+
+3. New `triggerSemantics` field is present where expected.
+
+4. `triggerSemantics` clearly identifies touch-based execution.
+
+5. Lifecycle logic remains unchanged:
+   - CALL trigger uses high >= entry
+   - PUT trigger uses low <= entry
+
+6. No strategy thresholds changed.
+
+7. No entry/exit behavior changed.
+
+Report:
+
+| Area | Expected | Production Result | Verdict |
+|---|---|---|---|
+| Card wording |
+| triggerSemantics field |
+| CALL trigger lifecycle |
+| PUT trigger lifecycle |
+| OpenAPI/schema |
+| Setup explanation text |
+
+====================================================
+PART C — SOURCE SCAN
+====================================================
+
+Scan production/current source for remaining misleading executed-trigger wording.
+
+Search:
+
+1. “15-min close >”
+2. “15-min close above”
+3. “15-min close below”
+4. “wait for confirmation”
+5. “close confirmation”
+
+Classify remaining matches:
+
+- Executed F&O trigger wording = must be fixed
+- Non-executed guidance/report text = acceptable if documented
+- Other module out of scope = document separately
+
+Report:
+
+| File | Remaining Text | Executed Trigger? | Acceptable? | Action |
+|---|---|---:|---:|---|
+
+====================================================
+PART D — REGRESSION CHECKS
+====================================================
+
+Confirm:
+
+1. Release Integrity remains PROD_VERIFIED.
+2. F&O Cost Model Unification remains PROD_VERIFIED.
+3. Backtest Charges Model + Net P&L remains PROD_VERIFIED.
+4. Provider import guard remains green.
+5. F&O cost model guard remains green.
+6. Broker execution remains disabled.
+7. No real orders placed.
+8. No Telegram spam.
+9. No strategy/threshold changes.
+10. No destructive migration.
+11. No stale/report-grade data can drive live trades.
+
+====================================================
+PART E — TESTS
+====================================================
+
+Run and report exact counts:
+
+pnpm --filter @workspace/scripts run verify:release
+
+pnpm --filter @workspace/api-server run typecheck
+
+pnpm --filter @workspace/api-server run typecheck:libs
+
+pnpm --filter @workspace/api-server exec vitest run src/lib/*optionSignal*.test.ts src/lib/*fno*.test.ts src/lib/*paper*.test.ts src/lib/*fnoCost*.test.ts src/lib/*backtest*.test.ts src/routes/**/*.test.ts
+
+pnpm --filter @workspace/scanner exec vitest run
+
+pnpm --filter @workspace/scripts run index:llm
+
+pnpm --filter @workspace/scripts run index:llm:check
+
+If any suite times out, split into smaller batches and report exact counts.
+
+====================================================
+PART F — REPORT UPDATE
+====================================================
+
+Update:
+
+1. FNO_TRIGGER_WORDING_SEMANTICS_REPORT.md, if created
+2. FULL_MARKET_SCANNER_DEEP_AUDIT_REPORT_2026-07-07.md, if present in repo/docs
+3. MARKET_SCANNER_INDEPENDENT_DEEP_AUDIT_2026-07-07.md, if present in repo/docs
+4. USER_FACING_CORE_TABS_DEEP_AUDIT_REPORT.md
+5. WEBSITE_CANONICAL_DATA_INTEGRATION_REPORT.md
+
+Add production verification section:
+
+P0-3 F&O TRIGGER WORDING / EXECUTION SEMANTICS — PRODUCTION VERIFICATION
+
+Include:
+
+1. Fresh deploy proof.
+2. Production commit proof.
+3. Card wording proof.
+4. triggerSemantics proof.
+5. Lifecycle unchanged proof.
+6. Remaining wording scan.
+7. Tests and counts.
+8. Regression checks.
+9. Final verdict.
+
+====================================================
+FINAL VERDICT
+====================================================
+
+Final verdict must be exactly one:
+
+- FNO_TRIGGER_WORDING_SEMANTICS_PROD_VERIFIED
+- FNO_TRIGGER_WORDING_SEMANTICS_DEV_VERIFIED
+- FNO_TRIGGER_WORDING_SEMANTICS_PARTIAL_GAP_REMAINS
+- RELEASE_INTEGRITY_REGRESSION_FOUND
+- ROLLBACK_REQUIRED
+
+Use:
+
+FNO_TRIGGER_WORDING_SEMANTICS_PROD_VERIFIED
+
+only if production shows the new commit live, cards no longer misrepresent touch execution as close-confirmed execution, triggerSemantics is present, lifecycle remains unchanged, tests pass, and no regressions are found.
+
+Use:
+
+FNO_TRIGGER_WORDING_SEMANTICS_PARTIAL_GAP_REMAINS
+
+if any executed F&O trigger wording still says close-confirmed while lifecycle triggers on touch.
+
+Use:
+
+RELEASE_INTEGRITY_REGRESSION_FOUND
+
+if verify:release has a real FAIL.
+
+Use:
+
+ROLLBACK_REQUIRED
+
+if secrets leak, broker execution turns on, real orders are placed, Telegram spam occurs, destructive migration happens, or stale/report-grade data can drive live trades.
