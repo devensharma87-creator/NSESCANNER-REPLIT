@@ -1,0 +1,232 @@
+CODER PROMPT — PRODUCTION VERIFICATION FOR P1A PAPER TRADING GROSS/NET DISPLAY
+
+I have published / republished the app.
+
+Run production verification for:
+
+P1A — PAPER TRADING GROSS-VS-NET DISPLAY HONESTY
+
+Current status:
+
+P1A_PAPER_TRADING_GROSS_NET_DISPLAY_DEV_VERIFIED
+
+Expected final verdict if production verification passes:
+
+P1A_PAPER_TRADING_GROSS_NET_DISPLAY_PROD_VERIFIED
+
+====================================================
+STRICT RULES
+====================================================
+
+Do not write new feature code unless production verification finds a real blocker.
+
+Do not change accounting logic.
+Do not change account balance logic.
+Do not change realized P&L logic.
+Do not change exit logic.
+Do not change entry logic.
+Do not change signal logic.
+Do not change F&O detector logic.
+Do not change strategy thresholds.
+Do not change SL/target formulas.
+Do not change DD/heat/risk gates.
+Do not change market shadow logic.
+Do not enable broker execution.
+Do not place real orders.
+Do not send Telegram tests.
+Do not perform destructive migrations.
+
+This is production verification only.
+
+====================================================
+PART A — FRESH DEPLOY PROOF
+====================================================
+
+Check production:
+
+GET https://marketscannerbydev.in/api/build-info
+
+Confirm:
+
+1. HTTP 200.
+2. commitShort is after the P1A commit.
+3. buildTime is after publish.
+4. bootTime is after publish.
+5. environment = production.
+6. all checkpoint markers remain true.
+7. no secrets exposed.
+
+Run:
+
+pnpm --filter @workspace/scripts run verify:release
+
+Expected:
+
+PASS, with only known documented INFO allowed.
+
+If production still shows old commit, stop and report:
+
+P1A_PAPER_TRADING_GROSS_NET_DISPLAY_BUILD_NOT_DEPLOYED
+
+====================================================
+PART B — UI PRODUCTION VERIFICATION
+====================================================
+
+Verify the F&O cockpit / Paper Trading UI in production.
+
+Confirm:
+
+1. Realised P&L tile is labelled honestly.
+2. User can see that realised P&L is gross / pre-charges.
+3. Always-visible charges note footer appears.
+4. Note says estimated net-of-charges P&L is available in P&L Reports.
+5. Note lists charge categories.
+6. Tooltip or note references canonical cost model effective 2026-04-01.
+7. No wording implies gross P&L is actual net tradable profit.
+8. Market shadow exit premium remains observation-only.
+9. No visual confusion between realized paper P&L and market shadow P&L.
+
+Required table:
+
+| UI Item | Expected | Production Result | Verdict |
+|---|---|---|---|
+| Realised P&L tile |
+| Gross/pre-charges hint |
+| Charges note footer |
+| P&L Reports reference |
+| Canonical cost model note |
+| Market shadow observation-only note |
+
+If owner-auth visual access is required, do not ask for password. Provide owner manual checklist and verify source/bundle markers where possible.
+
+====================================================
+PART C — SOURCE / BUNDLE PROOF
+====================================================
+
+Confirm the production frontend bundle contains the P1A display text.
+
+Search production bundle for:
+
+1. “Gross · pre-charges”
+2. “P&L Reports”
+3. “canonical cost model”
+4. “effective 2026-04-01”
+5. charges note footer text or equivalent
+
+Report:
+
+| Marker | In Production Bundle? | Evidence |
+|---|---:|---|
+
+====================================================
+PART D — SAFETY / REGRESSION CHECKS
+====================================================
+
+Confirm:
+
+1. Release Integrity remains PROD_VERIFIED.
+2. P0-1 F&O Cost Model Unification remains PROD_VERIFIED.
+3. P0-2 VWAP / Volume Profile Honesty remains PROD_VERIFIED.
+4. P0-3 Trigger Wording Semantics remains PROD_VERIFIED.
+5. Backtest Charges Model + Net P&L remains PROD_VERIFIED.
+6. Exit Premium Market Shadow remains PROD_INFRA_VERIFIED_LIVE_SAMPLE_PENDING.
+7. Kite OI Unit Verification remains CONFIRMED_CORRECT.
+8. Broker execution remains disabled.
+9. No real orders placed.
+10. No Telegram spam.
+11. No account balance logic changed.
+12. No realized P&L logic changed.
+13. No entry/exit logic changed.
+14. No DD/heat/risk gate changed.
+15. No destructive migration.
+16. No stale/report-grade data can drive live trades.
+
+====================================================
+PART E — TESTS
+====================================================
+
+Run and report exact counts:
+
+pnpm --filter @workspace/scripts run verify:release
+
+pnpm --filter @workspace/api-server run typecheck
+
+pnpm --filter @workspace/api-server run typecheck:libs
+
+pnpm --filter @workspace/scanner run typecheck
+
+pnpm --filter @workspace/scanner exec vitest run src/lib/foCockpitView.test.ts
+
+pnpm --filter @workspace/api-server exec vitest run src/lib/*fnoCost*.test.ts src/lib/*paper*.test.ts src/routes/**/*.test.ts
+
+pnpm --filter @workspace/scripts run index:llm
+
+pnpm --filter @workspace/scripts run index:llm:check
+
+If a suite times out, split into smaller batches and report exact counts.
+
+====================================================
+PART F — REPORT UPDATE
+====================================================
+
+Update:
+
+1. P1_CONSOLIDATED_REMAINING_WORK_AUDIT_REPORT.md
+2. WEBSITE_CANONICAL_DATA_INTEGRATION_REPORT.md
+3. USER_FACING_CORE_TABS_DEEP_AUDIT_REPORT.md
+4. POST_P0_SIGNAL_SYSTEM_REBASELINE_REPORT.md, if relevant
+
+Add production verification section:
+
+P1A PAPER TRADING GROSS/NET DISPLAY — PRODUCTION VERIFICATION
+
+Include:
+
+1. Fresh deploy proof.
+2. UI proof.
+3. Bundle marker proof.
+4. Safety checks.
+5. Tests and counts.
+6. Final verdict.
+
+====================================================
+FINAL VERDICT
+====================================================
+
+Final verdict must be exactly one:
+
+- P1A_PAPER_TRADING_GROSS_NET_DISPLAY_PROD_VERIFIED
+- P1A_PAPER_TRADING_GROSS_NET_DISPLAY_DEV_VERIFIED
+- P1A_PAPER_TRADING_GROSS_NET_DISPLAY_PARTIAL_GAP_REMAINS
+- RELEASE_INTEGRITY_REGRESSION_FOUND
+- ROLLBACK_REQUIRED
+
+Use:
+
+P1A_PAPER_TRADING_GROSS_NET_DISPLAY_PROD_VERIFIED
+
+only if production shows the new UI/bundle text live, tests pass, and no accounting/trading regressions are found.
+
+Use:
+
+P1A_PAPER_TRADING_GROSS_NET_DISPLAY_DEV_VERIFIED
+
+if production still has the old build.
+
+Use:
+
+P1A_PAPER_TRADING_GROSS_NET_DISPLAY_PARTIAL_GAP_REMAINS
+
+if the UI note is missing, misleading, hidden-only, or production bundle does not contain the markers.
+
+Use:
+
+RELEASE_INTEGRITY_REGRESSION_FOUND
+
+if verify:release has a real FAIL.
+
+Use:
+
+ROLLBACK_REQUIRED
+
+if secrets leak, broker execution turns on, real orders are placed, Telegram spam occurs, destructive migration happens, realized P&L/account balance logic changes, or stale/report-grade data drives live trades.
