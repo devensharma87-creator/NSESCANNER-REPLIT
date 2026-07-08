@@ -74,12 +74,16 @@ export interface TradeEventUiProjection {
 
 // ── Known F&O lot sizes (for lots calculation in projection) ──────────────────
 
+// Verified against the live Kite contract master on 2026-07-08 (post
+// Jan-2026 NSE lot revision). Keep in sync with LOT_SIZES in optionChain.ts.
 const FNO_LOT_SIZES: Readonly<Record<string, number>> = {
-  NIFTY:      75,
+  NIFTY:      65,
   BANKNIFTY:  30,
   SENSEX:     20,
-  FINNIFTY:   65,
+  FINNIFTY:   60,
   MIDCPNIFTY: 120,
+  NIFTYNXT50: 25,
+  BANKEX:     30,
 };
 
 // ── Parse helpers (pure, no throw) ────────────────────────────────────────────

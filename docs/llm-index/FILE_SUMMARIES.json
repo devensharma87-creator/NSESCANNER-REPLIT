@@ -3638,7 +3638,7 @@
   {
     "path": "artifacts/api-server/src/lib/optionChain.ts",
     "purpose": "fno-engine",
-    "lines": 597,
+    "lines": 600,
     "exports": [
       "OcSide",
       "OcRow",
@@ -3654,7 +3654,7 @@
     ],
     "externalImports": [],
     "routes": [],
-    "hash": "f1859ff231dc5cb5"
+    "hash": "5249859f76d3b858"
   },
   {
     "path": "artifacts/api-server/src/lib/optionChainSnapshotIngestor.test.ts",
@@ -3974,7 +3974,7 @@
       "drizzle-orm"
     ],
     "routes": [],
-    "hash": "6b3fbef0c2a3b98f"
+    "hash": "608e3d70a94f34e1"
   },
   {
     "path": "artifacts/api-server/src/lib/paperAnalyticsFO.test.ts",
@@ -5480,7 +5480,7 @@
     ],
     "externalImports": [],
     "routes": [],
-    "hash": "a78a0e310549c849"
+    "hash": "5ebade748010a795"
   },
   {
     "path": "artifacts/api-server/src/lib/tradeLifecycle/parityHarness.ts",
@@ -5509,14 +5509,14 @@
   {
     "path": "artifacts/api-server/src/lib/tradeLifecycle/projectTradeEvent.ts",
     "purpose": "lib",
-    "lines": 189,
+    "lines": 193,
     "exports": [
       "TradeEventUiProjection",
       "projectTradeEventForUi"
     ],
     "externalImports": [],
     "routes": [],
-    "hash": "f1dfe780d2b72b1f"
+    "hash": "1e3fec9496d1be48"
   },
   {
     "path": "artifacts/api-server/src/lib/tradeLifecycle/tradeEventParity.test.ts",
@@ -5527,7 +5527,7 @@
       "vitest"
     ],
     "routes": [],
-    "hash": "d28ad1281b010aa9"
+    "hash": "ae60c0ecca872834"
   },
   {
     "path": "artifacts/api-server/src/lib/tradeLifecycle/tradeLifecycle.test.ts",
@@ -8155,7 +8155,7 @@
       "@/components/learn/pattern-diagrams"
     ],
     "routes": [],
-    "hash": "1dd57bf4c68a2fb8"
+    "hash": "5253ba73bc6365ae"
   },
   {
     "path": "artifacts/scanner/src/pages/legal/disclaimer.tsx",

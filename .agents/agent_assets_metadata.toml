@@ -192,3 +192,9 @@ id = "fyfKcfHaOim8c8AYwu2kn"
 uri = "file://docs/data-infrastructure.md"
 type = "text"
 title = "Data Infrastructure Notes"
+
+[[outputs]]
+id = "jd_z8XpDiws-YdVYzmHJs"
+uri = "file://docs/quant-grade-audit-2026-07-08.md"
+type = "text"
+title = "Quant-Grade Audit Report — 2026-07-08"

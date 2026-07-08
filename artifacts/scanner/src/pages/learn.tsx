@@ -250,7 +250,7 @@ const TOPICS: Topic[] = [
       {
         heading: "Stop placement — the ATR rule",
         body:
-          "Never place stops at obvious levels (round numbers, prior day low, recent swing) — they are stop-hunt magnets. Better approach: 1) Identify your structural invalidation level (where your thesis is wrong). 2) Add 1 × ATR(14) buffer beyond it. 3) Position size based on this stop distance: lots = (account × risk%) ÷ (stop_pts × point_value). Example: ₹5L account, 1% risk = ₹5,000 risk. NIFTY ATR = 80 pts, structural stop = 100 pts away with ATR buffer. Lots = 5000 ÷ (100 × 75) = 0.66 — round down to 0 (skip) or wait for tighter setup. Most amateurs reverse this — they pick lots first, then place stop, which is how 5%+ of capital ends up at risk per trade.",
+          "Never place stops at obvious levels (round numbers, prior day low, recent swing) — they are stop-hunt magnets. Better approach: 1) Identify your structural invalidation level (where your thesis is wrong). 2) Add 1 × ATR(14) buffer beyond it. 3) Position size based on this stop distance: lots = (account × risk%) ÷ (stop_pts × point_value). Example: ₹5L account, 1% risk = ₹5,000 risk. NIFTY ATR = 80 pts, structural stop = 100 pts away with ATR buffer. Lots = 5000 ÷ (100 × 65) = 0.77 — round down to 0 (skip) or wait for tighter setup. Most amateurs reverse this — they pick lots first, then place stop, which is how 5%+ of capital ends up at risk per trade.",
       },
       {
         heading: "Multi-timeframe checklist (the 3-screen pre-trade gate)",
@@ -435,7 +435,7 @@ const TOPICS: Topic[] = [
       "Most retail jumps straight to options for the cheap premium and ends up fighting Greeks they don't understand. Futures are the cleaner instrument for directional conviction — no IV crush, no theta bleed, P&L scales linearly with the move. Many professional discretionary traders use futures for direction and options only for hedging or premium harvesting.",
     keyConcepts: [
       { term: "Forward vs Future", desc: "Forward = OTC, customised, counterparty risk. Future = exchange-traded, standardised, central counterparty (clearing corp), daily MTM. NSE/BSE list only futures." },
-      { term: "Lot Size & Contract Value", desc: "Each future has a fixed lot size. Contract value = price × lot. NIFTY at 24,500 with lot 75 = ₹18.4L per lot, roughly ₹2.0–2.5L margin." },
+      { term: "Lot Size & Contract Value", desc: "Each future has a fixed lot size. Contract value = price × lot. NIFTY at 24,500 with lot 65 = ₹15.9L per lot, roughly ₹1.8–2.2L margin." },
       { term: "SPAN + Exposure Margin", desc: "SPAN covers worst-case 1-day loss across price/vol scenarios. Exposure adds a 3–5% buffer. Both are blocked at trade entry, freed on exit." },
       { term: "Mark-to-Market (MTM)", desc: "End-of-day P&L is debited or credited daily. Losing positions either get fresh margin from you or are squared off the next day." },
       { term: "Cost of Carry", desc: "F = S × e^(r−d)T. Future = spot × interest cost minus dividend yield over time-to-expiry. This is why front-month NIFTY usually trades at a small premium to spot." },
@@ -818,7 +818,7 @@ const TOPICS: Topic[] = [
       { term: "Regulator", desc: "SEBI sets rules. AMFI for mutual funds. RBI for currency derivatives." },
       { term: "Settlement", desc: "T+1 for equities (since 2023). T+0 pilot live for select stocks." },
       { term: "Margin Rules", desc: "Peak margin (post-Sep 2021): no upfront margin reporting via broker leverage. SPAN + Exposure for F&O." },
-      { term: "Lot Sizes (current)", desc: "NIFTY 75 (post Dec 2024), BANKNIFTY 30, FINNIFTY 65, MIDCPNIFTY 140, SENSEX 20. Verify on NSE/BSE site — they revise periodically." },
+      { term: "Lot Sizes (current)", desc: "NIFTY 65 (post Jan 2026), BANKNIFTY 30, FINNIFTY 60, MIDCPNIFTY 120, SENSEX 20, BANKEX 30. Verify on NSE/BSE site — they revise periodically." },
       { term: "Weekly Expiry", desc: "Post-Nov 2024 SEBI consolidation: each exchange has ONE weekly expiry. NSE = NIFTY (Thu). BSE = SENSEX (Tue). All other indices monthly only." },
       { term: "STT / CTT", desc: "Securities Transaction Tax. Higher on options sell-side; flat on equity. Material at high turnover." },
       { term: "Circuit Limits", desc: "Stocks have 2/5/10/20% daily price bands. Index circuits at 10/15/20% halt the market." },

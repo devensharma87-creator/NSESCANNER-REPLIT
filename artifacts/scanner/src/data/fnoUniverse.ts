@@ -7,10 +7,10 @@ export interface FnoEntry {
 }
 
 export const FNO_INDICES: FnoEntry[] = [
-  { sym: "NIFTY",      label: "NIFTY 50",     sector: "Indices", kind: "INDEX", lot: 75 },
+  { sym: "NIFTY",      label: "NIFTY 50",     sector: "Indices", kind: "INDEX", lot: 65 },
   { sym: "BANKNIFTY",  label: "BANK NIFTY",   sector: "Indices", kind: "INDEX", lot: 30 },
-  { sym: "FINNIFTY",   label: "FIN NIFTY",    sector: "Indices", kind: "INDEX", lot: 65 },
-  { sym: "MIDCPNIFTY", label: "MIDCAP NIFTY", sector: "Indices", kind: "INDEX", lot: 140 },
+  { sym: "FINNIFTY",   label: "FIN NIFTY",    sector: "Indices", kind: "INDEX", lot: 60 },
+  { sym: "MIDCPNIFTY", label: "MIDCAP NIFTY", sector: "Indices", kind: "INDEX", lot: 120 },
   { sym: "NIFTYNXT50", label: "NIFTY NEXT 50", sector: "Indices", kind: "INDEX", lot: 25 },
   { sym: "SENSEX",     label: "SENSEX",        sector: "Indices", kind: "INDEX", lot: 20 },
   { sym: "BANKEX",     label: "BANKEX",        sector: "Indices", kind: "INDEX", lot: 30 },

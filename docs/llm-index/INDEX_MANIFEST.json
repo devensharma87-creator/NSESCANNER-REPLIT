@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-08T13:12:35.628Z",
+  "generatedAt": "2026-07-08T13:43:32.119Z",
   "generatorVersion": "1.0.0",
   "files": {
     "artifacts/api-server/src/routes/admin.ts": {
@@ -828,9 +828,9 @@
       "mtime": "2026-05-06T07:04:00.923Z"
     },
     "artifacts/api-server/src/lib/optionChain.ts": {
-      "hash": "f1859ff231dc5cb5",
-      "lines": 597,
-      "mtime": "2026-06-15T06:32:57.297Z"
+      "hash": "5249859f76d3b858",
+      "lines": 600,
+      "mtime": "2026-07-08T13:34:03.109Z"
     },
     "artifacts/api-server/src/lib/optionChainSnapshotIngestor.ts": {
       "hash": "6e71ebd37d8930b0",
@@ -873,9 +873,9 @@
       "mtime": "2026-05-13T13:46:44.018Z"
     },
     "artifacts/api-server/src/lib/paperAccount.ts": {
-      "hash": "6b3fbef0c2a3b98f",
+      "hash": "608e3d70a94f34e1",
       "lines": 1035,
-      "mtime": "2026-06-11T11:32:06.282Z"
+      "mtime": "2026-07-08T13:34:33.225Z"
     },
     "artifacts/api-server/src/lib/paperAnalyticsFO.ts": {
       "hash": "aa1df7ae4372d6b1",
@@ -1143,9 +1143,9 @@
       "mtime": "2026-07-02T09:57:53.429Z"
     },
     "artifacts/api-server/src/lib/tradeLifecycle/parityFixtures.ts": {
-      "hash": "a78a0e310549c849",
+      "hash": "5ebade748010a795",
       "lines": 497,
-      "mtime": "2026-07-02T19:58:47.328Z"
+      "mtime": "2026-07-08T13:36:46.925Z"
     },
     "artifacts/api-server/src/lib/tradeLifecycle/parityHarness.ts": {
       "hash": "f64e84cb2b227a64",
@@ -1153,9 +1153,9 @@
       "mtime": "2026-07-02T11:41:47.346Z"
     },
     "artifacts/api-server/src/lib/tradeLifecycle/projectTradeEvent.ts": {
-      "hash": "f1dfe780d2b72b1f",
-      "lines": 189,
-      "mtime": "2026-07-02T11:38:52.715Z"
+      "hash": "1e3fec9496d1be48",
+      "lines": 193,
+      "mtime": "2026-07-08T13:42:17.837Z"
     },
     "artifacts/api-server/src/lib/tradeLifecycle/types.ts": {
       "hash": "33d864cabfde6e88",
@@ -1398,9 +1398,9 @@
       "mtime": "2026-05-15T06:50:17.378Z"
     },
     "artifacts/scanner/src/pages/learn.tsx": {
-      "hash": "1dd57bf4c68a2fb8",
+      "hash": "5253ba73bc6365ae",
       "lines": 1320,
-      "mtime": "2026-05-08T12:41:22.391Z"
+      "mtime": "2026-07-08T13:34:37.553Z"
     },
     "artifacts/scanner/src/pages/legal/disclaimer.tsx": {
       "hash": "f096c1d59ec6075c",

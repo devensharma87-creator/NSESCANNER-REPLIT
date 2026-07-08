@@ -53,8 +53,8 @@ export const SEED_CAPITAL: Record<Segment, number> = {
  *
  * NOTE: lotSize itself still comes from the exchange (Kite instruments
  * dump). These are LOT COUNTS, not share counts. The actual qty going
- * into the trade is `lots × lotSize`, e.g. NIFTY 10 lots × 75 share lot
- * = 750 shares.
+ * into the trade is `lots × lotSize`, e.g. NIFTY 10 lots × 65 share lot
+ * = 650 shares (lot 65 per the Jan-2026 NSE revision).
  *
  * Indices NOT listed here (FINNIFTY, MIDCPNIFTY, NIFTYNXT50, BANKEX)
  * keep using the dynamic risk-budget formula.

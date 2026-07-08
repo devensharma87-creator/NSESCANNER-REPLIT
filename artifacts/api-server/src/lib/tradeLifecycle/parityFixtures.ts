@@ -104,10 +104,10 @@ function fnoBase(overrides: Partial<CanonicalTradeEvent> = {}): CanonicalTradeEv
     target2:               280.00,
     exitPrice:             null,
     exitReason:            null,
-    quantity:              75,
-    capitalRequired:       9375.00,
-    maxRisk:               3375.00,
-    riskPercent:           0.3375,
+    quantity:              65,
+    capitalRequired:       8125.00,
+    maxRisk:               2925.00,
+    riskPercent:           0.2925,
     riskReward:            1.67,
     source:                "kite",
     sourceStatus:          "TRADE_GRADE",
@@ -233,7 +233,7 @@ export const FIXTURE_SWING_EXIT_TARGET: Fixture = {
 
 /**
  * Fixture 6 — Valid F&O ENTRY_OPENED
- * NIFTY CALL option, lots=1, lotSize=75, confidence=72.
+ * NIFTY CALL option, lots=1, lotSize=65 (Jan-2026 revision), confidence=72.
  * Expected: allowed (F&O tradeable paper-opened signal)
  */
 export const FIXTURE_FNO_ENTRY_OPENED: Fixture = {

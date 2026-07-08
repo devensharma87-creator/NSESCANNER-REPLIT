@@ -150,7 +150,7 @@ describe("T09-T12 Part B: projectTradeEventForUi field accuracy", () => {
     expect(proj.lots).toBeNull();
   });
 
-  it("T11 F&O projection: underlying=NIFTY, optionType=CE, lots=1 (75 shares ÷ 75)", () => {
+  it("T11 F&O projection: underlying=NIFTY, optionType=CE, lots=1 (65 shares ÷ 65)", () => {
     const ev = FIXTURE_FNO_ENTRY_OPENED.event;
     const proj = projectTradeEventForUi(ev);
     expect(proj.underlying).toBe("NIFTY");
