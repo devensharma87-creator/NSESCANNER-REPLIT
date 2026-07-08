@@ -1,0 +1,324 @@
+CODER PROMPT — POST-P0 SIGNAL SYSTEM RE-BASELINE AUDIT
+
+Current accepted production status:
+
+RELEASE_INTEGRITY_PROD_VERIFIED
+BACKTEST_CHARGES_MODEL_NET_PNL_PROD_VERIFIED
+FNO_COST_MODEL_UNIFICATION_PROD_VERIFIED
+FNO_VWAP_VOLUME_PROFILE_HONESTY_PROD_VERIFIED
+FNO_TRIGGER_WORDING_SEMANTICS_PROD_VERIFIED
+
+All major P0 honesty fixes are now closed.
+
+Do not write feature code.
+Do not change strategy logic.
+Do not change thresholds.
+Do not change detector weights.
+Do not change entries/exits.
+Do not change SL/target formulas.
+Do not change paper-trade opening rules.
+Do not enable broker execution.
+Do not place real orders.
+Do not send Telegram tests.
+Do not perform destructive migrations.
+
+This is audit / re-baseline only.
+
+====================================================
+OBJECTIVE
+====================================================
+
+Perform a full post-P0 re-baseline audit of the F&O signal system.
+
+The purpose is to separate old pre-fix results from clean post-fix results.
+
+The old historical signal performance cannot be treated as clean edge evidence because P0-1, P0-2, and P0-3 changed:
+
+1. Cost model honesty.
+2. VWAP / Volume Profile honesty.
+3. Trigger wording / execution semantics.
+4. Signal-card truth.
+5. Detector behaviour where fake VWAP/VP previously affected confidence.
+
+Now create a clean baseline from the current production state.
+
+====================================================
+PART A — PRODUCTION FIX STATUS CONFIRMATION
+====================================================
+
+Confirm production still has all fixes live:
+
+1. /api/build-info shows latest production commit.
+2. verify:release passes.
+3. F&O cost model uses canonical model.
+4. VWAP returns null/unavailable when index volume is zero.
+5. Volume Profile returns null/unavailable when volume is zero.
+6. F&O signal cards expose vwapAvailable / unavailable reason.
+7. Trigger wording no longer says close-confirmed where execution is touch-based.
+8. Broker execution remains disabled.
+9. No real orders.
+10. No Telegram spam.
+
+Report:
+
+| Fix | Production Status | Evidence | Verdict |
+|---|---|---|---|
+
+====================================================
+PART B — DEFINE CLEAN BASELINE DATE
+====================================================
+
+Create a clear post-P0 baseline marker.
+
+Record:
+
+1. Production commit.
+2. Build time.
+3. Boot time.
+4. Date/time when all P0 fixes became live.
+5. Baseline name:
+
+POST_P0_CLEAN_BASELINE_2026_07_07
+
+If the actual production timestamp differs, use the real timestamp.
+
+All future signal-quality reporting must separate:
+
+- PRE_P0_FIX_DATA
+- POST_P0_CLEAN_BASELINE_DATA
+
+Do not mix old and new signal statistics without a label.
+
+====================================================
+PART C — F&O SIGNAL DISTRIBUTION AUDIT
+====================================================
+
+Audit available F&O signal history.
+
+Split results into:
+
+1. Pre-P0 period.
+2. Post-P0 clean baseline period.
+
+For each index:
+
+- NIFTY
+- BANKNIFTY
+- SENSEX
+
+Report:
+
+1. Total candidates.
+2. Tradeable signals.
+3. Info-only signals.
+4. Watchlist setups.
+5. Suppressed setups.
+6. CALL count.
+7. PUT count.
+8. CALL/PUT ratio.
+9. Detector-wise count.
+10. Average confidence.
+11. Median confidence.
+12. Average confidence delta after VWAP/VP honesty.
+13. Rejected due to VWAP unavailable.
+14. Rejected due to Volume Profile unavailable.
+15. Rejected due to source/staleness.
+16. Rejected due to risk gates.
+17. Rejected due to liquidity/premium trust.
+
+Required table:
+
+| Period | Index | Candidates | Tradeable | Info Only | CALL | PUT | Top Detector | Avg Conf | Main Suppression Reason |
+|---|---|---:|---:|---:|---:|---:|---|---:|---|
+
+====================================================
+PART D — DETECTOR-WISE AUDIT
+====================================================
+
+For each detector, report post-P0 behaviour:
+
+1. TREND_CONTINUATION
+2. VWAP_RECLAIM
+3. MEAN_REVERSION
+4. VOLUME_BREAKOUT
+5. EMA_PULLBACK
+6. BASELINE_OUTLOOK
+7. Any other active detector
+
+For each:
+
+1. Can it fire post-P0?
+2. Did it fire post-P0?
+3. Was it suppressed?
+4. Main suppressed reason.
+5. Is data authentic?
+6. Does it depend on VWAP?
+7. Does it depend on Volume Profile?
+8. Does it now fail honestly when unavailable?
+9. Does it still create tradeable signals?
+10. Does it need redesign?
+
+Required table:
+
+| Detector | Fired Post-P0? | Count | Tradeable Count | Main Suppression | Data Honest? | Needs Redesign? |
+|---|---:|---:|---:|---|---:|---:|
+
+====================================================
+PART E — PAPER TRADE AUDIT AFTER P0
+====================================================
+
+Audit post-P0 paper trades only.
+
+For each post-P0 F&O paper trade:
+
+1. Signal source.
+2. Index.
+3. Direction.
+4. Detector.
+5. Entry trigger wording.
+6. Actual lifecycle trigger.
+7. Entry premium.
+8. Exit premium.
+9. Gross P&L.
+10. Charges.
+11. Net P&L.
+12. Exit reason.
+13. Whether VWAP/VP was available.
+14. Whether signal was generated under honest data.
+15. Whether costs used canonical model.
+
+Required table:
+
+| Trade | Date | Index | Direction | Detector | Entry | Exit | Gross P&L | Charges | Net P&L | Verdict |
+|---|---|---|---|---|---:|---:|---:|---:|---:|---|
+
+If no post-P0 trades exist yet, report:
+
+NO_POST_P0_TRADE_SAMPLE_YET
+
+and recommend waiting for market sessions before judging performance.
+
+====================================================
+PART F — OLD DATA HONESTY LABEL
+====================================================
+
+Mark all old performance reports clearly.
+
+Old results before the clean baseline must be labelled:
+
+PRE_P0_FIX_DATA — not comparable with post-fix signal quality.
+
+Add report note:
+
+“Performance before POST_P0_CLEAN_BASELINE_2026_07_07 included older cost/VWAP/VP/trigger-wording behaviour and should not be used as clean evidence of signal edge.”
+
+Do not delete old history.
+Do not rewrite old trades.
+Only label and separate.
+
+====================================================
+PART G — NEXT P1 PRIORITY DECISION
+====================================================
+
+Based on the audit, recommend the next P1 phase.
+
+Candidate P1s:
+
+1. exit_premium_market shadow column for real option exit premium comparison.
+2. Kite OI unit verification against NSE.
+3. Detector emission and suppressed-reason dashboard.
+4. MACD warm-up fix.
+5. NSE holiday calendar.
+6. Equity gap-through exit realism.
+7. Paper Trading gross-vs-net account display.
+8. Charting professional upgrade.
+9. Portfolio professional upgrade.
+
+Rank them:
+
+| Rank | Task | Why | Risk | Expected Value |
+|---:|---|---|---|---|
+
+Do not start implementation yet.
+
+====================================================
+PART H — TESTS / COMMANDS
+====================================================
+
+Run:
+
+pnpm --filter @workspace/scripts run verify:release
+
+pnpm --filter @workspace/api-server run typecheck
+
+pnpm --filter @workspace/api-server run typecheck:libs
+
+pnpm --filter @workspace/api-server exec vitest run src/lib/*optionSignal*.test.ts src/lib/*fno*.test.ts src/lib/*paper*.test.ts src/lib/*fnoCost*.test.ts src/lib/*backtest*.test.ts src/routes/**/*.test.ts
+
+pnpm --filter @workspace/scanner exec vitest run
+
+pnpm --filter @workspace/scripts run index:llm
+
+pnpm --filter @workspace/scripts run index:llm:check
+
+If any suite times out, split into smaller batches and report exact counts.
+
+====================================================
+PART I — REPORT UPDATE
+====================================================
+
+Create or update:
+
+POST_P0_SIGNAL_SYSTEM_REBASELINE_REPORT.md
+
+Also update:
+
+WEBSITE_CANONICAL_DATA_INTEGRATION_REPORT.md
+
+Include:
+
+1. All P0 production verification summary.
+2. Clean baseline timestamp.
+3. Pre-P0 vs post-P0 separation.
+4. Detector distribution.
+5. CALL/PUT distribution.
+6. Suppressed-reason summary.
+7. Paper trade post-P0 audit.
+8. Old data warning label.
+9. Next P1 recommendation.
+10. Final verdict.
+
+====================================================
+FINAL VERDICT
+====================================================
+
+Final verdict must be exactly one:
+
+- POST_P0_SIGNAL_SYSTEM_REBASELINE_COMPLETE
+- POST_P0_SIGNAL_SYSTEM_REBASELINE_PARTIAL_GAP_REMAINS
+- RELEASE_INTEGRITY_REGRESSION_FOUND
+- ROLLBACK_REQUIRED
+
+Use:
+
+POST_P0_SIGNAL_SYSTEM_REBASELINE_COMPLETE
+
+only if production status is confirmed, clean baseline is documented, old/new performance data is separated, detector/suppression/trade audit is complete, reports are updated, and tests pass.
+
+Use:
+
+POST_P0_SIGNAL_SYSTEM_REBASELINE_PARTIAL_GAP_REMAINS
+
+if post-P0 data is insufficient or any audit table cannot be completed.
+
+Use:
+
+RELEASE_INTEGRITY_REGRESSION_FOUND
+
+if verify:release has a real FAIL.
+
+Use:
+
+ROLLBACK_REQUIRED
+
+if secrets leak, broker execution turns on, real orders are placed, Telegram spam occurs, destructive migration happens, or stale/report-grade data can drive live trades.

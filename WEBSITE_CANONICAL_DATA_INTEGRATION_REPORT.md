@@ -2380,3 +2380,31 @@ Formula: 5716.90 − 7476.63 = −1759.73 ✅. All 4 F&O cost consumers unified.
 **Tests:** 59 files / 1,237 tests ALL PASS · 770 scanner PASS · typecheck CLEAN (api-server + libs) · verify:release 11 PASS · LLM index 349 files fresh ✅
 
 **Regression:** All 7 checkpoints true, 0 guard violations, paper auto-trading enabled in prod (PAPER_TRADING_ENABLED=true), no real orders, no Telegram spam, no destructive migration, no signal threshold tuning ✅
+
+---
+
+## Post-P0 Signal System Re-Baseline — 2026-07-08
+
+**Timestamp:** 2026-07-08T07:58 UTC  
+**Verdict: `POST_P0_SIGNAL_SYSTEM_REBASELINE_PARTIAL_GAP_REMAINS`**
+
+All P0 fixes confirmed live (commit `eb09789d`, bootTime 2026-07-08T06:54:45Z). Clean baseline established: **`POST_P0_CLEAN_BASELINE_2026_07_08`** = 2026-07-08T06:54:45Z.
+
+**P0 deployment timeline:**
+- P0-2 VWAP/VP honesty: booted 2026-07-07T06:59Z
+- P0-1 cost model: booted 2026-07-07T14:34Z
+- P0-3 trigger wording: booted **2026-07-08T06:54:45Z** ← clean baseline
+
+**Pre-P0 signal corpus (labeled `PRE_P0_FIX_DATA`):** 238 signals across NIFTY/BANKNIFTY/SENSEX over 35 trading days (2026-04-27 → 2026-07-08). 27 contaminated VWAP_RECLAIM signals (fabricated VWAP from zero-volume cash index data). All BASELINE tier — zero HC signals historically. CALL/PUT ratio 57:43.
+
+**Post-P0 detector capability:** 3 active (EMA_PULLBACK full, BASELINE_OUTLOOK 3-vote honest, TREND_CONTINUATION EMA-only degraded). 3 structurally suppressed for cash indices (VWAP_RECLAIM hard-null, MEAN_REVERSION natural-null, VOLUME_BREAKOUT natural-null). All suppressions are honest — the pre-P0 diversity was partially illusory.
+
+**Post-P0 data gaps:**
+- Post-P0 signals: 0 — baseline set during 2026-07-08 session; next signals from 2026-07-09 onwards
+- Post-P0 paper trades: 0 → `NO_POST_P0_TRADE_SAMPLE_YET`
+
+**Tests:** 1,193/1,193 pass (63 files). typecheck clean. verify:release 11/11. LLM 349 files fresh.
+
+**Next P1:** Exit premium market shadow column (Rank 1) — enables real vs synthetic exit price comparison once post-P0 paper trades accumulate.
+
+Full report: `POST_P0_SIGNAL_SYSTEM_REBASELINE_REPORT.md`
