@@ -1,0 +1,298 @@
+CODER PROMPT — PRODUCTION VERIFICATION FOR EXIT PREMIUM MARKET SHADOW COLUMN
+
+I have published / republished the app.
+
+Run production verification for:
+
+P1 — EXIT PREMIUM MARKET SHADOW COLUMN
+
+Current expected status before publish:
+
+EXIT_PREMIUM_MARKET_SHADOW_DEV_VERIFIED
+
+Expected production verdict:
+
+EXIT_PREMIUM_MARKET_SHADOW_PROD_INFRA_VERIFIED_LIVE_SAMPLE_PENDING
+
+or, if a real new exited F&O paper trade occurs and shadow capture is proven:
+
+EXIT_PREMIUM_MARKET_SHADOW_PROD_VERIFIED
+
+====================================================
+STRICT RULES
+====================================================
+
+Do not write new feature code unless production verification finds a real blocker.
+
+Do not change F&O signal logic.
+Do not change detector logic.
+Do not change entry logic.
+Do not change exit decision logic.
+Do not change realized P&L.
+Do not change account balance logic.
+Do not replace paper P&L with market shadow P&L.
+Do not change SL/target formulas.
+Do not change strategy thresholds.
+Do not enable broker execution.
+Do not place real orders.
+Do not send Telegram tests.
+Do not perform destructive migrations beyond required safe schema migration.
+Do not rewrite historical trades.
+
+This is production verification only.
+
+====================================================
+PART A — FRESH DEPLOY PROOF
+====================================================
+
+Check production:
+
+GET https://marketscannerbydev.in/api/build-info
+
+Confirm:
+
+1. HTTP 200.
+2. commitShort is after the Exit Premium Market Shadow commit.
+3. buildTime is after publish.
+4. bootTime is after publish.
+5. environment = production.
+6. all checkpoint markers remain true.
+7. no secrets exposed.
+
+Run:
+
+pnpm --filter @workspace/scripts run verify:release
+
+Expected:
+
+PASS, with only known documented INFO allowed.
+
+If production still shows the old commit, stop and report:
+
+EXIT_PREMIUM_MARKET_SHADOW_BUILD_NOT_DEPLOYED
+
+====================================================
+PART B — PRODUCTION SCHEMA VERIFICATION
+====================================================
+
+Confirm production DB has the new shadow columns.
+
+Required fields, or project-equivalent names:
+
+1. exit_premium_market
+2. exit_premium_market_source
+3. exit_premium_market_as_of
+4. exit_premium_market_fresh
+5. exit_premium_market_age_seconds
+6. exit_premium_market_available
+7. exit_premium_market_unavailable_reason
+8. exit_premium_model
+9. exit_premium_gap
+10. exit_premium_gap_pct
+11. market_shadow_pnl
+12. market_shadow_net_pnl
+13. market_shadow_total_charges
+
+Confirm schema migration is safe and additive.
+
+No historical trade rewrite.
+
+Report:
+
+| Column | Exists? | Nullable? | Verdict |
+|---|---:|---:|---|
+
+====================================================
+PART C — API / ROUTE VERIFICATION
+====================================================
+
+Verify closed F&O paper trade API exposes shadow fields.
+
+For legacy closed trades before this deployment:
+
+Expected:
+
+1. exit_premium_market = null.
+2. market_shadow_pnl = null.
+3. market_shadow_net_pnl = null.
+4. unavailable reason should be legacy / not captured, if available.
+5. No report crash.
+6. No null-as-zero mistake.
+
+Report:
+
+| Trade Type | Shadow Premium | Shadow P&L | Reason | Verdict |
+|---|---:|---:|---|---|
+| Legacy closed trade |
+| New closed trade, if available |
+
+====================================================
+PART D — LIVE CAPTURE VERIFICATION
+====================================================
+
+If a new F&O paper trade exits after deployment:
+
+Confirm:
+
+1. Existing realized exitPremium remains unchanged.
+2. Existing realizedPnl remains unchanged.
+3. Account balance remains unchanged.
+4. exit_premium_market is captured if trusted Kite/option-chain quote exists.
+5. If quote unavailable, field is null with reason.
+6. Non-trade-grade / stale quote is rejected.
+7. market_shadow_pnl is separate.
+8. market_shadow_net_pnl uses canonical F&O cost model.
+9. No Yahoo/delayed provider populates market shadow.
+
+Report:
+
+| Trade | Realized Exit Premium | Market Exit Premium | Gap | Realized Net P&L | Market Shadow Net P&L | Source | Verdict |
+|---|---:|---:|---:|---:|---:|---|---|
+
+If no new exited F&O paper trade exists yet, report:
+
+NO_LIVE_EXIT_SAMPLE_YET
+
+Then final verdict should be:
+
+EXIT_PREMIUM_MARKET_SHADOW_PROD_INFRA_VERIFIED_LIVE_SAMPLE_PENDING
+
+not full PROD_VERIFIED.
+
+====================================================
+PART E — REPORT / UI VERIFICATION
+====================================================
+
+Confirm Paper Reports / diagnostics show or expose:
+
+1. Realized/frozen exit premium.
+2. Market shadow exit premium.
+3. Premium gap.
+4. Premium gap percentage.
+5. Realized gross/net P&L.
+6. Market shadow gross/net P&L.
+7. Source/as-of/freshness.
+8. Unavailable reason.
+9. Clear observation-only label.
+
+Required labels:
+
+REALIZED PAPER P&L — based on strategy/frozen premium settlement.
+
+MARKET SHADOW P&L — based on nearest trusted market option premium at exit, observation-only.
+
+Confirm market shadow does not replace realized P&L.
+
+====================================================
+PART F — REGRESSION CHECKS
+====================================================
+
+Confirm:
+
+1. Release Integrity remains PROD_VERIFIED.
+2. P0-1 F&O Cost Model Unification remains PROD_VERIFIED.
+3. P0-2 VWAP / Volume Profile Honesty remains PROD_VERIFIED.
+4. P0-3 Trigger Wording Semantics remains PROD_VERIFIED.
+5. Backtest Charges Model + Net P&L remains PROD_VERIFIED.
+6. Provider import guard remains green.
+7. F&O cost model guard remains green.
+8. Broker execution remains disabled.
+9. No real orders placed.
+10. No Telegram spam.
+11. No strategy/threshold changes.
+12. No destructive migration.
+13. No stale/report-grade data can drive live trades.
+14. Realized paper P&L remains unchanged.
+15. Account balance logic remains unchanged.
+
+====================================================
+PART G — TESTS
+====================================================
+
+Run and report exact counts:
+
+pnpm --filter @workspace/scripts run verify:release
+
+pnpm --filter @workspace/api-server run typecheck
+
+pnpm --filter @workspace/api-server run typecheck:libs
+
+pnpm --filter @workspace/api-server exec vitest run src/lib/*paper*.test.ts src/lib/*fno*.test.ts src/lib/*fnoCost*.test.ts src/lib/*optionSignal*.test.ts src/lib/*backtest*.test.ts src/routes/**/*.test.ts
+
+pnpm --filter @workspace/scanner exec vitest run
+
+pnpm --filter @workspace/scripts run index:llm
+
+pnpm --filter @workspace/scripts run index:llm:check
+
+If any suite times out, split into smaller batches and report exact counts.
+
+====================================================
+PART H — REPORT UPDATE
+====================================================
+
+Update:
+
+1. EXIT_PREMIUM_MARKET_SHADOW_REPORT.md
+2. POST_P0_SIGNAL_SYSTEM_REBASELINE_REPORT.md
+3. WEBSITE_CANONICAL_DATA_INTEGRATION_REPORT.md
+4. USER_FACING_CORE_TABS_DEEP_AUDIT_REPORT.md, if relevant
+
+Add production verification section:
+
+EXIT PREMIUM MARKET SHADOW COLUMN — PRODUCTION VERIFICATION
+
+Include:
+
+1. Fresh deploy proof.
+2. Schema proof.
+3. API proof.
+4. Legacy handling proof.
+5. Live capture status.
+6. Report/UI proof.
+7. Tests and counts.
+8. Regression checks.
+9. Final verdict.
+
+====================================================
+FINAL VERDICT
+====================================================
+
+Final verdict must be exactly one:
+
+- EXIT_PREMIUM_MARKET_SHADOW_PROD_VERIFIED
+- EXIT_PREMIUM_MARKET_SHADOW_PROD_INFRA_VERIFIED_LIVE_SAMPLE_PENDING
+- EXIT_PREMIUM_MARKET_SHADOW_DEV_VERIFIED
+- EXIT_PREMIUM_MARKET_SHADOW_PARTIAL_GAP_REMAINS
+- RELEASE_INTEGRITY_REGRESSION_FOUND
+- ROLLBACK_REQUIRED
+
+Use:
+
+EXIT_PREMIUM_MARKET_SHADOW_PROD_INFRA_VERIFIED_LIVE_SAMPLE_PENDING
+
+if production is live, schema/routes/reports/tests are verified, but no new real exited F&O paper trade exists yet.
+
+Use:
+
+EXIT_PREMIUM_MARKET_SHADOW_PROD_VERIFIED
+
+only after production captures market shadow premium on an actual new exited F&O paper trade or honestly records unavailable reason from real exit conditions.
+
+Use:
+
+EXIT_PREMIUM_MARKET_SHADOW_PARTIAL_GAP_REMAINS
+
+if shadow field exists but can be fake, stale, non-trade-grade, mixed into realized P&L, missing from reports, or crashes legacy rows.
+
+Use:
+
+RELEASE_INTEGRITY_REGRESSION_FOUND
+
+if verify:release has a real FAIL.
+
+Use:
+
+ROLLBACK_REQUIRED
+
+if secrets leak, broker execution turns on, real orders are placed, Telegram spam occurs, destructive migration happens, stale/report-grade data drives live trades, realized P&L is overwritten, or account balance logic changes.
