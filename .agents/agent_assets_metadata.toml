@@ -125,7 +125,7 @@ title = "User-Facing Core Tabs Deep Audit Report (incl. Phase 3A verification)"
 id = "Od_Zd8HrDjj4z7wq3KNKA"
 uri = "file://WEBSITE_CANONICAL_DATA_INTEGRATION_REPORT.md"
 type = "text"
-title = "Website Canonical Data Integration Report (incl. Phase 3A final verdict)"
+title = "Canonical Data Integration Report"
 
 [[outputs]]
 id = "73cHgFEyqkuLBKkFMOqQt"
@@ -150,3 +150,45 @@ id = "fG0NzKcp-PbRMIxJxpN_Z"
 uri = "file://docs-and-reports.tar.gz"
 type = "unspecified"
 title = "Docs, OpenAPI spec & audit reports"
+
+[[outputs]]
+id = "-hhig6AK6E0CFl4bLXCvO"
+uri = "file://scanner-source.zip"
+type = "unspecified"
+title = "NSE Scanner Frontend source (960 KB)"
+
+[[outputs]]
+id = "kjQ0IdBZEzvaPUlNF5qFE"
+uri = "file://api-server-source.zip"
+type = "unspecified"
+title = "API Server source (1.6 MB)"
+
+[[outputs]]
+id = "iACLERxDQeibaX0ZgHBXP"
+uri = "file://docs-reports.zip"
+type = "unspecified"
+title = "Docs, OpenAPI spec & audit reports (431 KB)"
+
+[[outputs]]
+id = "YE798vvVYU0GI1zmgWxw6"
+uri = "file://replit.md"
+type = "text"
+title = "Project overview — replit.md"
+
+[[outputs]]
+id = "PJWP7ZI1zVT2BxXgbiI5s"
+uri = "file://lib/api-spec/openapi.yaml"
+type = "unspecified"
+title = "Full API spec — openapi.yaml"
+
+[[outputs]]
+id = "KJl92RYcFAtBX3V_UZEmV"
+uri = "file://FNO_TRIGGER_SEMANTICS_HONESTY_REPORT.md"
+type = "text"
+title = "P0-3 Trigger Semantics Audit Report"
+
+[[outputs]]
+id = "fyfKcfHaOim8c8AYwu2kn"
+uri = "file://docs/data-infrastructure.md"
+type = "text"
+title = "Data Infrastructure Notes"
