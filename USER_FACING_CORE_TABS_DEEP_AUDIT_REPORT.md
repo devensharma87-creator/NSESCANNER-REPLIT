@@ -1074,4 +1074,42 @@ Corrected to `"STT 0.15% on option sell premium"` (the canonical P0-1 option rat
 also clarifies: *"Futures STT is 0.05% on sell turnover — option paper trades use 0.15%."*
 The cost model math in `fnoCostModel.ts` was always correct at 0.15% for options.
 
+---
+
+## P1B — MACD Warm-Up Fix — 2026-07-08 — `DEV_VERIFIED`
+
+### Scope
+
+The MACD indicator computation in `indicators.ts` (canonical NSE) was zero-filling null MACD
+values before seeding the signal EMA, causing the signal line to be trained on fake zeros during
+the warm-up period. This affects display correctness for MACD sparklines on short-history symbols
+(new listings with 26–34 bars of daily data). For all long-history symbols (250+ bars), the
+distortion is negligible at the last bar (residual ≈ 0.8^167 ≈ 0).
+
+### Frontend MACD Display Impact
+
+The MACD indicator is displayed in:
+- **Deep scan** (`deep-scan.tsx`): MACD histogram value for a single stock
+- **Index expanded panel** (`index-expanded-panel.tsx`): MACD line / signal / histogram
+- **Chart tab**: Series MACD computed from the same `indicators.ts` function
+
+**Before fix:** Short-history symbols could show a non-null MACD histogram from as early as bar 8
+(zero-seeded signal EMA warm-up). The histogram value was biased — ≈80% of the raw MACD line,
+not the true cross.
+
+**After fix:** Signal and histogram are null until bar 33 (26 MACD warm-up + 9 signal warm-up).
+The display correctly shows "—" / null until sufficient history exists.
+
+### What Did NOT Change
+
+- No MACD values change for any symbol with 250+ bars of daily data
+- No F&O signals, paper trades, or cockpit changed
+- No scoring weights, thresholds, or entry/exit logic changed
+- No display components (`deep-scan.tsx`, chart, index panel) needed updating — they already
+  handle null gracefully
+
+### Verdict
+
+`P1B_MACD_WARMUP_FIX_DEV_VERIFIED` — pending production publish.
+
 Tests: 138/138 foCockpitView, 70/70 cost model, 11/11 verify:release, 350/350 LLM index.

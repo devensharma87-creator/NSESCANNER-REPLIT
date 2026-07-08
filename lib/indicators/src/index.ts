@@ -13,9 +13,9 @@
  *
  * DELIBERATELY NOT HERE: ATR, MACD signal handling, SMA (scalar), VWAP and the
  * portfolio scalar RSI. Those copies use genuinely DIFFERENT algorithms
- * (api-server ATR is EMA-smoothed vs global's Wilder RMA; api-server MACD seeds
- * the signal over zero-filled nulls vs global slicing from the first real
- * value; portfolio rsi14 returns 50 on a flat series vs the series RSI's 100;
+ * (api-server ATR is EMA-smoothed vs global's Wilder RMA; both MACD copies now
+ * slice from the first valid MACD value — zero-fill bug fixed in P1B 2026-07-08;
+ * portfolio rsi14 returns 50 on a flat series vs the series RSI's 100;
  * VWAP has session-reset/fallback variants). Unifying them would SILENTLY
  * change output, so they intentionally remain local to each consumer.
  */

@@ -83,13 +83,25 @@ export function macd(values: number[], fast = 12, slow = 26, signalP = 9): {
 } {
   const e1 = ema(values, fast);
   const e2 = ema(values, slow);
-  const macdLine = values.map((_, i) => {
+  const macdLine: (number | null)[] = values.map((_, i) => {
     const a = e1[i];
     const b = e2[i];
     return a == null || b == null ? null : a - b;
   });
-  const macdNumeric = macdLine.map(v => v ?? 0);
-  const sigLine = ema(macdNumeric, signalP);
+  // Signal line: seed the EMA only from the first valid MACD value.
+  // Do NOT zero-fill nulls before the first valid MACD bar — that trains
+  // the signal EMA on fake zeros and produces distorted early histogram
+  // values for short-history / new-listing symbols.
+  const startIdx = macdLine.findIndex(v => v !== null);
+  const sigSeed = startIdx >= 0
+    ? ema(macdLine.slice(startIdx).map(v => v ?? 0), signalP)
+    : [];
+  const sigLine: (number | null)[] = new Array(values.length).fill(null);
+  if (startIdx >= 0) {
+    for (let i = 0; i < sigSeed.length; i++) {
+      sigLine[startIdx + i] = sigSeed[i] ?? null;
+    }
+  }
   const hist = macdLine.map((m, i) => {
     const s = sigLine[i];
     return m == null || s == null ? null : m - s;

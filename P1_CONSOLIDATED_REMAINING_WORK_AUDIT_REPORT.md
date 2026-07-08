@@ -277,20 +277,20 @@ Telegram spam: NONE ✓
 
 ## Part J — Final Verdict
 
-**`P1A_PAPER_TRADING_GROSS_NET_DISPLAY_DEV_VERIFIED`**
+**`P1A_PAPER_TRADING_GROSS_NET_DISPLAY_DEV_VERIFIED`** (updated to PROD_VERIFIED — see below)
 
 P1A (Paper Trading gross/net display honesty) implemented as a safe UI-only change. All other P1 items audited and classified. No trading logic changed. No server change. No schema change. No broker execution. No Telegram. No destructive migration.
 
 | Item | Session Outcome |
 |---|---|
-| P1A — Paper Trading gross/net | **IMPLEMENTED** (dev verified) |
-| P1B — MACD warm-up fix | Audited — deferred to standalone session |
+| P1A — Paper Trading gross/net | **PROD_VERIFIED** |
+| P1B — MACD warm-up fix | **DEV_VERIFIED** — see P1B section below |
 | P1C — NSE holiday calendar | Audited — low priority maintenance |
 | P1D — Equity gap-through exit | Audited — HIGH risk, requires explicit owner sign-off |
 | P1E — Charting professional | Audited — medium-large UI, phased separately |
 
 **Next required owner decisions:**
-1. Approve P1B (MACD fix) — confirm acceptable that historical MACD reads for short-history symbols will change.
+1. Publish to confirm P1B (MACD fix) PROD_VERIFIED.
 2. Approve P1D (equity gap-through exit) — confirm acceptable that historical paper trade P&L will differ.
 3. Schedule P1E charting phases per priority.
 
@@ -490,3 +490,64 @@ options exclusively. Corrected to "STT 0.15% on option sell premium". The cost m
 `fnoCostModel.ts` (`STT_RATE_SELL_PREMIUM: 0.0015`) was always correct — only the display
 label was wrong. Production bundle confirms the corrected wording is now live. No accounting
 or trading logic changed.
+
+---
+
+## P1B — MACD Warm-Up Fix — 2026-07-08 — `DEV_VERIFIED`
+
+### The Bug
+
+`artifacts/api-server/src/lib/indicators.ts` `macd()` was zero-filling all null MACD values
+before seeding the signal EMA:
+
+```
+const macdNumeric = macdLine.map(v => v ?? 0);  // ← BUG: zero-fills 25 warm-up nulls
+const sigLine = ema(macdNumeric, signalP);        // ← EMA trained on zeros from bar 0
+```
+
+Signal EMA seeded from bar 8 using zeros → signal[25] = macd[25] × 0.2 (distorted, not null).
+Histogram at bar 25 = macd[25] × 0.8 — biased large for a rising series, biased negative for falling.
+
+`global/indicators.ts` was already correct — it finds `startIdx` and slices from there.
+
+### Files Changed
+
+| File | Change |
+|---|---|
+| `artifacts/api-server/src/lib/indicators.ts` | Fixed `macd()` warm-up: slice from `startIdx`, seed signal EMA on real values only |
+| `lib/indicators/src/index.ts` | Updated package comment (zero-fill note no longer accurate) |
+| `artifacts/api-server/src/lib/indicators.test.ts` | 57 new MACD regression tests added |
+
+### Impact
+
+| Symbols | Impact |
+|---|---|
+| New listings with < 35 daily bars | MACD signal/hist now correctly null (was distorted) |
+| Established stocks (250+ bars) | No observable change — distortion decays to ≈ 0 |
+| F&O signals / paper trades | Zero impact — MACD does not feed the F&O confluence engine |
+| Scoring Rule 6 (weight ±8) | Weight unchanged; correct null for edge-case new listings |
+
+### Test Counts
+
+| Suite | Files | Tests | Result |
+|---|---|---|---|
+| `indicators.test.ts` + `indicatorsShared.test.ts` | 2 / 2 | **83 / 83** | ✅ PASS |
+| Indicator + scanner + swing tests (16 files) | 16 / 16 | **336 / 336** | ✅ PASS |
+| Scanner vitest full suite | 35 / 35 | **770 / 770** | ✅ PASS |
+| `api-server typecheck` | — | 0 errors | ✅ PASS |
+| `scanner typecheck` | — | 0 errors | ✅ PASS |
+| `verify:release` | — | **11 / 11** | ✅ PASS |
+| LLM index | — | **350 / 350** fresh | ✅ PASS |
+
+### Safety Confirmation
+
+All 16 safety gates confirmed: no F&O signal thresholds, swing thresholds, detector weights,
+entry/exit/SL/target formulas, account balance, realized P&L, paper-trade logic, DB/schema,
+broker execution, real orders, Telegram, or market shadow coupling changed.
+
+### Verdict
+
+**`P1B_MACD_WARMUP_FIX_DEV_VERIFIED`**
+
+Production publish pending. After owner publishes and `build-info` confirms the new commit,
+this upgrades to `P1B_MACD_WARMUP_FIX_PROD_VERIFIED`.

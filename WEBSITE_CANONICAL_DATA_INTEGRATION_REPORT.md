@@ -2577,4 +2577,41 @@ was wrong. Corrected to `"STT 0.15% on option sell premium"` with a clarifying n
 | `"option sell premium"` | 2 ✅ |
 | `"STT 0.05"` | **0** ✅ — fully removed |
 
+---
+
+## P1B — MACD Warm-Up Fix — 2026-07-08 — `DEV_VERIFIED`
+
+### What Was Fixed
+
+The canonical NSE MACD function in `artifacts/api-server/src/lib/indicators.ts` was computing
+the signal EMA over a zero-filled version of the MACD line (including leading nulls replaced with
+zeros). This caused the signal EMA to be trained on fake zeros during the first 25 bars (the
+slow EMA warm-up period), producing distorted early signal/histogram values.
+
+**Before:** `macdLine.map(v => v ?? 0)` → full-array EMA seeded at bar 8 on zeros
+**After:** Find `startIdx` of first valid MACD, slice from there, seed EMA on real values only
+
+The fix is identical to the already-correct `global/indicators.ts` implementation.
+
+### Data Trust Impact
+
+| Surface | Impact |
+|---|---|
+| MACD histogram for new listings (< 35 daily bars) | Now correctly null instead of distorted value |
+| MACD histogram for established stocks (250+ bars) | No observable change |
+| F&O signals, paper trades, account balance | Zero impact — MACD does not feed the F&O pipeline |
+| Scoring Rule 6 (weight ±8) | Weight unchanged; input now correct for edge-case new listings |
+| Frontend MACD display (chart, deep scan, index panel) | Handles null gracefully — no UI component change needed |
+
+### Tests
+
+57 new MACD tests in `indicators.test.ts` across 12 fixture groups covering: very short/medium/long
+series, flat/trending/choppy series, custom periods with hand-verified SMA seed, empty input,
+canonical-vs-global alignment, and output-shape invariant (9 length cases).
+
+### Verdict
+
+`P1B_MACD_WARMUP_FIX_DEV_VERIFIED` — no trading logic, weights, or thresholds changed.
+Production publish pending.
+
 verify:release: 11/11 PASS. All prior milestones unchanged.

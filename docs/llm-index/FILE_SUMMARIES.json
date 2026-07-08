@@ -2326,18 +2326,18 @@
   {
     "path": "artifacts/api-server/src/lib/indicators.test.ts",
     "purpose": "test",
-    "lines": 157,
+    "lines": 552,
     "exports": [],
     "externalImports": [
       "vitest"
     ],
     "routes": [],
-    "hash": "59ecd23d66c28102"
+    "hash": "ac2828e48701b2fa"
   },
   {
     "path": "artifacts/api-server/src/lib/indicators.ts",
     "purpose": "scoring",
-    "lines": 278,
+    "lines": 290,
     "exports": [
       "atr",
       "adx",
@@ -2355,7 +2355,7 @@
       "@workspace/indicators"
     ],
     "routes": [],
-    "hash": "eb379c78d22ad164"
+    "hash": "8bfbfc382deb46a5"
   },
   {
     "path": "artifacts/api-server/src/lib/indicatorsShared.test.ts",

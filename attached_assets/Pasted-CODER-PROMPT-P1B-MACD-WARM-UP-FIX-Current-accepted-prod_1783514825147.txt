@@ -1,0 +1,362 @@
+CODER PROMPT — P1B MACD WARM-UP FIX
+
+Current accepted production status:
+
+RELEASE_INTEGRITY_PROD_VERIFIED
+BACKTEST_CHARGES_MODEL_NET_PNL_PROD_VERIFIED
+FNO_COST_MODEL_UNIFICATION_PROD_VERIFIED
+FNO_VWAP_VOLUME_PROFILE_HONESTY_PROD_VERIFIED
+FNO_TRIGGER_WORDING_SEMANTICS_PROD_VERIFIED
+KITE_OI_UNIT_VERIFICATION_CONFIRMED_CORRECT
+P1A_PAPER_TRADING_GROSS_NET_DISPLAY_PROD_VERIFIED
+EXIT_PREMIUM_MARKET_SHADOW_PROD_INFRA_VERIFIED_LIVE_SAMPLE_PENDING
+POST_P0_SIGNAL_SYSTEM_REBASELINE_PARTIAL_GAP_REMAINS
+
+Important pending items:
+
+1. EXIT_PREMIUM_MARKET_SHADOW full PROD_VERIFIED
+   Only after a real F&O paper trade exits and records exit_premium_market or an honest unavailable reason.
+
+2. POST_P0_SIGNAL_SAMPLE_REVIEW
+   Only after at least 5 trading sessions or 20+ post-P0 signals across NIFTY / BANKNIFTY / SENSEX.
+
+Now start:
+
+P1B — MACD WARM-UP FIX
+
+====================================================
+PURPOSE
+====================================================
+
+Fix MACD warm-up honesty and correctness.
+
+The P1 consolidated audit found that the canonical NSE indicator implementation may compute the MACD signal EMA using zero-filled null MACD values:
+
+macdLine.map(v => v ?? 0)
+
+This can distort early MACD signal/histogram values for new listings or short-history symbols.
+
+The global indicator implementation reportedly already seeds MACD signal EMA from the first valid MACD value, which is more correct.
+
+Goal:
+
+1. Confirm the current MACD warm-up behavior.
+2. Fix only the canonical MACD warm-up if the audit finding is correct.
+3. Preserve output shape/length.
+4. Return null values until enough valid data exists.
+5. Add tests proving early MACD values are not zero-seeded.
+6. Do not change scoring weights, signal thresholds, or trade logic.
+
+====================================================
+STRICT SCOPE
+====================================================
+
+Allowed:
+
+1. Read current indicator code.
+2. Compare canonical NSE MACD vs global MACD implementation.
+3. Fix MACD signal warm-up if zero-fill bug is confirmed.
+4. Add tests for short-history and long-history series.
+5. Update reports.
+6. Run full verification.
+
+Not allowed:
+
+Do not change F&O signal logic.
+Do not change Swing signal logic.
+Do not change scanner scoring weights.
+Do not change detector weights.
+Do not change entry logic.
+Do not change exit logic.
+Do not change SL/target formulas.
+Do not change paper-trade opening eligibility.
+Do not change account balance.
+Do not rewrite historical trades.
+Do not backfill historical signals.
+Do not change stored historical rows.
+Do not change Kite/Yahoo data source policy.
+Do not enable broker execution.
+Do not place real orders.
+Do not send Telegram tests.
+Do not perform DB migrations unless absolutely necessary. This task should not need DB changes.
+Do not bundle NSE holiday calendar.
+Do not bundle equity gap-through exit.
+Do not bundle charting upgrade.
+
+This is a standalone indicator-correctness phase only.
+
+====================================================
+PART A — BASELINE VERIFICATION
+====================================================
+
+Before changing anything, run:
+
+pnpm --filter @workspace/scripts run verify:release
+
+Confirm:
+
+1. Release integrity remains green.
+2. Production build-info is reachable.
+3. Broker execution remains disabled.
+4. No secrets exposed.
+5. P1A remains PROD_VERIFIED.
+6. No active regression exists.
+
+If verify:release has a real FAIL, stop and report:
+
+RELEASE_INTEGRITY_REGRESSION_FOUND
+
+====================================================
+PART B — CURRENT CODE AUDIT
+====================================================
+
+Audit all MACD implementations and consumers.
+
+Likely files:
+
+1. artifacts/api-server/src/lib/indicators.ts
+2. artifacts/api-server/src/lib/global/indicators.ts
+3. artifacts/api-server/src/lib/scoring or scanner scoring modules
+4. artifacts/api-server/src/lib/swing modules
+5. artifacts/api-server/src/lib/technical scan modules
+6. artifacts/scanner chart/detail components that display MACD
+7. Any tests for indicators/MACD/scoring
+
+Create table:
+
+| File | Function | Current MACD Warm-Up Behavior | Zero-Fills Nulls? | Consumer Impact | Fix Needed? |
+|---|---|---|---:|---|---|
+
+Specifically confirm:
+
+1. Where MACD line is calculated.
+2. Where signal EMA is calculated.
+3. Whether null MACD values are converted to 0.
+4. Whether histogram is computed before valid signal exists.
+5. How many bars are required before first valid MACD.
+6. How many bars are required before first valid signal line.
+7. Which scanner/swing/scoring rules consume MACD histogram.
+8. Whether short-history symbols can receive distorted bullish/bearish MACD scores.
+9. Whether long-history symbols materially change after warm-up window.
+10. Whether frontend-only displays need label changes.
+
+====================================================
+PART C — EXPECTED CORRECT MACD BEHAVIOR
+====================================================
+
+Implement correct behavior:
+
+1. MACD line should be null until enough data exists for fast/slow EMA.
+2. Signal line should be computed only from valid MACD values.
+3. Signal EMA must not be trained on fake zeros.
+4. Histogram should be null until both MACD and signal are valid.
+5. Output array length must remain equal to input close array length.
+6. Existing public API shape must remain compatible.
+7. For long-history series, values after warm-up should remain stable except minor expected differences caused by correct seeding.
+8. For short-history/new listing series, distorted early signals must be removed.
+
+Preferred implementation pattern:
+
+- Find first valid MACD index.
+- Slice valid MACD values from that index.
+- Compute signal EMA on valid MACD values only.
+- Re-pad signal array with nulls before first valid signal.
+- Compute histogram only when MACD and signal are both non-null.
+
+Do not use:
+
+macdLine.map(v => v ?? 0)
+
+for signal EMA seeding.
+
+====================================================
+PART D — IMPACT AUDIT
+====================================================
+
+After implementing, compare before/after behavior using fixtures.
+
+Required scenarios:
+
+1. Very short series: fewer than slow EMA period.
+2. Short series: just above slow EMA period but below signal readiness.
+3. Medium series: enough bars for MACD but not enough stable signal.
+4. Long series: 100+ bars.
+5. Flat price series.
+6. Strong trending series.
+7. Choppy series.
+
+Create before/after table:
+
+| Fixture | Old First Valid MACD | Old First Valid Signal | New First Valid MACD | New First Valid Signal | Expected Change |
+|---|---:|---:|---:|---:|---|
+
+Also create consumer impact table:
+
+| Consumer | Uses MACD? | Impact From Fix | Trading Logic Changed? |
+|---|---:|---|---:|
+
+Important:
+
+If scoring outputs change for short-history symbols, this is acceptable but must be documented.
+Do not hide this as “no change.”
+Report it honestly as expected indicator-correction drift.
+
+====================================================
+PART E — TEST REQUIREMENTS
+====================================================
+
+Add or update tests proving:
+
+1. Signal EMA does not receive zero-filled MACD nulls.
+2. MACD signal remains null until valid MACD values exist.
+3. Histogram remains null until both MACD and signal exist.
+4. Output length is preserved.
+5. Flat series does not produce fake early bullish/bearish histogram from zero seeding.
+6. Short-history series produces null/insufficient MACD rather than fake values.
+7. Long-history series produces stable values.
+8. Global and canonical MACD behavior are aligned where applicable.
+
+Required test table:
+
+| Test | Purpose | Expected Result |
+|---|---|---|
+
+====================================================
+PART F — REPORT UPDATE
+====================================================
+
+Create:
+
+P1B_MACD_WARMUP_FIX_REPORT.md
+
+Update:
+
+1. P1_CONSOLIDATED_REMAINING_WORK_AUDIT_REPORT.md
+2. WEBSITE_CANONICAL_DATA_INTEGRATION_REPORT.md
+3. USER_FACING_CORE_TABS_DEEP_AUDIT_REPORT.md
+4. POST_P0_SIGNAL_SYSTEM_REBASELINE_REPORT.md
+
+Reports must include:
+
+1. Objective.
+2. Current bug / warm-up issue.
+3. Files audited.
+4. Files changed.
+5. Before/after MACD warm-up behavior.
+6. Consumer impact.
+7. Expected scoring drift for short-history symbols.
+8. Confirmation that no trading logic/weights/thresholds changed.
+9. Tests and exact counts.
+10. Final verdict.
+
+====================================================
+PART G — VERIFICATION COMMANDS
+====================================================
+
+Run and report exact counts:
+
+pnpm --filter @workspace/scripts run verify:release
+
+pnpm --filter @workspace/api-server run typecheck
+
+pnpm --filter @workspace/api-server run typecheck:libs
+
+pnpm --filter @workspace/api-server exec vitest run src/lib/*indicator*.test.ts src/lib/*technical*.test.ts src/lib/*scanner*.test.ts src/lib/*swing*.test.ts
+
+pnpm --filter @workspace/scanner run typecheck
+
+pnpm --filter @workspace/scanner exec vitest run
+
+pnpm --filter @workspace/scripts run index:llm
+
+pnpm --filter @workspace/scripts run index:llm:check
+
+If a suite times out, split it into smaller batches and report exact counts.
+
+Do not say only “all green.”
+Give exact test counts.
+
+====================================================
+PART H — SAFETY CONFIRMATION
+====================================================
+
+Confirm:
+
+1. No F&O signal thresholds changed.
+2. No swing thresholds changed.
+3. No detector weights changed.
+4. No entry logic changed.
+5. No exit logic changed.
+6. No SL/target formula changed.
+7. No account balance logic changed.
+8. No realized P&L logic changed.
+9. No paper-trade open/close logic changed.
+10. No DB/schema migration.
+11. No historical trade rewrite.
+12. No broker execution.
+13. No real orders.
+14. No Telegram messages.
+15. No market shadow coupling.
+16. No stale/report-grade data can drive live trades.
+
+====================================================
+PART I — PRODUCTION RULE
+====================================================
+
+Do not mark PROD_VERIFIED in the same response unless:
+
+1. owner has published after this fix,
+2. production build-info confirms the new commit,
+3. production bundle/API reflects the change if applicable,
+4. verify:release passes after publish.
+
+Before publish, final verdict can only be DEV_VERIFIED or PARTIAL_GAP_REMAINS.
+
+====================================================
+FINAL VERDICT
+====================================================
+
+Final verdict must be exactly one:
+
+- P1B_MACD_WARMUP_FIX_DEV_VERIFIED
+- P1B_MACD_WARMUP_FIX_PROD_VERIFIED
+- P1B_MACD_WARMUP_FIX_PARTIAL_GAP_REMAINS
+- P1B_MACD_WARMUP_NO_CODE_CHANGE_NEEDED
+- RELEASE_INTEGRITY_REGRESSION_FOUND
+- ROLLBACK_REQUIRED
+
+Use:
+
+P1B_MACD_WARMUP_FIX_DEV_VERIFIED
+
+if the warm-up bug is fixed, tests pass, reports are updated, and production publish is pending.
+
+Use:
+
+P1B_MACD_WARMUP_FIX_PROD_VERIFIED
+
+only after production deploy proof confirms the fix is live.
+
+Use:
+
+P1B_MACD_WARMUP_FIX_PARTIAL_GAP_REMAINS
+
+if audit, implementation, tests, or reports are incomplete.
+
+Use:
+
+P1B_MACD_WARMUP_NO_CODE_CHANGE_NEEDED
+
+only if the audit proves there is no zero-fill bug in the canonical MACD implementation.
+
+Use:
+
+RELEASE_INTEGRITY_REGRESSION_FOUND
+
+if verify:release has a real FAIL.
+
+Use:
+
+ROLLBACK_REQUIRED
+
+if secrets leak, broker execution turns on, real orders are placed, Telegram spam occurs, destructive migration happens, realized P&L/account balance logic changes, or stale/report-grade data drives live trades.

@@ -362,9 +362,17 @@ Five P1 items audited. No signal/F&O/swing logic changed. Full detail in
   affects the NSE equity scanner (280-symbol universe scoring) and the home dashboard
   index sparklines. It does NOT directly gate F&O paper trade opens.
 
+- **P1B MACD warm-up fix (DEV_VERIFIED 2026-07-08):** The zero-fill bug in canonical
+  `indicators.ts` is fixed. Signal EMA is now seeded only from the first valid MACD
+  value (bar 33 for defaults), matching `global/indicators.ts`. Impact: new NSE listings
+  with < 35 bars of daily data get null MACD histogram instead of a distorted value.
+  Long-history symbols (250+ bars) are unaffected. No F&O signal thresholds or weights
+  changed. Scoring Rule 6 weight ±8 unchanged — only the histogram input is now correct.
+  Post-publish this fix should be the new baseline for MACD-related signal audits.
+
 - **POST_P0_SIGNAL_SAMPLE_REVIEW:** Still pending. Run after ≥5 sessions or ≥20
-  post-P0 signals. MACD fix should happen BEFORE or AFTER this review (not during) to
-  keep the signal baseline clean.
+  post-P0 signals. MACD warm-up fix (P1B) is now complete and should be treated as the
+  new signal baseline — do not compare future samples against pre-P1B MACD behavior.
 
 - **P1A (paper display):** Pure UI — zero impact on signal generation, scoring, or
   paper-trade opening eligibility.

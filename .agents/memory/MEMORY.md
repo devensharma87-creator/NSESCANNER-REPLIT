@@ -48,3 +48,4 @@
 - [Report-grade vs trade-grade quote facades](report-grade-vs-trade-grade-quotes.md) — display/report consumers need a looser same-day-accept policy than the 10min trade-grade router; hard-code tradeGrade/canDriveSignals false.
 - [VWAP availability flag pattern](vwap-availability-flag-pattern.md) — cash indices (NIFTY/BANKNIFTY/SENSEX) have volume=0 → VWAP/VP structurally null; gate detectors on vwapAvailable, never include in fullIndicators warm-up gate.
 - [Kite option-chain OI is in CONTRACTS](kite-oi-unit-contracts.md) — `q.oi` and NSE `openInterest` are both in contracts (lots), not underlying shares; multiply by lot_size for quantity; verified 2026-07-08 via prod snapshot magnitude analysis.
+- [MACD signal warm-up — canonical now matches global](macd-warmup-fix-p1b.md) — P1B 2026-07-08: both MACD copies now slice from startIdx before signal EMA; new listings (<35 bars) get null hist instead of distorted value; long-history unaffected.
