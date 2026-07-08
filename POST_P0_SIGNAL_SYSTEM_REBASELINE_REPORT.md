@@ -5,6 +5,17 @@
 **Baseline: `POST_P0_CLEAN_BASELINE_2026_07_08`**  
 **Partial Gap: Zero post-P0 signals and trades — market sessions required to accumulate post-baseline evidence**
 
+> **Re-baseline framework is complete, but performance validation is pending until market sessions generate post-P0 signals and trades.**
+>
+> - Clean baseline is created ✓
+> - All P0 fixes are confirmed live in production ✓
+> - Reports are updated, old data is labeled `PRE_P0_FIX_DATA` ✓
+> - Tests are green (1,193 pass) ✓
+> - Post-P0 signal sample: **0** — cannot yet evaluate detector performance, CALL/PUT distribution, paper-trade quality, or edge
+> - Post-P0 paper trade sample: **0** — cannot yet evaluate execution, cost model accuracy, or realized P&L
+>
+> **Next action:** Wait for market sessions to generate post-P0 signals and trades. Run `POST_P0_SIGNAL_SAMPLE_REVIEW` once a sufficient sample exists (recommended: ≥5 trading sessions / ≥20 post-P0 signals).
+
 ---
 
 ## 1. Objective
@@ -260,6 +271,19 @@ All tests executed in batches to stay within 120s tool timeout. No test failures
 
 **`POST_P0_SIGNAL_SYSTEM_REBASELINE_PARTIAL_GAP_REMAINS`**
 
-The re-baseline documentation, P0 production confirmation, pre-P0 data labeling, and detector capability audit are all **complete**. The gap is insufficient post-P0 data: the clean baseline was set today (2026-07-08T12:24 IST) and zero post-baseline signals or paper trades have accumulated yet. This is not a defect — it is the expected state when a baseline is freshly set during a trading session.
+**Re-baseline framework is complete, but performance validation is pending until market sessions generate post-P0 signals and trades.**
 
-**Re-run this audit after 5 market sessions (≈ 2026-07-15) to produce the first clean post-P0 signal and paper trade statistics.**
+| Component | Status |
+|---|---|
+| P0 fixes confirmed in production | ✓ Complete |
+| Clean baseline documented | ✓ Complete |
+| Pre-P0 data labeled `PRE_P0_FIX_DATA` | ✓ Complete |
+| Detector capability matrix (post-P0) | ✓ Complete |
+| Reports updated | ✓ Complete |
+| Tests green | ✓ Complete (1,193/1,193) |
+| Post-P0 signal sample | ✗ Gap — 0 signals; cannot evaluate detector performance, CALL/PUT distribution, or confidence distribution |
+| Post-P0 paper trade sample | ✗ Gap — 0 trades (`NO_POST_P0_TRADE_SAMPLE_YET`); cannot evaluate execution quality, cost model accuracy, or edge |
+
+The gap is not a defect — it is the expected state when a baseline is freshly set during a trading session (2026-07-08T12:24 IST). No signals or trades can accumulate until the next market session.
+
+**Next action:** Wait for market sessions to generate post-P0 signals and trades, then run `POST_P0_SIGNAL_SAMPLE_REVIEW`. Recommended trigger: ≥5 trading sessions (≈ 2026-07-15) or ≥20 post-P0 signals across the three F&O indices.
