@@ -1,0 +1,70 @@
+Subject: URGENT: Hardcore Quant-Grade Audit & Bug Fix for [Your Website Name] - NSE/BSE F&O & Swing Trading Platform
+
+Role Briefing:
+You are acting as my Senior Full-Stack Developer, but you must think like a professional Proprietary F&O and Swing trader. This is not a cosmetic UI update. This is a zero-tolerance financial data audit. Every pixel, number, and API call must withstand scrutiny from SEBI-grade quants. If a number is off by 1 paisa, the platform is worthless.
+
+Pre-requisite for this Task:
+Before you write a single line of code, I need you to fully decrypt and dissect the attached screenshot of our current website. Treat this screenshot as your primary "Source of Truth" for the current state. If any data in the screenshot is unclear, do not assume—ask me immediately for clarification.
+
+Your Primary Mission (The "Big 3")
+Audit & Debug: Find every single bug, broken calculation, and UI misalignment.
+
+Authenticate: Cross-verify every single displayed number against the live NSE/BSE feeds, INDICES, and F&O contract masters.
+
+Rebuild/Refine: Provide me a fully corrected, professional-grade HTML/CSS/JS page (or updated codebase) that a institutional trader would trust.
+
+Deep-Dive Audit Checklist (Execute Line-by-Line)
+1. Mathematical & Logical Integrity (Zero Tolerance for Errors)
+
+F&O Calculations: Check the Premium, Intrinsic Value, Time Value, and Breakeven points for both Call and Put options. Are they using the correct Lot Size?
+
+P&L Accuracy: Calculate the absolute P&L and % P&L for open positions. Cross-verify if they are calculating based on Average Buy Price vs Last Traded Price (LTP).
+
+Margin Calculations: Check if the displayed margin matches the SPAN + Exposure margins mandated by NSE. If you are using a generic formula (like 20% of notional), flag it immediately—we need exact.
+
+Swing Indicators: Verify the mathematical formula for RSI, Moving Averages (SMA/EMA), and VWAP. Ensure the periods (e.g., 14-day RSI, 20-day EMA) are correctly applied to the closing price and not the open or high.
+
+2. Data Authenticity & Source Cross-Verification (Critical)
+
+Live Feed vs. Snapshot: Does the data update tick-by-tick, or is it cached? Check the timestamp of the data against the actual NSE/BSE live feed.
+
+Cross-Check Index Values: Pull the current NIFTY 50 and SENSEX values from the official NSE/BSE APIs. Does the number on our site match exactly (to 2 decimal places)? If not, fix the API endpoint.
+
+Corporate Actions: Has the data accounted for upcoming dividends, stock splits, or F&O expiry rollovers? If the website shows stale "Open Interest" from yesterday's session, that is a critical bug.
+
+Fake Data Flag: If you find any static/hardcoded "dummy" numbers left over from development, eliminate them immediately and route them to the live API.
+
+3. UI/UX & Information Architecture (Professional Standards)
+
+Information Density: As a swing trader, I need high-density data (OI, Volume, Change in OI). If the current UI wastes white space on fluff, redesign it to prioritize O/I PCR (Put-Call Ratio) and Max Pain levels prominently.
+
+Color Psychology: Ensure standard market conventions are strictly followed: Green for Buy/Up and Red for Sell/Down (not the other way around). Ensure the color contrast is accessible for long screening sessions.
+
+Missing Data: Identify what is missing. Does the dashboard show PCR? Max Pain? Gann Square levels? 52-Week High/Low? If not, these need to be added.
+
+4. What to Add, Eliminate, and Improve
+
+Add: A real-time "Market Heatmap" or a "Top Gainers/Losers by OI" scanner.
+
+Eliminate: Remove all unnecessary animations, heavy image files, or third-party trackers that slow down the DOM rendering during market hours.
+
+Improve: The responsiveness of the order entry box. If I am swing trading, I need the SL (Stop Loss) and Target to auto-populate based on ATR (Average True Range) with a single click.
+
+Your Technical Deliverables (The Output)
+The Bug Report: A detailed Excel/Sheet or Markdown file listing every bug found, its severity (Critical/High/Medium/Low), and the root cause.
+
+The Fixes: Corrected mathematical formulas and API integration logic.
+
+The New UI: Provide a fully functional, standalone HTML page (with embedded CSS and JS) that reflects all the corrections. This must be a pixel-perfect, professional "Quant-Grade" dashboard.
+
+Source Authenticity Log: A log of the live URLs/APIs (from NSE/BSE/MCX) you used to verify the data, so I can audit the audit.
+
+Execution Mandate
+Do not give me a half-baked "it looks okay" response.
+
+If you are unsure about a specific F&O multiplier (e.g., lot size of BANKNIFTY vs. FINNIFTY), look it up in the official NSE Contract Master before writing the code.
+
+Timeline: Treat this with the urgency of a production outage during a volatile market opening.
+
+Action Step for You: Attach the screenshot of the current website to your reply, walk me through your initial findings in the first 2 hours, and then commence the full rework.
+
