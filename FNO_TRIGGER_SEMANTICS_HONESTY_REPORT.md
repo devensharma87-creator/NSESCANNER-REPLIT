@@ -1,6 +1,6 @@
 # P0-3 — F&O Signal Card Wording vs Lifecycle Trigger Semantics Audit
 
-**Status: FIXED — 2026-07-08**
+**Status: `FNO_TRIGGER_WORDING_SEMANTICS_PROD_VERIFIED` — 2026-07-08**
 **Decision: OPTION B — Keep touch execution; fix ALL wording to match.**
 
 ---
@@ -154,3 +154,87 @@ typecheck                               clean
 | `CLOSE_CONFIRMED` trigger type | NOT IMPLEMENTED | No current setup uses close-confirmation; field exists for future setups |
 | Frontend signal card UI | NO CHANGE NEEDED | Card displays `entryTrigger` string directly — updated text propagates automatically |
 | Telegram alert formatting | NO CHANGE NEEDED | Alert text uses `entryTrigger` field from DB — updated text propagates on next signal cycle |
+
+---
+
+## 9. Production Verification — 2026-07-08
+
+### Part A — Fresh Deploy Proof
+
+| Check | Value | Status |
+|---|---|---|
+| HTTP 200 `/api/build-info` | 200 | ✓ PASS |
+| `commitShort` | `eb09789d` (P0-3 commit) | ✓ PASS |
+| `buildTime` | `2026-07-08T06:52:48.645Z` | ✓ PASS |
+| `bootTime` | `2026-07-08T06:54:45.881Z` | ✓ PASS |
+| `environment` | `production` | ✓ PASS |
+| All 7 checkpoint markers | all `true` | ✓ PASS |
+| Secrets exposed | none | ✓ PASS |
+
+`verify:release`: **11 PASS | 0 WARN | 0 FAIL**. New bundle `index-BI-foe_a.js` (not stale). One known INFO: `API_KNOWN_FRONTEND_UNKNOWN` (frontend bundle hash not embedded — documented).
+
+### Part B — Production Semantics Proof
+
+`/api/options/signals` requires `requireSubscriberOrOwner("FNO")` — not anonymously accessible. Source scan + unit tests provide the proof:
+
+| Area | Expected | Result | Verdict |
+|---|---|---|---|
+| Card wording (`optionSignals.ts`) | No `"15-min close"` in any `entryTrigger` string | ZERO matches in full grep | ✓ PASS |
+| `triggerSemantics` field | Present on every emitted `OptionSignal` | `toSignal()` emits `triggerSemantics: "TOUCH_OR_TICK"` on all 10 setups | ✓ PASS |
+| CALL trigger lifecycle | `hi >= entry` (touch, not close) | `evaluateTransition` unchanged — confirmed by 4 dedicated unit tests | ✓ PASS |
+| PUT trigger lifecycle | `lo <= entry` (touch, not close) | `evaluateTransition` unchanged — confirmed by 4 dedicated unit tests | ✓ PASS |
+| OpenAPI/schema | `triggerSemantics` enum field present | Zod schema test (`D1`) verifies field present in `GetOptionSignalsResponse` | ✓ PASS |
+| Setup explanation text | `"Spot touches/crosses above ₹23,050"` | `setupExplanation.test.ts` 11/11 pass with updated fixture | ✓ PASS |
+
+### Part C — Source Scan Results
+
+| File | Remaining Text | Executed Trigger? | Acceptable? | Action |
+|---|---|---|---|---|
+| `optionSignals.ts` | NONE | — | ✓ | All fixed |
+| `optionSignalLifecycle.ts` | NONE | — | ✓ | Not applicable |
+| `tradeSetups.ts:93` | `"15-min close below strong support S2…"` | No — invalidation guidance text | ✓ Yes | Out of scope; human-readable analysis |
+| `tradeSetups.ts:108` | `"15-min close above strong resistance R2…"` | No — guidance text | ✓ Yes | Out of scope |
+| `tradeSetups.ts:122` | `"A decisive 15-min close above R1…"` | No — guidance text | ✓ Yes | Out of scope |
+| `compositeBias.ts:307` | `"A decisive 15-min close below…"` | No — bias narrative | ✓ Yes | Out of scope |
+| `liveBias.ts:28` | `/** Last 15-min close. */` | No — JSDoc comment on a data field | ✓ Yes | Out of scope |
+| `preMarket.ts:763-813` | 8 instances in pre-market trade plan builder | No — report guidance text for human traders | ✓ Yes | Out of scope (pre-market human text, not engine-executed) |
+
+### Part D — Regression Checks
+
+| Check | Status |
+|---|---|
+| Release Integrity (`verify:release`) | ✓ PASS — 11/11 |
+| F&O Cost Model Unification (`fnoCostModelUnification.test.ts`) | ✓ PASS |
+| FNO Cost Model Guard (`fnoCostModelGuard.test.ts`) | ✓ PASS |
+| Provider import guard | ✓ PASS — 26/26 |
+| Paper auto-trader isolation (dev=read-only) | ✓ PASS — production `autoTradingEnabled=true` (paper only, expected) |
+| Broker (real Kite) order execution | ✓ DISABLED — no real order placement path in codebase |
+| No real orders placed | ✓ CONFIRMED |
+| No Telegram spam | ✓ CONFIRMED — no strategy/signal change |
+| No strategy/threshold changes | ✓ CONFIRMED — zero logic changes |
+| No destructive migration | ✓ CONFIRMED — no DB changes in P0-3 |
+| Stale/report-grade data driving trades | ✓ BLOCKED — signal gate architecture unchanged |
+
+### Part E — Test Results
+
+| Suite | Files | Tests | Status |
+|---|---|---|---|
+| P0-3 core (`triggerSemantics` + `zeroVolume`) | 2 | 24 | ✓ PASS |
+| Scanner (`setupExplanation` + 34 others) | 35 | 770 | ✓ PASS |
+| FNO cost + risk guards + exit decision | 6 | 129 | ✓ PASS |
+| FNO signals + observability + lifecycle | 6 | 176 | ✓ PASS |
+| Paper account + trading chunk 1 | 8 | 50 | ✓ PASS |
+| Paper trading chunk 2 | 6 | 59 | ✓ PASS |
+| Provider import guard + provenance | 2 | 26 | ✓ PASS |
+| Routes chunk 1 (auth + portfolio) | 8 | 169 | ✓ PASS |
+| Routes chunk 2 (backtest + monitoring) | 9 | 80 | ✓ PASS |
+| **Total** | **82** | **1,483** | **✓ ALL PASS** |
+
+`pnpm run typecheck` — clean (api-server + scanner + global + mockup-sandbox + scripts)  
+`pnpm --filter @workspace/scripts run index:llm:check` — 349 tracked files, 0 stale
+
+### Final Verdict
+
+**`FNO_TRIGGER_WORDING_SEMANTICS_PROD_VERIFIED`**
+
+Production commit `eb09789d` is live. All `entryTrigger` strings now honestly represent touch/wick execution semantics. `triggerSemantics: "TOUCH_OR_TICK"` field is present on every emitted `OptionSignal`. Lifecycle trigger logic (`hi >= entry` / `lo <= entry`) is unchanged. All 1,483 tested assertions pass. No regressions. No broker execution. No destructive changes.

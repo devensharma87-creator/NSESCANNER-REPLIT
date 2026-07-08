@@ -3,7 +3,7 @@
 This report tracks the P0 canonical-data initiative checkpoint-by-checkpoint. Each checkpoint
 section below is self-contained; earlier checkpoints are not re-litigated in later sections.
 
-**P0-3 Fix (2026-07-08):** Signal card wording vs lifecycle trigger semantics. All 10 `entryTrigger` strings in `optionSignals.ts` changed from `"15-min close > ₹X"` to `"Spot touches/crosses above/below ₹X (touch trigger)"`. Matches `evaluateTransition()`'s actual `hi >= entry` / `lo <= entry` touch semantics. New `triggerSemantics: "TOUCH_OR_TICK"` field on `OptionSignal` (OpenAPI + codegen). See `FNO_TRIGGER_SEMANTICS_HONESTY_REPORT.md`.
+**P0-3 Fix (2026-07-08) — `FNO_TRIGGER_WORDING_SEMANTICS_PROD_VERIFIED`:** Signal card wording vs lifecycle trigger semantics. All 10 `entryTrigger` strings in `optionSignals.ts` changed from `"15-min close > ₹X"` to `"Spot touches/crosses above/below ₹X (touch trigger)"`. Matches `evaluateTransition()`'s actual `hi >= entry` / `lo <= entry` touch semantics. New `triggerSemantics: "TOUCH_OR_TICK"` field on `OptionSignal` (OpenAPI + codegen). Production commit `eb09789d` verified 2026-07-08. 1,483 tests pass. See `FNO_TRIGGER_SEMANTICS_HONESTY_REPORT.md`.
 
 ---
 

@@ -3754,9 +3754,22 @@
     "hash": "827399cfcab867f7"
   },
   {
+    "path": "artifacts/api-server/src/lib/optionSignals.triggerSemantics.test.ts",
+    "purpose": "test",
+    "lines": 255,
+    "exports": [],
+    "externalImports": [
+      "vitest",
+      "node:fs",
+      "node:path"
+    ],
+    "routes": [],
+    "hash": "e640a00db9dc1952"
+  },
+  {
     "path": "artifacts/api-server/src/lib/optionSignals.ts",
     "purpose": "fno-engine",
-    "lines": 2998,
+    "lines": 3003,
     "exports": [
       "IndexCfg",
       "OPTION_INDICES",
@@ -3769,7 +3782,7 @@
       "@workspace/api-zod"
     ],
     "routes": [],
-    "hash": "77da3c6774345da3"
+    "hash": "f2ac3c53246706a2"
   },
   {
     "path": "artifacts/api-server/src/lib/optionSignals.vwapLabel.test.ts",
@@ -7803,7 +7816,7 @@
       "@workspace/api-client-react"
     ],
     "routes": [],
-    "hash": "e9968e53a5d2b188"
+    "hash": "3b3c1f3a08ed3d8c"
   },
   {
     "path": "artifacts/scanner/src/lib/setupExplanation.ts",

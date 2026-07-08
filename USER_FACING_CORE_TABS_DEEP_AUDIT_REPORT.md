@@ -4,7 +4,7 @@
 **Audit type:** READ-ONLY — zero code changes, zero trading-logic changes  
 **Release baseline:** `RELEASE_INTEGRITY_PROD_VERIFIED` (verify:release 12/12 green, bundle `index-CzoS8YJQ.js`)  
 **Commit audited:** `544dfefc`
-**P0-3 Fix (2026-07-08):** Signal card wording vs lifecycle trigger semantics — all `entryTrigger` strings on F&O signal cards changed from `"15-min close > ₹X"` to `"Spot touches/crosses above/below ₹X (touch trigger)"`. Matches the actual `evaluateTransition()` bar-high/low touch execution. New `triggerSemantics: "TOUCH_OR_TICK"` OpenAPI field. See `FNO_TRIGGER_SEMANTICS_HONESTY_REPORT.md`.
+**P0-3 Fix (2026-07-08) — `FNO_TRIGGER_WORDING_SEMANTICS_PROD_VERIFIED`:** Signal card wording vs lifecycle trigger semantics — all `entryTrigger` strings on F&O signal cards changed from `"15-min close > ₹X"` to `"Spot touches/crosses above/below ₹X (touch trigger)"`. Matches the actual `evaluateTransition()` bar-high/low touch execution. New `triggerSemantics: "TOUCH_OR_TICK"` OpenAPI field. Production commit `eb09789d` verified 2026-07-08. See `FNO_TRIGGER_SEMANTICS_HONESTY_REPORT.md`.
 
 ---
 

@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-07T16:05:24.839Z",
+  "generatedAt": "2026-07-08T06:59:57.362Z",
   "generatorVersion": "1.0.0",
   "files": {
     "artifacts/api-server/src/routes/admin.ts": {
@@ -853,9 +853,9 @@
       "mtime": "2026-05-06T14:27:23.697Z"
     },
     "artifacts/api-server/src/lib/optionSignals.ts": {
-      "hash": "77da3c6774345da3",
-      "lines": 2998,
-      "mtime": "2026-07-07T14:55:22.190Z"
+      "hash": "f2ac3c53246706a2",
+      "lines": 3003,
+      "mtime": "2026-07-08T05:48:32.010Z"
     },
     "artifacts/api-server/src/lib/optionSnapshotAnalytics.ts": {
       "hash": "6f46087c9cd95893",
@@ -1323,9 +1323,9 @@
       "mtime": "2026-06-05T12:55:17.075Z"
     },
     "lib/api-spec/openapi.yaml": {
-      "hash": "5ade6b2af342a8e1",
-      "lines": 6890,
-      "mtime": "2026-07-07T14:56:07.210Z"
+      "hash": "9491e72354b9e0f8",
+      "lines": 6894,
+      "mtime": "2026-07-08T05:48:37.250Z"
     },
     "artifacts/scanner/src/pages/admin.tsx": {
       "hash": "4a6ea1da8bb56b02",
