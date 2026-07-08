@@ -1,0 +1,1266 @@
+You are acting as a senior full-stack auditor, professional Indian market analyst, F&O trader, swing trader, quant logic reviewer, and production-grade trading-system architect.
+
+Website to audit:
+
+https://marketscannerbydev.in
+
+Reference file to read first:
+
+MARKET_SCANNER_INDEPENDENT_DEEP_AUDIT_2026-07-07.md
+
+Your task is to perform a complete, independent, professional-grade, end-to-end deep audit of my entire trading website, codebase, production behaviour, data flow, trading logic, F&O signalling system, paper trading engine, swing trading engine, backtest engine, reports, calculations, maths, charges, data integration, UI tabs, API routes, database writes, and all displayed values.
+
+Do not miss anything.
+
+This is not a surface-level UI audit. This must be a deep professional audit like a real trading-system due diligence report.
+
+You must audit every tab, every line item, every visible number, every formula, every calculation, every data source, every API integration, every backend route, every frontend component, every database table involved, every scheduled job, every signal-generation path, every trade-entry path, every trade-exit path, every report, and every place where the website claims something to the user.
+
+You must verify whether the website is telling the truth.
+
+Your final output must be a detailed file named:
+
+FULL_MARKET_SCANNER_DEEP_AUDIT_REPORT_2026-07-07.md
+
+Do not modify code unless I separately approve fixes. This task is audit-only.
+
+============================================================
+PRIMARY OBJECTIVE
+=================
+
+Audit the full platform from the perspective of:
+
+1. Professional F&O trader
+2. Professional swing trader
+3. Professional Indian market analyst
+4. Data-quality auditor
+5. Quant logic reviewer
+6. Full-stack production engineer
+7. Risk manager
+8. Compliance/source-honesty reviewer
+9. Product/UI reviewer
+10. Paper-trading and backtesting realism reviewer
+
+The audit must answer:
+
+1. What is correct?
+2. What is wrong?
+3. What is fake, synthetic, stale, misleading, suspicious, or overclaimed?
+4. What calculations are wrong?
+5. What numbers are being displayed without proper source honesty?
+6. What maths needs to be corrected?
+7. What F&O signal logic is weak, broken, misleading, or non-professional?
+8. What paper trades were triggered correctly or incorrectly?
+9. What swing logic is correct or weak?
+10. What is missing from a professional trading website?
+11. What needs to be improved immediately?
+12. What should be added next?
+13. What must not be trusted until fixed?
+14. What are the P0, P1, P2 priorities?
+15. Whether the platform is safe for paper-trading only, semi-automated trading, or eventual live trading.
+
+============================================================
+MANDATORY REFERENCE FILE HANDLING
+=================================
+
+Before starting, read the reference audit file:
+
+MARKET_SCANNER_INDEPENDENT_DEEP_AUDIT_2026-07-07.md
+
+Do not blindly copy it.
+
+Use it as a reference baseline, then independently verify everything again from the current codebase, production behaviour, website UI, backend APIs, database state, and logs.
+
+The reference file has already flagged important issues, including but not limited to:
+
+1. Multiple contradictory F&O cost models.
+2. STT / exchange charge mismatch in Paper Reports and Backtest Replay.
+3. F&O signal VWAP not being true VWAP for NIFTY / BANKNIFTY / SENSEX because index candles may carry zero volume.
+4. Volume breakout detector potentially being dead for indices.
+5. Mean reversion detector being near-impossible if VWAP degenerates to HLC3.
+6. Trigger wording saying “15-min close above/below” but lifecycle entering on touch/wick.
+7. MACD signal-line warm-up issue.
+8. Frozen-premium settlement realism gap.
+9. Gross-vs-net P&L visibility issue.
+10. Equity sizing being capital-slot based instead of risk-based.
+11. Need to verify Kite OI units.
+12. Need to compare suppressed reason distribution and setup emissions.
+13. Need to verify if futures-volume VWAP is only used in charting and not in signal engine.
+
+You must verify whether these are still true in the current repo and production.
+
+For each reference finding, mark:
+
+* CONFIRMED
+* FIXED
+* PARTIALLY FIXED
+* NOT FOUND
+* NEEDS LIVE DATA VERIFICATION
+* NEW CONTRADICTION FOUND
+
+============================================================
+AUDIT RULES
+===========
+
+Follow these rules strictly:
+
+1. Audit only. Do not change code.
+2. Do not assume anything is correct because comments say so.
+3. Do not assume frontend numbers are correct; trace them back to backend, DB, source, and formula.
+4. Do not assume backend numbers are correct; verify formula, units, timestamps, source, fallback, and null handling.
+5. Do not assume paper-trade P&L is realistic; verify entry premium, exit premium, charges, slippage, freeze quantity, liquidity, stop logic, and timing.
+6. Do not trust synthetic or fallback data unless it is clearly labelled as synthetic.
+7. Do not allow Yahoo or any delayed/free source to silently drive live trading signals.
+8. Do not allow fake freshness.
+9. Do not allow stale option-chain data to open trades.
+10. Do not allow Info Only / Baseline signals to open real or paper trades unless explicitly intended and labelled.
+11. Do not allow any “professional” label unless the calculation is actually professional.
+12. Do not mark anything PASS without evidence.
+13. Do not mark anything FAIL without explaining exact reason, file, function, route, tab, and impact.
+14. Where exact production data is unavailable, clearly mark it as “requires production DB/API verification”.
+15. Every finding must include evidence.
+
+============================================================
+SCOPE — AUDIT EVERYTHING
+========================
+
+Audit all visible tabs and routes, including but not limited to:
+
+1. Home / Market Pulse
+2. Scanner
+3. Deep Scan
+4. Stock Detail Pages
+5. Watchlist
+6. Portfolio Analyser
+7. Indices
+8. Sectors
+9. Flows
+10. Option Chain
+11. OI Lab
+12. F&O Cockpit / Options
+13. F&O Diagnostics
+14. Paper Trading
+15. Paper Reports
+16. Backtest Lab
+17. Strategies
+18. Strategy Builder
+19. Swing Cash
+20. Swing Scanner
+21. Stocks to Watch
+22. Pre-Market
+23. Daily Analysis
+24. Charting
+25. News
+26. Learn
+27. Legal
+28. Kite / Broker Connection
+29. Audit
+30. Status
+31. Admin
+32. Infra / Health
+33. Manifesto / Owner-only pages
+34. Any hidden route or API route used by these tabs
+35. Any scheduler, cron job, worker, DB job, or background calculation feeding these tabs
+
+If the app has more routes than this list, include those also.
+
+============================================================
+PART 1 — WEBSITE UI / TAB-WISE AUDIT
+====================================
+
+For every tab, open and inspect the actual production website.
+
+For each tab, create a table with:
+
+1. Tab name
+2. URL path
+3. Purpose of tab
+4. All major line items displayed
+5. Source of each displayed number
+6. Backend route/API used
+7. Database table used, if any
+8. Whether values are live, delayed, cached, modelled, synthetic, or unknown
+9. Whether source label is visible to user
+10. Whether freshness/as-of timestamp is visible
+11. Whether calculation is backend-derived or frontend-derived
+12. Whether any value looks fake, stale, rounded, hardcoded, or suspicious
+13. What is right
+14. What is wrong
+15. What is missing
+16. Improvement required
+17. Priority: P0 / P1 / P2 / P3
+18. Trading impact
+19. User-trust impact
+
+Specially check:
+
+* Does UI show stale data as live?
+* Does UI show synthetic values as actual?
+* Does UI show Yahoo or proxy data as official?
+* Does UI show paper P&L gross while user may assume net?
+* Does UI hide charges?
+* Does UI show trade confidence without proper reason?
+* Does UI show VWAP, PCR, OI, GEX, Max Pain, IV, ADX, ATR, RSI, MACD, breakout, support/resistance correctly?
+* Does UI show the same number consistently across tabs?
+* Are same symbols showing different prices on different tabs?
+* Are same index levels showing differently across Home, Charting, Option Chain, F&O, Scanner, and Pre-Market?
+* Is there any mismatch between card wording and actual execution logic?
+
+============================================================
+PART 2 — DATA SOURCE AND INTEGRATION AUDIT
+==========================================
+
+Trace every data source used in the platform.
+
+Cover:
+
+1. Kite API
+2. NSE
+3. BSE
+4. Yahoo
+5. IndianAPI or any fundamental provider
+6. Any cached DB table
+7. Any fallback layer
+8. Any static JSON
+9. Any synthetic/modelled layer
+10. Any manually seeded data
+11. Any delayed bhavcopy
+12. Any proxy index/global source
+13. Any option-chain source
+14. Any instrument master source
+15. Any corporate actions/fundamentals/news source
+
+For each source, verify:
+
+1. Where it is used
+2. Whether it is allowed for that use
+3. Whether it can drive trading decisions
+4. Whether it can drive paper-trading opens
+5. Whether it can drive exits
+6. Whether it can overwrite Kite data
+7. Whether it is labelled correctly
+8. Whether timestamp/as-of is stored
+9. Whether source provenance is stored
+10. Whether stale data is blocked
+11. Whether fallback is honest
+12. Whether cache can become stale
+13. Whether API failure leads to fake values
+14. Whether null handling is fail-closed or fake-filled
+15. Whether production and dev behaviour differ
+
+Important policy:
+
+* Kite must be priority source for live prices and trading.
+* Yahoo must not silently drive live equity/F&O prices or trade signals.
+* Synthetic/modelled values must be visibly labelled.
+* Stale values must not be shown as live.
+* Missing data must be shown honestly as missing, not fabricated.
+
+Create a data-source matrix:
+
+Column format:
+
+Data Point | Tab | API Route | Backend Function | Source | Fallback | Cache | Freshness Rule | Can Drive Signal? | Can Open Trade? | Can Close Trade? | Label Visible? | Verdict | Fix Required
+
+============================================================
+PART 3 — F&O SIGNALLING ENGINE AUDIT
+====================================
+
+Do a deep audit of the complete F&O signalling methodology.
+
+Cover at minimum:
+
+1. Signal generation flow
+2. Candidate creation
+3. Detector logic
+4. Baseline logic
+5. High-conviction logic
+6. Info-only logic
+7. Watchlist setup logic
+8. Trigger logic
+9. Gate logic
+10. Veto logic
+11. Demotion logic
+12. Confidence scoring
+13. Trend continuation logic
+14. VWAP reclaim logic
+15. Mean reversion logic
+16. Volume breakout logic
+17. Breakout logic
+18. Momentum logic
+19. Recovery veto
+20. Chase veto
+21. Bias flip cooldown
+22. Expiry-day logic
+23. Opening noise window
+24. Closing cutoff
+25. VIX spike handling
+26. Correlation suppression
+27. Daily HTF trend filter
+28. 1-hour aggregation
+29. RS vs NIFTY
+30. ATR usage
+31. VWAP usage
+32. Volume usage
+33. Option chain confirmation
+34. PCR confirmation
+35. OI buildup confirmation
+36. Liquidity gates
+37. Spread gates
+38. Premium trust gates
+39. Tradeability assertion
+40. Paper-trade open eligibility
+41. Signal-to-trade conversion
+42. Suppressed reason logging
+43. Setup expiry
+44. Signal lifecycle
+
+You must answer:
+
+1. Is the methodology professional?
+2. Is it mathematically correct?
+3. Is each detector truly doing what its label says?
+4. Are any detectors dead in production?
+5. Are any detectors impossible to fire?
+6. Are any detectors over-weighted?
+7. Are any signals just candle-shape checks but labelled as VWAP/session logic?
+8. Are confidence scores meaningful?
+9. Is the system overfitted?
+10. Are signals being generated from authentic data?
+11. Are signals blocked when source is stale?
+12. Are signal cards honest?
+13. Are trigger levels realistic?
+14. Are stop-loss and targets professionally structured?
+15. Are T1/T2/SL distances mathematically valid?
+16. Are RR ratios calculated correctly?
+17. Are strike selections correct?
+18. Are option premiums authentic or projected?
+19. Are Greeks authentic or fallback?
+20. Does paper-trade execution match the signal wording?
+
+Mandatory verification from reference audit:
+
+* Verify if index candles carry zero volume.
+* Verify if sessionVwap returns HLC3 when volume is zero.
+* Verify if effective VWAP is actually current bar HLC3 for NIFTY/BANKNIFTY/SENSEX.
+* Verify if TREND_CONTINUATION “spot above VWAP” is actually only “close in upper half of current candle”.
+* Verify if VWAP_RECLAIM is actually a candle reversal pattern due to fake VWAP.
+* Verify if MEAN_REVERSION is near-impossible due to VWAP degeneration.
+* Verify if VOLUME_BREAKOUT can ever fire for indices.
+* Verify if futures-volume VWAP exists only for Charting and does not feed signal engine.
+* Verify if the signal card says “15-min close above/below” while lifecycle enters on touch/high/low.
+
+Output a detector-wise table:
+
+Detector | Intended Logic | Actual Logic | Data Used | Volume/VWAP Dependency | Can Fire in Production? | Professional Validity | Issue | Trading Impact | Fix
+
+============================================================
+PART 4 — F&O TRADING / PAPER TRADE AUDIT
+========================================
+
+Audit complete F&O paper-trading path:
+
+1. Signal emitted
+2. Signal stored
+3. Signal card displayed
+4. Setup becomes pending
+5. Trigger condition checked
+6. Entry created
+7. Premium chosen
+8. Option contract selected
+9. Lot size calculated
+10. Capital deployed
+11. Risk calculated
+12. Stop loss calculated
+13. Target 1 calculated
+14. Target 2 calculated
+15. Charges estimated
+16. Account balance debited
+17. Open trade stored
+18. MTM updated
+19. Exit monitored
+20. Stop/target/time exit triggered
+21. Exit premium chosen
+22. Realized P&L calculated
+23. Charges calculated
+24. Net P&L calculated
+25. Reports updated
+26. Account updated
+27. Trade lifecycle archived
+28. Dashboard/report displayed
+
+Verify:
+
+1. Paper trade opens only for allowed signal tiers.
+2. Info-only signals do not open trades unless intended.
+3. Baseline signals do not open trades unless intended.
+4. Trade opens are idempotent.
+5. Duplicate trades are prevented.
+6. Account lock is transaction-safe.
+7. Balance check works.
+8. Risk heat works.
+9. Daily drawdown cap works.
+10. Weekly drawdown cap works.
+11. Consecutive-stop rule works.
+12. Liquidity gate works.
+13. OI gate works.
+14. Spread gate works.
+15. Premium trust gate works.
+16. Exit trust gate works.
+17. Stop-first same-bar logic is documented.
+18. 15:20 force-exit works.
+19. Orphan reconciliation works.
+20. MTM does not create fake realized P&L.
+21. Exit monitor health is visible.
+
+Specially audit:
+
+* Are paper trades filled on touch while card says close confirmation?
+* Are entries realistic or too optimistic?
+* Are stops realistic or too optimistic?
+* Are exits using locked projected premium instead of market option LTP?
+* Are charges correct?
+* Is gross P&L shown where net P&L should be shown?
+* Does account balance reflect charges?
+* Are reports using same charge model as trading tab?
+* Is backtest using same charge model as paper trading?
+* Are there contradictory charge models?
+
+Create trade lifecycle diagram in text form.
+
+Create issue table:
+
+Area | Expected Professional Behaviour | Actual Behaviour | Evidence | Risk | Fix
+
+============================================================
+PART 5 — F&O COST, CHARGES, TAX AND NET P&L AUDIT
+=================================================
+
+Audit all F&O cost models.
+
+Find every place where charges are calculated.
+
+Specifically search for:
+
+1. STT
+2. Exchange transaction charge
+3. SEBI fee
+4. Stamp duty
+5. GST
+6. Brokerage
+7. Clearing charges
+8. IPFT
+9. Options sell STT
+10. Futures STT
+11. Exercise STT
+12. Equity delivery STT
+13. Intraday equity charges
+14. DP charges
+15. Backtest cost model
+16. Paper report cost model
+17. Shadow cost model
+18. Account balance gross/net logic
+
+Mandatory reference checks:
+
+* Verify if fnoCostModel.ts has correct FY 2026-27 rates.
+* Verify if paperReportsFO.ts uses stale 0.10% STT.
+* Verify if premiumReplay.ts uses wrong 0.05% STT and wrong exchange rate.
+* Verify if backtestCharges.ts imports canonical model correctly.
+* Verify if Paper Reports net P&L is overstated.
+* Verify if Stage-4 replay net P&L is understated or distorted.
+* Verify if there are three contradictory F&O charge models.
+* Verify if all charge consumers can be unified into one canonical model.
+
+Output:
+
+1. Charge model comparison table
+2. Statutory accuracy verdict
+3. P&L distortion estimate
+4. Exact files/functions requiring fix
+5. Regression tests required
+
+Do not guess rates. If live statutory rates need verification, mark with source required.
+
+============================================================
+PART 6 — BACKTEST LAB AUDIT
+===========================
+
+Audit Backtest Lab fully.
+
+Cover:
+
+1. Pricing modes
+2. Synthetic premium logic
+3. Black-Scholes mode
+4. Real premium replay
+5. Stage 1/2/3/4 logic
+6. Data coverage
+7. Blank-stays-blank export
+8. Modelled-field flags
+9. Tolerance rules
+10. Historical candle source
+11. Option-chain historical source
+12. Charges
+13. Slippage
+14. Spread
+15. Strike selection
+16. Delta assumptions
+17. Theta/IV limitations
+18. Entry/exit logic
+19. Stop/target logic
+20. Export columns
+21. Result summaries
+22. Win rate
+23. Expectancy
+24. Drawdown
+25. Net P&L
+26. Gross P&L
+27. Report honesty
+
+Answer:
+
+1. Can backtest results be trusted?
+2. Which mode is realistic?
+3. Which mode is only directional?
+4. Are costs correct?
+5. Is premium replay truly using real premium?
+6. Are missing premiums handled honestly?
+7. Are synthetic values labelled?
+8. Is backtest over-optimistic?
+9. Is it safe to use for strategy validation?
+10. What needs fixing before drawing conclusions?
+
+============================================================
+PART 7 — SWING TRADING ENGINE AUDIT
+===================================
+
+Audit swing trading logic end-to-end.
+
+Cover:
+
+1. Swing scanner
+2. Stocks to Watch
+3. Swing Cash
+4. Deep Scan integration
+5. Stock detail integration
+6. Technical indicators
+7. Entry logic
+8. Stop logic
+9. Target logic
+10. RR calculation
+11. Risk sizing
+12. TTL / expiry
+13. Stale setup handling
+14. Chase detection
+15. Too-close detection
+16. Gap risk
+17. ATR logic
+18. ADX logic
+19. RSI logic
+20. MACD logic
+21. EMA/SMA logic
+22. Breakout logic
+23. Volume logic
+24. Sector/benchmark confirmation
+25. Market regime filter
+26. Liquidity filter
+27. Corporate action handling
+28. Circuit filter
+29. News/event risk
+30. Portfolio sizing
+31. Paper trade integration, if any
+
+Specially verify:
+
+* Is swing sizing risk-based or capital-slot based?
+* Are equity paper trades using same risk discipline as swing cash?
+* Is ATR EMA or Wilder RMA?
+* Is MACD warm-up correct?
+* Do new listings get distorted indicators?
+* Is volume authentic?
+* Is delivery/price source authentic?
+* Is any Yahoo/fallback used silently?
+* Are stops professionally placed?
+* Are targets reasonable?
+* Is RR shown correctly?
+* Is cash deployment realistic?
+
+Output a swing-engine verdict:
+
+Professional readiness:
+
+* Not ready
+* Basic
+* Intermediate
+* Professional after fixes
+
+Explain why.
+
+============================================================
+PART 8 — SCANNER / DEEP SCAN / STOCK DETAIL AUDIT
+=================================================
+
+Audit scanner and stock pages.
+
+Cover:
+
+1. Universe coverage
+2. Full NSE/BSE coverage
+3. Curated list limitation
+4. Cached row limitation
+5. Symbol resolver
+6. Alias resolver
+7. NSE/BSE symbol mapping
+8. Instrument master integration
+9. Missing symbols
+10. Price freshness
+11. Fundamentals freshness
+12. Ratios
+13. Financial statements
+14. Corporate actions
+15. Shareholding
+16. News
+17. Analyst targets
+18. Technical scan
+19. Deep scan score
+20. Recommendation logic
+21. Buy/sell/hold labels
+22. Swing readiness
+23. Risk rating
+24. Sector comparison
+25. Benchmark comparison
+26. Data source label
+27. Missing value handling
+
+Check whether:
+
+* Scanner rows are incomplete or partial.
+* Website clearly labels partial coverage.
+* Any rows are stale.
+* Any stock data is missing but UI hides it.
+* Any score is calculated using missing values.
+* Any recommendation is generated without enough data.
+* Any fake analyst/fundamental data appears.
+* Symbol search uses full instrument master.
+* Portfolio and charting use same resolver.
+
+============================================================
+PART 9 — OPTION CHAIN / OI LAB AUDIT
+====================================
+
+Audit Option Chain and OI Lab.
+
+Cover:
+
+1. Spot source
+2. Expiry selection
+3. Strike list
+4. CE/PE data
+5. LTP
+6. OI
+7. OI change
+8. Volume
+9. IV
+10. Greeks
+11. PCR
+12. Max Pain
+13. GEX
+14. Support/resistance
+15. Buildup classification
+16. Writer/Buyer interpretation
+17. Sentiment score
+18. Freshness
+19. Missing strike handling
+20. Stale option-chain handling
+21. OI units
+22. Lot-size multiplication
+23. Rupee notional calculation
+24. Display consistency
+25. Signal-engine usage
+
+Mandatory check:
+
+* Verify Kite OI unit assumption.
+* Compare one liquid strike’s Kite OI against NSE OI.
+* Determine whether q.oi is contracts/lots or units.
+* If units are wrong, quantify impact on GEX and OI notional.
+
+Output:
+
+OI Field | Assumed Unit | Actual Unit | Evidence | Impact | Fix
+
+============================================================
+PART 10 — CHARTING AUDIT
+========================
+
+Audit charting fully.
+
+Cover:
+
+1. Candle source
+2. Intraday source
+3. Daily source
+4. Futures-volume merge
+5. VWAP calculation
+6. Indicators
+7. Timeframe handling
+8. Timezone handling
+9. TradingView/Pine compatibility
+10. Indicator import possibility
+11. Data freshness
+12. Missing candles
+13. Gaps
+14. Corporate action adjustments
+15. Index vs equity behaviour
+16. F&O chart behaviour
+17. Symbol search
+18. UI tools
+19. Drawing tools
+20. Compare mode
+21. Multi-timeframe support
+22. Indicator library
+23. Performance
+24. Lag
+25. Source labels
+
+Compare charting logic against F&O signal engine.
+
+Important question:
+
+* If Charting has proper futures-volume VWAP for indices, why is the signal engine not using the same corrected volume/VWAP path?
+
+Suggest how to unify charting and signal-engine candle/VWAP logic safely behind a flag.
+
+============================================================
+PART 11 — PORTFOLIO / WATCHLIST AUDIT
+=====================================
+
+Audit portfolio and watchlist.
+
+Cover:
+
+1. Symbol add
+2. Symbol search
+3. NSE/BSE support
+4. Alias support
+5. Price source
+6. Holding valuation
+7. Day P&L
+8. Total P&L
+9. XIRR
+10. HHI
+11. Sector allocation
+12. Stock recommendation
+13. Portfolio recommendation
+14. Benchmark comparison
+15. Missing price handling
+16. Corporate action handling
+17. Manual entry validation
+18. Delete/update holdings
+19. Cash handling
+20. Mutual funds, if any
+21. Data freshness
+22. UI alignment
+23. Mobile layout
+
+Check whether:
+
+* Portfolio values match current prices.
+* Same symbol price matches Scanner/Charting.
+* Missing prices are labelled honestly.
+* Recommendations are generated only when enough data exists.
+* NSDL/BSE symbols are handled.
+* Alias like TMCV/TMPV is handled.
+* Symbols like TRIDENT, BDL, CDSL, ARE&M, BLS, INDHOTEL resolve.
+
+============================================================
+PART 12 — PRE-MARKET / DAILY ANALYSIS / GLOBAL CUES AUDIT
+=========================================================
+
+Audit all analysis pages.
+
+Cover:
+
+1. Global indices
+2. GIFT Nifty
+3. SGX/GIFT proxy, if any
+4. US markets
+5. Asian markets
+6. Commodities
+7. USD/INR
+8. Crude
+9. Gold
+10. India VIX
+11. FII/DII
+12. Participant OI
+13. Open interest
+14. Key levels
+15. News/events
+16. Expiry/rollover
+17. Bias
+18. Trade plan
+19. Composite bias
+20. Confidence
+21. Source/freshness
+22. Synthetic/proxy labels
+
+Check:
+
+* Are global cues real or proxy?
+* Are values delayed?
+* Are timestamps shown?
+* Are any synthetic values pretending to be live?
+* Are market bias statements backed by data?
+* Are FII/DII values official and dated?
+* Are participant OI values official and dated?
+* Are option-chain levels fresh?
+* Are support/resistance levels calculated correctly?
+
+============================================================
+PART 13 — REPORTS / ANALYTICS AUDIT
+===================================
+
+Audit reporting.
+
+Cover:
+
+1. Paper Reports
+2. Trade history
+3. Daily reports
+4. Weekly reports
+5. Monthly reports
+6. Index-wise reports
+7. Strategy-wise reports
+8. Trade-wise reports
+9. Win rate
+10. Loss rate
+11. Average win
+12. Average loss
+13. Expectancy
+14. Profit factor
+15. Max drawdown
+16. Consecutive losses
+17. Gross P&L
+18. Net P&L
+19. Charges
+20. Slippage
+21. Open vs closed trade treatment
+22. MTM treatment
+23. Export accuracy
+24. Date filtering
+25. Timezone correctness
+26. Duplicate trade handling
+27. Cancelled/suppressed trade handling
+
+Check whether:
+
+* Reports match database.
+* Reports match account balance.
+* Reports match individual trade cards.
+* Charges are consistent.
+* Open trades are not counted as realized.
+* Time exit trades are classified correctly.
+* T1 partial exits are handled correctly.
+* Runner exits are handled correctly.
+* Index-wise report is accurate.
+* Date-wise report is accurate.
+* Trade-wise report is accurate.
+
+============================================================
+PART 14 — DATABASE / BACKEND / API AUDIT
+========================================
+
+Audit database and backend.
+
+Cover:
+
+1. Schema
+2. Tables
+3. Columns
+4. Indexes
+5. Constraints
+6. Trade tables
+7. Signal tables
+8. Paper account tables
+9. Report tables
+10. Candle tables
+11. Cache tables
+12. Source provenance columns
+13. Timestamps
+14. Timezone handling
+15. Transaction safety
+16. Race conditions
+17. Idempotency
+18. Error handling
+19. Null handling
+20. Retry logic
+21. Scheduler jobs
+22. Cron jobs
+23. Websocket or polling
+24. API auth
+25. Owner-only route protection
+26. Admin route protection
+27. Rate limits
+28. Logging
+29. Alerts
+30. Health checks
+31. Production vs dev mismatch
+
+Check:
+
+* Are all important writes protected?
+* Can duplicate trades be created?
+* Can balance go negative?
+* Can stale data overwrite fresh Kite data?
+* Can untrusted data overwrite trusted data?
+* Are migrations applied in prod?
+* Are there dead tables?
+* Are there unused columns?
+* Are there missing indexes?
+* Are API errors hidden from UI?
+* Are logs enough to debug live issues?
+
+============================================================
+PART 15 — MATHEMATICAL FORMULA AUDIT
+====================================
+
+Audit all formulas line-by-line.
+
+Include:
+
+1. RSI
+2. MACD
+3. ADX
+4. ATR
+5. VWAP
+6. EMA
+7. SMA
+8. Bollinger Bands
+9. Supertrend, if any
+10. Pivots
+11. Support/resistance
+12. Max Pain
+13. PCR
+14. GEX
+15. IV
+16. Black-Scholes
+17. Greeks
+18. Delta projection
+19. Premium projection
+20. Stop-loss
+21. Targets
+22. RR
+23. Position sizing
+24. Risk heat
+25. Drawdown
+26. Win rate
+27. Expectancy
+28. Profit factor
+29. XIRR
+30. HHI
+31. CAGR, if any
+32. Option premium costs
+33. Equity charges
+34. Brokerage/fees/taxes
+35. Backtest calculations
+36. Report aggregation
+
+For every formula, classify:
+
+* Correct
+* Correct but non-standard
+* Wrong
+* Stale
+* Misleading
+* Needs documentation
+* Needs empirical verification
+
+Where TradingView uses a different standard, mention it.
+
+============================================================
+PART 16 — PROFESSIONAL TRADER REVIEW
+====================================
+
+Review the platform like an experienced Indian market trader.
+
+Answer:
+
+1. Would a professional trader trust these signals?
+2. Would a professional trader use this paper P&L to judge edge?
+3. Is the F&O setup logical for NIFTY/BANKNIFTY/SENSEX?
+4. Are entries too late?
+5. Are stops too tight?
+6. Are targets realistic?
+7. Is risk properly capped?
+8. Is expiry-day risk handled?
+9. Is IV/theta risk handled?
+10. Is option liquidity handled?
+11. Is bid-ask spread handled?
+12. Is slippage handled?
+13. Is overtrading controlled?
+14. Is chop avoided?
+15. Is trend-day logic handled?
+16. Is reversal-day logic handled?
+17. Is gap-day logic handled?
+18. Is opening range logic handled?
+19. Is news-event risk handled?
+20. Is market regime handled?
+21. Does the platform separate analysis from execution clearly?
+
+Give a final readiness rating:
+
+* Analysis dashboard readiness
+* Paper trading readiness
+* Backtesting readiness
+* Swing trading readiness
+* F&O signalling readiness
+* Auto-trading readiness
+* Live trading readiness
+
+Use rating:
+
+A = production professional
+B = usable with caution
+C = needs major fixes
+D = not reliable
+F = unsafe/misleading
+
+============================================================
+PART 17 — REQUIRED OUTPUT STRUCTURE
+===================================
+
+Your final report must follow this structure:
+
+# FULL MARKET SCANNER DEEP AUDIT REPORT — 2026-07-07
+
+## 1. Executive Verdict
+
+Clear final verdict in plain language.
+
+## 2. Audit Scope
+
+List all audited tabs, APIs, files, DB areas, and trading systems.
+
+## 3. Reference Audit Cross-Check
+
+Table:
+
+Reference Finding | Current Status | Evidence | Impact | Action
+
+## 4. Highest-Risk Findings
+
+List only P0 and severe P1 issues.
+
+## 5. What Is Right
+
+Detailed list of verified correct areas.
+
+## 6. What Is Wrong
+
+Detailed list of defects.
+
+## 7. What Is Misleading / Fake / Synthetic / Stale / Overclaimed
+
+Be strict.
+
+## 8. What Is Missing
+
+Features, controls, data, labels, analytics, risk tools.
+
+## 9. Full Tab-by-Tab Audit
+
+One section for each tab.
+
+## 10. Data Source Honesty Audit
+
+Full source matrix.
+
+## 11. F&O Signalling Methodology Audit
+
+Detector-wise and lifecycle-wise.
+
+## 12. F&O Paper Trading Audit
+
+Entry, exit, risk, reports, P&L.
+
+## 13. F&O Cost Model and Charges Audit
+
+All cost models and mismatches.
+
+## 14. Backtest Lab Audit
+
+Mode-wise trust rating.
+
+## 15. Swing Trading Audit
+
+Swing system verdict.
+
+## 16. Scanner / Deep Scan / Stock Detail Audit
+
+Coverage and recommendation logic.
+
+## 17. Option Chain / OI Lab Audit
+
+OI, GEX, Max Pain, PCR, IV, Greeks.
+
+## 18. Charting Audit
+
+Candles, indicators, Pine/import gap, VWAP consistency.
+
+## 19. Portfolio / Watchlist Audit
+
+Valuation, XIRR, recommendations, symbol resolution.
+
+## 20. Pre-Market / Daily Analysis Audit
+
+Global cues, FII/DII, VIX, key levels, bias.
+
+## 21. Mathematical Formula Audit
+
+Formula-by-formula verdict.
+
+## 22. Database / API / Backend Audit
+
+DB, API, jobs, auth, logs, race conditions.
+
+## 23. Production Behaviour Audit
+
+Current live data, logs, failures, route health.
+
+## 24. Professional Trader Review
+
+Would a real trader trust this? Explain.
+
+## 25. Priority Fix Plan
+
+P0 — must fix immediately
+P1 — must fix before trusting results
+P2 — professional improvement
+P3 — later enhancement
+
+## 26. Recommended Additions
+
+What to add to make this a professional-grade Indian market platform.
+
+## 27. Tests Required
+
+Unit tests, integration tests, production verification tests, replay tests.
+
+## 28. Final Roadmap
+
+Step-by-step sequence to make the website professional and reliable.
+
+## 29. Final Verdict
+
+One-page clear conclusion.
+
+============================================================
+PART 18 — PRIORITY CLASSIFICATION
+=================================
+
+Use this priority system:
+
+P0 — Critical integrity issue. Numbers/signals/P&L cannot be trusted until fixed.
+
+P1 — Major trading-quality issue. Must fix before real confidence.
+
+P2 — Professional improvement. Needed for institutional-grade quality.
+
+P3 — Good enhancement but not urgent.
+
+For each issue include:
+
+1. Issue ID
+2. Title
+3. Severity
+4. Affected tab
+5. Affected file/function/API
+6. What is wrong
+7. Why it matters
+8. Trading impact
+9. User-trust impact
+10. Exact evidence
+11. Suggested fix
+12. Test required
+13. Priority
+
+============================================================
+PART 19 — SPECIFIC ITEMS THAT MUST NOT BE MISSED
+================================================
+
+You must specifically verify and report on:
+
+1. F&O signal VWAP issue.
+2. Volume breakout detector issue.
+3. Mean reversion detector issue.
+4. Trend continuation VWAP confidence issue.
+5. VWAP reclaim detector issue.
+6. Trigger wording vs actual paper-entry semantics.
+7. F&O charge model contradiction.
+8. Paper Reports STT correctness.
+9. Backtest Replay STT correctness.
+10. Exchange charge correctness.
+11. Gross vs net P&L.
+12. Frozen premium settlement.
+13. Market exit premium absence.
+14. Kite OI units.
+15. GEX calculation unit correctness.
+16. MACD warm-up.
+17. ATR EMA vs Wilder difference.
+18. Equity paper sizing vs swing risk sizing.
+19. NSE holiday calendar absence.
+20. Yahoo/fallback usage.
+21. Synthetic/fallback label honesty.
+22. Data freshness display.
+23. Source provenance.
+24. Trade open gate.
+25. Trade exit gate.
+26. Liquidity gate.
+27. Spread gate.
+28. OI gate.
+29. Daily/weekly loss caps.
+30. Consecutive stop circuit breaker.
+31. Paper-trade duplicate prevention.
+32. Account balance transaction safety.
+33. Backtest pricing mode honesty.
+34. Scanner partial coverage.
+35. Symbol resolver full-market coverage.
+36. Portfolio valuation consistency.
+37. Charting vs signal-engine candle/VWAP mismatch.
+38. Pre-market synthetic global cue handling.
+39. FII/DII and participant OI date/source.
+40. Report aggregation correctness.
+
+============================================================
+PART 20 — FINAL INSTRUCTION
+===========================
+
+Be brutally honest.
+
+Do not write a comforting report.
+
+If something is wrong, say it is wrong.
+
+If something is misleading, say it is misleading.
+
+If something is fake or synthetic, say it clearly.
+
+If something cannot be verified, say exactly what is needed to verify it.
+
+The goal is not to praise the website.
+
+The goal is to make this platform professional, reliable, source-honest, mathematically correct, trader-grade, and eventually safe enough for disciplined trading decisions.
+
+Final deliverable:
+
+FULL_MARKET_SCANNER_DEEP_AUDIT_REPORT_2026-07-07.md
+
+Do not skip any tab.
+Do not skip any calculation.
+Do not skip any signal logic.
+Do not skip any trade path.
+Do not skip any data source.
+Do not skip any mismatch.
+Do not change code.
+Audit first. Fix later only after approval.
