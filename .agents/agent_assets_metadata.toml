@@ -132,3 +132,21 @@ id = "73cHgFEyqkuLBKkFMOqQt"
 uri = "file://project-source.zip"
 type = "unspecified"
 title = "Full Project Source Code (all TypeScript/React source, configs, docs — 12 MB)"
+
+[[outputs]]
+id = "3ugCkHZfhEzHxcaiYo20y"
+uri = "file://scanner-source.tar.gz"
+type = "unspecified"
+title = "NSE Scanner Frontend — source code (artifacts/scanner/src)"
+
+[[outputs]]
+id = "wZyu0gmBGfNjx0C5_cafT"
+uri = "file://api-server-source.tar.gz"
+type = "unspecified"
+title = "API Server — source code (artifacts/api-server/src)"
+
+[[outputs]]
+id = "fG0NzKcp-PbRMIxJxpN_Z"
+uri = "file://docs-and-reports.tar.gz"
+type = "unspecified"
+title = "Docs, OpenAPI spec & audit reports"
