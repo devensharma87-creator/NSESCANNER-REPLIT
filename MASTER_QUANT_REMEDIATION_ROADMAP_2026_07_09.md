@@ -48,7 +48,68 @@ Duplicates are retained in the CSV and mapped via the `Duplicate Of` column — 
 
 ---
 
-## 3. P0-00 — executed this session (HARD STOP after this)
+## 3. Lane 1 — P0 Canonical Data Parity + Contract Master (executed 2026-07-09)
+
+Three bugs forensically audited and fixed. 30 new acceptance tests, 88 regression tests, full typecheck green.
+
+### BUG-1 (MQ-P0-03): MIDCAP proxy level scale mismatch — **FIXED_DEV_VERIFIED**
+
+**Root cause (confirmed)**: `^NSEMDCP50` (Nifty Midcap 50, ~17 845) was used as the daily-history proxy for `NIFTY_MID_SELECT.NS` (Nifty Midcap Select, ~14 618). The live LTP/prevClose/change% were correctly overridden by Kite (dimensionless fields were accurate), but all absolute price-level analytics — EMAs (9/20/50/100/200), floor pivots (P, S1-S3, R1-R3), 52-week high/low, and prev session OHLC — were computed on the ~17 845 proxy scale and silently shown alongside a ~14 618 live price. Gap: ~22%, well above any reasonable tolerance.
+
+**Fix**: `indicesBoard.ts` — `buildItem()` now captures `proxyPrevClose` from the daily proxy basket BEFORE the Kite live-tick override. After the override sets `item.prevClose` to the live scale, a scale guard computes `scaleGapPct = |proxyPrevClose − item.prevClose| / item.prevClose × 100`. When > 1%: all 13 level fields are set to `undefined`/empty, `proxyLevelBlocked=true` and `proxyLevelBlockReason` (machine-readable) are stamped, and a human note is pushed. Dimensionless fields (change%, VWAP, volume profile from live intraday) are intentionally preserved — they are correct.
+
+**Threshold rationale**: The two Midcap baskets co-move within ~1% under normal market conditions. Any gap > 1% indicates a structural scale mismatch, not daily divergence, and levels from the wrong scale anchor would mislead level-based trade decisions.
+
+**Contract**: `IndexBoardItem` gets `proxyLevelBlocked?: boolean` + `proxyLevelBlockReason?: string`. OpenAPI schema updated. Codegen re-run.
+
+**Tests**: 11 behavioural + structural assertions in `canonicalDataParity.test.ts`.
+
+---
+
+### BUG-2 (MQ-P0-04): F&O signal `spotChangePercent` uses open-baseline, not prevClose — **PARTIAL_FIX (server layer)**
+
+**Root cause (confirmed)**: `spotChangePercent` in every emitted `OptionSignal` was `round2(c.sessionChangePct)`, which is `(spot − open0) / open0 × 100` — the intraday session change vs today's open. Market convention displays change% vs the *previous session's close*. The two diverge every day after the open, and can differ by 1–3% on volatile sessions. This affects every F&O signal card, the option chain header, and any downstream consumer of the field.
+
+**Fix (server layer)**: `optionSignals.ts` — `Ctx` now carries `prevClose: number | null`, computed as `daily.close[dn − 2]` (consistent with the existing `pivotsR3` reference frame). At emission, two new fields are added:
+- `spotChangePctVsPrevClose` — canonical market-convention change% vs prev session close. `null` guard: only emitted when `prevClose != null && prevClose > 0`.
+- `spotPrevClose` — the prev-close value used, for transparency.
+
+`spotChangePercent` is **preserved unchanged** — it is used internally for session-momentum direction (BULLISH/BEARISH detector flip logic) and renaming it would require auditing all internal consumers. Consumers that display change% to users should migrate to `spotChangePctVsPrevClose`. The display migration is a follow-on (frontend update deferred to Lane 2 / frontend pass).
+
+**Contract**: `OptionSignal` schema updated in `openapi.yaml` with descriptive notes. Codegen re-run.
+
+**Tests**: 7 structural + semantic assertions in `canonicalDataParity.test.ts`.
+
+---
+
+### BUG-3 (MQ-P0-12, partial): Strike step static map drift risk — **PARTIAL_FIX improved**
+
+**Root cause (confirmed)**: `kiteOptionChain.ts` resolved `strikeStep` as `STRIKE_STEPS[sym] ?? inferStrikeStep(...)` — i.e., the hardcoded static map had priority over the live instrument master inference. If the exchange ever changes a strike step (historically this has happened with SENSEX and MIDCAP options), the static map wins silently.
+
+**Fix**: Inverted to instrument-master-first: `inferredStep = inferStrikeStep(rows.map(r => r.strike))`, which computes the mode of inter-strike gaps from the actual live instrument dump. When `inferredStep > 0 && Number.isFinite(inferredStep)`, it wins and `strikeStepSource = "instrument_master"`. The static map is now a fallback (`strikeStepSource = "static_map_fallback"`) only when inference fails. A drift alarm (`STRIKE_STEP_DRIFT` warning log) fires when `|inferredStep − staticStep| / staticStep > 10%` — the primary observability signal that the static map has become stale.
+
+The NSE-direct path in `optionChain.ts` stamps `strikeStepSource = "inferred_from_nse"` from the NSE strike list spacing.
+
+**Contract**: `OcResponse` gets `strikeStepSource?: "instrument_master" | "static_map_fallback" | "inferred_from_nse"`. `OptionChainResponse` schema updated. Codegen re-run.
+
+**Tests**: 8 structural + source-scan assertions in `canonicalDataParity.test.ts`.
+
+---
+
+### Lane 1 summary
+
+| Bug | ID | Before | After | Tests |
+|---|---|---|---|---|
+| MIDCAP proxy level scale mismatch | MQ-P0-03 | Analytics from wrong scale shown live | Level analytics suppressed, proxyLevelBlocked stamped | 11 pass |
+| F&O spotChangePercent vs open not prevClose | MQ-P0-04 | Only open-baseline emitted | spotChangePctVsPrevClose + spotPrevClose added (server layer) | 7 pass |
+| Strike step static map drift risk | MQ-P0-12 | Static map overrode master | Instrument-master-first + drift alarm | 8 pass |
+| Contract parity: Zod schema generated | Cross-cutting | — | proxyLevelBlocked / spotChangePctVsPrevClose / strikeStepSource in generated types | 3 pass (codegen guard) |
+
+**Total new tests: 30. Regression suite: 88 pass. Typecheck: green. Codegen: green.**
+
+---
+
+## 4. P0-00 — executed this session (HARD STOP after this)
 
 **Owner observation**: SENSEX 77100 PUT, confidence 65, TRIGGERED — then entry premium, market price and stop-loss changed on the card without intimation.
 

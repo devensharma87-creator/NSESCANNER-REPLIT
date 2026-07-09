@@ -158,6 +158,15 @@ export interface OcResponse {
   expiries: string[];
   atmStrike: number;
   strikeStep: number;
+  /**
+   * How the strike step was resolved:
+   *   - "instrument_master": inferred from actual strike intervals in the
+   *     live Kite instrument dump — the authoritative source.
+   *   - "static_map_fallback": taken from the hardcoded STRIKE_STEPS map
+   *     (NSE-direct path or inference failed). Disclosed to consumers.
+   *   - "inferred_from_nse": computed from NSE-direct strike list spacing.
+   */
+  strikeStepSource?: "instrument_master" | "static_map_fallback" | "inferred_from_nse";
   lotSize?: number;
   maxPainStrike?: number | null;
   rows: OcRow[];
@@ -467,6 +476,7 @@ export async function fetchOptionChain(underlying: string, expiryFilter?: string
     expiries: expiriesIso,
     atmStrike,
     strikeStep: step,
+    strikeStepSource: "inferred_from_nse" as const,
     lotSize: LOT_SIZES[sym],
     rows: allRows,
     source: "NSE",

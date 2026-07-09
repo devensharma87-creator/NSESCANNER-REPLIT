@@ -26,7 +26,12 @@ export interface OptionSignal {
   index: string;
   indexName: string;
   spot: number;
+  /** Intraday session change from today's open (vs open). Used internally for momentum direction. Label as 'vs open' if displayed alongside prevClose-based change. */
   spotChangePercent?: number;
+  /** Canonical change % vs previous session close — the standard market convention. Use this for display. Null when daily series has < 2 bars. */
+  spotChangePctVsPrevClose?: number;
+  /** Previous completed session close used to compute spotChangePctVsPrevClose. */
+  spotPrevClose?: number;
   bias: OptionSignalBias;
   confidence: number;
   /** HIGH_CONVICTION fires from a named setup; BASELINE is the always-on directional read. */

@@ -38,6 +38,7 @@
 - [hasKiteIntradayCoverage is a static check](kite-intraday-coverage-static.md) — coverage flag is a hardcoded INDEX_TABLE lookup, not live connectivity; F&O suppression is always from centralIndexCandles returning null.
 - [TESTSTK reaches real Telegram in tests](teststk-telegram-leak.md) — existing unit tests with TESTSTK DO fire real Telegram (confirmed in test logs); validateTradeEventForNotification guard must be wired in to block this.
 - [tradeLifecycle module — canonical foundation](tradelifecycle-module.md) — CanonicalTradeEvent pipeline; wired into fnoSignalAlerts exits (2026-07-02); swingAlerts still unmigrated.
+- [Lane 1 proxy level scale guard](lane1-proxy-scale-guard.md) — ^NSEMDCP50 vs NIFTY_MID_SELECT.NS 22% structural gap; scale guard pattern: capture proxyPrevClose before Kite override, suppress 13 level fields when gap>1%.
 - [DDL lock deadlock in tx-rollback tests](fno-exit-monitor-ddl-lock-deadlock.md) — pre-warm MEMOIZED ensureXSchemaColumns in beforeAll outside the tx, or it self-deadlocks silently.
 - [Canonical formatter per-branch audit](canonical-formatter-per-branch-audit.md) — diff each build* branch vs legacy on migration; buildFnoExit shipped missing broker-disabled line, buildSwingExit has the same latent gap (not yet live).
 - [Full api-server suite needs file-chunking](api-server-full-suite-chunking.md) — 146-file/2782-test suite exceeds the 120s bash-tool window even backgrounded/detached; split test file list into ~4 chunks and run each as its own vitest invocation.

@@ -227,6 +227,13 @@ interface Ctx {
   prevSwingLow: number;
   bars: { o: number[]; h: number[]; l: number[]; c: number[]; v: number[] };
   fullIndicators: boolean;
+  /**
+   * Previous completed session's daily close from the daily candle series.
+   * Used to compute canonical change% (vs prevClose) for the signal card,
+   * distinct from `sessionChangePct` which uses today's open as the baseline.
+   * Null when the daily series has < 2 bars.
+   */
+  prevClose: number | null;
   realizedVol14: number | null;
   volRegime: VolRegime;
   /** Phase-1 regime classification (TRENDING_BULL/BEAR | RANGING | VOLATILE | EXPIRY_DAY).
@@ -433,6 +440,15 @@ function buildContext(cfg: IndexCfg, intra: YahooChart, daily: YahooChart): Ctx 
     }
   }
 
+  // Canonical prevClose for change% parity. The previous completed session's
+  // close is daily.close[dn - 2] when the last bar is the current forming
+  // session, or daily.close[dn - 1] when today hasn't opened yet (weekend).
+  // Conservative: always take [dn - 2] when ≥2 bars exist, consistent with
+  // how the pivot is derived (pivotsR3 uses daily.close[dn-2] at line 352).
+  const prevClose: number | null = dn >= 2 && daily.close[dn - 2] != null
+    ? (daily.close[dn - 2] as number)
+    : null;
+
   // Pass-3 (D): per-index 5-day spot return from the daily series. The
   // benchmark (NIFTY 5d) is loaded once per cycle in loadGateContext and
   // compared in the emission loop. Null when daily series too short.
@@ -477,6 +493,7 @@ function buildContext(cfg: IndexCfg, intra: YahooChart, daily: YahooChart): Ctx 
 
   return {
     cfg, spot, open0,
+    prevClose,
     sessionChangePct: ((spot - open0) / open0) * 100,
     vwap: effectiveVwap, vwapAvailable, vwapSeries,
     ema9: effectiveEma9, ema21: effectiveEma21,
@@ -1348,6 +1365,10 @@ function toSignal(c: Ctx, d: Detected, tier: "HIGH_CONVICTION" | "BASELINE"): Op
     indexName: c.cfg.display,
     spot: round2(c.spot),
     spotChangePercent: round2(c.sessionChangePct),
+    spotChangePctVsPrevClose: (c.prevClose != null && c.prevClose > 0)
+      ? round2((c.spot - c.prevClose) / c.prevClose * 100)
+      : undefined,
+    spotPrevClose: c.prevClose != null ? round2(c.prevClose) : undefined,
     bias: d.direction,
     confidence: d.confidence,
     tier,

@@ -1,0 +1,558 @@
+CODER PROMPT — LANE 1 P0 CANONICAL DATA PARITY + CONTRACT MASTER
+
+You are working on marketscannerbydev.in, a production Indian market analytics, F&O signalling, swing, backtest, and paper-trading platform.
+
+This is Lane 1 of the master remediation roadmap.
+
+Do not start Lane 2.
+Do not touch paper ledger.
+Do not touch chart reliability.
+Do not touch ATR/Wilder.
+Do not touch equity gap-through exits.
+Do not touch strategy thresholds.
+Do not do random extra fixes.
+
+====================================================
+CURRENT ACCEPTED STATUS
+====================================================
+
+Before starting, reconcile current repo reports and production build-info against these statuses:
+
+1. RELEASE_INTEGRITY_PROD_VERIFIED
+2. BACKTEST_CHARGES_MODEL_NET_PNL_PROD_VERIFIED
+3. FNO_COST_MODEL_UNIFICATION_PROD_VERIFIED
+4. FNO_VWAP_VOLUME_PROFILE_HONESTY_PROD_VERIFIED
+5. FNO_TRIGGER_WORDING_SEMANTICS_PROD_VERIFIED
+6. KITE_OI_UNIT_VERIFICATION_CONFIRMED_CORRECT
+7. P1A_PAPER_TRADING_GROSS_NET_DISPLAY_PROD_VERIFIED
+8. P1B_MACD_WARMUP_FIX_PROD_VERIFIED
+9. MASTER_QUANT_REMEDIATION_ROADMAP_CREATED
+10. P0_00_SIGNAL_PLAN_IMMUTABILITY_PROD_VERIFIED
+11. EXIT_PREMIUM_MARKET_SHADOW_PROD_INFRA_VERIFIED_LIVE_SAMPLE_PENDING
+12. POST_P0_SIGNAL_SYSTEM_REBASELINE_PARTIAL_GAP_REMAINS
+
+Do not claim any status unless build-info/reports prove it.
+
+====================================================
+READ FIRST
+====================================================
+
+Read these files before writing code:
+
+1. MASTER_QUANT_REMEDIATION_ROADMAP_2026_07_09.md
+2. MASTER_QUANT_BUG_REGISTER_2026_07_09.csv
+3. P0_00_SIGNAL_PLAN_IMMUTABILITY_REPORT.md
+4. quant_grade_deep_audit_v2.md
+5. quant_grade_bug_register_v2.csv
+6. quant_grade_fix_prompt_v2.md
+7. AUDIT-REPORT-FINAL.md
+8. AUDIT-REPORT-Phase1.md
+9. corrected-reference.html
+10. WEBSITE_CANONICAL_DATA_INTEGRATION_REPORT.md
+11. USER_FACING_CORE_TABS_DEEP_AUDIT_REPORT.md
+12. POST_P0_SIGNAL_SYSTEM_REBASELINE_REPORT.md
+13. P1_CONSOLIDATED_REMAINING_WORK_AUDIT_REPORT.md
+
+====================================================
+LANE 1 OBJECTIVE
+====================================================
+
+Fix P0 Canonical Data Parity + Contract Master.
+
+This lane addresses the biggest remaining platform-level data trust issue:
+
+Different pages currently compose index / F&O facts from different sources, baselines, proxy histories, hardcoded lot sizes, and expiry assumptions.
+
+A trader must see the same canonical market fact everywhere.
+
+Lane 1 must fix:
+
+1. FINNIFTY previous-close / 52-week contamination.
+2. MIDCAP proxy level leak.
+3. Cross-page index quote mismatch.
+4. F&O signal percentage baseline mismatch.
+5. Contract-master expiry resolution.
+6. Dynamic lot-size resolver.
+7. Strike-step resolver.
+8. Instrument-token proof.
+9. Static map fallback must be labelled and drift-alarmed.
+10. Proxy analytics must not feed absolute price-level widgets.
+
+====================================================
+STRICT GLOBAL RULES
+====================================================
+
+Do not place orders.
+Do not enable broker execution.
+Do not send Telegram messages.
+Do not change signal thresholds.
+Do not change detector weights.
+Do not change confidence formula.
+Do not change stop formula.
+Do not change target formula.
+Do not change account balance.
+Do not rewrite historical trades.
+Do not perform destructive migrations.
+Do not change P0-00 plan immutability.
+Do not let Yahoo/delayed/proxy/report-grade data drive F&O signals or paper opens.
+Do not render unavailable data as 0, none, empty, green, or live.
+Do not silently replace one index’s level data with another index’s proxy history.
+
+Every market number shown must carry:
+
+- source
+- asOf
+- freshness
+- tradeGrade/reportGrade
+- unavailable reason if missing
+
+====================================================
+PART A — FORENSIC AUDIT BEFORE CODE
+====================================================
+
+Audit all current index quote and contract-master paths.
+
+Create table:
+
+| Surface | Current Data Source | Prev Close Source | Change % Baseline | 52W Source | Expiry Source | Lot Size Source | Strike Step Source | Instrument Token Source | Risk |
+|---|---|---|---|---|---|---|---|---|---|
+
+Surfaces to audit:
+
+1. Home indices board.
+2. Pro Market / Market Analyzer.
+3. Deep Scan.
+4. Option Chain.
+5. OI Lab.
+6. F&O Intraday Signals.
+7. F&O signal cards.
+8. Paper trading F&O open path.
+9. Backtest F&O path.
+10. Scanner index context.
+11. Any index chart / technical card.
+12. API payloads feeding the above.
+
+Specifically identify:
+
+1. Where FINNIFTY prevClose is computed.
+2. Where FINNIFTY 52W range comes from.
+3. Where MIDCAP Select quote is mixed with MIDCAP 50 analytics.
+4. Where F&O signal card changePct uses open instead of prevClose.
+5. Where hardcoded lot-size maps remain.
+6. Where hardcoded expiry weekday logic remains.
+7. Where static strike-step maps remain.
+8. Where instrument token is missing from signal/contract payloads.
+9. Where Yahoo/proxy data still reaches absolute level widgets.
+10. Where fallback values are rendered as real values.
+
+====================================================
+PART B — CANONICAL INDEXQUOTEFACT
+====================================================
+
+Implement a canonical shared object:
+
+IndexQuoteFact
+
+Required fields:
+
+- symbol
+- displayName
+- exchange
+- instrumentToken
+- ltp
+- prevClose
+- changePts
+- changePct
+- open
+- high
+- low
+- dayVolume, if valid
+- source
+- asOf
+- fetchedAt
+- freshnessSeconds
+- tradeGrade
+- provider
+- unavailableReason
+- canonicalCloseDate
+- quoteSessionDate
+
+Rules:
+
+1. `changePts = ltp - prevClose`
+2. `changePct = ((ltp - prevClose) / prevClose) * 100`
+3. This prevClose baseline must be used everywhere.
+4. If any view wants open-baseline, it must be separate and labelled `vs open`.
+5. No page may recompute changePct independently from raw ltp/open/prevClose.
+6. No page may mix a quote from one symbol with analytics from another symbol unless scale validation passes.
+7. asOf must be tick timestamp of displayed value, not fetch time.
+8. source/freshness/tradeGrade must travel with the object.
+
+Consumers must be migrated to use IndexQuoteFact, not local calculations.
+
+At minimum migrate:
+
+1. Home index board.
+2. Pro Market / Market Analyzer index cards.
+3. Deep Scan index context.
+4. Option Chain spot header.
+5. OI Lab spot header.
+6. F&O Intraday Signal spot header.
+7. F&O signal card index header.
+8. Any report/export using index prevClose/changePct.
+
+====================================================
+PART C — ANALYTICS SCALE GUARD / PROXY BLOCK
+====================================================
+
+Implement analytics validation before rendering price-level widgets.
+
+Analytics may include:
+
+- prev OHLC
+- pivots
+- support/resistance levels
+- EMAs
+- 52W low/high
+- range position
+- floor pivot distance
+- EMA-vs-price comparison
+
+Rules:
+
+1. If analytics provider symbol != quote symbol, validate scale.
+2. If abs(analytics.prevClose - quote.prevClose) / quote.prevClose > 1%, suppress analytics.
+3. If ltp is outside 52W low/high, suppress 52W band and range position.
+4. If abs(pivot - ltp) / ltp > 5%, suppress pivot levels and emit warning.
+5. Proxy data may feed dimensionless indicators only:
+   - RSI
+   - ADX
+   - percentage returns
+   - volatility percentages
+6. Proxy data must not feed absolute price-level widgets:
+   - pivots
+   - EMAs vs price
+   - previous OHLC
+   - 52W band
+   - range position
+   - support/resistance levels
+7. UI should render:
+   “— · proxy blocked: level scale mismatch”
+   or:
+   “analytics unavailable — source scale mismatch”
+
+Acceptance fixtures must include:
+
+1. FINNIFTY contaminated prevClose / 52W example.
+2. MIDCAP Select LTP 14618 with Midcap 50 pivot around 17845.
+3. LTP below displayed 52W low.
+4. Valid same-scale analytics that should render normally.
+
+====================================================
+PART D — CONTRACTMASTERFACT
+====================================================
+
+Implement a canonical contract resolver:
+
+ContractMasterFact
+
+Required fields:
+
+- underlying
+- exchange
+- segment
+- instrumentToken
+- tradingSymbol
+- expiry
+- expiryType
+- strike
+- strikeStep
+- optionType
+- lotSize
+- source
+- asOf
+- fetchedAt
+- freshnessSeconds
+- isFallback
+- fallbackReason
+- contractGrade
+
+Rules:
+
+1. Resolve lot size, expiry, strike step, and instrument token from Kite / exchange contract master.
+2. Static maps are allowed only as labelled fallback.
+3. Fallback must never silently pretend to be contract-master verified.
+4. Add drift alarm when static fallback differs from master.
+5. Signal generation must persist contractInstrumentToken and contract source.
+6. Paper trade open path must use contract-master lot size at open time.
+7. Backtest must annotate lot-size regime used.
+8. Existing historical rows must not be rewritten.
+9. If contract master is unavailable, signal/paper opening must fail closed or downgrade to INFO_ONLY, depending existing architecture.
+10. Do not infer expiry purely from weekday if instrument master is available.
+
+At minimum migrate:
+
+1. F&O signal contract selection.
+2. option-chain contract metadata.
+3. paper-trade open path.
+4. backtest F&O contract setup.
+5. lifecycle display.
+6. report/export rows.
+7. frontend F&O contract display.
+
+====================================================
+PART E — EXPIRY RESOLUTION
+====================================================
+
+Fix expiry source truth.
+
+Rules:
+
+1. Expiry must be resolved per exchange + underlying + actual instrument.
+2. NSE and BSE expiry rules must not be global.
+3. BANKNIFTY must not assume weekly expiry if no weekly instrument exists.
+4. SENSEX expiry must come from BSE contract master.
+5. NIFTY expiry must come from NSE contract master.
+6. Persist expirySource.
+7. Persist instrumentToken.
+8. If expiry is inferred/fallback, label as fallback and do not treat as trade-grade.
+
+Required tests:
+
+1. NIFTY July 2026 expiry from instrument master.
+2. BANKNIFTY July 2026 monthly-only behavior.
+3. SENSEX weekly expiry from BSE master.
+4. No global Tuesday/Thursday flag incorrectly applied to all symbols.
+5. Signal payload contains expirySource and instrumentToken.
+
+====================================================
+PART F — LOT SIZE / STRIKE STEP RESOLUTION
+====================================================
+
+Fix lot size and strike step source truth.
+
+Rules:
+
+1. Lot size must come from contract master at open/signal time.
+2. Strike step must come from contract metadata or resolver.
+3. Static map fallback must be labelled.
+4. Static map fallback must alert if master differs.
+5. Existing historical rows must keep original stored lot_size.
+6. Do not rewrite old P&L.
+7. New paper trades must use current master lot size.
+8. Reports must show lot-size source/regime.
+
+Required tests:
+
+1. NIFTY lot size 65.
+2. BANKNIFTY lot size 30.
+3. SENSEX lot size 20.
+4. FINNIFTY lot size 60.
+5. MIDCPNIFTY lot size 120.
+6. Static fallback mismatch triggers drift alarm.
+7. Paper trade open uses master lot size.
+8. Backtest row carries lot-size regime/source.
+
+====================================================
+PART G — F&O SIGNAL CHANGE % BASELINE
+====================================================
+
+Fix F&O signal card baseline parity.
+
+Rules:
+
+1. Signal card displayed index change must use canonical prevClose baseline.
+2. If open-baseline is shown, it must be labelled “vs open”.
+3. F&O card must not show `-0.26%` vs open while other pages show `-0.83%` vs prevClose without explanation.
+4. Use IndexQuoteFact changePct everywhere.
+5. Add parity tests across Home, Option Chain, OI Lab, F&O Signals.
+
+Acceptance test:
+
+Given:
+- ltp = 24195.50
+- prevClose = 24398.70
+- open = 24259.55
+
+Then:
+- canonical changePct = `(24195.50 - 24398.70) / 24398.70 * 100`
+- F&O card must display canonical prevClose change unless explicitly labelled `vs open`.
+
+====================================================
+PART H — ACCEPTANCE TESTS
+====================================================
+
+Add tests for:
+
+1. FINNIFTY prevClose parity across all surfaces.
+2. FINNIFTY 52W sanity.
+3. MIDCAP proxy level suppression.
+4. Proxy analytics allowed only for dimensionless indicators.
+5. F&O signal changePct baseline parity.
+6. IndexQuoteFact reused by Home / Pro / Deep Scan / Option Chain / OI Lab / F&O Signals.
+7. ContractMasterFact returns lotSize / expiry / strikeStep / instrumentToken.
+8. Static lot-size fallback emits drift warning.
+9. Paper open path uses contract-master lot size.
+10. Backtest stores/labels lot-size regime.
+11. Expiry per exchange/underlying.
+12. BANKNIFTY no fake weekly expiry.
+13. SENSEX BSE expiry not using NSE global rule.
+14. No Yahoo/proxy feed can drive signal/paper open.
+15. Unavailable contract master fails closed or demotes to INFO_ONLY.
+
+====================================================
+PART I — REPORTS REQUIRED
+====================================================
+
+Create:
+
+P0_LANE1_CANONICAL_DATA_PARITY_CONTRACT_MASTER_REPORT.md
+
+Update:
+
+1. MASTER_QUANT_REMEDIATION_ROADMAP_2026_07_09.md
+2. MASTER_QUANT_BUG_REGISTER_2026_07_09.csv
+3. WEBSITE_CANONICAL_DATA_INTEGRATION_REPORT.md
+4. USER_FACING_CORE_TABS_DEEP_AUDIT_REPORT.md
+5. POST_P0_SIGNAL_SYSTEM_REBASELINE_REPORT.md
+6. P1_CONSOLIDATED_REMAINING_WORK_AUDIT_REPORT.md
+7. Any F&O signal / option-chain / OI Lab reports impacted
+
+Report must include:
+
+1. Objective.
+2. Source audit.
+3. Current defects confirmed.
+4. Files changed.
+5. IndexQuoteFact design.
+6. ContractMasterFact design.
+7. FINNIFTY before/after.
+8. MIDCAP proxy before/after.
+9. F&O signal baseline before/after.
+10. Expiry/lot/strike-step before/after.
+11. Static fallback/drift alarm behavior.
+12. API payload samples.
+13. UI screenshots or bundle proof.
+14. Tests and exact counts.
+15. Safety confirmation.
+16. Production status.
+17. Final verdict.
+
+====================================================
+PART J — TEST COMMANDS
+====================================================
+
+Run and report exact counts:
+
+pnpm --filter @workspace/scripts run verify:release
+
+pnpm --filter @workspace/api-server run typecheck
+
+pnpm --filter @workspace/api-server run typecheck:libs
+
+pnpm --filter @workspace/api-server exec vitest run src/lib/*index*.test.ts src/lib/*quote*.test.ts src/lib/*contract*.test.ts src/lib/*optionChain*.test.ts src/lib/*optionSignal*.test.ts src/lib/*paper*.test.ts src/lib/*backtest*.test.ts src/routes/**/*.test.ts
+
+pnpm --filter @workspace/scanner run typecheck
+
+pnpm --filter @workspace/scanner exec vitest run
+
+pnpm --filter @workspace/scripts run index:llm
+
+pnpm --filter @workspace/scripts run index:llm:check
+
+If any suite times out, split it and report exact counts.
+
+Do not say only “all green.”
+
+====================================================
+PART K — SAFETY CONFIRMATION
+====================================================
+
+Confirm:
+
+1. No broker execution.
+2. No real orders.
+3. No Telegram messages.
+4. No strategy threshold changes.
+5. No detector weight changes.
+6. No confidence formula changes.
+7. No stop formula changes.
+8. No target formula changes.
+9. No account balance changes.
+10. No realized P&L rewrite.
+11. No historical trade rewrite.
+12. No destructive migration.
+13. No P0-00 locked plan mutation regression.
+14. No Yahoo/delayed/proxy/report-grade source can drive trades.
+15. No unavailable data rendered as zero/none/green/live.
+
+====================================================
+STOP RULE
+====================================================
+
+Stop after Lane 1.
+
+Do not start:
+
+- Lane 2 F&O Signal Honesty
+- Lane 3 Paper Ledger
+- Lane 4 Chart Reliability
+- Lane 5 Source Cleanliness
+- ATR/Wilder change
+- Equity gap-through exit realism
+- Charting product upgrade
+
+Return the final report only.
+
+====================================================
+FINAL VERDICTS
+====================================================
+
+Final verdict must be exactly one:
+
+- P0_LANE1_CANONICAL_DATA_PARITY_CONTRACT_MASTER_DEV_VERIFIED
+- P0_LANE1_CANONICAL_DATA_PARITY_CONTRACT_MASTER_PROD_VERIFIED
+- P0_LANE1_CANONICAL_DATA_PARITY_CONTRACT_MASTER_PARTIAL_GAP_REMAINS
+- P0_LANE1_FORENSIC_ONLY_OWNER_APPROVAL_REQUIRED
+- RELEASE_INTEGRITY_REGRESSION_FOUND
+- ROLLBACK_REQUIRED
+
+Use:
+
+P0_LANE1_CANONICAL_DATA_PARITY_CONTRACT_MASTER_DEV_VERIFIED
+
+only if Lane 1 implementation is complete, tests pass, reports are updated, and production publish is pending.
+
+Use:
+
+P0_LANE1_CANONICAL_DATA_PARITY_CONTRACT_MASTER_PROD_VERIFIED
+
+only after owner publishes and production build-info proves the fix is live.
+
+Use:
+
+P0_LANE1_CANONICAL_DATA_PARITY_CONTRACT_MASTER_PARTIAL_GAP_REMAINS
+
+if any part of IndexQuoteFact, ContractMasterFact, parity tests, reports, or safety checks are incomplete.
+
+Use:
+
+P0_LANE1_FORENSIC_ONLY_OWNER_APPROVAL_REQUIRED
+
+if implementation requires a dangerous schema migration, historical rewrite, or trading-logic change.
+
+Use:
+
+RELEASE_INTEGRITY_REGRESSION_FOUND
+
+if verify:release has a real FAIL.
+
+Use:
+
+ROLLBACK_REQUIRED
+
+if secrets leak, broker execution turns on, real orders are placed, Telegram spam occurs, destructive migration happens, P0-00 locked plan fields can mutate again, or stale/proxy/report-grade data can drive trades.
+
+Expected first acceptable outcome before production publish:
+
+P0_LANE1_CANONICAL_DATA_PARITY_CONTRACT_MASTER_DEV_VERIFIED

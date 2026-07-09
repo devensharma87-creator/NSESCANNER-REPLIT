@@ -223,6 +223,19 @@ export interface IndexBoardItem {
   notes: string[];
 
   /**
+   * True when daily analytics were suppressed because the daily-history
+   * proxy basket (`yahooDaily`) operates on a materially different price
+   * scale than the live underlying ticker. When true, all price-LEVEL
+   * fields (EMAs, pivots, 52-week extrema, prev OHLC, support/resistance)
+   * are nulled out to prevent comparing Midcap-50 pivot levels against a
+   * Midcap-Select LTP. Dimensionless fields (change%, VWAP, volume profile)
+   * are unaffected and remain valid.
+   */
+  proxyLevelBlocked?: boolean;
+  /** Machine-readable reason string (e.g. "proxy ^NSEMDCP50 scale gap 22.1% vs NIFTY_MID_SELECT.NS"). */
+  proxyLevelBlockReason?: string;
+
+  /**
    * Provenance for the chart-derived ANALYTICS (52W extrema / daily EMAs /
    * previous-day OHLC / floor pivots, plus the intraday VWAP & volume
    * profile). This is a SEPARATE data path from the live quote (`source`):
@@ -437,6 +450,11 @@ export function buildItem(
   };
 
   // ── Daily-derived fields ──────────────────────────────────────────
+  // When a proxy daily ticker is in use (yahooDaily !== yahoo), capture the
+  // proxy basket's prev-close BEFORE any live-ticker override so we can later
+  // compute the scale gap and decide whether to suppress level analytics.
+  let proxyPrevClose: number | undefined;
+
   if (daily && daily.close.length > 0) {
     const { todayIdx, prevIdx } = splitTodayPrev(daily);
 
@@ -446,6 +464,10 @@ export function buildItem(
       item.prevHigh  = round(h, 4);
       item.prevLow   = round(l, 4);
       item.prevClose = round(c, 4);
+      // Capture the proxy basket's prev-close for the scale-guard check below.
+      if (cfg.yahooDaily && cfg.yahooDaily !== cfg.yahoo && c != null) {
+        proxyPrevClose = round(c, 4);
+      }
       if (h != null && l != null && c != null) {
         const piv = pivotsR3(h, l, c);
         item.pivot       = round(piv.pivot, 4);
@@ -579,6 +601,46 @@ export function buildItem(
     const pct = (ch / item.prevClose) * 100;
     item.change = round(ch, 4);
     item.changePercent = round(pct, 3);
+  }
+
+  // ── Analytics scale guard: proxy level suppression ───────────────────────
+  // When a daily-history proxy is in use (e.g. ^NSEMDCP50 for Midcap Select)
+  // AND the proxy's prev-close differs from the live underlying's prev-close
+  // by more than 1%, all absolute price-level analytics are suppressed.
+  //
+  // Why 1%: the two Midcap baskets have historically co-moved within ~1%,
+  // but the underlying structurally differ (~14k vs ~17k). Any gap > 1%
+  // means pivot/EMA levels from the proxy basket are incorrect for the
+  // actual displayed index and would mislead level-based trade decisions.
+  //
+  // Dimensionless indicators (change%, VWAP from live intraday, volume profile
+  // from live intraday) are unaffected — they are computed from live data.
+  if (proxyPrevClose != null && item.prevClose != null && item.prevClose > 0) {
+    const scaleGapPct = Math.abs(proxyPrevClose - item.prevClose) / item.prevClose * 100;
+    if (scaleGapPct > 1.0) {
+      item.proxyLevelBlocked    = true;
+      item.proxyLevelBlockReason = `proxy ${cfg.yahooDaily} scale gap ${scaleGapPct.toFixed(1)}% vs ${cfg.yahoo} — level analytics suppressed`;
+      // Suppress all absolute price-level fields derived from the proxy basket.
+      item.ema9              = undefined;
+      item.ema20             = undefined;
+      item.ema50             = undefined;
+      item.ema100            = undefined;
+      item.ema200            = undefined;
+      item.pivot             = undefined;
+      item.support           = [];
+      item.resistance        = [];
+      item.fiftyTwoWeekHigh  = undefined;
+      item.fiftyTwoWeekLow   = undefined;
+      item.prevOpen          = undefined;
+      item.prevHigh          = undefined;
+      item.prevLow           = undefined;
+      // prevClose stays — it was already overridden to the live underlying's close
+      // vwap / poc / vah / val stay — derived from live intraday bars, not proxy
+      // change / changePercent stay — derived from live prevClose + live ltp
+      item.notes.push(
+        `proxy blocked: level scale mismatch (${scaleGapPct.toFixed(1)}% gap — ${cfg.yahooDaily} ≠ ${cfg.yahoo})`,
+      );
+    }
   }
 
   // ── Analytics provenance (chart-derived fields, separate from the quote) ─

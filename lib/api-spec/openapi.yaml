@@ -2781,6 +2781,12 @@ components:
           type: array
           description: "Human-readable diagnostic notes (e.g. partial-data warnings)"
           items: { type: string }
+        proxyLevelBlocked:
+          type: boolean
+          description: "True when daily-history proxy analytics were suppressed due to a price-scale mismatch > 1% between the proxy basket and the live underlying. When true, all price-level fields (EMAs, pivots, 52W extrema, prev OHLC, support/resistance) are null. Dimensionless fields (change%, VWAP, volume profile) are unaffected."
+        proxyLevelBlockReason:
+          type: string
+          description: "Machine-readable reason string when proxyLevelBlocked is true (e.g. 'proxy ^NSEMDCP50 scale gap 22.1% vs NIFTY_MID_SELECT.NS — level analytics suppressed')."
         analytics:
           $ref: "#/components/schemas/IndexAnalyticsProvenance"
 
@@ -2938,7 +2944,15 @@ components:
         index: { type: string }
         indexName: { type: string }
         spot: { type: number }
-        spotChangePercent: { type: number }
+        spotChangePercent:
+          type: number
+          description: "Intraday session change from today's open (vs open). Used internally for momentum direction. Label as 'vs open' if displayed alongside prevClose-based change."
+        spotChangePctVsPrevClose:
+          type: number
+          description: "Canonical change % vs previous session close — the standard market convention. Use this for display. Null when daily series has < 2 bars."
+        spotPrevClose:
+          type: number
+          description: "Previous completed session close used to compute spotChangePctVsPrevClose."
         bias: { type: string, enum: [BULLISH, BEARISH, NEUTRAL] }
         confidence: { type: number }
         tier:
@@ -4527,6 +4541,10 @@ components:
           items: { type: string }
         atmStrike:      { type: number }
         strikeStep:     { type: number }
+        strikeStepSource:
+          type: string
+          enum: [instrument_master, static_map_fallback, inferred_from_nse]
+          description: "How the strike step was resolved. 'instrument_master' = inferred from live Kite instrument dump (authoritative). 'static_map_fallback' = taken from a hardcoded map (inference failed — may be stale). 'inferred_from_nse' = computed from NSE-direct strike list spacing."
         lotSize:        { type: integer }
         maxPainStrike:  { type: number, nullable: true, description: "Strike where option writers' aggregate loss is minimised — same algorithm as analytics, surfaced inline so the chain table can mark the row." }
         rows:

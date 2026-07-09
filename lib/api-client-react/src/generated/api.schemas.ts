@@ -1012,6 +1012,10 @@ export interface IndexBoardItem {
   resistance: number[];
   /** Human-readable diagnostic notes (e.g. partial-data warnings) */
   notes: string[];
+  /** True when daily-history proxy analytics were suppressed due to a price-scale mismatch > 1% between the proxy basket and the live underlying. When true, all price-level fields (EMAs, pivots, 52W extrema, prev OHLC, support/resistance) are null. Dimensionless fields (change%, VWAP, volume profile) are unaffected. */
+  proxyLevelBlocked?: boolean;
+  /** Machine-readable reason string when proxyLevelBlocked is true (e.g. 'proxy ^NSEMDCP50 scale gap 22.1% vs NIFTY_MID_SELECT.NS — level analytics suppressed'). */
+  proxyLevelBlockReason?: string;
   analytics?: IndexAnalyticsProvenance;
 }
 
@@ -1362,7 +1366,12 @@ export interface OptionSignal {
   index: string;
   indexName: string;
   spot: number;
+  /** Intraday session change from today's open (vs open). Used internally for momentum direction. Label as 'vs open' if displayed alongside prevClose-based change. */
   spotChangePercent?: number;
+  /** Canonical change % vs previous session close — the standard market convention. Use this for display. Null when daily series has < 2 bars. */
+  spotChangePctVsPrevClose?: number;
+  /** Previous completed session close used to compute spotChangePctVsPrevClose. */
+  spotPrevClose?: number;
   bias: OptionSignalBias;
   confidence: number;
   /** HIGH_CONVICTION fires from a named setup; BASELINE is the always-on directional read. */
@@ -3126,6 +3135,18 @@ export const OptionChainResponseKind = {
 } as const;
 
 /**
+ * How the strike step was resolved. 'instrument_master' = inferred from live Kite instrument dump (authoritative). 'static_map_fallback' = taken from a hardcoded map (inference failed — may be stale). 'inferred_from_nse' = computed from NSE-direct strike list spacing.
+ */
+export type OptionChainResponseStrikeStepSource =
+  (typeof OptionChainResponseStrikeStepSource)[keyof typeof OptionChainResponseStrikeStepSource];
+
+export const OptionChainResponseStrikeStepSource = {
+  instrument_master: "instrument_master",
+  static_map_fallback: "static_map_fallback",
+  inferred_from_nse: "inferred_from_nse",
+} as const;
+
+/**
  * Normalised provider that produced the chain.
  */
 export type OptionChainProvenanceSourceProvider =
@@ -3192,6 +3213,8 @@ export interface OptionChainResponse {
   expiries: string[];
   atmStrike: number;
   strikeStep: number;
+  /** How the strike step was resolved. 'instrument_master' = inferred from live Kite instrument dump (authoritative). 'static_map_fallback' = taken from a hardcoded map (inference failed — may be stale). 'inferred_from_nse' = computed from NSE-direct strike list spacing. */
+  strikeStepSource?: OptionChainResponseStrikeStepSource;
   lotSize?: number;
   /** Strike where option writers' aggregate loss is minimised — same algorithm as analytics, surfaced inline so the chain table can mark the row. */
   maxPainStrike?: number | null;

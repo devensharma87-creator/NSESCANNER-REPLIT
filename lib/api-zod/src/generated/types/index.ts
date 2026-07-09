@@ -285,6 +285,7 @@ export * from "./optionChainProvenanceSegment";
 export * from "./optionChainProvenanceSourceProvider";
 export * from "./optionChainResponse";
 export * from "./optionChainResponseKind";
+export * from "./optionChainResponseStrikeStepSource";
 export * from "./optionChainSide";
 export * from "./optionChainSideMoneyness";
 export * from "./optionChainSideOiBuildup";

@@ -320,7 +320,28 @@ export async function fetchKiteOptionChain(
   const rows = Array.from(strikeMap.values()).sort((a, b) => a.strike - b.strike);
   if (rows.length === 0) return null;
 
-  const strikeStep = STRIKE_STEPS[sym] ?? inferStrikeStep(rows.map(r => r.strike));
+  // Prefer the inferred strike step from the live instrument master (most
+  // authoritative), then fall back to the static index map only when inference
+  // fails. Log a drift alarm when static and master disagree by >10% — this is
+  // the primary signal that the static STRIKE_STEPS map has become stale.
+  const inferredStep = inferStrikeStep(rows.map(r => r.strike));
+  const staticStep   = STRIKE_STEPS[sym];
+  let strikeStep: number;
+  let strikeStepSource: "instrument_master" | "static_map_fallback";
+  if (inferredStep > 0 && Number.isFinite(inferredStep)) {
+    strikeStep       = inferredStep;
+    strikeStepSource = "instrument_master";
+    if (staticStep != null && Math.abs(inferredStep - staticStep) / staticStep > 0.10) {
+      logger.warn(
+        { sym, inferredStep, staticStep, gapPct: ((inferredStep - staticStep) / staticStep * 100).toFixed(1) },
+        "kiteOptionChain: STRIKE_STEP_DRIFT — instrument master differs from static map by >10%; static map is stale",
+      );
+    }
+  } else {
+    strikeStep       = staticStep ?? 50;
+    strikeStepSource = "static_map_fallback";
+    logger.warn({ sym, staticStep }, "kiteOptionChain: strike step inference failed; using static map fallback");
+  }
   const atmStrike = rows.reduce((closest, r) =>
     Math.abs(r.strike - spot) < Math.abs(closest - spot) ? r.strike : closest,
     rows[0]!.strike,
@@ -394,6 +415,7 @@ export async function fetchKiteOptionChain(
     expiries,
     atmStrike,
     strikeStep,
+    strikeStepSource,
     lotSize,
     rows,
     source: "kite",

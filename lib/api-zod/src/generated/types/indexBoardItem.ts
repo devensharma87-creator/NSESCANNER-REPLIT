@@ -56,5 +56,9 @@ export interface IndexBoardItem {
   resistance: number[];
   /** Human-readable diagnostic notes (e.g. partial-data warnings) */
   notes: string[];
+  /** True when daily-history proxy analytics were suppressed due to a price-scale mismatch > 1% between the proxy basket and the live underlying. When true, all price-level fields (EMAs, pivots, 52W extrema, prev OHLC, support/resistance) are null. Dimensionless fields (change%, VWAP, volume profile) are unaffected. */
+  proxyLevelBlocked?: boolean;
+  /** Machine-readable reason string when proxyLevelBlocked is true (e.g. 'proxy ^NSEMDCP50 scale gap 22.1% vs NIFTY_MID_SELECT.NS — level analytics suppressed'). */
+  proxyLevelBlockReason?: string;
   analytics?: IndexAnalyticsProvenance;
 }
