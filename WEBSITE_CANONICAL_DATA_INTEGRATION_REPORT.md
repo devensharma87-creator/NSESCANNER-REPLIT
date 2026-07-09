@@ -2642,3 +2642,21 @@ mutation observed by the owner. Full evidence: `P0_00_SIGNAL_PLAN_IMMUTABILITY_R
 Verification: 5/5 immutability tests, 516/516 fno, 596/596 paper/signal/lifecycle/routes,
 770/770 scanner, verify:release 11 PASS, full typecheck clean.
 **Verdict: `P0_00_SIGNAL_PLAN_IMMUTABILITY_PROD_VERIFIED`** — 2026-07-09, commit `f831ded1`. Schema ensure log confirmed at boot; 2 post-fix locked rows in prod DB (SENSEX 77100 CALL locked within 15s, NIFTY 24050 CALL within 14s); all regression green (1,894 tests).
+
+---
+
+## Checkpoint N+1 — Lane 1 Canonical Data Parity + Contract Master (2026-07-09)
+
+**Verdict: `P0_LANE1_CANONICAL_DATA_PARITY_CONTRACT_MASTER_DEV_VERIFIED`**
+
+All 5 Lane 1 gaps closed. 57 new acceptance tests added to `canonicalDataParity.test.ts` (57/57 pass). Full evidence in `P0_LANE1_CANONICAL_DATA_PARITY_CONTRACT_MASTER_REPORT.md`.
+
+| Gap | Status |
+|---|---|
+| GAP 1 — F&O frontend baseline parity (options.tsx → spotChangePctVsPrevClose) | FIXED |
+| GAP 2 — FINNIFTY prevClose/52W contamination | OUTDATED_AUDIT_FINDING |
+| GAP 3 — Expiry source label on signal leg | FIXED |
+| GAP 4 — Lot-size ContractMasterFact / drift alarm / lotSizeSource field | FIXED |
+| GAP 5 — Report files updated with DEV_VERIFIED verdict | FIXED |
+
+No broker execution, no orders, no Telegram, no threshold/weight/confidence changes, no schema destructive migration, no trading-logic changes.

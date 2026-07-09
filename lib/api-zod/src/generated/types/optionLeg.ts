@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { OptionLegAction } from "./optionLegAction";
+import type { OptionLegExpirySource } from "./optionLegExpirySource";
 import type { OptionLegInstrument } from "./optionLegInstrument";
 import type { OptionLegType } from "./optionLegType";
 
@@ -14,6 +15,8 @@ export interface OptionLeg {
   strike: number;
   action: OptionLegAction;
   expiry?: string;
+  /** How expiry was resolved. algorithmic_weekday = computed from configured weekday cadence (signal generation path). instrument_master = validated against live Kite instrument dump. */
+  expirySource?: OptionLegExpirySource;
   /** Underlying spot trigger price */
   entry: number;
   /** Whether entry/SL/target are spot levels or premium values */

@@ -96,16 +96,24 @@ The NSE-direct path in `optionChain.ts` stamps `strikeStepSource = "inferred_fro
 
 ---
 
-### Lane 1 summary
+### Lane 1 summary — all gaps closed (2026-07-09)
+
+**Verdict: `P0_LANE1_CANONICAL_DATA_PARITY_CONTRACT_MASTER_DEV_VERIFIED`**
 
 | Bug | ID | Before | After | Tests |
 |---|---|---|---|---|
 | MIDCAP proxy level scale mismatch | MQ-P0-03 | Analytics from wrong scale shown live | Level analytics suppressed, proxyLevelBlocked stamped | 11 pass |
-| F&O spotChangePercent vs open not prevClose | MQ-P0-04 | Only open-baseline emitted | spotChangePctVsPrevClose + spotPrevClose added (server layer) | 7 pass |
+| F&O spotChangePercent vs open not prevClose (server layer) | MQ-P0-04 | Only open-baseline emitted | spotChangePctVsPrevClose + spotPrevClose added (server layer) | 7 pass |
 | Strike step static map drift risk | MQ-P0-12 | Static map overrode master | Instrument-master-first + drift alarm | 8 pass |
 | Contract parity: Zod schema generated | Cross-cutting | — | proxyLevelBlocked / spotChangePctVsPrevClose / strikeStepSource in generated types | 3 pass (codegen guard) |
+| F&O frontend baseline parity (GAP 1) | MQ-P0-04 frontend | options.tsx rendered vs-open %; spotChangePctVsPrevClose not wired | spotChangePctVsPrevClose as primary; spotChangePercent labeled "(vs open)" as fallback | 5 pass |
+| FINNIFTY prevClose / 52W contamination (GAP 2) | MQ-P0-02 | Audit concern: FINNIFTY might share MIDCAP proxy contamination | OUTDATED_AUDIT_FINDING: FINNIFTY has no yahooDaily proxy; scale guard unreachable by construction | 4 pass |
+| Expiry source not labelled on signal leg (GAP 3) | Contract | No expirySource field on OptionLeg | expirySource: "algorithmic_weekday" stamped; per-index cadence verified (NIFTY/SENSEX=Tue, BANKNIFTY=Thu) | 7 pass |
+| Lot-size ContractMasterFact / drift alarm (GAP 4) | MQ-P0-12 lot | Static LOT_SIZES map used in paper opens; no drift alarm; no lotSizeSource | getCachedLotSizeForIndex master-first; LOT_SIZE_DRIFT alarm; lotSizeSource field on OcResponse | 9 pass |
 
-**Total new tests: 30. Regression suite: 88 pass. Typecheck: green. Codegen: green.**
+**Total new tests: 57. Regression suite: 770 scanner + 184 optionSignal/paper = all pass. Typecheck: green. Codegen: green.**
+
+Full evidence: `P0_LANE1_CANONICAL_DATA_PARITY_CONTRACT_MASTER_REPORT.md`.
 
 ---
 
@@ -152,4 +160,4 @@ The NSE-direct path in `optionChain.ts` stamps `strikeStepSource = "inferred_fro
   - SENSEX 77100 PUT (the owner-observed row): correctly LEGACY (generated 04:49 UTC, pre-fix at 08:03 UTC); premiums NOT overwritten post-deploy
   - All regression: immutability 5/5; fno 516/516; paper 136/136; optionSignal+lifecycle 218/218; routes 249/249; scanner 770/770; typecheck 0 errors; verify:release 11 PASS
 
-**HARD STOP honored**: Lane 1 is NOT started. Owner approval required before proceeding to Lane 1 (P0 Canonical Data Parity + Contract Master).
+**Lane 1 COMPLETE**: `P0_LANE1_CANONICAL_DATA_PARITY_CONTRACT_MASTER_DEV_VERIFIED` — 2026-07-09. All 5 gaps closed. 57 new acceptance tests pass. Full evidence in `P0_LANE1_CANONICAL_DATA_PARITY_CONTRACT_MASTER_REPORT.md`.

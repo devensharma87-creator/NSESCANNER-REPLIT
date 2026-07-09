@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-09T08:26:38.917Z",
+  "generatedAt": "2026-07-09T10:51:10.234Z",
   "generatorVersion": "1.0.0",
   "files": {
     "artifacts/api-server/src/routes/admin.ts": {
@@ -548,9 +548,9 @@
       "mtime": "2026-07-08T12:50:34.592Z"
     },
     "artifacts/api-server/src/lib/indicesBoard.ts": {
-      "hash": "2515ae504af8dfca",
-      "lines": 737,
-      "mtime": "2026-06-23T15:06:12.378Z"
+      "hash": "9a1599da2bb8b2cc",
+      "lines": 799,
+      "mtime": "2026-07-09T09:58:50.894Z"
     },
     "artifacts/api-server/src/lib/instFlows.ts": {
       "hash": "6a46098f9e0c709c",
@@ -583,9 +583,9 @@
       "mtime": "2026-05-06T14:30:11.286Z"
     },
     "artifacts/api-server/src/lib/kiteFnoInstruments.ts": {
-      "hash": "77bc8d2eefdf898c",
-      "lines": 56,
-      "mtime": "2026-05-04T06:57:33.270Z"
+      "hash": "ef7b61e4a04f041b",
+      "lines": 82,
+      "mtime": "2026-07-09T10:37:28.670Z"
     },
     "artifacts/api-server/src/lib/kiteIndexQuotes.ts": {
       "hash": "efc44ced2082ddd0",
@@ -598,9 +598,9 @@
       "mtime": "2026-06-30T09:10:50.483Z"
     },
     "artifacts/api-server/src/lib/kiteOptionChain.ts": {
-      "hash": "c8cae95665cec384",
-      "lines": 426,
-      "mtime": "2026-06-15T06:32:57.291Z"
+      "hash": "a68736e063a90edd",
+      "lines": 453,
+      "mtime": "2026-07-09T10:38:44.741Z"
     },
     "artifacts/api-server/src/lib/kiteReadiness.ts": {
       "hash": "ee0b5233d4a34f4d",
@@ -828,9 +828,9 @@
       "mtime": "2026-05-06T07:04:00.923Z"
     },
     "artifacts/api-server/src/lib/optionChain.ts": {
-      "hash": "5249859f76d3b858",
-      "lines": 600,
-      "mtime": "2026-07-08T13:34:03.109Z"
+      "hash": "2ec9b398584eae56",
+      "lines": 619,
+      "mtime": "2026-07-09T10:37:36.502Z"
     },
     "artifacts/api-server/src/lib/optionChainSnapshotIngestor.ts": {
       "hash": "6e71ebd37d8930b0",
@@ -863,9 +863,9 @@
       "mtime": "2026-05-06T14:27:23.697Z"
     },
     "artifacts/api-server/src/lib/optionSignals.ts": {
-      "hash": "020029362ec6327f",
-      "lines": 3102,
-      "mtime": "2026-07-09T07:28:00.074Z"
+      "hash": "ec510a23d43f60ae",
+      "lines": 3124,
+      "mtime": "2026-07-09T10:37:58.238Z"
     },
     "artifacts/api-server/src/lib/optionSnapshotAnalytics.ts": {
       "hash": "6f46087c9cd95893",
@@ -928,9 +928,9 @@
       "mtime": "2026-07-03T21:48:35.599Z"
     },
     "artifacts/api-server/src/lib/paperTradingFO.ts": {
-      "hash": "21d61449d698606d",
-      "lines": 3272,
-      "mtime": "2026-07-08T09:43:58.305Z"
+      "hash": "2e12e61fd6b2d29e",
+      "lines": 3306,
+      "mtime": "2026-07-09T10:38:55.242Z"
     },
     "artifacts/api-server/src/lib/preMarket.ts": {
       "hash": "77d19a892b79c49f",
@@ -1333,9 +1333,9 @@
       "mtime": "2026-06-05T12:55:17.075Z"
     },
     "lib/api-spec/openapi.yaml": {
-      "hash": "0f12354f0473ca94",
-      "lines": 7013,
-      "mtime": "2026-07-09T07:23:48.982Z"
+      "hash": "f9d80e5efba1b33d",
+      "lines": 7040,
+      "mtime": "2026-07-09T10:37:55.946Z"
     },
     "artifacts/scanner/src/pages/admin.tsx": {
       "hash": "4a6ea1da8bb56b02",
@@ -1453,9 +1453,9 @@
       "mtime": "2026-06-10T12:05:16.883Z"
     },
     "artifacts/scanner/src/pages/options.tsx": {
-      "hash": "ea77ddc2c5a9cfed",
-      "lines": 1574,
-      "mtime": "2026-07-09T07:29:33.242Z"
+      "hash": "c18798e88fcefd3c",
+      "lines": 1582,
+      "mtime": "2026-07-09T10:38:05.995Z"
     },
     "artifacts/scanner/src/pages/paper-reports.tsx": {
       "hash": "bdf9cdfe4482b23a",

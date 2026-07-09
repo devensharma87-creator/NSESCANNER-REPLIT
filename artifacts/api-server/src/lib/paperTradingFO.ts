@@ -60,6 +60,7 @@ import {
 } from "./paperAccount";
 import { computeFnoLotSizing } from "./fnoSizingHelper";
 import { fetchOptionChain, LOT_SIZES, type OcResponse } from "./optionChain";
+import { getCachedLotSizeForIndex } from "./kiteFnoInstruments";
 // Type-only: does not create a runtime import of fnoExitDecision.ts at
 // module load time (the runtime import is dynamic, inside
 // evaluateOrphanedOpenTrades, to match this file's existing lazy-import
@@ -163,9 +164,42 @@ export function premiumPathWatermarkSet(ltp: number) {
   };
 }
 
+/**
+ * Resolves the canonical lot size for the given index.
+ *
+ * Source priority:
+ *   1. Kite instrument master (via getCachedLotSizeForIndex — synchronous if
+ *      the instruments cache was warmed by a prior sweep, which is the normal
+ *      production path). contractGrade = "instrument_master".
+ *   2. Static LOT_SIZES fallback when the cache is cold (early startup, Kite
+ *      offline). contractGrade = "static_fallback". Drift alarm fires when the
+ *      static value differs from what the master last reported.
+ *
+ * Static map must NEVER silently override the master — master wins whenever
+ * the cache is warm. Historical rows are not rewritten.
+ */
 function lotSizeFor(indexSymbol: string): number | null {
-  const ls = LOT_SIZES[indexSymbol.toUpperCase()];
-  return ls && ls > 0 ? ls : null;
+  const sym = indexSymbol.toUpperCase();
+  const masterLotSize = getCachedLotSizeForIndex(sym);
+  if (masterLotSize != null) {
+    const staticLotSize = LOT_SIZES[sym];
+    if (staticLotSize != null && masterLotSize !== staticLotSize) {
+      logger.warn(
+        { sym, masterLotSize, staticLotSize },
+        "LOT_SIZE_DRIFT: Kite instrument master lot size differs from static map — static map is stale; using master",
+      );
+    }
+    return masterLotSize;
+  }
+  const staticLotSize = LOT_SIZES[sym];
+  if (staticLotSize && staticLotSize > 0) {
+    logger.info(
+      { sym, staticLotSize },
+      "lotSizeFor: Kite instrument cache cold; using static fallback (contractGrade=static_fallback)",
+    );
+    return staticLotSize;
+  }
+  return null;
 }
 
 /**

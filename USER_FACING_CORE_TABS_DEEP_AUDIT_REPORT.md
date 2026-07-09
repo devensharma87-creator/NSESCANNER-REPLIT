@@ -1136,3 +1136,20 @@ rows instead of pretending they were locked; (5) a plan-vs-fill divergence note.
 cause was a real DB mutation (premium patch spread into every status-transition UPDATE),
 now structurally impossible. Evidence: `P0_00_SIGNAL_PLAN_IMMUTABILITY_REPORT.md`.
 **Verdict: `P0_00_SIGNAL_PLAN_IMMUTABILITY_PROD_VERIFIED`** — 2026-07-09, commit `f831ded1`. UI split (LOCKED PLAN / LIVE MTM / legacy warning / strike-drift suppression) is live in production. SENSEX 77100 PUT correctly shown as LEGACY_PLAN_FIELDS row; 2 post-fix rows locked within one enrichment cycle; all regression green.
+
+---
+
+## Lane 1 Update — Canonical Data Parity + Contract Master (2026-07-09)
+
+**Verdict: `P0_LANE1_CANONICAL_DATA_PARITY_CONTRACT_MASTER_DEV_VERIFIED`**
+
+All 5 Lane 1 gaps closed as of 2026-07-09. 57 new acceptance tests pass. Full evidence in `P0_LANE1_CANONICAL_DATA_PARITY_CONTRACT_MASTER_REPORT.md`.
+
+| User-facing surface | Gap | Status |
+|---|---|---|
+| F&O Options page change % | Showed vs-open baseline; now shows prev-close (spotChangePctVsPrevClose) | FIXED |
+| FINNIFTY index board levels | Original audit concern — no proxy scale gap exists for FINNIFTY | OUTDATED_AUDIT_FINDING |
+| Option signal leg expiry label | No expirySource field | FIXED — "algorithmic_weekday" stamped |
+| Paper trade lot-size | Static map without master cross-check | FIXED — master-first + drift alarm |
+
+No trading-logic, order, or balance changes.

@@ -346,7 +346,11 @@ export async function fetchKiteOptionChain(
     Math.abs(r.strike - spot) < Math.abs(closest - spot) ? r.strike : closest,
     rows[0]!.strike,
   );
-  const lotSize = activeLegs[0]?.lot_size;
+  const masterLotSize = activeLegs[0]?.lot_size;
+  const lotSizeSource: "instrument_master" | "static_fallback" =
+    masterLotSize != null && masterLotSize > 0 ? "instrument_master" : "static_fallback";
+  const lotSize: number | undefined =
+    masterLotSize != null && masterLotSize > 0 ? masterLotSize : undefined;
 
   // ── B4: Nearest-month FUT lookup (Sprint 3) ──────────────────────────────
   // Scan the instrument dump for FUT contracts on the same underlying. Pick
@@ -417,6 +421,7 @@ export async function fetchKiteOptionChain(
     strikeStep,
     strikeStepSource,
     lotSize,
+    lotSizeSource,
     rows,
     source: "kite",
     generatedAt: new Date().toISOString(),

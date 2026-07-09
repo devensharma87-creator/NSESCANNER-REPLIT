@@ -1405,6 +1405,7 @@ function toSignal(c: Ctx, d: Detected, tier: "HIGH_CONVICTION" | "BASELINE"): Op
       strike,
       action: "BUY",
       expiry: expiryFor(c.cfg),
+      expirySource: "algorithmic_weekday" as const,
       entry: round2(d.entryLevel),
       instrument: "UNDERLYING_LEVEL",
       stopLoss: round2(d.stopLevel),

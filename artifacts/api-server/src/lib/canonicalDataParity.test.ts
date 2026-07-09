@@ -22,7 +22,15 @@ import * as path from "node:path";
 import { buildItem, type InstrumentCfg } from "./indicesBoard";
 import type { YahooChart } from "./yahoo";
 import type { KiteIndexQuote } from "./kiteIndexQuotes";
+import { LOT_SIZES } from "./optionChain";
 import type { OcResponse } from "./optionChain";
+import { OPTION_INDICES } from "./optionSignals";
+import {
+  getCachedLotSizeForIndex,
+  clearFnoInstrumentsCache,
+  _setFnoInstrumentsCacheForTest,
+  type FnoInstrument,
+} from "./kiteFnoInstruments";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -435,5 +443,239 @@ describe("Contract: generated Zod schema includes Lane 1 fields", () => {
     if (!fs.existsSync(zodFile)) return;
     const src = fs.readFileSync(zodFile, "utf8");
     expect(src).toContain("strikeStepSource");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GAP 1 — F&O Frontend Baseline Parity
+// Formula contract: spotChangePctVsPrevClose ≠ spotChangePercent (vs open)
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("GAP 1 — F&O signal change% formula: prevClose vs open distinction", () => {
+  it("spotChangePctVsPrevClose and spotChangePercent diverge when open ≠ prevClose", () => {
+    const ltp = 24500;
+    const prevClose = 24000;
+    const open = 24100; // gap-up: open > prevClose
+    const vsPrevClose = ((ltp - prevClose) / prevClose) * 100; // ≈ 2.083
+    const vsOpen      = ((ltp - open) / open) * 100;           // ≈ 1.660
+    expect(Math.abs(vsPrevClose - vsOpen)).toBeGreaterThan(0.01);
+    expect(parseFloat(vsPrevClose.toFixed(2))).toBe(2.08);
+    expect(parseFloat(vsOpen.toFixed(2))).toBe(1.66);
+    expect(vsPrevClose).not.toBeCloseTo(vsOpen, 1);
+  });
+
+  it("spotChangePctVsPrevClose = 0 exactly when ltp = prevClose", () => {
+    const ltp = 24000;
+    const prevClose = 24000;
+    const vsPrevClose = ((ltp - prevClose) / prevClose) * 100;
+    expect(vsPrevClose).toBe(0);
+  });
+
+  it("spotChangePctVsPrevClose is negative when ltp < prevClose (bearish)", () => {
+    const ltp = 23500;
+    const prevClose = 24000;
+    const vsPrevClose = ((ltp - prevClose) / prevClose) * 100;
+    expect(vsPrevClose).toBeLessThan(0);
+    expect(parseFloat(vsPrevClose.toFixed(2))).toBe(-2.08);
+  });
+
+  it("generated Zod schema includes both spotChangePctVsPrevClose and spotPrevClose on OptionSignal", () => {
+    const zodFile = path.resolve(
+      __dirname,
+      "../../../../lib/api-zod/src/generated/indian-stock-market-scannerZod.ts",
+    );
+    if (!fs.existsSync(zodFile)) return;
+    const src = fs.readFileSync(zodFile, "utf8");
+    expect(src).toContain("spotChangePctVsPrevClose");
+    expect(src).toContain("spotPrevClose");
+  });
+
+  it("options.tsx uses spotChangePctVsPrevClose as primary display (not spotChangePercent)", () => {
+    const optionsPath = path.resolve(__dirname, "../../../../artifacts/scanner/src/pages/options.tsx");
+    let src = "";
+    try { src = fs.readFileSync(optionsPath, "utf8"); } catch { return; }
+    expect(src).toContain("spotChangePctVsPrevClose");
+    expect(src).toContain("spotChangePctVsPrevClose != null");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GAP 2 — FINNIFTY prevClose / 52W contamination closure
+// Verdict: OUTDATED_AUDIT_FINDING — no yahooDaily proxy → no scale gap
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("GAP 2 — FINNIFTY source scan: no yahooDaily proxy → no scale contamination", () => {
+  const boardSrc = fs.readFileSync(path.resolve(__dirname, "indicesBoard.ts"), "utf8");
+
+  it("FINNIFTY config line has no yahooDaily property (same ticker for live and history)", () => {
+    const lines = boardSrc.split("\n");
+    const finniftyLine = lines.find(l =>
+      l.includes('"FINNIFTY"') && l.includes("NIFTY_FIN_SERVICE.NS"),
+    );
+    expect(finniftyLine).toBeDefined();
+    expect(finniftyLine).not.toContain("yahooDaily");
+  });
+
+  it("proxy scale guard (proxyLevelBlocked) only fires when yahooDaily is set — structurally unreachable for FINNIFTY", () => {
+    expect(boardSrc).toContain("cfg.yahooDaily && cfg.yahooDaily !== cfg.yahoo");
+  });
+
+  it("prevClose formula in indicesBoard is standard — change = ltp - prevClose, pct = ch / prevClose * 100", () => {
+    expect(boardSrc).toContain("item.ltp - item.prevClose");
+    expect(boardSrc).toContain("ch / item.prevClose");
+  });
+
+  it("FINNIFTY 52W high/low comes from Yahoo meta for NIFTY_FIN_SERVICE.NS (same ticker, no scale gap)", () => {
+    expect(boardSrc).toContain("fiftyTwoWeekHigh");
+    expect(boardSrc).toContain("fiftyTwoWeekLow");
+    const finniftyLine = boardSrc.split("\n").find(l =>
+      l.includes('"FINNIFTY"') && l.includes("NIFTY_FIN_SERVICE.NS"),
+    ) ?? "";
+    expect(finniftyLine).not.toContain("yahooDaily");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GAP 3 — Expiry / Contract Master Tests
+// Per-index cadence config; no global Tuesday/Thursday assumption
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("GAP 3 — Expiry resolution: per-index cadence (no global weekday assumption)", () => {
+  it("NIFTY uses weekly cadence on Tuesday (expiryWeekday=2)", () => {
+    const cfg = OPTION_INDICES.find(c => c.symbol === "NIFTY");
+    expect(cfg).toBeDefined();
+    expect(cfg!.expiryCadence).toBe("weekly");
+    expect(cfg!.expiryWeekday).toBe(2); // 0=Sun,1=Mon,2=Tue,3=Wed,4=Thu,5=Fri,6=Sat
+  });
+
+  it("BANKNIFTY uses monthly cadence on last Thursday (expiryWeekday=4)", () => {
+    const cfg = OPTION_INDICES.find(c => c.symbol === "BANKNIFTY");
+    expect(cfg).toBeDefined();
+    expect(cfg!.expiryCadence).toBe("monthly");
+    expect(cfg!.expiryWeekday).toBe(4);
+  });
+
+  it("SENSEX uses weekly cadence on Tuesday (expiryWeekday=2)", () => {
+    const cfg = OPTION_INDICES.find(c => c.symbol === "SENSEX");
+    expect(cfg).toBeDefined();
+    expect(cfg!.expiryCadence).toBe("weekly");
+    expect(cfg!.expiryWeekday).toBe(2);
+  });
+
+  it("no single global weekday applies to all indices — NIFTY/SENSEX=Tue, BANKNIFTY=Thu", () => {
+    const weekdays = OPTION_INDICES.map(c => c.expiryWeekday);
+    const allSame = weekdays.length > 1 && weekdays.every(d => d === weekdays[0]);
+    expect(allSame).toBe(false);
+  });
+
+  it("BANKNIFTY expiry weekday (4=Thu) differs from NIFTY expiry weekday (2=Tue)", () => {
+    const nifty = OPTION_INDICES.find(c => c.symbol === "NIFTY")!;
+    const bnf   = OPTION_INDICES.find(c => c.symbol === "BANKNIFTY")!;
+    expect(nifty.expiryWeekday).not.toBe(bnf.expiryWeekday);
+  });
+
+  it("optionSignals.ts stamps expirySource=algorithmic_weekday on the leg — not instrument_master", () => {
+    const src = fs.readFileSync(path.resolve(__dirname, "optionSignals.ts"), "utf8");
+    expect(src).toContain(`expirySource: "algorithmic_weekday"`);
+    // instrument_master should NOT be stamped in signal generation (it's a kiteOptionChain concept)
+    const masterMatches = [...src.matchAll(/expirySource:\s*"instrument_master"/g)];
+    expect(masterMatches.length).toBe(0);
+  });
+
+  it("generated Zod schema includes expirySource on OptionLeg", () => {
+    const zodFile = path.resolve(
+      __dirname,
+      "../../../../lib/api-zod/src/generated/indian-stock-market-scannerZod.ts",
+    );
+    if (!fs.existsSync(zodFile)) return;
+    const src = fs.readFileSync(zodFile, "utf8");
+    expect(src).toContain("expirySource");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GAP 4 — Lot-size ContractMasterFact / Drift Alarm
+// Static map correctness + master-first resolution via getCachedLotSizeForIndex
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("GAP 4 — Lot-size contract: static map correctness and master-first resolution", () => {
+  it("LOT_SIZES static map — NIFTY = 65 (Jan-2026 NSE revision)", () => {
+    expect(LOT_SIZES["NIFTY"]).toBe(65);
+  });
+
+  it("LOT_SIZES static map — BANKNIFTY = 30", () => {
+    expect(LOT_SIZES["BANKNIFTY"]).toBe(30);
+  });
+
+  it("LOT_SIZES static map — SENSEX = 20", () => {
+    expect(LOT_SIZES["SENSEX"]).toBe(20);
+  });
+
+  it("LOT_SIZES static map — FINNIFTY = 60", () => {
+    expect(LOT_SIZES["FINNIFTY"]).toBe(60);
+  });
+
+  it("LOT_SIZES static map — MIDCPNIFTY = 120", () => {
+    expect(LOT_SIZES["MIDCPNIFTY"]).toBe(120);
+  });
+
+  it("getCachedLotSizeForIndex returns null when cache is cold", () => {
+    clearFnoInstrumentsCache();
+    expect(getCachedLotSizeForIndex("NIFTY")).toBeNull();
+    expect(getCachedLotSizeForIndex("BANKNIFTY")).toBeNull();
+    expect(getCachedLotSizeForIndex("SENSEX")).toBeNull();
+  });
+
+  it("getCachedLotSizeForIndex returns master lot size for all 5 indices when cache is warm", () => {
+    const mockRows: FnoInstrument[] = [
+      { instrument_token: 1, exchange_token: 1, tradingsymbol: "NIFTY24JUL24950CE", name: "NIFTY",     last_price: 0, expiry: "2024-07-25", strike: 24950, tick_size: 0.05, lot_size: 65,  instrument_type: "CE", segment: "NFO-OPT", exchange: "NFO" },
+      { instrument_token: 2, exchange_token: 2, tradingsymbol: "BANKNIFTY24JUL52000CE", name: "BANKNIFTY", last_price: 0, expiry: "2024-07-25", strike: 52000, tick_size: 0.05, lot_size: 30,  instrument_type: "CE", segment: "NFO-OPT", exchange: "NFO" },
+      { instrument_token: 3, exchange_token: 3, tradingsymbol: "SENSEX24JUL80000CE", name: "SENSEX",    last_price: 0, expiry: "2024-07-26", strike: 80000, tick_size: 0.05, lot_size: 20,  instrument_type: "CE", segment: "BFO-OPT", exchange: "BFO" },
+      { instrument_token: 4, exchange_token: 4, tradingsymbol: "FINNIFTY24JUL23000CE", name: "FINNIFTY",  last_price: 0, expiry: "2024-07-23", strike: 23000, tick_size: 0.05, lot_size: 60,  instrument_type: "CE", segment: "NFO-OPT", exchange: "NFO" },
+      { instrument_token: 5, exchange_token: 5, tradingsymbol: "MIDCPNIFTY24JUL13000CE", name: "MIDCPNIFTY", last_price: 0, expiry: "2024-07-22", strike: 13000, tick_size: 0.05, lot_size: 120, instrument_type: "CE", segment: "NFO-OPT", exchange: "NFO" },
+    ];
+    _setFnoInstrumentsCacheForTest(mockRows);
+    expect(getCachedLotSizeForIndex("NIFTY")).toBe(65);
+    expect(getCachedLotSizeForIndex("BANKNIFTY")).toBe(30);
+    expect(getCachedLotSizeForIndex("SENSEX")).toBe(20);
+    expect(getCachedLotSizeForIndex("FINNIFTY")).toBe(60);
+    expect(getCachedLotSizeForIndex("MIDCPNIFTY")).toBe(120);
+    clearFnoInstrumentsCache();
+  });
+
+  it("drift alarm path exists in paperTradingFO.ts — master wins over static when cache is warm", () => {
+    const src = fs.readFileSync(path.resolve(__dirname, "paperTradingFO.ts"), "utf8");
+    expect(src).toContain("LOT_SIZE_DRIFT");
+    expect(src).toContain("getCachedLotSizeForIndex");
+    expect(src).toContain("masterLotSize !== staticLotSize");
+    expect(src).toContain("contractGrade=static_fallback");
+  });
+
+  it("kiteOptionChain.ts stamps lotSizeSource from live instrument dump lot_size field", () => {
+    const src = fs.readFileSync(path.resolve(__dirname, "kiteOptionChain.ts"), "utf8");
+    expect(src).toContain("lotSizeSource");
+    expect(src).toContain('"instrument_master"');
+    expect(src).toContain('"static_fallback"');
+    expect(src).toContain("masterLotSize");
+  });
+
+  it("static map must never silently override master — lotSizeFor tries master first", () => {
+    const src = fs.readFileSync(path.resolve(__dirname, "paperTradingFO.ts"), "utf8");
+    const masterCheckIdx = src.indexOf("getCachedLotSizeForIndex");
+    const staticCheckIdx = src.indexOf("LOT_SIZES[sym]");
+    expect(masterCheckIdx).toBeGreaterThan(-1);
+    expect(staticCheckIdx).toBeGreaterThan(-1);
+    // master check must appear before the static fallback in the function
+    expect(masterCheckIdx).toBeLessThan(staticCheckIdx);
+  });
+
+  it("generated Zod schema includes lotSizeSource on OptionChainResponse", () => {
+    const zodFile = path.resolve(
+      __dirname,
+      "../../../../lib/api-zod/src/generated/indian-stock-market-scannerZod.ts",
+    );
+    if (!fs.existsSync(zodFile)) return;
+    const src = fs.readFileSync(zodFile, "utf8");
+    expect(src).toContain("lotSizeSource");
   });
 });

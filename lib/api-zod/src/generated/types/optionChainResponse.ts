@@ -7,6 +7,7 @@
  */
 import type { OptionChainProvenance } from "./optionChainProvenance";
 import type { OptionChainResponseKind } from "./optionChainResponseKind";
+import type { OptionChainResponseLotSizeSource } from "./optionChainResponseLotSizeSource";
 import type { OptionChainResponseStrikeStepSource } from "./optionChainResponseStrikeStepSource";
 import type { OptionChainStrikeRow } from "./optionChainStrikeRow";
 
@@ -25,6 +26,8 @@ export interface OptionChainResponse {
   /** How the strike step was resolved. 'instrument_master' = inferred from live Kite instrument dump (authoritative). 'static_map_fallback' = taken from a hardcoded map (inference failed — may be stale). 'inferred_from_nse' = computed from NSE-direct strike list spacing. */
   strikeStepSource?: OptionChainResponseStrikeStepSource;
   lotSize?: number;
+  /** How lot size was resolved: instrument_master = live Kite instrument dump lot_size (authoritative); static_fallback = hardcoded LOT_SIZES map (stale risk after lot-size revision events). */
+  lotSizeSource?: OptionChainResponseLotSizeSource;
   /** Strike where option writers' aggregate loss is minimised — same algorithm as analytics, surfaced inline so the chain table can mark the row. */
   maxPainStrike?: number | null;
   rows: OptionChainStrikeRow[];

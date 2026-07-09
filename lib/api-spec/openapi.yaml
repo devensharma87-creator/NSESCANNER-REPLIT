@@ -2930,6 +2930,10 @@ components:
         strike: { type: number }
         action: { type: string, enum: [BUY, SELL] }
         expiry: { type: string }
+        expirySource:
+          type: string
+          enum: [instrument_master, algorithmic_weekday]
+          description: "How expiry was resolved. algorithmic_weekday = computed from configured weekday cadence (signal generation path). instrument_master = validated against live Kite instrument dump."
         entry: { type: number, description: "Underlying spot trigger price" }
         instrument: { type: string, enum: [UNDERLYING_LEVEL, OPTION_PREMIUM], description: "Whether entry/SL/target are spot levels or premium values" }
         stopLoss: { type: number }
@@ -4546,6 +4550,11 @@ components:
           enum: [instrument_master, static_map_fallback, inferred_from_nse]
           description: "How the strike step was resolved. 'instrument_master' = inferred from live Kite instrument dump (authoritative). 'static_map_fallback' = taken from a hardcoded map (inference failed — may be stale). 'inferred_from_nse' = computed from NSE-direct strike list spacing."
         lotSize:        { type: integer }
+        lotSizeSource:
+          type: string
+          enum: [instrument_master, static_fallback]
+          description: "How lot size was resolved: instrument_master = live Kite instrument dump lot_size (authoritative); static_fallback = hardcoded LOT_SIZES map (stale risk after lot-size revision events)."
+          nullable: true
         maxPainStrike:  { type: number, nullable: true, description: "Strike where option writers' aggregate loss is minimised — same algorithm as analytics, surfaced inline so the chain table can mark the row." }
         rows:
           type: array

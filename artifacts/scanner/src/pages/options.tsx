@@ -826,6 +826,8 @@ export default function OptionsPage() {
       // null through; the renderer's `fmt(grp.spot)` already prints "—".
       spot: signals[0]?.spot ?? null,
       spotChangePercent: signals[0]?.spotChangePercent,
+      spotChangePctVsPrevClose: signals[0]?.spotChangePctVsPrevClose,
+      spotPrevClose: signals[0]?.spotPrevClose,
       vwap: signals[0]?.vwap,
       ema9: signals[0]?.ema9,
       ema21: signals[0]?.ema21,
@@ -951,7 +953,8 @@ export default function OptionsPage() {
       ) : (
         <div className="space-y-4">
           {grouped.map(grp => {
-            const up = (grp.spotChangePercent ?? 0) >= 0;
+            const changePctDisplay = grp.spotChangePctVsPrevClose ?? grp.spotChangePercent;
+            const up = (changePctDisplay ?? 0) >= 0;
             return (
               <Card key={grp.index} className="border-border">
                 <CardContent className="p-4 space-y-4">
@@ -964,11 +967,16 @@ export default function OptionsPage() {
                       </div>
                       <div className="text-xs font-mono mt-0.5">
                         <span className="text-foreground tabular-nums">Spot {fmt(grp.spot)}</span>
-                        {grp.spotChangePercent != null && (
+                        {grp.spotChangePctVsPrevClose != null ? (
                           <span className={`ml-2 ${up ? "text-signal-strong-buy" : "text-signal-strong-sell"}`}>
-                            {up ? "+" : ""}{grp.spotChangePercent.toFixed(2)}%
+                            {up ? "+" : ""}{grp.spotChangePctVsPrevClose.toFixed(2)}%
                           </span>
-                        )}
+                        ) : grp.spotChangePercent != null ? (
+                          <span className={`ml-2 ${up ? "text-signal-strong-buy" : "text-signal-strong-sell"}`} title="vs open">
+                            {up ? "+" : ""}{grp.spotChangePercent.toFixed(2)}%{" "}
+                            <span className="opacity-60 text-[9px]">(vs open)</span>
+                          </span>
+                        ) : null}
                       </div>
                     </div>
                     <div className="grid grid-cols-3 sm:grid-cols-6 gap-x-3 gap-y-1 text-[11px] font-mono">

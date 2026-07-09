@@ -1123,6 +1123,17 @@ export const OptionLegAction = {
 } as const;
 
 /**
+ * How expiry was resolved. algorithmic_weekday = computed from configured weekday cadence (signal generation path). instrument_master = validated against live Kite instrument dump.
+ */
+export type OptionLegExpirySource =
+  (typeof OptionLegExpirySource)[keyof typeof OptionLegExpirySource];
+
+export const OptionLegExpirySource = {
+  instrument_master: "instrument_master",
+  algorithmic_weekday: "algorithmic_weekday",
+} as const;
+
+/**
  * Whether entry/SL/target are spot levels or premium values
  */
 export type OptionLegInstrument =
@@ -1138,6 +1149,8 @@ export interface OptionLeg {
   strike: number;
   action: OptionLegAction;
   expiry?: string;
+  /** How expiry was resolved. algorithmic_weekday = computed from configured weekday cadence (signal generation path). instrument_master = validated against live Kite instrument dump. */
+  expirySource?: OptionLegExpirySource;
   /** Underlying spot trigger price */
   entry: number;
   /** Whether entry/SL/target are spot levels or premium values */
@@ -3147,6 +3160,18 @@ export const OptionChainResponseStrikeStepSource = {
 } as const;
 
 /**
+ * How lot size was resolved: instrument_master = live Kite instrument dump lot_size (authoritative); static_fallback = hardcoded LOT_SIZES map (stale risk after lot-size revision events).
+ */
+export type OptionChainResponseLotSizeSource =
+  | (typeof OptionChainResponseLotSizeSource)[keyof typeof OptionChainResponseLotSizeSource]
+  | null;
+
+export const OptionChainResponseLotSizeSource = {
+  instrument_master: "instrument_master",
+  static_fallback: "static_fallback",
+} as const;
+
+/**
  * Normalised provider that produced the chain.
  */
 export type OptionChainProvenanceSourceProvider =
@@ -3216,6 +3241,8 @@ export interface OptionChainResponse {
   /** How the strike step was resolved. 'instrument_master' = inferred from live Kite instrument dump (authoritative). 'static_map_fallback' = taken from a hardcoded map (inference failed — may be stale). 'inferred_from_nse' = computed from NSE-direct strike list spacing. */
   strikeStepSource?: OptionChainResponseStrikeStepSource;
   lotSize?: number;
+  /** How lot size was resolved: instrument_master = live Kite instrument dump lot_size (authoritative); static_fallback = hardcoded LOT_SIZES map (stale risk after lot-size revision events). */
+  lotSizeSource?: OptionChainResponseLotSizeSource;
   /** Strike where option writers' aggregate loss is minimised — same algorithm as analytics, surfaced inline so the chain table can mark the row. */
   maxPainStrike?: number | null;
   rows: OptionChainStrikeRow[];

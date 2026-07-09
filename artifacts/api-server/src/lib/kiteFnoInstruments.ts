@@ -53,3 +53,29 @@ export function isFnoInstrumentsCacheReady(): boolean {
 export function clearFnoInstrumentsCache(): void {
   lastGoodRows = null;
 }
+
+/**
+ * Reads the cached Kite F&O instrument dump synchronously to retrieve the
+ * canonical lot size for the given index. Returns null when the cache is cold
+ * (pre-warmup) — callers must fall back to the static LOT_SIZES map.
+ *
+ * contractGrade: "instrument_master" when returned from here; caller stamps
+ * "static_fallback" when this returns null. Drift alarm fires in callers when
+ * master lot size differs from the static map.
+ */
+export function getCachedLotSizeForIndex(indexSymbol: string): number | null {
+  if (!lastGoodRows) return null;
+  const sym = indexSymbol.toUpperCase();
+  const row = lastGoodRows.find(
+    r => r.name === sym && (r.instrument_type === "CE" || r.instrument_type === "PE"),
+  );
+  return row && row.lot_size > 0 ? row.lot_size : null;
+}
+
+/**
+ * Test-only helper — sets the in-memory instruments cache to the given rows.
+ * Never call from production code. Prefixed with underscore to signal test use.
+ */
+export function _setFnoInstrumentsCacheForTest(rows: FnoInstrument[]): void {
+  lastGoodRows = rows;
+}

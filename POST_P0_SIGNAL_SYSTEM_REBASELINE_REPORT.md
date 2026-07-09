@@ -283,6 +283,7 @@ All tests executed in batches to stay within 120s tool timeout. No test failures
 | Tests green | ✓ Complete (1,193/1,193) |
 | Post-P0 signal sample | ✗ Gap — 0 signals; cannot evaluate detector performance, CALL/PUT distribution, or confidence distribution |
 | Post-P0 paper trade sample | ✗ Gap — 0 trades (`NO_POST_P0_TRADE_SAMPLE_YET`); cannot evaluate execution quality, cost model accuracy, or edge |
+| Lane 1 canonical data parity (2026-07-09) | ✓ `P0_LANE1_CANONICAL_DATA_PARITY_CONTRACT_MASTER_DEV_VERIFIED` — 57 acceptance tests pass; all 5 gaps closed |
 
 The gap is not a defect — it is the expected state when a baseline is freshly set during a trading session (2026-07-08T12:24 IST). No signals or trades can accumulate until the next market session.
 

@@ -3932,6 +3932,12 @@ export const GetOptionSignalsResponse = zod.object({
         strike: zod.number(),
         action: zod.enum(["BUY", "SELL"]),
         expiry: zod.string().optional(),
+        expirySource: zod
+          .enum(["instrument_master", "algorithmic_weekday"])
+          .optional()
+          .describe(
+            "How expiry was resolved. algorithmic_weekday = computed from configured weekday cadence (signal generation path). instrument_master = validated against live Kite instrument dump.",
+          ),
         entry: zod.number().describe("Underlying spot trigger price"),
         instrument: zod
           .enum(["UNDERLYING_LEVEL", "OPTION_PREMIUM"])
@@ -5952,6 +5958,12 @@ export const GetOptionChainResponse = zod.object({
       "How the strike step was resolved. 'instrument_master' = inferred from live Kite instrument dump (authoritative). 'static_map_fallback' = taken from a hardcoded map (inference failed — may be stale). 'inferred_from_nse' = computed from NSE-direct strike list spacing.",
     ),
   lotSize: zod.number().optional(),
+  lotSizeSource: zod
+    .enum(["instrument_master", "static_fallback"])
+    .nullish()
+    .describe(
+      "How lot size was resolved: instrument_master = live Kite instrument dump lot_size (authoritative); static_fallback = hardcoded LOT_SIZES map (stale risk after lot-size revision events).",
+    ),
   maxPainStrike: zod
     .number()
     .nullish()

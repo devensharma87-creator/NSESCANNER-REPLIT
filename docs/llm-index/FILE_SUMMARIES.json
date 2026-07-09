@@ -769,6 +769,19 @@
     "hash": "1a4fe4fad0862adf"
   },
   {
+    "path": "artifacts/api-server/src/lib/canonicalDataParity.test.ts",
+    "purpose": "test",
+    "lines": 682,
+    "exports": [],
+    "externalImports": [
+      "vitest",
+      "node:fs",
+      "node:path"
+    ],
+    "routes": [],
+    "hash": "5dc1b0d833f9770a"
+  },
+  {
     "path": "artifacts/api-server/src/lib/canonicalFnoReadiness.test.ts",
     "purpose": "test",
     "lines": 213,
@@ -2383,7 +2396,7 @@
   {
     "path": "artifacts/api-server/src/lib/indicesBoard.ts",
     "purpose": "lib",
-    "lines": 737,
+    "lines": 799,
     "exports": [
       "IndicesCategory",
       "InstrumentCfg",
@@ -2397,7 +2410,7 @@
     ],
     "externalImports": [],
     "routes": [],
-    "hash": "2515ae504af8dfca"
+    "hash": "9a1599da2bb8b2cc"
   },
   {
     "path": "artifacts/api-server/src/lib/instFlows.ts",
@@ -2564,16 +2577,18 @@
   {
     "path": "artifacts/api-server/src/lib/kiteFnoInstruments.ts",
     "purpose": "fno-engine",
-    "lines": 56,
+    "lines": 82,
     "exports": [
       "FnoInstrument",
       "loadFnoInstruments",
       "isFnoInstrumentsCacheReady",
-      "clearFnoInstrumentsCache"
+      "clearFnoInstrumentsCache",
+      "getCachedLotSizeForIndex",
+      "_setFnoInstrumentsCacheForTest"
     ],
     "externalImports": [],
     "routes": [],
-    "hash": "77bc8d2eefdf898c"
+    "hash": "ef7b61e4a04f041b"
   },
   {
     "path": "artifacts/api-server/src/lib/kiteIndexQuotes.ts",
@@ -2610,14 +2625,14 @@
   {
     "path": "artifacts/api-server/src/lib/kiteOptionChain.ts",
     "purpose": "fno-engine",
-    "lines": 426,
+    "lines": 453,
     "exports": [
       "fetchKiteOptionChain",
       "isKiteOptionChainReady"
     ],
     "externalImports": [],
     "routes": [],
-    "hash": "c8cae95665cec384"
+    "hash": "a68736e063a90edd"
   },
   {
     "path": "artifacts/api-server/src/lib/kiteReadiness.ts",
@@ -3638,7 +3653,7 @@
   {
     "path": "artifacts/api-server/src/lib/optionChain.ts",
     "purpose": "fno-engine",
-    "lines": 600,
+    "lines": 619,
     "exports": [
       "OcSide",
       "OcRow",
@@ -3654,7 +3669,7 @@
     ],
     "externalImports": [],
     "routes": [],
-    "hash": "5249859f76d3b858"
+    "hash": "2ec9b398584eae56"
   },
   {
     "path": "artifacts/api-server/src/lib/optionChainSnapshotIngestor.test.ts",
@@ -3833,7 +3848,7 @@
   {
     "path": "artifacts/api-server/src/lib/optionSignals.ts",
     "purpose": "fno-engine",
-    "lines": 3102,
+    "lines": 3124,
     "exports": [
       "IndexCfg",
       "OPTION_INDICES",
@@ -3846,7 +3861,7 @@
       "@workspace/api-zod"
     ],
     "routes": [],
-    "hash": "020029362ec6327f"
+    "hash": "ec510a23d43f60ae"
   },
   {
     "path": "artifacts/api-server/src/lib/optionSignals.vwapLabel.test.ts",
@@ -4308,7 +4323,7 @@
   {
     "path": "artifacts/api-server/src/lib/paperTradingFO.ts",
     "purpose": "paper-trading",
-    "lines": 3272,
+    "lines": 3306,
     "exports": [
       "TradeTier",
       "LifecycleHookInput",
@@ -4337,7 +4352,7 @@
       "@workspace/api-zod"
     ],
     "routes": [],
-    "hash": "21d61449d698606d"
+    "hash": "2e12e61fd6b2d29e"
   },
   {
     "path": "artifacts/api-server/src/lib/paperTradingFoExitMonitorApi.test.ts",
@@ -8320,7 +8335,7 @@
   {
     "path": "artifacts/scanner/src/pages/options.tsx",
     "purpose": "ui-page",
-    "lines": 1574,
+    "lines": 1582,
     "exports": [],
     "externalImports": [
       "@/components/ui/card",
@@ -8335,7 +8350,7 @@
       "@/lib/setupExplanation"
     ],
     "routes": [],
-    "hash": "ea77ddc2c5a9cfed"
+    "hash": "c18798e88fcefd3c"
   },
   {
     "path": "artifacts/scanner/src/pages/paper-reports.tsx",

@@ -168,6 +168,15 @@ export interface OcResponse {
    */
   strikeStepSource?: "instrument_master" | "static_map_fallback" | "inferred_from_nse";
   lotSize?: number;
+  /**
+   * How lot size was resolved:
+   *   - "instrument_master": taken from live Kite instrument dump lot_size —
+   *     the authoritative source; updates automatically after NSE/BSE revisions.
+   *   - "static_fallback": taken from the hardcoded LOT_SIZES map (Kite path
+   *     unavailable or cache cold). Stale risk after lot-size revision events.
+   *   If absent, the source is unknown (legacy/NSE-direct path).
+   */
+  lotSizeSource?: "instrument_master" | "static_fallback";
   maxPainStrike?: number | null;
   rows: OcRow[];
   source: string;
