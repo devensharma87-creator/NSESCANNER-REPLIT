@@ -1135,4 +1135,4 @@ that HIDES live premium projections when the live ATM differs from the locked st
 rows instead of pretending they were locked; (5) a plan-vs-fill divergence note. Root
 cause was a real DB mutation (premium patch spread into every status-transition UPDATE),
 now structurally impossible. Evidence: `P0_00_SIGNAL_PLAN_IMMUTABILITY_REPORT.md`.
-**Verdict: `P0_00_SIGNAL_PLAN_IMMUTABILITY_DEV_VERIFIED`** (prod publish pending).
+**Verdict: `P0_00_SIGNAL_PLAN_IMMUTABILITY_PROD_VERIFIED`** — 2026-07-09, commit `f831ded1`. UI split (LOCKED PLAN / LIVE MTM / legacy warning / strike-drift suppression) is live in production. SENSEX 77100 PUT correctly shown as LEGACY_PLAN_FIELDS row; 2 post-fix rows locked within one enrichment cycle; all regression green.

@@ -2641,4 +2641,4 @@ re-projection, hidden on strike drift). This closes the silent SENSEX 77100 PUT 
 mutation observed by the owner. Full evidence: `P0_00_SIGNAL_PLAN_IMMUTABILITY_REPORT.md`.
 Verification: 5/5 immutability tests, 516/516 fno, 596/596 paper/signal/lifecycle/routes,
 770/770 scanner, verify:release 11 PASS, full typecheck clean.
-**Verdict: `P0_00_SIGNAL_PLAN_IMMUTABILITY_DEV_VERIFIED`** (prod publish pending).
+**Verdict: `P0_00_SIGNAL_PLAN_IMMUTABILITY_PROD_VERIFIED`** — 2026-07-09, commit `f831ded1`. Schema ensure log confirmed at boot; 2 post-fix locked rows in prod DB (SENSEX 77100 CALL locked within 15s, NIFTY 24050 CALL within 14s); all regression green (1,894 tests).

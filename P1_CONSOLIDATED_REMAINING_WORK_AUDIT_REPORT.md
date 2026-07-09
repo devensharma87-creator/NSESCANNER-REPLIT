@@ -602,3 +602,5 @@ audit ledger + LOCKED PLAN / LIVE MTM split). Evidence and 12-section breakdown:
 `P0_00_SIGNAL_PLAN_IMMUTABILITY_DEV_VERIFIED`** (prod publish pending; Lane 1 NOT started
 per hard-stop instruction). P1C/P1D/P1E remain deferred and are tracked in the register
 (P1C → MQ-P1-15 Lane 5; P1D → Lane 6 owner-sign-off; P1E → out of quant scope).
+
+**P0-00 PROD_VERIFIED (2026-07-09)**: Published at 08:03 UTC, commit `f831ded1`. Schema ensure ran at boot, prod DB has `option_premium_locked_at` + `option_signal_plan_audit` + CHECK. Two signals locked in production within one cycle of generation. MQ-P0-00 status updated to `FIXED_PROD_VERIFIED` in the bug register. Final verdict: `P0_00_SIGNAL_PLAN_IMMUTABILITY_PROD_VERIFIED`. Lane 1 awaiting owner approval.

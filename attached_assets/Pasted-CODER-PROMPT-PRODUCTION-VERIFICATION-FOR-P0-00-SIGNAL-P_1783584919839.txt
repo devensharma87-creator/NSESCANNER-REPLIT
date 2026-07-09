@@ -1,0 +1,326 @@
+CODER PROMPT — PRODUCTION VERIFICATION FOR P0-00 SIGNAL PLAN IMMUTABILITY
+
+I have published the app.
+
+Run production verification for:
+
+P0-00 — SIGNAL PLAN IMMUTABILITY / LOCKED PLAN VS LIVE MTM
+
+Current accepted dev status:
+
+MASTER_QUANT_REMEDIATION_ROADMAP_CREATED
+P0_00_SIGNAL_PLAN_IMMUTABILITY_DEV_VERIFIED
+
+Expected final verdict if production verification passes:
+
+P0_00_SIGNAL_PLAN_IMMUTABILITY_PROD_VERIFIED
+
+====================================================
+STRICT RULES
+====================================================
+
+This is production verification only.
+
+Do not change signal logic.
+Do not change stop formula.
+Do not change target formula.
+Do not change confidence calculation.
+Do not change strategy thresholds.
+Do not change detector weights.
+Do not change paper-trade open/close rules.
+Do not change account balance.
+Do not rewrite historical trades.
+Do not send Telegram test messages.
+Do not enable broker execution.
+Do not place real orders.
+Do not perform destructive migrations.
+
+Only verify production state.
+
+====================================================
+PART A — FRESH PRODUCTION DEPLOY PROOF
+====================================================
+
+Check:
+
+GET https://marketscannerbydev.in/api/build-info
+
+Confirm:
+
+1. HTTP 200.
+2. commitShort is after the P0-00 fix commit.
+3. buildTime is after the publish.
+4. bootTime is after the publish.
+5. environment = production.
+6. all checkpoint markers remain true.
+7. no secrets exposed.
+
+Run:
+
+pnpm --filter @workspace/scripts run verify:release
+
+Expected:
+
+11 / 11 PASS
+0 WARN
+0 FAIL
+
+If production still shows the old commit, stop and report:
+
+P0_00_SIGNAL_PLAN_IMMUTABILITY_BUILD_NOT_DEPLOYED
+
+====================================================
+PART B — PRODUCTION SCHEMA ENSURE VERIFICATION
+====================================================
+
+Confirm runtime schema ensure executed successfully.
+
+Verify production DB has:
+
+1. option_signal_history.option_premium_locked_at
+2. option_signal_plan_audit table
+3. allowed reason CHECK constraint
+4. no destructive rewrite
+5. no historical trade rewrite
+
+Required table:
+
+| Schema Item | Production Result | Verdict |
+|---|---|---|
+| option_premium_locked_at |
+| option_signal_plan_audit |
+| allowed revision reasons |
+| no destructive migration |
+| no historical rewrite |
+
+====================================================
+PART C — PRODUCTION API VERIFICATION
+====================================================
+
+Verify the signals API now returns separated fields:
+
+1. planSnapshot
+2. liveMtm
+3. planRevised
+4. paperFill
+
+For an existing or test-safe signal row, confirm:
+
+| Field | Expected | Production Result | Verdict |
+|---|---|---|---|
+| planSnapshot |
+| liveMtm |
+| planRevised |
+| paperFill |
+| premiumLockedAt |
+| legacyPlanFields |
+| strikeDrift |
+
+Do not mutate real trades.
+
+====================================================
+PART D — LOCKED PLAN IMMUTABILITY VERIFICATION
+====================================================
+
+For a triggered F&O signal card, verify across at least two refresh/poll cycles:
+
+LOCKED PLAN fields remain unchanged:
+
+1. strike
+2. expiry
+3. optionType
+4. entry premium
+5. stop loss
+6. target 1
+7. target 2
+8. confidence at emission
+9. active stop method
+10. premiumLockedAt
+
+LIVE MTM fields may update:
+
+1. current spot
+2. current option premium
+3. current MTM
+4. latest source/asOf/freshness
+
+Required table:
+
+| Field | Initial Value | After Refresh | Changed? | Expected |
+|---|---:|---:|---:|---|
+| locked entry premium |
+| locked stop loss |
+| locked target 1 |
+| locked target 2 |
+| live option premium |
+| live MTM |
+
+Expected:
+
+- locked fields do not change
+- live fields may change
+- any plan revision must come from audit ledger only
+
+====================================================
+PART E — UI VERIFICATION
+====================================================
+
+Verify production UI shows:
+
+1. LOCKED PLAN / plan of record section.
+2. LIVE MTM / updates with market section.
+3. premiums locked timestamp.
+4. strike drift warning when applicable.
+5. legacy-row warning for pre-fix rows.
+6. fill-vs-plan divergence note when applicable.
+
+Required table:
+
+| UI Item | Expected | Production Result | Verdict |
+|---|---|---|---|
+| Locked Plan section |
+| Live MTM section |
+| Premium locked time |
+| Strike drift warning |
+| Legacy plan warning |
+| Fill vs plan note |
+
+====================================================
+PART F — SENSEX 77100 PUT SPECIFIC CHECK
+====================================================
+
+Search production data for the owner-observed issue:
+
+- underlying = SENSEX
+- strike = 77100
+- optionType = PUT
+- confidence >= 65
+- latest session / today if available
+
+Confirm whether the historical row was legacy-mutated before the fix or protected after the fix.
+
+Required table:
+
+| Row | Created | Updated | Entry Premium | Stop Loss | Target 1 | Target 2 | Locked? | Legacy? | Notes |
+|---|---|---|---:|---:|---:|---:|---:|---:|---|
+
+If it is a legacy row, label it honestly as:
+
+LEGACY_PLAN_FIELDS — emitted before immutability lock
+
+Do not pretend old rows were perfectly locked.
+
+====================================================
+PART G — REGRESSION TESTS
+====================================================
+
+Run and report exact counts:
+
+pnpm --filter @workspace/scripts run verify:release
+
+pnpm --filter @workspace/api-server run typecheck
+
+pnpm --filter @workspace/api-server run typecheck:libs
+
+pnpm --filter @workspace/api-server exec vitest run src/lib/*paper*.test.ts src/lib/*fno*.test.ts src/lib/*optionSignal*.test.ts src/lib/*lifecycle*.test.ts src/routes/**/*.test.ts
+
+pnpm --filter @workspace/scanner run typecheck
+
+pnpm --filter @workspace/scanner exec vitest run
+
+pnpm --filter @workspace/scripts run index:llm
+
+pnpm --filter @workspace/scripts run index:llm:check
+
+If a suite times out, split it and report exact counts.
+
+Do not say only “all green.”
+
+====================================================
+PART H — REPORT UPDATE
+====================================================
+
+Update:
+
+1. P0_00_SIGNAL_PLAN_IMMUTABILITY_REPORT.md
+2. MASTER_QUANT_REMEDIATION_ROADMAP_2026_07_09.md
+3. MASTER_QUANT_BUG_REGISTER_2026_07_09.csv
+4. WEBSITE_CANONICAL_DATA_INTEGRATION_REPORT.md
+5. USER_FACING_CORE_TABS_DEEP_AUDIT_REPORT.md
+6. POST_P0_SIGNAL_SYSTEM_REBASELINE_REPORT.md
+7. P1_CONSOLIDATED_REMAINING_WORK_AUDIT_REPORT.md
+
+Add production verification section with:
+
+1. production commit proof,
+2. schema ensure proof,
+3. API proof,
+4. UI proof,
+5. SENSEX 77100 PUT check,
+6. test counts,
+7. safety confirmation,
+8. final verdict.
+
+====================================================
+PART I — SAFETY CONFIRMATION
+====================================================
+
+Confirm:
+
+1. No broker execution.
+2. No real orders.
+3. No Telegram messages.
+4. No strategy threshold changes.
+5. No detector weight changes.
+6. No signal confidence formula changes.
+7. No stop formula changes.
+8. No target formula changes.
+9. No account balance change.
+10. No realized P&L rewrite.
+11. No historical trade rewrite.
+12. No destructive migration.
+13. No Yahoo/delayed source can drive F&O signals or paper opens.
+14. Locked plan fields cannot silently mutate.
+15. Any future plan change requires audit ledger entry.
+
+====================================================
+FINAL VERDICT
+====================================================
+
+Final verdict must be exactly one:
+
+- P0_00_SIGNAL_PLAN_IMMUTABILITY_PROD_VERIFIED
+- P0_00_SIGNAL_PLAN_IMMUTABILITY_DEV_VERIFIED
+- P0_00_SIGNAL_PLAN_IMMUTABILITY_PARTIAL_GAP_REMAINS
+- RELEASE_INTEGRITY_REGRESSION_FOUND
+- ROLLBACK_REQUIRED
+
+Use:
+
+P0_00_SIGNAL_PLAN_IMMUTABILITY_PROD_VERIFIED
+
+only if production build-info confirms the fix is live, schema ensure works, API/UI separate locked plan from live MTM, and locked plan fields do not mutate across refreshes.
+
+Use:
+
+P0_00_SIGNAL_PLAN_IMMUTABILITY_DEV_VERIFIED
+
+if production still shows the old build.
+
+Use:
+
+P0_00_SIGNAL_PLAN_IMMUTABILITY_PARTIAL_GAP_REMAINS
+
+if schema/API/UI/test/report evidence is incomplete.
+
+Use:
+
+RELEASE_INTEGRITY_REGRESSION_FOUND
+
+if verify:release has a real FAIL.
+
+Use:
+
+ROLLBACK_REQUIRED
+
+if secrets leak, broker execution turns on, real orders are placed, Telegram spam occurs, destructive migration happens, account balance/realized P&L is rewritten, or locked plan fields still silently mutate.

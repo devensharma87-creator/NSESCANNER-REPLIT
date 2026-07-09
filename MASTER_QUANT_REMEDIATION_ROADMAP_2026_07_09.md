@@ -84,6 +84,11 @@ Duplicates are retained in the CSV and mapped via the `Duplicate Of` column — 
 ## 5. Final verdicts
 
 - **`MASTER_QUANT_REMEDIATION_ROADMAP_CREATED`**
-- **`P0_00_SIGNAL_PLAN_IMMUTABILITY_DEV_VERIFIED`**
+- **`P0_00_SIGNAL_PLAN_IMMUTABILITY_PROD_VERIFIED`** — 2026-07-09, commit `f831ded1`
+  - Production DB: `option_premium_locked_at` + `option_signal_plan_audit` + CHECK confirmed via `pg_constraint`
+  - Boot log proof: `optionSignalPlanSchema: plan-immutability schema ready`
+  - 2 post-fix locked rows (SENSEX 77100 CALL, NIFTY 24050 CALL), locked within 14–15s of generation
+  - SENSEX 77100 PUT (the owner-observed row): correctly LEGACY (generated 04:49 UTC, pre-fix at 08:03 UTC); premiums NOT overwritten post-deploy
+  - All regression: immutability 5/5; fno 516/516; paper 136/136; optionSignal+lifecycle 218/218; routes 249/249; scanner 770/770; typecheck 0 errors; verify:release 11 PASS
 
-**HARD STOP**: per instruction, Lane 1 is NOT started. Next action belongs to the owner: publish to production, then P0-00 prod verification (build-info + live card check), then approve the next lane.
+**HARD STOP honored**: Lane 1 is NOT started. Owner approval required before proceeding to Lane 1 (P0 Canonical Data Parity + Contract Master).

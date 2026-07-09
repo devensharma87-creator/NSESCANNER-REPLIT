@@ -392,3 +392,5 @@ may carry silently-overwritten premiums (API labels them `legacyPlanFields`) —
 premium-plan accuracy metrics for rows created before 2026-07-09, or treat them as
 untrusted. Sample status unchanged: **still pending ≥5 sessions / ≥20 post-P0 signals**
 (`POST_P0_SIGNAL_SYSTEM_REBASELINE_PARTIAL_GAP_REMAINS`).
+
+**P0-00 PROD_VERIFIED update (2026-07-09)**: Production deploy confirmed (`f831ded1`). Write-once lock is live — production signals generated after 08:03 UTC today have `option_premium_locked_at` set and cannot be overwritten. Pre-fix rows (including the SENSEX 77100 PUT) are correctly labeled `legacyPlanFields: true`. The re-baseline sample window is unaffected by this persistence/display change.
