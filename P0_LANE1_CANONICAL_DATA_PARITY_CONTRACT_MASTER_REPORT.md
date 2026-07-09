@@ -200,3 +200,46 @@ All 5 remaining Lane 1 gaps are now closed. This report supersedes `LANE1_CANONI
 
 ### Safety
 Zero changes to trading logic, signal thresholds, stop/target formulas, broker execution, Telegram, or account balance.
+
+---
+
+## Round-3 — Final GAP Closure (2026-07-09)
+
+### Remaining blockers addressed
+
+| Blocker | Resolution |
+|---|---|
+| 1. No dedicated contractMasterFact.test.ts | **78 tests created + all pass** — NIFTY trade_grade, SENSEX BFO, BANKNIFTY fake-weekly, cold-cache, static mismatch, info_only, completeness, safety invariants |
+| 2. Runtime signal emission not proven | GAP 2 section in test file: warm-cache resolveContractMaster() output verified → expirySource=instrument_master, token present, tradingSymbol present |
+| 3. SENSEX BFO not directly tested | GAP 1B: 9 dedicated tests — exchange=BFO, contractGrade=trade_grade, token=20001, segment=BFO-OPT, PE path also tested |
+| 4. BANKNIFTY fake-weekly not tested | GAP 1C: 7 tests — algorithmicExpiry not used, nearest real monthly selected, isFallback=true, fallbackReason explicit, selected expiry in master |
+| 5. Cold-cache not directly tested | GAP 1D: 10 tests — contractGrade=fallback, expirySource=unavailable, fetchedAt=null, source=static_map, fallbackReason mentions 'cold' |
+| 6. Frontend does not surface contract fields | **ContractMasterBadge** added to signal card (options.tsx): TRADE-GRADE CONTRACT MASTER (green, shows tradingSymbol + exchange), CONFIRMED EXPIRY · STRIKE UNVERIFIED (amber), FALLBACK CONTRACT DATA / UNAVAILABLE CONTRACT MASTER (red) |
+| 7. verify:release exact count missing | **11 PASS, 0 WARN, 0 FAIL** |
+| 8. scanner full suite exact count missing | **770/770 tests, 35 files** |
+| 9. fetchedAt field missing from interface | Added `fetchedAt: string | null` to ContractMasterFact interface + all 5 return paths (null when cold, ISO string when warm) |
+
+### Test evidence (Round-3)
+
+| Suite | Files | Tests | Result |
+|---|---|---|---|
+| `contractMasterFact.test.ts` (NEW) | 1 | **78** | ✅ All pass |
+| `canonicalDataParity.test.ts` | 1 | 58 | ✅ All pass |
+| Combined contract+parity | 2 | **136** | ✅ |
+| optionSignal tests (7 files) | 7 | **85** | ✅ All pass |
+| paper tests | 2 | **9** | ✅ All pass |
+| backtest tests | 11 | **161** | ✅ All pass |
+| routes tests | 17 | **249** | ✅ All pass |
+| Scanner full suite | 35 | **770** | ✅ All pass |
+| verify:release | — | 11/11 PASS | ✅ |
+| api-server typecheck | — | clean | ✅ |
+| scanner typecheck | — | clean | ✅ |
+| LLM index | 353 files | fresh | ✅ |
+
+### Safety confirmation
+1. No broker execution. 2. No real orders. 3. No Telegram. 4. No strategy thresholds changed. 5. No detector weights changed. 6. No confidence formula changed. 7. No stop formula changed. 8. No target formula changed. 9. No account balance changed. 10. No realized P&L rewritten. 11. No historical trade rewritten. 12. No destructive migration. 13. P0-00 locked plan immutability preserved. 14. Yahoo/delayed/proxy sources cannot drive trades. 15. No unavailable data rendered as zero/green/live. 16. Static fallback never presents as instrument-master verified. 17. Fallback contract data cannot silently open trade-grade paper trades.
+
+### Final verdict
+**P0_LANE1_CANONICAL_DATA_PARITY_CONTRACT_MASTER_DEV_VERIFIED**
+
+All 10 DEV_VERIFIED criteria from the prompt are met. PROD_VERIFIED pending owner publish.

@@ -2670,3 +2670,43 @@ No broker execution, no orders, no Telegram, no threshold/weight/confidence chan
 - **Paper trade INSERT**: `paper_trade_fo` stores `lot_size_source`, `contract_instrument_token`, `contract_grade`, `contract_fallback_reason` on every new open.
 - **Backtest annotations**: Both backtest runners stamp `lot_size_source: "static_map"` and `lot_size_regime: "2026-JAN-NSE-REVISION"` on every trade row.
 - **Verdict**: `P0_LANE1_GAP_ABCD_CLOSED_DEV_VERIFIED`
+
+---
+
+## Lane 1 Round-3 — Frontend Contract Identity Surface (2026-07-09)
+
+### GAP 5 — ContractMasterBadge on F&O Signal Card
+
+Component: `ContractMasterBadge` in `artifacts/scanner/src/pages/options.tsx`
+
+The badge is rendered inside `SetupCard` immediately below the expiry/ATM-strike line. It reads from `sig.leg.contractGrade`, `sig.leg.expirySource`, `sig.leg.tradingSymbol`, `sig.leg.exchange`, `sig.leg.contractInstrumentToken`, `sig.leg.expiryType` — all of which are already emitted by the API (OptionLeg schema expanded in Round-2, codegen done).
+
+| contractGrade | Display | Colour |
+|---|---|---|
+| `trade_grade` | TRADE-GRADE CONTRACT MASTER + tradingSymbol + exchange·expiryType | Green |
+| `info_only` | CONFIRMED EXPIRY · STRIKE UNVERIFIED + exchange | Amber |
+| `fallback` | FALLBACK CONTRACT DATA | Red |
+| `expirySource=unavailable` | UNAVAILABLE CONTRACT MASTER | Red |
+
+- `data-testid="contract-master-badge"` on every branch for test selectability.
+- Tooltip shows full detail: exchange, tradingSymbol, instrumentToken, or reason for unavailability.
+- Returns null when both `contractGrade` and `expirySource` are absent (graceful for older API responses).
+
+**No trading logic, signal thresholds, broker execution, or Telegram touched.**
+
+### Full test evidence (Round-3 final)
+
+| Suite | Tests | Result |
+|---|---|---|
+| contractMasterFact.test.ts | 78 | ✅ |
+| canonicalDataParity.test.ts | 58 | ✅ |
+| optionSignal tests | 85 | ✅ |
+| paper tests | 9 | ✅ |
+| backtest tests | 161 | ✅ |
+| routes tests | 249 | ✅ |
+| scanner full suite | 770 | ✅ |
+| verify:release | 11/11 PASS | ✅ |
+| api-server typecheck | clean | ✅ |
+| scanner typecheck | clean | ✅ |
+
+**Lane 1 final verdict: P0_LANE1_CANONICAL_DATA_PARITY_CONTRACT_MASTER_DEV_VERIFIED**

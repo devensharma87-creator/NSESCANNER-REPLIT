@@ -968,9 +968,20 @@
     "hash": "30a6a8bee0d0359f"
   },
   {
+    "path": "artifacts/api-server/src/lib/contractMasterFact.test.ts",
+    "purpose": "test",
+    "lines": 729,
+    "exports": [],
+    "externalImports": [
+      "vitest"
+    ],
+    "routes": [],
+    "hash": "6f93184d1a7773e3"
+  },
+  {
     "path": "artifacts/api-server/src/lib/contractMasterFact.ts",
     "purpose": "lib",
-    "lines": 312,
+    "lines": 318,
     "exports": [
       "ExpirySource",
       "ContractGrade",
@@ -981,7 +992,7 @@
     ],
     "externalImports": [],
     "routes": [],
-    "hash": "33e708d587fbbab1"
+    "hash": "01d952aec07ea070"
   },
   {
     "path": "artifacts/api-server/src/lib/csvExport.ts",
@@ -8367,7 +8378,7 @@
   {
     "path": "artifacts/scanner/src/pages/options.tsx",
     "purpose": "ui-page",
-    "lines": 1582,
+    "lines": 1663,
     "exports": [],
     "externalImports": [
       "@/components/ui/card",
@@ -8382,7 +8393,7 @@
       "@/lib/setupExplanation"
     ],
     "routes": [],
-    "hash": "c18798e88fcefd3c"
+    "hash": "83fd15077fb28a64"
   },
   {
     "path": "artifacts/scanner/src/pages/paper-reports.tsx",

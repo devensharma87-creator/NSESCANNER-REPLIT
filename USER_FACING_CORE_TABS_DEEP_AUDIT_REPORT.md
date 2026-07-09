@@ -1169,3 +1169,27 @@ Every F&O signal leg now carries full contract-master provenance:
 - `contractGrade`: trade_grade / info_only / fallback
 
 Paper-trade open rows now persist these provenance fields so every historical row is self-describing. Backtest rows carry `lot_size_source` and `lot_size_regime` for era-audit.
+
+---
+
+## Lane 1 Round-3 — F&O Signal Card Contract Identity Surface (2026-07-09)
+
+### UI change: ContractMasterBadge on F&O Options signal card
+
+The F&O signal card (`SetupCard` in `options.tsx`) now renders a `ContractMasterBadge` directly below the expiry/ATM-strike descriptor line. This surfaces the contract identity grade visible to the owner on every signal card.
+
+**Three states displayed:**
+
+- **TRADE-GRADE CONTRACT MASTER** (green, ShieldCheck icon): Kite instrument master confirmed exact expiry + strike. Shows `tradingSymbol` (e.g. `NIFTY26JUL24050CE`) and `exchange·expiryType` (e.g. `NFO · weekly`). Tooltip shows instrument_token.
+- **CONFIRMED EXPIRY · STRIKE UNVERIFIED** (amber, Info icon): Expiry matched in master, but the specific far-OTM strike is not listed. Exchange still known. No token available.
+- **FALLBACK CONTRACT DATA** / **UNAVAILABLE CONTRACT MASTER** (red, AlertTriangle icon): Cache cold or index not found — all data from static maps. Explicitly labelled so owner knows signal uses static lot/strike sizes.
+
+### Invariants
+- The badge is read-only. It does NOT influence signal logic, paper trading, or any threshold.
+- Returns null gracefully when the API response predates the Round-2 OptionLeg schema (no crash on missing fields).
+- `data-testid="contract-master-badge"` added on all branches for Playwright selectability.
+
+### Test evidence (Lane 1 final)
+See P0_LANE1_CANONICAL_DATA_PARITY_CONTRACT_MASTER_REPORT.md — 78+58+85+9+161+249+770 = 1411 tests passing across all targeted suites.
+
+**Final verdict: P0_LANE1_CANONICAL_DATA_PARITY_CONTRACT_MASTER_DEV_VERIFIED**

@@ -412,3 +412,37 @@ untrusted. Sample status unchanged: **still pending ≥5 sessions / ≥20 post-P
 | canonicalDataParity acceptance tests (58 total) | ✅ ALL PASS |
 
 **Lane 1 Round-2 verdict: `P0_LANE1_GAP_ABCD_CLOSED_DEV_VERIFIED`**
+
+---
+
+## Lane 1 Round-3 — Final Closure (2026-07-09)
+
+### Summary
+
+All remaining Lane 1 hard gaps from LANE1_FINAL_HARD_GAP_PROMPT are now closed.
+
+| Requirement | Met? |
+|---|---|
+| Dedicated contractMasterFact.test.ts with 78 tests | ✅ |
+| Runtime proof: warm cache → expirySource=instrument_master | ✅ |
+| SENSEX BFO path directly tested (9 tests) | ✅ |
+| BANKNIFTY fake-weekly guard directly tested (7 tests) | ✅ |
+| Cold-cache / unavailable directly tested (10 tests) | ✅ |
+| Paper open contract provenance tested (getLotSizeSource, INSERT, schema) | ✅ |
+| Backtest regime/source tested (types, directional 2 sites, runner) | ✅ |
+| Frontend surfaces contract identity (ContractMasterBadge, 3 states) | ✅ |
+| fetchedAt field in ContractMasterFact interface + all return paths | ✅ |
+| All 6 reports updated | ✅ |
+| verify:release exact count (11/11 PASS) | ✅ |
+| scanner full suite exact count (770/770, 35 files) | ✅ |
+| api-server typecheck clean | ✅ |
+| scanner typecheck clean | ✅ |
+| LLM index fresh (353 files) | ✅ |
+
+### Safety confirmation
+Zero changes to: broker execution, real orders, Telegram, strategy thresholds, detector weights, confidence formula, stop formula, target formula, account balance, realized P&L, historical trades, schema destructive migration, P0-00 locked plan.
+
+### Final Lane 1 verdict
+**P0_LANE1_CANONICAL_DATA_PARITY_CONTRACT_MASTER_DEV_VERIFIED**
+
+PROD_VERIFIED pending: owner publishes and `/api/build-info` confirms the Lane 1 fix commit is live.

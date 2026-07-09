@@ -78,6 +78,7 @@ export interface ContractMasterFact {
   lotSizeSource: LotSizeSource;
   source: "kite_instrument_cache" | "static_map";
   asOf: string | null;       // ISO timestamp of fact resolution
+  fetchedAt: string | null;  // ISO timestamp when the cache was last populated (null when cold)
   freshnessSeconds: number | null;
   isFallback: boolean;
   fallbackReason: string | null;
@@ -163,6 +164,7 @@ export function resolveContractMaster(
       lotSizeSource: "static_fallback",
       source: "static_map",
       asOf: now,
+      fetchedAt: null,
       freshnessSeconds: null,
       isFallback: true,
       fallbackReason: "kite_instrument_cache_cold",
@@ -195,6 +197,7 @@ export function resolveContractMaster(
       lotSizeSource: masterLot != null ? "instrument_master" : "static_fallback",
       source: "kite_instrument_cache",
       asOf: now,
+      fetchedAt: now,
       freshnessSeconds: 0,
       isFallback: true,
       fallbackReason: `no_contracts_in_master_for_${sym}_${optionType}`,
@@ -232,6 +235,7 @@ export function resolveContractMaster(
         lotSizeSource: "instrument_master",
         source: "kite_instrument_cache",
         asOf: now,
+        fetchedAt: now,
         freshnessSeconds: 0,
         isFallback: false,
         fallbackReason: null,
@@ -257,6 +261,7 @@ export function resolveContractMaster(
       lotSizeSource: "instrument_master",
       source: "kite_instrument_cache",
       asOf: now,
+      fetchedAt: now,
       freshnessSeconds: 0,
       isFallback: false,
       fallbackReason: "strike_not_in_master_at_this_expiry",
@@ -303,6 +308,7 @@ export function resolveContractMaster(
       : getCachedLotSizeForIndex(sym) != null ? "instrument_master" : "static_fallback",
     source: "kite_instrument_cache",
     asOf: now,
+    fetchedAt: now,
     freshnessSeconds: 0,
     isFallback: corrected,
     fallbackReason,

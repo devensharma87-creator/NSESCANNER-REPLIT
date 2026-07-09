@@ -250,6 +250,86 @@ function IvChip({ ivRank, ivPercentile }: { ivRank?: number | null; ivPercentile
   );
 }
 
+/**
+ * Contract master identity badge — surfaces on the F&O signal card to show
+ * whether contract data came from the live Kite instrument dump (trade-grade)
+ * or a static fallback. Purely read-only, does not affect signal logic.
+ */
+function ContractMasterBadge({ leg }: { leg: OptionSignal["leg"] }) {
+  const grade = leg.contractGrade;
+  const expSrc = leg.expirySource;
+
+  if (!grade && !expSrc) return null;
+
+  const isTradeGrade = grade === "trade_grade";
+  const isInfoOnly = grade === "info_only";
+  const isFallback = grade === "fallback";
+  const isUnavailable = expSrc === "unavailable";
+
+  const containerCls = "mt-1 flex flex-wrap items-center gap-1.5";
+
+  if (isTradeGrade) {
+    return (
+      <div className={containerCls} data-testid="contract-master-badge">
+        <span
+          className="inline-flex items-center gap-1 text-[9px] font-mono uppercase tracking-wider rounded px-1.5 py-0.5 border bg-emerald-500/10 text-emerald-300 border-emerald-500/30"
+          title={`Contract identity verified in Kite instrument master (${leg.exchange ?? "NFO"}). Trading symbol: ${leg.tradingSymbol ?? "—"}. Token: ${leg.contractInstrumentToken ?? "—"}.`}
+        >
+          <ShieldCheck className="w-2.5 h-2.5" />
+          TRADE-GRADE CONTRACT MASTER
+        </span>
+        {leg.tradingSymbol && (
+          <span className="text-[9px] font-mono text-muted-foreground" title="Kite trading symbol for this contract">
+            {leg.tradingSymbol}
+          </span>
+        )}
+        {leg.exchange && (
+          <span className="text-[9px] font-mono text-muted-foreground/60">
+            {leg.exchange} {leg.expiryType ? `· ${leg.expiryType}` : ""}
+          </span>
+        )}
+      </div>
+    );
+  }
+
+  if (isInfoOnly) {
+    return (
+      <div className={containerCls} data-testid="contract-master-badge">
+        <span
+          className="inline-flex items-center gap-1 text-[9px] font-mono uppercase tracking-wider rounded px-1.5 py-0.5 border bg-amber-500/10 text-amber-300 border-amber-500/30"
+          title={`Expiry confirmed in Kite master but this specific strike is not listed. Exchange: ${leg.exchange ?? "—"}. No instrument token available.`}
+        >
+          <Info className="w-2.5 h-2.5" />
+          CONFIRMED EXPIRY · STRIKE UNVERIFIED
+        </span>
+        {leg.exchange && (
+          <span className="text-[9px] font-mono text-muted-foreground/60">
+            {leg.exchange}
+          </span>
+        )}
+      </div>
+    );
+  }
+
+  if (isUnavailable || isFallback) {
+    return (
+      <div className={containerCls} data-testid="contract-master-badge">
+        <span
+          className="inline-flex items-center gap-1 text-[9px] font-mono uppercase tracking-wider rounded px-1.5 py-0.5 border bg-rose-500/10 text-rose-400 border-rose-500/30"
+          title={isUnavailable
+            ? "Kite instrument cache is cold — contract identity unavailable. All lot/strike sizes from static maps."
+            : "Contract data from static fallback maps — instrument master not consulted. Expiry/strike may differ from actual listed contract."}
+        >
+          <AlertTriangle className="w-2.5 h-2.5" />
+          {isUnavailable ? "UNAVAILABLE CONTRACT MASTER" : "FALLBACK CONTRACT DATA"}
+        </span>
+      </div>
+    );
+  }
+
+  return null;
+}
+
 function SetupCard({ sig, planNumber, totalPlans }: { sig: OptionSignal; planNumber: number; totalPlans: number }) {
   const isCall = sig.leg.type === "CALL";
   const tone = isCall ? "border-signal-strong-buy/30 bg-signal-strong-buy/[0.04]" : "border-signal-strong-sell/30 bg-signal-strong-sell/[0.04]";
@@ -290,6 +370,7 @@ function SetupCard({ sig, planNumber, totalPlans }: { sig: OptionSignal; planNum
             {sig.leg.expiry ? <>expiry {sig.leg.expiry} · </> : null}
             ATM strike (same across plans)
           </div>
+          <ContractMasterBadge leg={sig.leg} />
         </div>
         <div className="flex flex-col items-end gap-1 shrink-0">
           <ConfidencePill confidence={sig.confidence} />

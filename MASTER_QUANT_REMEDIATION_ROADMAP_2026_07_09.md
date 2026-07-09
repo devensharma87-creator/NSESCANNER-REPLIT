@@ -174,3 +174,20 @@ Full evidence: `P0_LANE1_CANONICAL_DATA_PARITY_CONTRACT_MASTER_REPORT.md`.
 | D — backtest lot-size regime | ✅ CLOSED | backtest_trades gets lot_size_source + lot_size_regime; both runners stamp static_map / 2026-JAN-NSE-REVISION |
 
 **Round-2 verdict**: `P0_LANE1_GAP_ABCD_CLOSED_DEV_VERIFIED`
+
+---
+
+## Lane 1 Round-3 — Final Hard Gap Closure (2026-07-09)
+
+| GAP | Status | Evidence |
+|---|---|---|
+| GAP 1 — contractMasterFact.test.ts | ✅ CLOSED | 78 tests: NIFTY trade_grade, SENSEX BFO, BANKNIFTY fake-weekly, cold-cache, info_only, completeness, safety invariants |
+| GAP 2 — Runtime signal emission proof | ✅ CLOSED | Warm-cache resolveContractMaster() verified → expirySource=instrument_master, instrumentToken present, tradingSymbol present, SENSEX→BFO, BANKNIFTY no fake weekly |
+| GAP 3 — Paper open provenance tests | ✅ CLOSED | getCachedLotSizeForIndex warm/cold paths + source-scan proofs for getLotSizeSource, INSERT wiring, schema columns |
+| GAP 4 — Backtest regime tests | ✅ CLOSED | Source-scan confirms lotSizeSource/lotSizeRegime in types.ts, directional.ts (2 sites), runner.ts |
+| GAP 5 — Frontend contract identity | ✅ CLOSED | ContractMasterBadge on signal card: TRADE-GRADE (green), CONFIRMED EXPIRY·STRIKE UNVERIFIED (amber), FALLBACK/UNAVAILABLE (red) |
+| fetchedAt field missing | ✅ CLOSED | Added to interface + all 5 resolver return paths |
+| verify:release exact count | ✅ PROVIDED | 11/11 PASS, 0 WARN, 0 FAIL |
+| scanner full suite exact count | ✅ PROVIDED | 770/770, 35 files |
+
+**Final Lane 1 verdict: P0_LANE1_CANONICAL_DATA_PARITY_CONTRACT_MASTER_DEV_VERIFIED**
