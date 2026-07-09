@@ -1,0 +1,244 @@
+Do not mark Lane 1 complete.
+
+Current accepted verdict:
+
+P0_LANE1_CANONICAL_DATA_PARITY_CONTRACT_MASTER_PARTIAL_GAP_REMAINS
+
+Good work was done on:
+1. MIDCAP proxy level blocking.
+2. Server-side spotChangePctVsPrevClose / spotPrevClose.
+3. strikeStepSource and instrument-master-first strike-step resolution.
+
+But Lane 1 is not complete.
+
+====================================================
+REMAINING LANE 1 GAPS TO CLOSE NOW
+====================================================
+
+Do not start Lane 2.
+Do not start Paper Ledger.
+Do not start Chart Reliability.
+Do not touch strategy thresholds.
+Do not touch broker/Telegram/orders.
+
+Close only the unfinished Lane 1 gaps below.
+
+====================================================
+GAP 1 — F&O SIGNAL FRONTEND BASELINE PARITY
+====================================================
+
+Problem:
+Server now emits:
+
+spotChangePctVsPrevClose
+spotPrevClose
+
+but frontend still displays:
+
+spotChangePercent
+
+which is vs-open.
+
+Required fix:
+
+1. Update F&O signal card / options page to display spotChangePctVsPrevClose as the main market change percentage.
+2. If spotChangePercent is still displayed anywhere, label it exactly as “vs open”.
+3. Do not remove spotChangePercent from API because detectors use it.
+4. UI must not show vs-open change as ordinary market change.
+5. Add test that ltp/prevClose/open example displays prev-close change, not open change.
+
+Required proof:
+
+| Surface | Before | After | Verdict |
+|---|---|---|---|
+| F&O card header |
+| F&O signal detail |
+| Option signal list |
+| Any exported/report field |
+
+====================================================
+GAP 2 — FINNIFTY PREVCLOSE / 52W CONTAMINATION CLOSURE
+====================================================
+
+Do not leave this as “needs deeper re-audit.”
+
+Prove one of these:
+
+A. OUTDATED_AUDIT_FINDING — current code/API no longer reproduces the issue.
+B. NOT_A_BUG_WITH_EVIDENCE — audit interpretation was wrong.
+C. FIXED_DEV_VERIFIED — issue reproduced and fixed.
+D. OPEN_P0 — issue still exists and needs a separate lane.
+
+Required evidence:
+
+1. Current FINNIFTY quote fact.
+2. Current FINNIFTY prevClose source.
+3. Current FINNIFTY 52W source.
+4. Current FINNIFTY changePct formula.
+5. Source/asOf/freshness.
+6. Scale validation result.
+7. Screenshot/API payload if possible.
+
+Required table:
+
+| FINNIFTY Field | Current Value | Source | AsOf | Validation | Verdict |
+|---|---:|---|---|---|---|
+| ltp |
+| prevClose |
+| changePct |
+| 52wLow |
+| 52wHigh |
+| pivot |
+| analytics provider symbol |
+| quote provider symbol |
+
+If 52W low like 14,857 or scale mismatch is still present, suppress it and mark fixed.
+
+====================================================
+GAP 3 — EXPIRY / CONTRACT MASTER TEST CLOSURE
+====================================================
+
+Create targeted tests proving expiry is resolved from contract master, not global weekday assumptions.
+
+Required tests:
+
+1. NIFTY July 2026 expiry from instrument master.
+2. BANKNIFTY July 2026 monthly-only behavior.
+3. SENSEX weekly expiry from BSE contract master.
+4. No global Tuesday/Thursday flag applies to all indices.
+5. Signal payload contains expirySource.
+6. Signal payload contains instrumentToken.
+7. If expiry is fallback/inferred, it is labelled and not treated as trade-grade.
+
+Required table:
+
+| Underlying | Expected Source | Expected Expiry Behavior | Test Result |
+|---|---|---|---|
+| NIFTY |
+| BANKNIFTY |
+| SENSEX |
+
+====================================================
+GAP 4 — LOT-SIZE CONTRACTMASTERFACT / DRIFT ALARM
+====================================================
+
+Do not only say lot size already comes from Kite.
+
+Prove and surface it.
+
+Required:
+
+1. Add or expose ContractMasterFact fields for lotSizeSource / contractGrade / fallbackReason where relevant.
+2. Confirm paper open path uses master lot size at open time.
+3. Confirm backtest annotates lot-size regime/source.
+4. Add drift alarm if static fallback differs from master.
+5. Static maps must never silently override contract master.
+6. Existing historical rows must not be rewritten.
+
+Required tests:
+
+1. NIFTY lot size 65 from master.
+2. BANKNIFTY lot size 30 from master.
+3. SENSEX lot size 20 from master.
+4. FINNIFTY lot size 60 from master.
+5. MIDCPNIFTY lot size 120 from master.
+6. Static fallback mismatch emits drift warning.
+7. Paper open path uses master lot size.
+8. Backtest stores or labels lot-size regime/source.
+
+====================================================
+GAP 5 — REPORT / BUG REGISTER CORRECTION
+====================================================
+
+Update:
+
+1. P0_LANE1_CANONICAL_DATA_PARITY_CONTRACT_MASTER_REPORT.md
+2. MASTER_QUANT_REMEDIATION_ROADMAP_2026_07_09.md
+3. MASTER_QUANT_BUG_REGISTER_2026_07_09.csv
+4. WEBSITE_CANONICAL_DATA_INTEGRATION_REPORT.md
+5. USER_FACING_CORE_TABS_DEEP_AUDIT_REPORT.md
+6. POST_P0_SIGNAL_SYSTEM_REBASELINE_REPORT.md
+
+Correct the current verdict to:
+
+P0_LANE1_CANONICAL_DATA_PARITY_CONTRACT_MASTER_PARTIAL_GAP_REMAINS
+
+until all above gaps are closed.
+
+Do not mark DEV_VERIFIED until:
+- F&O frontend baseline is fixed,
+- FINNIFTY is closed with evidence,
+- expiry tests are added,
+- lot-size ContractMasterFact/drift alarm is completed,
+- tests pass,
+- reports are updated.
+
+====================================================
+TESTS REQUIRED
+====================================================
+
+Run and report exact counts:
+
+pnpm --filter @workspace/scripts run verify:release
+
+pnpm --filter @workspace/api-server run typecheck
+
+pnpm --filter @workspace/api-server run typecheck:libs
+
+pnpm --filter @workspace/api-server exec vitest run src/lib/*index*.test.ts src/lib/*quote*.test.ts src/lib/*contract*.test.ts src/lib/*optionChain*.test.ts src/lib/*optionSignal*.test.ts src/lib/*paper*.test.ts src/lib/*backtest*.test.ts src/routes/**/*.test.ts
+
+pnpm --filter @workspace/scanner run typecheck
+
+pnpm --filter @workspace/scanner exec vitest run
+
+pnpm --filter @workspace/scripts run index:llm
+
+pnpm --filter @workspace/scripts run index:llm:check
+
+Split timed-out suites and report exact counts.
+
+====================================================
+SAFETY
+====================================================
+
+Confirm:
+
+1. No broker execution.
+2. No real orders.
+3. No Telegram messages.
+4. No strategy threshold changes.
+5. No detector weight changes.
+6. No confidence formula changes.
+7. No stop formula changes.
+8. No target formula changes.
+9. No account balance changes.
+10. No realized P&L rewrite.
+11. No historical trade rewrite.
+12. No destructive migration.
+13. No P0-00 locked plan mutation regression.
+14. No Yahoo/delayed/proxy/report-grade source can drive trades.
+15. No unavailable data rendered as zero/none/green/live.
+
+====================================================
+FINAL VERDICT
+====================================================
+
+Final verdict must be exactly one:
+
+- P0_LANE1_CANONICAL_DATA_PARITY_CONTRACT_MASTER_DEV_VERIFIED
+- P0_LANE1_CANONICAL_DATA_PARITY_CONTRACT_MASTER_PARTIAL_GAP_REMAINS
+- P0_LANE1_FORENSIC_ONLY_OWNER_APPROVAL_REQUIRED
+- RELEASE_INTEGRITY_REGRESSION_FOUND
+- ROLLBACK_REQUIRED
+
+Use:
+
+P0_LANE1_CANONICAL_DATA_PARITY_CONTRACT_MASTER_DEV_VERIFIED
+
+only after all remaining Lane 1 gaps are closed.
+
+Use:
+
+P0_LANE1_CANONICAL_DATA_PARITY_CONTRACT_MASTER_PARTIAL_GAP_REMAINS
+
+if any gap remains.
