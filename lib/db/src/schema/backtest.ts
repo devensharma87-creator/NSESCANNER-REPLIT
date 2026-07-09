@@ -172,6 +172,20 @@ export const backtestTradesTable = pgTable(
     netPnl: doublePrecision("net_pnl"),
     /** true when both entry AND exit snapshots were within REPLAY_ENTRY_TOLERANCE_MIN. */
     withinTolerance: boolean("within_tolerance"),
+    /**
+     * Lot-size provenance columns (additive 2026-07-09, all nullable —
+     * pre-change rows stay honestly NULL, never backfilled).
+     * Applied via `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` in
+     * `applyContractMasterColumns()` (ensureContractMasterColumns.ts).
+     *
+     * lotSizeSource:  "static_map" (backtest always uses static LOT_SIZES);
+     *                 reserved for "instrument_master" when live cache is used.
+     * lotSizeRegime:  human-readable label for the lot-size table version in
+     *                 effect when this run was computed (e.g. "2026-JAN-NSE-REVISION").
+     *                 Prevents silently mixing lot-size assumptions across eras.
+     */
+    lotSizeSource: text("lot_size_source"),
+    lotSizeRegime: text("lot_size_regime"),
   },
   (t) => ({
     byRun: index("backtest_trades_run_idx").on(t.runId),

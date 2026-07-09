@@ -3933,10 +3933,46 @@ export const GetOptionSignalsResponse = zod.object({
         action: zod.enum(["BUY", "SELL"]),
         expiry: zod.string().optional(),
         expirySource: zod
-          .enum(["instrument_master", "algorithmic_weekday"])
+          .enum([
+            "instrument_master",
+            "algorithmic_weekday",
+            "algorithmic_weekday_fallback",
+            "static_fallback",
+            "unavailable",
+          ])
           .optional()
           .describe(
-            "How expiry was resolved. algorithmic_weekday = computed from configured weekday cadence (signal generation path). instrument_master = validated against live Kite instrument dump.",
+            "How expiry was resolved. instrument_master = validated against live Kite instrument dump (trade-grade). algorithmic_weekday_fallback = computed from weekday cadence; no matching contract in master. static_fallback = computed; cache cold. unavailable = cache cold, all values from static maps.",
+          ),
+        expiryType: zod
+          .enum(["weekly", "monthly", "unknown"])
+          .nullish()
+          .describe(
+            "Whether the expiry is a weekly or monthly series, as configured per index.",
+          ),
+        contractInstrumentToken: zod
+          .number()
+          .nullish()
+          .describe(
+            "Kite instrument_token of the matched option contract. Present only when expirySource=instrument_master and the specific strike exists in the dump.",
+          ),
+        tradingSymbol: zod
+          .string()
+          .nullish()
+          .describe(
+            "Kite trading_symbol of the matched contract (e.g. NIFTY26JUL27000CE). Null when no exact match.",
+          ),
+        exchange: zod
+          .enum(["NFO", "BFO", "unknown"])
+          .nullish()
+          .describe(
+            "Exchange segment from the instrument master. NFO for NIFTY\/BANKNIFTY; BFO for SENSEX (BSE F&O). Null when cache cold.",
+          ),
+        contractGrade: zod
+          .enum(["trade_grade", "info_only", "fallback"])
+          .nullish()
+          .describe(
+            "Reliability grade of the contract identity. trade_grade = exact match in master. info_only = expiry confirmed but strike or token missing. fallback = all data from static maps.",
           ),
         entry: zod.number().describe("Underlying spot trigger price"),
         instrument: zod

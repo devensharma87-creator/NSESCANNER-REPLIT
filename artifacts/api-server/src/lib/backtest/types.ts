@@ -195,6 +195,15 @@ export interface BacktestTradeOut {
    * Null when charges could not be computed (undecided trade, missing inputs).
    */
   chargesBreakdown?: BacktestTradeCostResult | null;
+  /**
+   * Lot-size provenance — annotation only, never retroactively applied.
+   * lotSizeSource:  "static_map" when LOT_SIZES was used (all current backtest runs).
+   *                 Reserved for "instrument_master" when live cache is used.
+   * lotSizeRegime:  Human-readable label for the lot-size table version in effect
+   *                 (e.g. "2026-JAN-NSE-REVISION"). Prevents silently mixing era assumptions.
+   */
+  lotSizeSource?: string | null;
+  lotSizeRegime?: string | null;
 }
 
 export interface BacktestBlockedOut {

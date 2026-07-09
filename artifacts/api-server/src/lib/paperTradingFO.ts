@@ -61,6 +61,7 @@ import {
 import { computeFnoLotSizing } from "./fnoSizingHelper";
 import { fetchOptionChain, LOT_SIZES, type OcResponse } from "./optionChain";
 import { getCachedLotSizeForIndex } from "./kiteFnoInstruments";
+import { ensureContractMasterSchemaColumns } from "./ensureContractMasterColumns";
 // Type-only: does not create a runtime import of fnoExitDecision.ts at
 // module load time (the runtime import is dynamic, inside
 // evaluateOrphanedOpenTrades, to match this file's existing lazy-import
@@ -200,6 +201,18 @@ function lotSizeFor(indexSymbol: string): number | null {
     return staticLotSize;
   }
   return null;
+}
+
+/**
+ * Returns the lot-size provenance source for a given index.
+ * "instrument_master" = Kite instrument cache was warm and had the lot size.
+ * "static_fallback"   = cache cold; static LOT_SIZES map was used.
+ * Mirrors lotSizeFor() without returning the numeric value.
+ */
+function getLotSizeSource(indexSymbol: string): "instrument_master" | "static_fallback" {
+  return getCachedLotSizeForIndex(indexSymbol.toUpperCase()) != null
+    ? "instrument_master"
+    : "static_fallback";
 }
 
 /**
@@ -507,6 +520,9 @@ async function openPaperTrade(input: LifecycleHookInput): Promise<PaperTradeFoRo
     logger.info({ indexSymbol }, "Paper FO skip: unknown lot size");
     return null;
   }
+  // Ensure the new contract-master provenance columns exist on first write
+  // (memoized — no-op after the first call).
+  await ensureContractMasterSchemaColumns();
 
   // Existing-row short-circuit (idempotency, lock-free).
   const existing = await db
@@ -1139,6 +1155,17 @@ async function openPaperTrade(input: LifecycleHookInput): Promise<PaperTradeFoRo
           openedAt: now,
           lastEvaluatedAt: now,
           status: "OPEN",
+          // Contract-master provenance (GAP A/B/C closure)
+          lotSizeSource: getLotSizeSource(indexSymbol),
+          contractInstrumentToken: signal.leg.contractInstrumentToken ?? null,
+          contractGrade: signal.leg.contractGrade ?? null,
+          contractFallbackReason: (() => {
+            const src = signal.leg.expirySource;
+            if (!src || src === "instrument_master" || src === "algorithmic_weekday") return null;
+            if (src === "algorithmic_weekday_fallback") return "no_matching_weekly_contract";
+            if (src === "static_fallback" || src === "unavailable") return "cache_cold";
+            return null;
+          })(),
         })
         .onConflictDoNothing()
         .returning();

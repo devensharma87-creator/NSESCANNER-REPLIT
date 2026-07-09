@@ -73,6 +73,16 @@ export function getCachedLotSizeForIndex(indexSymbol: string): number | null {
 }
 
 /**
+ * Returns the full cached F&O instrument dump synchronously, or null when the
+ * cache is cold. Callers use this for contract-master resolution (instrument
+ * token, trading symbol, exchange, real expiry dates). Read-only — never mutate
+ * the returned array.
+ */
+export function getCachedFnoInstruments(): FnoInstrument[] | null {
+  return lastGoodRows;
+}
+
+/**
  * Test-only helper — sets the in-memory instruments cache to the given rows.
  * Never call from production code. Prefixed with underscore to signal test use.
  */

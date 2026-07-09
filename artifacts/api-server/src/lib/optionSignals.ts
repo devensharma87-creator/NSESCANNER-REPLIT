@@ -1,4 +1,5 @@
 import type { OptionSignal, SignalReason } from "@workspace/api-zod";
+import { resolveContractMaster } from "./contractMasterFact";
 import type { YahooChart } from "./yahoo";
 import { centralIndexCandles, centralHasIndexCoverage, centralIndexQuotes } from "./marketData/compat";
 import { getActiveSessionStatus } from "./kiteAuth";
@@ -1400,19 +1401,29 @@ function toSignal(c: Ctx, d: Detected, tier: "HIGH_CONVICTION" | "BASELINE"): Op
     setupSummary: d.setupSummary,
     entryTrigger: d.entryTrigger,
     triggerSemantics: (d.triggerSemantics ?? "TOUCH_OR_TICK") as "TOUCH_OR_TICK" | "CLOSE_CONFIRMED",
-    leg: {
-      type: d.direction === "BULLISH" ? "CALL" : "PUT",
-      strike,
-      action: "BUY",
-      expiry: expiryFor(c.cfg),
-      expirySource: "algorithmic_weekday" as const,
-      entry: round2(d.entryLevel),
-      instrument: "UNDERLYING_LEVEL",
-      stopLoss: round2(d.stopLevel),
-      target1: round2(d.targetLevel),
-      target2: round2(d.target2Level),
-      riskRewardRatio: rr,
-    },
+    leg: (() => {
+      const _ot = d.direction === "BULLISH" ? ("CE" as const) : ("PE" as const);
+      const _ae = expiryFor(c.cfg);
+      const _cmf = resolveContractMaster(c.cfg.symbol, _ae, strike, _ot, c.cfg.expiryCadence);
+      return {
+        type: d.direction === "BULLISH" ? ("CALL" as const) : ("PUT" as const),
+        strike,
+        action: "BUY" as const,
+        expiry: _cmf.expiry,
+        expirySource: _cmf.expirySource,
+        expiryType: _cmf.expiryType,
+        contractInstrumentToken: _cmf.instrumentToken ?? undefined,
+        tradingSymbol: _cmf.tradingSymbol ?? undefined,
+        exchange: _cmf.exchange === "unknown" ? undefined : _cmf.exchange as "NFO" | "BFO",
+        contractGrade: _cmf.contractGrade,
+        entry: round2(d.entryLevel),
+        instrument: "UNDERLYING_LEVEL" as const,
+        stopLoss: round2(d.stopLevel),
+        target1: round2(d.targetLevel),
+        target2: round2(d.target2Level),
+        riskRewardRatio: rr,
+      };
+    })(),
     drivers: d.drivers,
     invalidation: d.invalidation,
     generatedAt: new Date(),

@@ -176,6 +176,8 @@ export function runDirectional(
       grossPnl: tradeCost.grossPnl,
       chargesBreakdown: tradeCost.computable ? tradeCost : null,
       netPnl: tradeCost.netPnl,
+      lotSizeSource: "static_map",
+      lotSizeRegime: "2026-JAN-NSE-REVISION",
     });
   };
 
@@ -300,6 +302,8 @@ export function runDirectional(
       grossPnl: tradeCost.grossPnl,
       chargesBreakdown: tradeCost.computable ? tradeCost : null,
       netPnl: tradeCost.netPnl,
+      lotSizeSource: "static_map",
+      lotSizeRegime: "2026-JAN-NSE-REVISION",
     });
   }
 }

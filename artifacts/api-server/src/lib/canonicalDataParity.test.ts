@@ -574,12 +574,21 @@ describe("GAP 3 — Expiry resolution: per-index cadence (no global weekday assu
     expect(nifty.expiryWeekday).not.toBe(bnf.expiryWeekday);
   });
 
-  it("optionSignals.ts stamps expirySource=algorithmic_weekday on the leg — not instrument_master", () => {
+  it("optionSignals.ts delegates expiry resolution to resolveContractMaster (not a hardcoded string)", () => {
     const src = fs.readFileSync(path.resolve(__dirname, "optionSignals.ts"), "utf8");
-    expect(src).toContain(`expirySource: "algorithmic_weekday"`);
-    // instrument_master should NOT be stamped in signal generation (it's a kiteOptionChain concept)
-    const masterMatches = [...src.matchAll(/expirySource:\s*"instrument_master"/g)];
-    expect(masterMatches.length).toBe(0);
+    // Must import and call resolveContractMaster
+    expect(src).toContain('import { resolveContractMaster }');
+    expect(src).toContain('resolveContractMaster(');
+    // Must NOT hardcode algorithmic_weekday any more
+    expect(src).not.toContain(`expirySource: "algorithmic_weekday" as const`);
+  });
+
+  it("optionSignals.ts leg wires all 4 ContractMasterFact fields onto the OptionLeg", () => {
+    const src = fs.readFileSync(path.resolve(__dirname, "optionSignals.ts"), "utf8");
+    expect(src).toContain("expirySource: _cmf.expirySource");
+    expect(src).toContain("expiryType: _cmf.expiryType");
+    expect(src).toContain("contractInstrumentToken");
+    expect(src).toContain("contractGrade: _cmf.contractGrade");
   });
 
   it("generated Zod schema includes expirySource on OptionLeg", () => {

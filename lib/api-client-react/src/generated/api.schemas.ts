@@ -1123,7 +1123,7 @@ export const OptionLegAction = {
 } as const;
 
 /**
- * How expiry was resolved. algorithmic_weekday = computed from configured weekday cadence (signal generation path). instrument_master = validated against live Kite instrument dump.
+ * How expiry was resolved. instrument_master = validated against live Kite instrument dump (trade-grade). algorithmic_weekday_fallback = computed from weekday cadence; no matching contract in master. static_fallback = computed; cache cold. unavailable = cache cold, all values from static maps.
  */
 export type OptionLegExpirySource =
   (typeof OptionLegExpirySource)[keyof typeof OptionLegExpirySource];
@@ -1131,6 +1131,48 @@ export type OptionLegExpirySource =
 export const OptionLegExpirySource = {
   instrument_master: "instrument_master",
   algorithmic_weekday: "algorithmic_weekday",
+  algorithmic_weekday_fallback: "algorithmic_weekday_fallback",
+  static_fallback: "static_fallback",
+  unavailable: "unavailable",
+} as const;
+
+/**
+ * Whether the expiry is a weekly or monthly series, as configured per index.
+ */
+export type OptionLegExpiryType =
+  | (typeof OptionLegExpiryType)[keyof typeof OptionLegExpiryType]
+  | null;
+
+export const OptionLegExpiryType = {
+  weekly: "weekly",
+  monthly: "monthly",
+  unknown: "unknown",
+} as const;
+
+/**
+ * Exchange segment from the instrument master. NFO for NIFTY/BANKNIFTY; BFO for SENSEX (BSE F&O). Null when cache cold.
+ */
+export type OptionLegExchange =
+  | (typeof OptionLegExchange)[keyof typeof OptionLegExchange]
+  | null;
+
+export const OptionLegExchange = {
+  NFO: "NFO",
+  BFO: "BFO",
+  unknown: "unknown",
+} as const;
+
+/**
+ * Reliability grade of the contract identity. trade_grade = exact match in master. info_only = expiry confirmed but strike or token missing. fallback = all data from static maps.
+ */
+export type OptionLegContractGrade =
+  | (typeof OptionLegContractGrade)[keyof typeof OptionLegContractGrade]
+  | null;
+
+export const OptionLegContractGrade = {
+  trade_grade: "trade_grade",
+  info_only: "info_only",
+  fallback: "fallback",
 } as const;
 
 /**
@@ -1149,8 +1191,18 @@ export interface OptionLeg {
   strike: number;
   action: OptionLegAction;
   expiry?: string;
-  /** How expiry was resolved. algorithmic_weekday = computed from configured weekday cadence (signal generation path). instrument_master = validated against live Kite instrument dump. */
+  /** How expiry was resolved. instrument_master = validated against live Kite instrument dump (trade-grade). algorithmic_weekday_fallback = computed from weekday cadence; no matching contract in master. static_fallback = computed; cache cold. unavailable = cache cold, all values from static maps. */
   expirySource?: OptionLegExpirySource;
+  /** Whether the expiry is a weekly or monthly series, as configured per index. */
+  expiryType?: OptionLegExpiryType;
+  /** Kite instrument_token of the matched option contract. Present only when expirySource=instrument_master and the specific strike exists in the dump. */
+  contractInstrumentToken?: number | null;
+  /** Kite trading_symbol of the matched contract (e.g. NIFTY26JUL27000CE). Null when no exact match. */
+  tradingSymbol?: string | null;
+  /** Exchange segment from the instrument master. NFO for NIFTY/BANKNIFTY; BFO for SENSEX (BSE F&O). Null when cache cold. */
+  exchange?: OptionLegExchange;
+  /** Reliability grade of the contract identity. trade_grade = exact match in master. info_only = expiry confirmed but strike or token missing. fallback = all data from static maps. */
+  contractGrade?: OptionLegContractGrade;
   /** Underlying spot trigger price */
   entry: number;
   /** Whether entry/SL/target are spot levels or premium values */

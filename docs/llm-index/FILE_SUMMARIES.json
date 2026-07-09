@@ -225,7 +225,7 @@
   {
     "path": "artifacts/api-server/src/lib/backtest/directional.ts",
     "purpose": "lib",
-    "lines": 346,
+    "lines": 350,
     "exports": [
       "Candle",
       "DirectionalOptions",
@@ -234,7 +234,7 @@
     ],
     "externalImports": [],
     "routes": [],
-    "hash": "f71187ef32edb5bd"
+    "hash": "b199070fc94efdcb"
   },
   {
     "path": "artifacts/api-server/src/lib/backtest/premiumReplay.test.ts",
@@ -545,7 +545,7 @@
   {
     "path": "artifacts/api-server/src/lib/backtest/strategies/runner.ts",
     "purpose": "lib",
-    "lines": 338,
+    "lines": 340,
     "exports": [
       "RunOptions",
       "StrategyRunResult",
@@ -555,7 +555,7 @@
       "node:crypto"
     ],
     "routes": [],
-    "hash": "9717725db38b121a"
+    "hash": "db491636a7bd7261"
   },
   {
     "path": "artifacts/api-server/src/lib/backtest/strategies/vwap-pullback.ts",
@@ -624,7 +624,7 @@
   {
     "path": "artifacts/api-server/src/lib/backtest/types.ts",
     "purpose": "lib",
-    "lines": 389,
+    "lines": 398,
     "exports": [
       "BacktestMode",
       "BacktestInstrument",
@@ -649,7 +649,7 @@
     ],
     "externalImports": [],
     "routes": [],
-    "hash": "a10fa476cf4e2c07"
+    "hash": "c04bbc47b7004424"
   },
   {
     "path": "artifacts/api-server/src/lib/blackScholes.ts",
@@ -771,7 +771,7 @@
   {
     "path": "artifacts/api-server/src/lib/canonicalDataParity.test.ts",
     "purpose": "test",
-    "lines": 682,
+    "lines": 691,
     "exports": [],
     "externalImports": [
       "vitest",
@@ -779,7 +779,7 @@
       "node:path"
     ],
     "routes": [],
-    "hash": "5dc1b0d833f9770a"
+    "hash": "9088b6373660ee0e"
   },
   {
     "path": "artifacts/api-server/src/lib/canonicalFnoReadiness.test.ts",
@@ -966,6 +966,22 @@
     ],
     "routes": [],
     "hash": "30a6a8bee0d0359f"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/contractMasterFact.ts",
+    "purpose": "lib",
+    "lines": 312,
+    "exports": [
+      "ExpirySource",
+      "ContractGrade",
+      "LotSizeSource",
+      "StrikeStepSource",
+      "ContractMasterFact",
+      "resolveContractMaster"
+    ],
+    "externalImports": [],
+    "routes": [],
+    "hash": "33e708d587fbbab1"
   },
   {
     "path": "artifacts/api-server/src/lib/csvExport.ts",
@@ -1183,6 +1199,21 @@
     ],
     "routes": [],
     "hash": "f3994ec83bc4e1aa"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/ensureContractMasterColumns.ts",
+    "purpose": "lib",
+    "lines": 65,
+    "exports": [
+      "applyContractMasterColumns",
+      "ensureContractMasterSchemaColumns"
+    ],
+    "externalImports": [
+      "drizzle-orm",
+      "@workspace/db"
+    ],
+    "routes": [],
+    "hash": "9c442089b49e8901"
   },
   {
     "path": "artifacts/api-server/src/lib/equitySizingHelper.test.ts",
@@ -2577,18 +2608,19 @@
   {
     "path": "artifacts/api-server/src/lib/kiteFnoInstruments.ts",
     "purpose": "fno-engine",
-    "lines": 82,
+    "lines": 92,
     "exports": [
       "FnoInstrument",
       "loadFnoInstruments",
       "isFnoInstrumentsCacheReady",
       "clearFnoInstrumentsCache",
       "getCachedLotSizeForIndex",
+      "getCachedFnoInstruments",
       "_setFnoInstrumentsCacheForTest"
     ],
     "externalImports": [],
     "routes": [],
-    "hash": "ef7b61e4a04f041b"
+    "hash": "52199fedef139891"
   },
   {
     "path": "artifacts/api-server/src/lib/kiteIndexQuotes.ts",
@@ -3848,7 +3880,7 @@
   {
     "path": "artifacts/api-server/src/lib/optionSignals.ts",
     "purpose": "fno-engine",
-    "lines": 3124,
+    "lines": 3135,
     "exports": [
       "IndexCfg",
       "OPTION_INDICES",
@@ -3861,7 +3893,7 @@
       "@workspace/api-zod"
     ],
     "routes": [],
-    "hash": "ec510a23d43f60ae"
+    "hash": "9ff9c1d4e8c0a989"
   },
   {
     "path": "artifacts/api-server/src/lib/optionSignals.vwapLabel.test.ts",
@@ -4323,7 +4355,7 @@
   {
     "path": "artifacts/api-server/src/lib/paperTradingFO.ts",
     "purpose": "paper-trading",
-    "lines": 3306,
+    "lines": 3333,
     "exports": [
       "TradeTier",
       "LifecycleHookInput",
@@ -4352,7 +4384,7 @@
       "@workspace/api-zod"
     ],
     "routes": [],
-    "hash": "2e12e61fd6b2d29e"
+    "hash": "c78b4796af39262c"
   },
   {
     "path": "artifacts/api-server/src/lib/paperTradingFoExitMonitorApi.test.ts",
@@ -8643,7 +8675,7 @@
   {
     "path": "lib/db/src/schema/backtest.ts",
     "purpose": "db-schema",
-    "lines": 222,
+    "lines": 236,
     "exports": [
       "BACKTEST_MODES",
       "BacktestMode",
@@ -8661,7 +8693,7 @@
     ],
     "externalImports": [],
     "routes": [],
-    "hash": "07bd42be353a4eeb"
+    "hash": "02befffe86b57435"
   },
   {
     "path": "lib/db/src/schema/candleWarehouse.ts",
@@ -8861,7 +8893,7 @@
   {
     "path": "lib/db/src/schema/paperTrading.ts",
     "purpose": "db-schema",
-    "lines": 502,
+    "lines": 521,
     "exports": [
       "paperAccountTable",
       "PaperAccountRow",
@@ -8887,7 +8919,7 @@
       "drizzle-orm"
     ],
     "routes": [],
-    "hash": "bba7a9f13ed1b79b"
+    "hash": "aae922bfb64e6b2d"
   },
   {
     "path": "lib/db/src/schema/portfolio.ts",

@@ -171,3 +171,32 @@ All 5 remaining Lane 1 gaps are now closed. This report supersedes `LANE1_CANONI
 ---
 
 **Final verdict: `P0_LANE1_CANONICAL_DATA_PARITY_CONTRACT_MASTER_DEV_VERIFIED`**
+
+---
+
+## Lane 1 Round-2 Update — 2026-07-09 (GAP A/B/C/D Closure)
+
+**Verdict: `P0_LANE1_GAP_ABCD_CLOSED_DEV_VERIFIED`**
+
+### Changes
+
+| GAP | What | Files |
+|---|---|---|
+| **A/B** — ContractMasterFact module | `contractMasterFact.ts` resolves expiry/lot-size/instrument-token from live Kite cache; `getCachedFnoInstruments()` export; 5-value expirySource enum | `contractMasterFact.ts`, `kiteFnoInstruments.ts` |
+| **A/B** — optionSignals wiring | `toSignal()` now calls `resolveContractMaster()` (IIFE inside leg); stamps `expirySource`, `expiryType`, `contractInstrumentToken`, `tradingSymbol`, `exchange`, `contractGrade` | `optionSignals.ts` |
+| **A/B** — OpenAPI + codegen | OptionLeg schema: expirySource 5-value enum, expiryType, contractInstrumentToken, tradingSymbol, exchange, contractGrade | `lib/api-spec/openapi.yaml`, codegen re-run |
+| **C** — paper_trade_fo schema | 4 new nullable columns: lot_size_source, contract_instrument_token (integer), contract_grade, contract_fallback_reason | `lib/db/src/schema/paperTrading.ts`, `ensureContractMasterColumns.ts` |
+| **C** — paperTradingFO INSERT | Stores lotSizeSource (via getLotSizeSource()), contractInstrumentToken, contractGrade, contractFallbackReason; await ensureContractMasterSchemaColumns() before first write | `paperTradingFO.ts` |
+| **D** — backtest_trades schema | 2 new nullable columns: lot_size_source, lot_size_regime | `lib/db/src/schema/backtest.ts` |
+| **D** — backtest runners | Both directional.ts trade pushes + strategies/runner.ts trade push stamp lotSizeSource: "static_map", lotSizeRegime: "2026-JAN-NSE-REVISION" | `backtest/directional.ts`, `backtest/strategies/runner.ts` |
+| **D** — BacktestTradeOut type | Added lotSizeSource? and lotSizeRegime? optional fields | `backtest/types.ts` |
+
+### Tests
+- 58/58 `canonicalDataParity.test.ts` (27 prior + 2 new GAP A/B tests replacing 1 stale test)
+- api-server typecheck: ✅ clean
+- directional backtest: 4/4 ✅
+- fno suite: 499/499 ✅
+- strategies backtest: 13/13 ✅
+
+### Safety
+Zero changes to trading logic, signal thresholds, stop/target formulas, broker execution, Telegram, or account balance.

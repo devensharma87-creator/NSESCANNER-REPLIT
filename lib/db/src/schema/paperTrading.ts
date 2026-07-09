@@ -199,6 +199,25 @@ export const paperTradeFoTable = pgTable(
     exitPremiumMarketGapPct: numeric("exit_premium_market_gap_pct", { precision: 8, scale: 4 }),
     marketShadowGrossPnl: numeric("market_shadow_gross_pnl", { precision: 18, scale: 2 }),
     exitPremiumMarketUnavailableReason: text("exit_premium_market_unavailable_reason"),
+
+    /**
+     * Contract Master provenance columns (additive 2026-07-09, all nullable —
+     * pre-change rows stay honestly NULL, never backfilled).
+     * Applied via raw `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` in
+     * `applyContractMasterColumns()` (ensureContractMasterColumns.ts), NEVER
+     * `drizzle-kit push` (would attempt to drop out-of-schema tables in
+     * this DB). These columns prove which contract identity source was used
+     * when the paper trade was opened.
+     *
+     * lotSizeSource:           "instrument_master" | "static_fallback"
+     * contractInstrumentToken: Kite instrument_token of the matched contract.
+     * contractGrade:           "trade_grade" | "info_only" | "fallback"
+     * contractFallbackReason:  Why a fallback was used (null when trade_grade).
+     */
+    lotSizeSource: text("lot_size_source"),
+    contractInstrumentToken: integer("contract_instrument_token"),
+    contractGrade: text("contract_grade"),
+    contractFallbackReason: text("contract_fallback_reason"),
   },
   (t) => ({
     // 1:1 with the underlying signal — prevents the lifecycle hook from

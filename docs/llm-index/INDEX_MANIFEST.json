@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-09T10:51:10.234Z",
+  "generatedAt": "2026-07-09T11:27:23.554Z",
   "generatorVersion": "1.0.0",
   "files": {
     "artifacts/api-server/src/routes/admin.ts": {
@@ -213,9 +213,9 @@
       "mtime": "2026-06-29T10:00:09.880Z"
     },
     "artifacts/api-server/src/lib/backtest/directional.ts": {
-      "hash": "f71187ef32edb5bd",
-      "lines": 346,
-      "mtime": "2026-07-07T10:32:09.217Z"
+      "hash": "b199070fc94efdcb",
+      "lines": 350,
+      "mtime": "2026-07-09T11:16:15.774Z"
     },
     "artifacts/api-server/src/lib/backtest/premiumReplay.ts": {
       "hash": "f7348429aee7539b",
@@ -253,9 +253,9 @@
       "mtime": "2026-06-05T15:01:21.969Z"
     },
     "artifacts/api-server/src/lib/backtest/types.ts": {
-      "hash": "a10fa476cf4e2c07",
-      "lines": 389,
-      "mtime": "2026-07-07T12:30:05.475Z"
+      "hash": "c04bbc47b7004424",
+      "lines": 398,
+      "mtime": "2026-07-09T11:15:51.270Z"
     },
     "artifacts/api-server/src/lib/blackScholes.ts": {
       "hash": "183fbca9a3665de6",
@@ -307,6 +307,11 @@
       "lines": 259,
       "mtime": "2026-07-07T14:51:45.809Z"
     },
+    "artifacts/api-server/src/lib/contractMasterFact.ts": {
+      "hash": "33e708d587fbbab1",
+      "lines": 312,
+      "mtime": "2026-07-09T11:12:54.221Z"
+    },
     "artifacts/api-server/src/lib/csvExport.ts": {
       "hash": "016a1804572714c9",
       "lines": 68,
@@ -346,6 +351,11 @@
       "hash": "f3994ec83bc4e1aa",
       "lines": 81,
       "mtime": "2026-04-25T15:33:57.886Z"
+    },
+    "artifacts/api-server/src/lib/ensureContractMasterColumns.ts": {
+      "hash": "9c442089b49e8901",
+      "lines": 65,
+      "mtime": "2026-07-09T11:14:56.101Z"
     },
     "artifacts/api-server/src/lib/equitySizingHelper.ts": {
       "hash": "ac69a89653f1efd1",
@@ -583,9 +593,9 @@
       "mtime": "2026-05-06T14:30:11.286Z"
     },
     "artifacts/api-server/src/lib/kiteFnoInstruments.ts": {
-      "hash": "ef7b61e4a04f041b",
-      "lines": 82,
-      "mtime": "2026-07-09T10:37:28.670Z"
+      "hash": "52199fedef139891",
+      "lines": 92,
+      "mtime": "2026-07-09T11:11:58.330Z"
     },
     "artifacts/api-server/src/lib/kiteIndexQuotes.ts": {
       "hash": "efc44ced2082ddd0",
@@ -863,9 +873,9 @@
       "mtime": "2026-05-06T14:27:23.697Z"
     },
     "artifacts/api-server/src/lib/optionSignals.ts": {
-      "hash": "ec510a23d43f60ae",
-      "lines": 3124,
-      "mtime": "2026-07-09T10:37:58.238Z"
+      "hash": "9ff9c1d4e8c0a989",
+      "lines": 3135,
+      "mtime": "2026-07-09T11:19:08.358Z"
     },
     "artifacts/api-server/src/lib/optionSnapshotAnalytics.ts": {
       "hash": "6f46087c9cd95893",
@@ -928,9 +938,9 @@
       "mtime": "2026-07-03T21:48:35.599Z"
     },
     "artifacts/api-server/src/lib/paperTradingFO.ts": {
-      "hash": "2e12e61fd6b2d29e",
-      "lines": 3306,
-      "mtime": "2026-07-09T10:38:55.242Z"
+      "hash": "c78b4796af39262c",
+      "lines": 3333,
+      "mtime": "2026-07-09T11:20:57.586Z"
     },
     "artifacts/api-server/src/lib/preMarket.ts": {
       "hash": "77d19a892b79c49f",
@@ -1233,9 +1243,9 @@
       "mtime": "2026-06-23T13:53:47.217Z"
     },
     "lib/db/src/schema/backtest.ts": {
-      "hash": "07bd42be353a4eeb",
-      "lines": 222,
-      "mtime": "2026-06-29T06:13:16.508Z"
+      "hash": "02befffe86b57435",
+      "lines": 236,
+      "mtime": "2026-07-09T11:13:55.674Z"
     },
     "lib/db/src/schema/candleWarehouse.ts": {
       "hash": "616198fbb4bff8fe",
@@ -1298,9 +1308,9 @@
       "mtime": "2026-05-13T14:18:21.895Z"
     },
     "lib/db/src/schema/paperTrading.ts": {
-      "hash": "bba7a9f13ed1b79b",
-      "lines": 502,
-      "mtime": "2026-07-08T09:41:13.565Z"
+      "hash": "aae922bfb64e6b2d",
+      "lines": 521,
+      "mtime": "2026-07-09T11:23:17.946Z"
     },
     "lib/db/src/schema/portfolio.ts": {
       "hash": "879a6a7b938e6570",
@@ -1333,9 +1343,9 @@
       "mtime": "2026-06-05T12:55:17.075Z"
     },
     "lib/api-spec/openapi.yaml": {
-      "hash": "f9d80e5efba1b33d",
-      "lines": 7040,
-      "mtime": "2026-07-09T10:37:55.946Z"
+      "hash": "7027e620272a5c59",
+      "lines": 7063,
+      "mtime": "2026-07-09T11:13:26.742Z"
     },
     "artifacts/scanner/src/pages/admin.tsx": {
       "hash": "4a6ea1da8bb56b02",

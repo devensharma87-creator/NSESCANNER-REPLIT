@@ -2660,3 +2660,13 @@ All 5 Lane 1 gaps closed. 57 new acceptance tests added to `canonicalDataParity.
 | GAP 5 — Report files updated with DEV_VERIFIED verdict | FIXED |
 
 No broker execution, no orders, no Telegram, no threshold/weight/confidence changes, no schema destructive migration, no trading-logic changes.
+
+---
+
+## Lane 1 Round-2 Update — GAP A/B/C/D (2026-07-09)
+
+- **ContractMasterFact module**: `resolveContractMaster()` resolves expiry/lot-size/token from live Kite cache with 5-level expirySource traceability.
+- **Signal leg**: All F&O signal legs now carry `expirySource`, `expiryType`, `contractInstrumentToken`, `tradingSymbol`, `exchange`, `contractGrade`.
+- **Paper trade INSERT**: `paper_trade_fo` stores `lot_size_source`, `contract_instrument_token`, `contract_grade`, `contract_fallback_reason` on every new open.
+- **Backtest annotations**: Both backtest runners stamp `lot_size_source: "static_map"` and `lot_size_regime: "2026-JAN-NSE-REVISION"` on every trade row.
+- **Verdict**: `P0_LANE1_GAP_ABCD_CLOSED_DEV_VERIFIED`

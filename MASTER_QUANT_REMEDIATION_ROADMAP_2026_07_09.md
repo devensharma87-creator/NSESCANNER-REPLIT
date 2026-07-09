@@ -161,3 +161,16 @@ Full evidence: `P0_LANE1_CANONICAL_DATA_PARITY_CONTRACT_MASTER_REPORT.md`.
   - All regression: immutability 5/5; fno 516/516; paper 136/136; optionSignal+lifecycle 218/218; routes 249/249; scanner 770/770; typecheck 0 errors; verify:release 11 PASS
 
 **Lane 1 COMPLETE**: `P0_LANE1_CANONICAL_DATA_PARITY_CONTRACT_MASTER_DEV_VERIFIED` — 2026-07-09. All 5 gaps closed. 57 new acceptance tests pass. Full evidence in `P0_LANE1_CANONICAL_DATA_PARITY_CONTRACT_MASTER_REPORT.md`.
+
+---
+
+## Lane 1 Round-2 — GAP A/B/C/D Closed (2026-07-09)
+
+| GAP | Status | Evidence |
+|---|---|---|
+| A — ContractMasterFact module | ✅ CLOSED | `contractMasterFact.ts` ships `resolveContractMaster()` with 5-source enum |
+| B — optionSignals leg wiring | ✅ CLOSED | `toSignal()` calls `resolveContractMaster()`; leg carries expirySource/expiryType/instrumentToken/tradingSymbol/exchange/contractGrade |
+| C — paper_trade_fo new columns | ✅ CLOSED | 4 columns added (lot_size_source, contract_instrument_token, contract_grade, contract_fallback_reason); INSERT wired; ensure pattern on first write |
+| D — backtest lot-size regime | ✅ CLOSED | backtest_trades gets lot_size_source + lot_size_regime; both runners stamp static_map / 2026-JAN-NSE-REVISION |
+
+**Round-2 verdict**: `P0_LANE1_GAP_ABCD_CLOSED_DEV_VERIFIED`

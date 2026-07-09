@@ -7,7 +7,7 @@
  */
 
 /**
- * How expiry was resolved. algorithmic_weekday = computed from configured weekday cadence (signal generation path). instrument_master = validated against live Kite instrument dump.
+ * How expiry was resolved. instrument_master = validated against live Kite instrument dump (trade-grade). algorithmic_weekday_fallback = computed from weekday cadence; no matching contract in master. static_fallback = computed; cache cold. unavailable = cache cold, all values from static maps.
  */
 export type OptionLegExpirySource =
   (typeof OptionLegExpirySource)[keyof typeof OptionLegExpirySource];
@@ -15,4 +15,7 @@ export type OptionLegExpirySource =
 export const OptionLegExpirySource = {
   instrument_master: "instrument_master",
   algorithmic_weekday: "algorithmic_weekday",
+  algorithmic_weekday_fallback: "algorithmic_weekday_fallback",
+  static_fallback: "static_fallback",
+  unavailable: "unavailable",
 } as const;

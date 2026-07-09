@@ -2932,8 +2932,31 @@ components:
         expiry: { type: string }
         expirySource:
           type: string
-          enum: [instrument_master, algorithmic_weekday]
-          description: "How expiry was resolved. algorithmic_weekday = computed from configured weekday cadence (signal generation path). instrument_master = validated against live Kite instrument dump."
+          enum: [instrument_master, algorithmic_weekday, algorithmic_weekday_fallback, static_fallback, unavailable]
+          description: "How expiry was resolved. instrument_master = validated against live Kite instrument dump (trade-grade). algorithmic_weekday_fallback = computed from weekday cadence; no matching contract in master. static_fallback = computed; cache cold. unavailable = cache cold, all values from static maps."
+        expiryType:
+          type: string
+          enum: [weekly, monthly, unknown]
+          nullable: true
+          description: "Whether the expiry is a weekly or monthly series, as configured per index."
+        contractInstrumentToken:
+          type: integer
+          nullable: true
+          description: "Kite instrument_token of the matched option contract. Present only when expirySource=instrument_master and the specific strike exists in the dump."
+        tradingSymbol:
+          type: string
+          nullable: true
+          description: "Kite trading_symbol of the matched contract (e.g. NIFTY26JUL27000CE). Null when no exact match."
+        exchange:
+          type: string
+          enum: [NFO, BFO, unknown]
+          nullable: true
+          description: "Exchange segment from the instrument master. NFO for NIFTY/BANKNIFTY; BFO for SENSEX (BSE F&O). Null when cache cold."
+        contractGrade:
+          type: string
+          enum: [trade_grade, info_only, fallback]
+          nullable: true
+          description: "Reliability grade of the contract identity. trade_grade = exact match in master. info_only = expiry confirmed but strike or token missing. fallback = all data from static maps."
         entry: { type: number, description: "Underlying spot trigger price" }
         instrument: { type: string, enum: [UNDERLYING_LEVEL, OPTION_PREMIUM], description: "Whether entry/SL/target are spot levels or premium values" }
         stopLoss: { type: number }

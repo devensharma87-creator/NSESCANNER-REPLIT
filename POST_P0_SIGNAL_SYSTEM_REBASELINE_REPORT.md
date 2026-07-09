@@ -395,3 +395,20 @@ untrusted. Sample status unchanged: **still pending ≥5 sessions / ≥20 post-P
 (`POST_P0_SIGNAL_SYSTEM_REBASELINE_PARTIAL_GAP_REMAINS`).
 
 **P0-00 PROD_VERIFIED update (2026-07-09)**: Production deploy confirmed (`f831ded1`). Write-once lock is live — production signals generated after 08:03 UTC today have `option_premium_locked_at` set and cannot be overwritten. Pre-fix rows (including the SENSEX 77100 PUT) are correctly labeled `legacyPlanFields: true`. The re-baseline sample window is unaffected by this persistence/display change.
+
+---
+
+## Lane 1 Round-2 — GAP A/B/C/D Status (2026-07-09)
+
+| Component | Status |
+|---|---|
+| ContractMasterFact module (`contractMasterFact.ts`) | ✅ SHIPPED |
+| optionSignals toSignal() leg wiring | ✅ SHIPPED |
+| OpenAPI OptionLeg schema expansion | ✅ SHIPPED |
+| paper_trade_fo contract columns | ✅ SHIPPED |
+| paperTradingFO INSERT wiring | ✅ SHIPPED |
+| backtest_trades lot-size columns | ✅ SHIPPED |
+| backtest runner annotations | ✅ SHIPPED |
+| canonicalDataParity acceptance tests (58 total) | ✅ ALL PASS |
+
+**Lane 1 Round-2 verdict: `P0_LANE1_GAP_ABCD_CLOSED_DEV_VERIFIED`**

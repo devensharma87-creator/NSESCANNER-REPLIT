@@ -1153,3 +1153,19 @@ All 5 Lane 1 gaps closed as of 2026-07-09. 57 new acceptance tests pass. Full ev
 | Paper trade lot-size | Static map without master cross-check | FIXED — master-first + drift alarm |
 
 No trading-logic, order, or balance changes.
+
+---
+
+## Lane 1 Round-2 — Contract Master Fact Closure (2026-07-09)
+
+**F&O signal card and paper-trade provenance (GAP A/B/C/D)**:
+
+Every F&O signal leg now carries full contract-master provenance:
+- `expirySource`: 5-value enum (instrument_master / algorithmic_weekday / algorithmic_weekday_fallback / static_fallback / unavailable)
+- `expiryType`: weekly vs monthly
+- `contractInstrumentToken`: Kite instrument_token when master-matched
+- `tradingSymbol`: e.g. NIFTY26JUL27000CE
+- `exchange`: NFO or BFO
+- `contractGrade`: trade_grade / info_only / fallback
+
+Paper-trade open rows now persist these provenance fields so every historical row is self-describing. Backtest rows carry `lot_size_source` and `lot_size_regime` for era-audit.
