@@ -580,3 +580,25 @@ e64a1c2  Financial reports update
 MACD histogram instead of a distorted zero-seeded value. This is correct and expected.
 Long-history symbols (250+ bars) are materially unaffected. No scoring weights, signal
 thresholds, or trading logic changed.
+
+---
+
+## UPDATE 2026-07-09 — Master roadmap created; P0-00 executed; remaining work re-homed
+
+The consolidated remaining-work list is now superseded as the tracking surface by:
+
+- **`MASTER_QUANT_REMEDIATION_ROADMAP_2026_07_09.md`** — reconciled milestone table
+  (P1B now PROD_VERIFIED at commit `8f41f811`), lane order (Lanes 1–6), and stop rules.
+- **`MASTER_QUANT_BUG_REGISTER_2026_07_09.csv`** — 44 deduplicated findings with one
+  status each (8 OPEN_P0, 18 OPEN_P1, 3 PARTIAL_FIX, 2 NEEDS_OWNER_APPROVAL,
+  2 NEEDS_LIVE_DATA_VERIFICATION, 7 FIXED_DEV/PROD_VERIFIED, plus duplicate/not-a-bug/
+  monitor rows).
+
+Executed this session: **P0-00 signal-plan immutability** (silent SENSEX 77100 PUT plan
+mutation — real DB overwrite via premium patch in status transitions; now write-once +
+audit ledger + LOCKED PLAN / LIVE MTM split). Evidence and 12-section breakdown:
+`P0_00_SIGNAL_PLAN_IMMUTABILITY_REPORT.md`.
+**Verdicts: `MASTER_QUANT_REMEDIATION_ROADMAP_CREATED` +
+`P0_00_SIGNAL_PLAN_IMMUTABILITY_DEV_VERIFIED`** (prod publish pending; Lane 1 NOT started
+per hard-stop instruction). P1C/P1D/P1E remain deferred and are tracked in the register
+(P1C → MQ-P1-15 Lane 5; P1D → Lane 6 owner-sign-off; P1E → out of quant scope).

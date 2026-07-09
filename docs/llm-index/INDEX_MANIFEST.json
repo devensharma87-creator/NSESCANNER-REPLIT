@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-08T13:43:32.119Z",
+  "generatedAt": "2026-07-09T07:58:47.110Z",
   "generatorVersion": "1.0.0",
   "files": {
     "artifacts/api-server/src/routes/admin.ts": {
@@ -843,9 +843,14 @@
       "mtime": "2026-06-17T03:43:06.660Z"
     },
     "artifacts/api-server/src/lib/optionSignalLifecycle.ts": {
-      "hash": "e38a0fe78d6d16e2",
-      "lines": 1458,
-      "mtime": "2026-07-02T19:14:48.129Z"
+      "hash": "3e51ef5d58aa6fe5",
+      "lines": 1631,
+      "mtime": "2026-07-09T07:51:10.562Z"
+    },
+    "artifacts/api-server/src/lib/optionSignalPlanSchema.ts": {
+      "hash": "f99a7c076fdc7a48",
+      "lines": 90,
+      "mtime": "2026-07-09T07:50:43.662Z"
     },
     "artifacts/api-server/src/lib/optionSignalVetoes.ts": {
       "hash": "0b76158cacd9eeff",
@@ -858,9 +863,9 @@
       "mtime": "2026-05-06T14:27:23.697Z"
     },
     "artifacts/api-server/src/lib/optionSignals.ts": {
-      "hash": "f2ac3c53246706a2",
-      "lines": 3003,
-      "mtime": "2026-07-08T05:48:32.010Z"
+      "hash": "020029362ec6327f",
+      "lines": 3102,
+      "mtime": "2026-07-09T07:28:00.074Z"
     },
     "artifacts/api-server/src/lib/optionSnapshotAnalytics.ts": {
       "hash": "6f46087c9cd95893",
@@ -1283,9 +1288,9 @@
       "mtime": "2026-05-15T10:22:58.435Z"
     },
     "lib/db/src/schema/optionSignals.ts": {
-      "hash": "447ff2e6e647d9e3",
-      "lines": 85,
-      "mtime": "2026-04-29T10:13:24.382Z"
+      "hash": "e044d2d6b86adb22",
+      "lines": 150,
+      "mtime": "2026-07-09T07:20:18.838Z"
     },
     "lib/db/src/schema/paperTradeCombo.ts": {
       "hash": "79cff0d5a77601e7",
@@ -1328,9 +1333,9 @@
       "mtime": "2026-06-05T12:55:17.075Z"
     },
     "lib/api-spec/openapi.yaml": {
-      "hash": "1687cd0720e09386",
-      "lines": 6927,
-      "mtime": "2026-07-08T09:42:24.149Z"
+      "hash": "0f12354f0473ca94",
+      "lines": 7013,
+      "mtime": "2026-07-09T07:23:48.982Z"
     },
     "artifacts/scanner/src/pages/admin.tsx": {
       "hash": "4a6ea1da8bb56b02",
@@ -1448,9 +1453,9 @@
       "mtime": "2026-06-10T12:05:16.883Z"
     },
     "artifacts/scanner/src/pages/options.tsx": {
-      "hash": "494ff5d6613c90bb",
-      "lines": 1475,
-      "mtime": "2026-06-30T10:24:27.473Z"
+      "hash": "ea77ddc2c5a9cfed",
+      "lines": 1574,
+      "mtime": "2026-07-09T07:29:33.242Z"
     },
     "artifacts/scanner/src/pages/paper-reports.tsx": {
       "hash": "bdf9cdfe4482b23a",

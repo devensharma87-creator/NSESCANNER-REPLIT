@@ -1121,3 +1121,18 @@ The display correctly shows "—" / null until sufficient history exists.
 **Expected indicator drift (documented):** Short-history symbols (< 35 daily bars) now
 correctly return null MACD histogram instead of a zero-seeded distorted value. This is an
 indicator-correctness change, not a trading-rule change. Long-history (250+ bars): no change.
+
+---
+
+## UPDATE 2026-07-09 — P0-00: F&O signal card LOCKED PLAN vs LIVE MTM split
+
+The F&O signals tab (`options.tsx`) no longer renders one merged premium grid. Each card
+now shows: (1) **"Locked plan (CE/PE strike) — plan of record"** with Plan Entry / T1 / SL /
+T2 and a "premiums locked HH:MM IST" stamp — immutable after trigger; (2) a visually
+separate **LIVE MTM — updates with market** section; (3) an explicit strike-drift warning
+that HIDES live premium projections when the live ATM differs from the locked strike
+(they would price a different contract); (4) a `LEGACY_PLAN_FIELDS` warning for pre-fix
+rows instead of pretending they were locked; (5) a plan-vs-fill divergence note. Root
+cause was a real DB mutation (premium patch spread into every status-transition UPDATE),
+now structurally impossible. Evidence: `P0_00_SIGNAL_PLAN_IMMUTABILITY_REPORT.md`.
+**Verdict: `P0_00_SIGNAL_PLAN_IMMUTABILITY_DEV_VERIFIED`** (prod publish pending).

@@ -3735,7 +3735,7 @@
   {
     "path": "artifacts/api-server/src/lib/optionSignalLifecycle.ts",
     "purpose": "fno-engine",
-    "lines": 1458,
+    "lines": 1631,
     "exports": [
       "LifecycleStatus",
       "LifecycleExitReason",
@@ -3754,7 +3754,9 @@
       "getHistoryByDate",
       "getHistoryByMonth",
       "getAvailableSignalDates",
-      "persistOptionPremiums"
+      "persistOptionPremiums",
+      "PaperFillLite",
+      "getPaperFillsForDate"
     ],
     "externalImports": [
       "@workspace/db",
@@ -3762,7 +3764,36 @@
       "drizzle-orm"
     ],
     "routes": [],
-    "hash": "e38a0fe78d6d16e2"
+    "hash": "3e51ef5d58aa6fe5"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/optionSignalPlanImmutability.test.ts",
+    "purpose": "test",
+    "lines": 293,
+    "exports": [],
+    "externalImports": [
+      "vitest",
+      "drizzle-orm",
+      "@workspace/db",
+      "@workspace/api-zod"
+    ],
+    "routes": [],
+    "hash": "78a689528da562b1"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/optionSignalPlanSchema.ts",
+    "purpose": "fno-engine",
+    "lines": 90,
+    "exports": [
+      "ensureOptionSignalPlanSchema",
+      "__resetOptionSignalPlanSchemaGuardForTests"
+    ],
+    "externalImports": [
+      "@workspace/db",
+      "drizzle-orm"
+    ],
+    "routes": [],
+    "hash": "f99a7c076fdc7a48"
   },
   {
     "path": "artifacts/api-server/src/lib/optionSignals.legacyEmit.bak.ts",
@@ -3802,7 +3833,7 @@
   {
     "path": "artifacts/api-server/src/lib/optionSignals.ts",
     "purpose": "fno-engine",
-    "lines": 3003,
+    "lines": 3102,
     "exports": [
       "IndexCfg",
       "OPTION_INDICES",
@@ -3815,7 +3846,7 @@
       "@workspace/api-zod"
     ],
     "routes": [],
-    "hash": "f2ac3c53246706a2"
+    "hash": "020029362ec6327f"
   },
   {
     "path": "artifacts/api-server/src/lib/optionSignals.vwapLabel.test.ts",
@@ -8289,7 +8320,7 @@
   {
     "path": "artifacts/scanner/src/pages/options.tsx",
     "purpose": "ui-page",
-    "lines": 1475,
+    "lines": 1574,
     "exports": [],
     "externalImports": [
       "@/components/ui/card",
@@ -8304,7 +8335,7 @@
       "@/lib/setupExplanation"
     ],
     "routes": [],
-    "hash": "494ff5d6613c90bb"
+    "hash": "ea77ddc2c5a9cfed"
   },
   {
     "path": "artifacts/scanner/src/pages/paper-reports.tsx",
@@ -8781,15 +8812,18 @@
   {
     "path": "lib/db/src/schema/optionSignals.ts",
     "purpose": "db-schema",
-    "lines": 85,
+    "lines": 150,
     "exports": [
       "optionSignalHistoryTable",
       "OptionSignalHistoryRow",
-      "NewOptionSignalHistoryRow"
+      "NewOptionSignalHistoryRow",
+      "optionSignalPlanAuditTable",
+      "OptionSignalPlanAuditRow",
+      "NewOptionSignalPlanAuditRow"
     ],
     "externalImports": [],
     "routes": [],
-    "hash": "447ff2e6e647d9e3"
+    "hash": "e044d2d6b86adb22"
   },
   {
     "path": "lib/db/src/schema/paperTradeCombo.ts",

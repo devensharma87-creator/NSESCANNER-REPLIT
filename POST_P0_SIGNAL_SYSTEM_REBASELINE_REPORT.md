@@ -377,3 +377,18 @@ Five P1 items audited. No signal/F&O/swing logic changed. Full detail in
 
 - **P1A (paper display):** Pure UI — zero impact on signal generation, scoring, or
   paper-trade opening eligibility.
+
+---
+
+## UPDATE 2026-07-09 — P0-00 plan immutability and the re-baseline sample
+
+P0-00 (signal-plan immutability, `P0_00_SIGNAL_PLAN_IMMUTABILITY_REPORT.md`) changed
+**persistence and display only** — no detector, confidence, gate, sizing, or threshold
+change — so it does NOT reset the post-P0 sample window. However, future sample review
+gains a data-quality benefit: plan premiums recorded from 2026-07-09 onward are
+write-once (`option_premium_locked_at`), so per-signal plan-vs-outcome analysis can trust
+`option_entry/option_stop_loss/option_target1/2` as the true emitted plan. Pre-fix rows
+may carry silently-overwritten premiums (API labels them `legacyPlanFields`) — exclude
+premium-plan accuracy metrics for rows created before 2026-07-09, or treat them as
+untrusted. Sample status unchanged: **still pending ≥5 sessions / ≥20 post-P0 signals**
+(`POST_P0_SIGNAL_SYSTEM_REBASELINE_PARTIAL_GAP_REMAINS`).

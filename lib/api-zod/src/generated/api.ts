@@ -4100,6 +4100,152 @@ export const GetOptionSignalsResponse = zod.object({
         .describe(
           "Fraction of trailing-252 sessions whose ATM IV was strictly below today's, expressed 0-100. Null when sample <5 days.",
         ),
+      planSnapshot: zod
+        .object({
+          emittedAt: zod.coerce
+            .date()
+            .describe(
+              "When this exact signal was first emitted today (row generated_at). Never moves.",
+            ),
+          triggeredAt: zod.coerce
+            .date()
+            .optional()
+            .describe(
+              "When spot first crossed the entry trigger. Null while PENDING.",
+            ),
+          strike: zod
+            .number()
+            .describe(
+              "Contract strike locked on the row at emission. If the live ATM strike has since drifted, liveMtm.strikeDrift is true and live premium projections are suppressed.",
+            ),
+          optionType: zod
+            .string()
+            .describe("CALL or PUT — locked at emission."),
+          tier: zod
+            .string()
+            .optional()
+            .describe("Signal tier at emission (HIGH_CONVICTION \/ BASELINE)."),
+          confidenceAtEmission: zod
+            .number()
+            .describe(
+              "Confidence persisted at emission — does not follow later recalculations.",
+            ),
+          entrySpot: zod.number().describe("Locked spot entry level."),
+          stopSpot: zod.number().describe("Locked spot stop level."),
+          target1Spot: zod.number().describe("Locked spot target 1."),
+          target2Spot: zod.number().describe("Locked spot target 2."),
+          entryTrigger: zod
+            .string()
+            .optional()
+            .describe("Locked entry trigger condition text."),
+          entryPremiumPlanned: zod
+            .number()
+            .optional()
+            .describe(
+              "PLANNED option entry premium (₹\/share) locked at emission-cycle enrichment. Null on legacy rows or when the chain was unavailable — never fabricated. The actual paper fill may differ (see paperFill).",
+            ),
+          stopPremiumPlanned: zod
+            .number()
+            .optional()
+            .describe("Planned (locked) option stop premium."),
+          target1PremiumPlanned: zod
+            .number()
+            .optional()
+            .describe("Planned (locked) option T1 premium."),
+          target2PremiumPlanned: zod
+            .number()
+            .optional()
+            .describe("Planned (locked) option T2 premium."),
+          premiumLockedAt: zod.coerce
+            .date()
+            .optional()
+            .describe(
+              "When the premium plan was persisted (one-shot backfill). Null on legacy rows.",
+            ),
+          legacyPlanFields: zod
+            .boolean()
+            .describe(
+              "True when this row pre-dates premium locking (no locked premiums and no premiumLockedAt). The card shows a LEGACY_PLAN_FIELDS warning instead of pretending live projections are the plan.",
+            ),
+        })
+        .optional()
+        .describe(
+          "P0-00 LOCKED PLAN — the persisted, immutable trading plan from the lifecycle row. Spot levels lock at emission; option premiums lock once at the first successful enrichment backfill (premiumLockedAt) and NEVER change afterwards. Any legitimate correction must go through the option_signal_plan_audit ledger. This is the plan of record the card must render; live re-projections belong in liveMtm.",
+        ),
+      liveMtm: zod
+        .object({
+          currentSpot: zod
+            .number()
+            .optional()
+            .describe("Most recent observed spot."),
+          optionLtp: zod
+            .number()
+            .optional()
+            .describe(
+              "Live premium of the live strike (liveStrike), not necessarily the locked plan strike.",
+            ),
+          liveStrike: zod
+            .number()
+            .optional()
+            .describe(
+              "Strike of the live enrichment leg. When it differs from planSnapshot.strike (ATM moved intra-day), strikeDrift is true.",
+            ),
+          strikeDrift: zod
+            .boolean()
+            .optional()
+            .describe(
+              "True when liveStrike !== planSnapshot.strike. Live premium projections below are suppressed (null) in that case because they would price a different contract than the locked plan.",
+            ),
+          entryPremiumLive: zod
+            .number()
+            .optional()
+            .describe(
+              "Live Greeks-projected premium at the locked spot entry. Display-only. Null when strikeDrift.",
+            ),
+          stopPremiumLive: zod
+            .number()
+            .optional()
+            .describe(
+              "Live projected premium at the locked spot stop. Null when strikeDrift.",
+            ),
+          target1PremiumLive: zod
+            .number()
+            .optional()
+            .describe(
+              "Live projected premium at locked spot T1. Null when strikeDrift.",
+            ),
+          target2PremiumLive: zod
+            .number()
+            .optional()
+            .describe(
+              "Live projected premium at locked spot T2. Null when strikeDrift.",
+            ),
+          lastUpdatedAt: zod.coerce
+            .date()
+            .describe("Wall-clock time of this live view (signal cycle time)."),
+        })
+        .optional()
+        .describe(
+          "P0-00 LIVE MTM — current market view that updates every poll: live spot, live option LTP and live Greeks-projected premiums for the CURRENT ATM strike. These are explicitly NOT the plan and never overwrite planSnapshot.",
+        ),
+      planRevised: zod
+        .boolean()
+        .optional()
+        .describe(
+          "P0-00: true only when this signal has one or more rows in the append-only option_signal_plan_audit ledger (a sanctioned, non-silent plan correction). Renders a 'plan revised' warning on the card. Always false today — no automated path writes the ledger.",
+        ),
+      paperFill: zod
+        .object({
+          entryPremium: zod
+            .number()
+            .describe("Premium actually paid at paper open (₹\/share)."),
+          openedAt: zod.coerce.date(),
+          status: zod.string().describe("Paper trade status (OPEN \/ CLOSED)."),
+        })
+        .optional()
+        .describe(
+          "P0-00: the actual paper-trade FILL for this signal today, from the paper_trade_fo row (locked at open, immutable). Present only when the auto-trader opened a trade. Plan (planSnapshot) vs fill divergence is expected and honest — the fill happens at the live premium of the trigger tick.",
+        ),
     }),
   ),
   generatedAt: zod.coerce.date(),

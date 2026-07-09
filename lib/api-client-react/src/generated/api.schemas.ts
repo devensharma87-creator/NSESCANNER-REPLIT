@@ -1283,6 +1283,81 @@ export const OptionSignalRegime = {
   EXPIRY_DAY: "EXPIRY_DAY",
 } as const;
 
+/**
+ * P0-00 LOCKED PLAN — the persisted, immutable trading plan from the lifecycle row. Spot levels lock at emission; option premiums lock once at the first successful enrichment backfill (premiumLockedAt) and NEVER change afterwards. Any legitimate correction must go through the option_signal_plan_audit ledger. This is the plan of record the card must render; live re-projections belong in liveMtm.
+ */
+export interface OptionSignalPlanSnapshot {
+  /** When this exact signal was first emitted today (row generated_at). Never moves. */
+  emittedAt: string;
+  /** When spot first crossed the entry trigger. Null while PENDING. */
+  triggeredAt?: string;
+  /** Contract strike locked on the row at emission. If the live ATM strike has since drifted, liveMtm.strikeDrift is true and live premium projections are suppressed. */
+  strike: number;
+  /** CALL or PUT — locked at emission. */
+  optionType: string;
+  /** Signal tier at emission (HIGH_CONVICTION / BASELINE). */
+  tier?: string;
+  /** Confidence persisted at emission — does not follow later recalculations. */
+  confidenceAtEmission: number;
+  /** Locked spot entry level. */
+  entrySpot: number;
+  /** Locked spot stop level. */
+  stopSpot: number;
+  /** Locked spot target 1. */
+  target1Spot: number;
+  /** Locked spot target 2. */
+  target2Spot: number;
+  /** Locked entry trigger condition text. */
+  entryTrigger?: string;
+  /** PLANNED option entry premium (₹/share) locked at emission-cycle enrichment. Null on legacy rows or when the chain was unavailable — never fabricated. The actual paper fill may differ (see paperFill). */
+  entryPremiumPlanned?: number;
+  /** Planned (locked) option stop premium. */
+  stopPremiumPlanned?: number;
+  /** Planned (locked) option T1 premium. */
+  target1PremiumPlanned?: number;
+  /** Planned (locked) option T2 premium. */
+  target2PremiumPlanned?: number;
+  /** When the premium plan was persisted (one-shot backfill). Null on legacy rows. */
+  premiumLockedAt?: string;
+  /** True when this row pre-dates premium locking (no locked premiums and no premiumLockedAt). The card shows a LEGACY_PLAN_FIELDS warning instead of pretending live projections are the plan. */
+  legacyPlanFields: boolean;
+}
+
+/**
+ * P0-00 LIVE MTM — current market view that updates every poll: live spot, live option LTP and live Greeks-projected premiums for the CURRENT ATM strike. These are explicitly NOT the plan and never overwrite planSnapshot.
+ */
+export interface OptionSignalLiveMtm {
+  /** Most recent observed spot. */
+  currentSpot?: number;
+  /** Live premium of the live strike (liveStrike), not necessarily the locked plan strike. */
+  optionLtp?: number;
+  /** Strike of the live enrichment leg. When it differs from planSnapshot.strike (ATM moved intra-day), strikeDrift is true. */
+  liveStrike?: number;
+  /** True when liveStrike !== planSnapshot.strike. Live premium projections below are suppressed (null) in that case because they would price a different contract than the locked plan. */
+  strikeDrift?: boolean;
+  /** Live Greeks-projected premium at the locked spot entry. Display-only. Null when strikeDrift. */
+  entryPremiumLive?: number;
+  /** Live projected premium at the locked spot stop. Null when strikeDrift. */
+  stopPremiumLive?: number;
+  /** Live projected premium at locked spot T1. Null when strikeDrift. */
+  target1PremiumLive?: number;
+  /** Live projected premium at locked spot T2. Null when strikeDrift. */
+  target2PremiumLive?: number;
+  /** Wall-clock time of this live view (signal cycle time). */
+  lastUpdatedAt: string;
+}
+
+/**
+ * P0-00: the actual paper-trade FILL for this signal today, from the paper_trade_fo row (locked at open, immutable). Present only when the auto-trader opened a trade. Plan (planSnapshot) vs fill divergence is expected and honest — the fill happens at the live premium of the trigger tick.
+ */
+export interface OptionSignalPaperFill {
+  /** Premium actually paid at paper open (₹/share). */
+  entryPremium: number;
+  openedAt: string;
+  /** Paper trade status (OPEN / CLOSED). */
+  status: string;
+}
+
 export interface OptionSignal {
   index: string;
   indexName: string;
@@ -1401,6 +1476,11 @@ export interface OptionSignal {
    * @maximum 100
    */
   ivPercentile?: number;
+  planSnapshot?: OptionSignalPlanSnapshot;
+  liveMtm?: OptionSignalLiveMtm;
+  /** P0-00: true only when this signal has one or more rows in the append-only option_signal_plan_audit ledger (a sanctioned, non-silent plan correction). Renders a 'plan revised' warning on the card. Always false today — no automated path writes the ledger. */
+  planRevised?: boolean;
+  paperFill?: OptionSignalPaperFill;
 }
 
 export type OptionSignalDiagnosticsSuppressedItem = {

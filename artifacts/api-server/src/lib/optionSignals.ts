@@ -16,7 +16,10 @@ import {
   expireOpenSignalsForToday,
   expireStalePendingSignals,
   persistOptionPremiums,
+  getPlanRevisedKeys,
+  getPaperFillsForDate,
   type SpotSnapshot,
+  type LifecycleFields,
 } from "./optionSignalLifecycle";
 // Type-only: does not create a runtime import of fnoExitDecision.ts here.
 import type { FnoExitQuoteProvenance } from "./fnoExitDecision";
@@ -2672,6 +2675,9 @@ export async function getOptionSignals(): Promise<OptionSignalsResult> {
 
   // Persist + evaluate lifecycle for every signal (best-effort; mutates each
   // signal in-place so the API response carries status/MFE/MAE/etc).
+  // P0-00: stash each signal's LifecycleFields so the LOCKED PLAN vs LIVE
+  // MTM surfaces can be composed AFTER enrichment + premium locking below.
+  const lcBySignal = new Map<OptionSignal, LifecycleFields>();
   for (const b of bundles) {
     // snapshotFromCtx ALWAYS returns a snapshot now (spot is always known;
     // bar h/l are optional). The previous `if (!b.snapshot) continue` was
@@ -2725,6 +2731,7 @@ export async function getOptionSignals(): Promise<OptionSignalsResult> {
           exitMonitorCycle,
         });
         if (!lc) continue;
+        lcBySignal.set(s, lc);
         s.status = lc.status;
         s.firstSeenAt = lc.firstSeenAt;
         s.triggeredAt = lc.triggeredAt;
@@ -2791,6 +2798,98 @@ export async function getOptionSignals(): Promise<OptionSignalsResult> {
   await tryOpenPaperTrades(allSignals, signalDate).catch((err) =>
     logger.warn({ err: (err as Error).message }, "tryOpenPaperTrades failed"),
   );
+
+  // ── P0-00: compose LOCKED PLAN vs LIVE MTM surfaces ──────────────────────
+  // Runs AFTER persistOptionPremiums (so a plan locked THIS cycle is
+  // reflected immediately) and AFTER tryOpenPaperTrades (so a fill opened
+  // this very cycle is surfaced). Display-only composition — mutates no
+  // decision-affecting field: s.optionEntry / tradeClass / tier / confidence
+  // are untouched, and the paper-open path has already consumed them above.
+  try {
+    const [planRevisedKeys, paperFills] = await Promise.all([
+      getPlanRevisedKeys(signalDate),
+      getPaperFillsForDate(signalDate),
+    ]);
+    const now = new Date();
+    for (const s of allSignals) {
+      const lc = lcBySignal.get(s);
+      if (!lc) continue;
+      const direction = s.bias === "BEARISH" ? "BEARISH" : "BULLISH";
+      const key = `${s.index}|${s.setupKey}|${direction}`;
+      // The live enrichment leg vs the contract locked on the row. When the
+      // ATM has drifted intra-day, this cycle's premium projections price a
+      // DIFFERENT contract than the plan — suppress them rather than let a
+      // 77200-strike premium masquerade as the 77100 plan.
+      const strikeDrift = lc.lockedStrike !== s.leg.strike;
+      // Premiums locked by persistOptionPremiums THIS cycle: the row still
+      // read premium-less at lifecycle merge, enrichment then produced
+      // premiums for the row's own strike, and the IS-NULL-guarded backfill
+      // just persisted them. Mirror those exact conditions here so the
+      // response shows the plan the DB now holds without a re-read.
+      const justLocked =
+        lc.lockedOptionEntry == null &&
+        lc.optionPremiumLockedAt == null &&
+        s.optionEntry != null &&
+        !strikeDrift;
+      const plannedEntry =
+        lc.lockedOptionEntry ?? (justLocked ? (s.optionEntry ?? null) : null);
+      const plannedStop =
+        lc.lockedOptionStopLoss ?? (justLocked ? (s.optionStopLoss ?? null) : null);
+      const plannedT1 =
+        lc.lockedOptionTarget1 ?? (justLocked ? (s.optionTarget1 ?? null) : null);
+      const plannedT2 =
+        lc.lockedOptionTarget2 ?? (justLocked ? (s.optionTarget2 ?? null) : null);
+      const premiumLockedAt =
+        lc.optionPremiumLockedAt ?? (justLocked ? now : undefined);
+      s.planSnapshot = {
+        emittedAt: lc.firstSeenAt,
+        triggeredAt: lc.triggeredAt ?? undefined,
+        strike: lc.lockedStrike,
+        optionType: lc.lockedOptionType,
+        tier: lc.lockedTier ?? undefined,
+        confidenceAtEmission: lc.lockedConfidence,
+        entrySpot: round2(lc.lockedEntry),
+        stopSpot: round2(lc.lockedStopLoss),
+        target1Spot: round2(lc.lockedTarget1),
+        target2Spot: round2(lc.lockedTarget2),
+        entryTrigger: lc.lockedEntryTrigger ?? undefined,
+        entryPremiumPlanned: plannedEntry ?? undefined,
+        stopPremiumPlanned: plannedStop ?? undefined,
+        target1PremiumPlanned: plannedT1 ?? undefined,
+        target2PremiumPlanned: plannedT2 ?? undefined,
+        premiumLockedAt,
+        // No locked premiums at all: legacy row (pre-dates locking) or the
+        // chain has been unavailable/drifted every cycle so far. The card
+        // must warn rather than pass live projections off as the plan.
+        legacyPlanFields: plannedEntry == null,
+      };
+      s.liveMtm = {
+        currentSpot: s.lastSpot,
+        optionLtp: s.optionLtp,
+        liveStrike: s.leg.strike,
+        strikeDrift,
+        entryPremiumLive: strikeDrift ? undefined : s.optionEntry,
+        stopPremiumLive: strikeDrift ? undefined : s.optionStopLoss,
+        target1PremiumLive: strikeDrift ? undefined : s.optionTarget1,
+        target2PremiumLive: strikeDrift ? undefined : s.optionTarget2,
+        lastUpdatedAt: now,
+      };
+      s.planRevised = planRevisedKeys.has(key);
+      const fill = paperFills.get(key);
+      if (fill) {
+        s.paperFill = {
+          entryPremium: fill.entryPremium,
+          openedAt: fill.openedAt,
+          status: fill.status,
+        };
+      }
+    }
+  } catch (err) {
+    logger.warn(
+      { err: (err as Error).message },
+      "P0-00 plan/live surface composition failed — cards fall back to legacy fields",
+    );
+  }
 
   // P20: drive max_runup / max_drawdown growth on every signal cycle.
   // Must run AFTER enrichBundlesWithOptionLevels so signal.optionLtp is

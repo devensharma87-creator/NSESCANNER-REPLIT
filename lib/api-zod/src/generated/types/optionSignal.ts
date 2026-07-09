@@ -10,6 +10,9 @@ import type { OptionSignalBias } from "./optionSignalBias";
 import type { OptionSignalDataQuality } from "./optionSignalDataQuality";
 import type { OptionSignalExitReason } from "./optionSignalExitReason";
 import type { OptionSignalHtfBias } from "./optionSignalHtfBias";
+import type { OptionSignalLiveMtm } from "./optionSignalLiveMtm";
+import type { OptionSignalPaperFill } from "./optionSignalPaperFill";
+import type { OptionSignalPlanSnapshot } from "./optionSignalPlanSnapshot";
 import type { OptionSignalPremiumSource } from "./optionSignalPremiumSource";
 import type { OptionSignalRegime } from "./optionSignalRegime";
 import type { OptionSignalSetupKey } from "./optionSignalSetupKey";
@@ -137,4 +140,9 @@ export interface OptionSignal {
    * @maximum 100
    */
   ivPercentile?: number;
+  planSnapshot?: OptionSignalPlanSnapshot;
+  liveMtm?: OptionSignalLiveMtm;
+  /** P0-00: true only when this signal has one or more rows in the append-only option_signal_plan_audit ledger (a sanctioned, non-silent plan correction). Renders a 'plan revised' warning on the card. Always false today — no automated path writes the ledger. */
+  planRevised?: boolean;
+  paperFill?: OptionSignalPaperFill;
 }

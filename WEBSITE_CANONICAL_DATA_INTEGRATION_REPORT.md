@@ -2625,3 +2625,20 @@ No trading logic, weights, thresholds, account balance, realized P&L, or signal 
 **Expected indicator-correctness drift:** Short-history new listings (< 35 daily bars) now
 return null MACD histogram instead of a zero-seeded distorted value. Long-history: unaffected.
 All prior P0/P1 milestones remain verified.
+
+---
+
+## UPDATE 2026-07-09 — P0-00 Signal Plan Immutability (canonical-data impact)
+
+A new canonical-data honesty invariant shipped: **F&O option-signal plan premiums are
+now write-once**. `option_entry / option_stop_loss / option_target1/2` on
+`option_signal_history` are locked at first enrichment (`option_premium_locked_at`,
+`IS NULL`-guarded, strike-guarded) and can never be overwritten by polling refresh, live
+quote, or cache — any legitimate revision must go through the append-only
+`option_signal_plan_audit` ledger (4 allowed reasons, DB CHECK-enforced). The API now
+separates `planSnapshot` (immutable plan of record) from `liveMtm` (mutable, current-ATM
+re-projection, hidden on strike drift). This closes the silent SENSEX 77100 PUT plan
+mutation observed by the owner. Full evidence: `P0_00_SIGNAL_PLAN_IMMUTABILITY_REPORT.md`.
+Verification: 5/5 immutability tests, 516/516 fno, 596/596 paper/signal/lifecycle/routes,
+770/770 scanner, verify:release 11 PASS, full typecheck clean.
+**Verdict: `P0_00_SIGNAL_PLAN_IMMUTABILITY_DEV_VERIFIED`** (prod publish pending).

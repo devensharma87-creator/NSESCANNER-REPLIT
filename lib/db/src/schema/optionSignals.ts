@@ -36,6 +36,15 @@ export const optionSignalHistoryTable = pgTable(
     optionStopLoss: numeric("option_stop_loss", { precision: 18, scale: 4 }),
     optionTarget1: numeric("option_target1", { precision: 18, scale: 4 }),
     optionTarget2: numeric("option_target2", { precision: 18, scale: 4 }),
+    // P0-00 (2026-07-09): wall-clock time the option-premium plan above was
+    // first persisted (the one-and-only enrichment backfill). Null on legacy
+    // rows written before this column existed — the UI renders those as
+    // LEGACY_PLAN_FIELDS with an honest warning instead of fabricating an
+    // asOf. Applied to the live DB via `ALTER TABLE … ADD COLUMN IF NOT
+    // EXISTS` (never an unguarded `drizzle-kit push` — see replit.md).
+    optionPremiumLockedAt: timestamp("option_premium_locked_at", {
+      withTimezone: true,
+    }),
 
     confidence: integer("confidence").notNull().default(0),
     tier: text("tier"),
@@ -82,3 +91,59 @@ export type OptionSignalHistoryRow =
   typeof optionSignalHistoryTable.$inferSelect;
 export type NewOptionSignalHistoryRow =
   typeof optionSignalHistoryTable.$inferInsert;
+
+/**
+ * P0-00 (2026-07-09) — append-only audit ledger for F&O signal PLAN changes.
+ *
+ * The emitted trading plan (spot entry/SL/T1/T2, option premium plan,
+ * strike, trigger) is IMMUTABLE after emission. If any plan field ever has
+ * to change (owner correction, corporate action, data-error fix), the change
+ * MUST land here as an explicit audit event — silent recalculation, polling
+ * refresh overwrite, quote overwrite and cache overwrite are all forbidden.
+ *
+ * No automated code path writes this table. It exists so that (a) any future
+ * sanctioned correction has a mandatory ledger, and (b) the UI can surface a
+ * "plan revised" warning whenever a signal has audit rows.
+ *
+ * Created in the live DB via raw `CREATE TABLE IF NOT EXISTS` (never an
+ * unguarded `drizzle-kit push`). Declared here so drizzle-kit never sees it
+ * as out-of-schema and offers to DROP it.
+ */
+export const optionSignalPlanAuditTable = pgTable(
+  "option_signal_plan_audit",
+  {
+    id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+    // Composite signal key (matches option_signal_history's primary key).
+    signalDate: date("signal_date").notNull(),
+    indexSymbol: text("index_symbol").notNull(),
+    setupKey: text("setup_key").notNull(),
+    direction: text("direction").notNull(),
+
+    field: text("field").notNull(),
+    oldValue: text("old_value"),
+    newValue: text("new_value"),
+    /**
+     * Allowed values (enforced by CHECK constraint in the DDL):
+     * MANUAL_OWNER_EDIT, CONTRACT_CORRECTION_WITH_AUDIT,
+     * CORPORATE_ACTION_ADJUSTMENT, DATA_ERROR_CORRECTION_WITH_AUDIT.
+     */
+    reason: text("reason").notNull(),
+    changedBy: text("changed_by").notNull(),
+    changedAt: timestamp("changed_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    signalIdx: index("option_signal_plan_audit_signal_idx").on(
+      t.signalDate,
+      t.indexSymbol,
+      t.setupKey,
+      t.direction,
+    ),
+  }),
+);
+
+export type OptionSignalPlanAuditRow =
+  typeof optionSignalPlanAuditTable.$inferSelect;
+export type NewOptionSignalPlanAuditRow =
+  typeof optionSignalPlanAuditTable.$inferInsert;

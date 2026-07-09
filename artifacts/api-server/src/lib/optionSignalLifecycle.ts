@@ -1,4 +1,9 @@
-import { db, optionSignalHistoryTable, paperTradeFoTable } from "@workspace/db";
+import {
+  db,
+  optionSignalHistoryTable,
+  optionSignalPlanAuditTable,
+  paperTradeFoTable,
+} from "@workspace/db";
 import type { OptionSignalHistoryRow } from "@workspace/db";
 import type { OptionSignal } from "@workspace/api-zod";
 import { and, eq, gte, sql } from "drizzle-orm";
@@ -16,6 +21,7 @@ import {
   noteFnoExitMonitorDecision,
   noteFnoExitMonitorError,
 } from "./fnoExitMonitorHealth";
+import { ensureOptionSignalPlanSchema } from "./optionSignalPlanSchema";
 import type {
   FnoExitMonitorCycleAccumulator,
   FnoExitTradeKey,
@@ -102,6 +108,25 @@ export interface LifecycleFields {
   lockedTarget1: number;
   lockedTarget2: number;
   lockedEntryTrigger: string | null;
+  /**
+   * P0-00 (2026-07-09): the option-premium PLAN persisted on the row —
+   * locked once at the first enrichment backfill (persistOptionPremiums)
+   * and IMMUTABLE afterwards. Null on legacy rows or when the chain was
+   * unavailable all day. These are what the API's planSnapshot renders;
+   * the live per-poll projections (signal.optionEntry etc.) are a separate
+   * LIVE MTM surface and never overwrite these.
+   */
+  lockedOptionEntry: number | null;
+  lockedOptionStopLoss: number | null;
+  lockedOptionTarget1: number | null;
+  lockedOptionTarget2: number | null;
+  /** When the premium plan above was first persisted; null on legacy rows. */
+  optionPremiumLockedAt: Date | null;
+  /** Contract identity + emission facts locked on the row at insert. */
+  lockedStrike: number;
+  lockedOptionType: string;
+  lockedConfidence: number;
+  lockedTier: string | null;
 }
 
 export interface SpotSnapshot {
@@ -302,6 +327,13 @@ export async function recordOrUpdate(
   const now = new Date();
 
   try {
+    // P0-00 prod-deploy safety: the SELECT below enumerates every declared
+    // column (incl. option_premium_locked_at), so the column must exist
+    // before the first lifecycle read in a fresh environment. Idempotent,
+    // memoized — effectively free after the first call. Fail-open: if the
+    // ensure fails transiently the SELECT surfaces the real error and this
+    // function's existing catch handles it.
+    await ensureOptionSignalPlanSchema().catch(() => {});
     const existing = await db
       .select()
       .from(optionSignalHistoryTable)
@@ -428,6 +460,18 @@ export async function recordOrUpdate(
           lockedTarget1: t1,
           lockedTarget2: t2,
           lockedEntryTrigger: signal.entryTrigger ?? null,
+          // Fresh insert runs BEFORE enrichment, so the premium plan is
+          // not locked yet — persistOptionPremiums will backfill it once
+          // this cycle's enrichment completes.
+          lockedOptionEntry: signal.optionEntry ?? null,
+          lockedOptionStopLoss: signal.optionStopLoss ?? null,
+          lockedOptionTarget1: signal.optionTarget1 ?? null,
+          lockedOptionTarget2: signal.optionTarget2 ?? null,
+          optionPremiumLockedAt: null,
+          lockedStrike: signal.leg.strike,
+          lockedOptionType: signal.leg.type,
+          lockedConfidence: Math.round(signal.confidence ?? 0),
+          lockedTier: signal.tier ?? null,
         };
       }
       // Fall through: a concurrent request inserted first. Re-read it.
@@ -483,6 +527,7 @@ export async function recordOrUpdate(
         lockedTarget1: lockedT1,
         lockedTarget2: lockedT2,
         lockedEntryTrigger: row.entryTrigger,
+        ...lockedPlanRowFields(row),
       };
     }
     const trans = evaluateTransition(
@@ -617,6 +662,7 @@ export async function recordOrUpdate(
           lockedTarget1: lockedT1,
           lockedTarget2: lockedT2,
           lockedEntryTrigger: row.entryTrigger,
+          ...lockedPlanRowFields(row),
         };
       }
       // decision.kind === "EXIT" is guaranteed here: evaluateFnoPaperTradeExit
@@ -655,31 +701,22 @@ export async function recordOrUpdate(
     // the persisted state and return THAT to the caller, otherwise the
     // card would render with our stale, locally computed `trans.next`
     // until the next 30s poll.
-    // Refresh option-premium snapshot ONLY on PENDING → TRIGGERED transition.
-    // Rationale: at first-emit (PENDING) we record a projection from the chain
-    // at that moment, but spot can drift for hours before the trigger crosses
-    // and the paper-trade engine enters at signal.optionEntry AS OF THE TRIGGER
-    // tick. Re-snapping here keeps the popup, the lifecycle row and the paper
-    // trade in lockstep — without this the alert popup would show stale prices
-    // that don't match what the user actually paid.
+    // P0-00 PLAN IMMUTABILITY (2026-07-09): status transitions NEVER touch
+    // the option-premium plan columns (option_entry / option_stop_loss /
+    // option_target1 / option_target2). A previous version "re-snapped"
+    // them on PENDING → TRIGGERED — but recordLifecycle always runs BEFORE
+    // enrichBundlesWithOptionLevels in getOptionSignals, so signal.option*
+    // was ALWAYS null here. The patch silently NULLED the emission-locked
+    // premiums and persistOptionPremiums (IS NULL-guarded) then backfilled
+    // them with the TRIGGER-cycle live projection — a silent plan rewrite.
     //
-    // We do NOT refresh on any other transition (TRIGGERED → T1/T2/STOP/EXPIRED)
-    // because once we're in the trade the locked entry/SL/T1/T2 plan is what
-    // matters; recomputing would silently mutate the booked plan.
-    const refreshOptionPremium =
-      currentStatus === "PENDING" && trans.next === "TRIGGERED";
-    const optionPremiumPatch = refreshOptionPremium
-      ? {
-          optionEntry:
-            signal.optionEntry != null ? toDbNumeric(signal.optionEntry) : null,
-          optionStopLoss:
-            signal.optionStopLoss != null ? toDbNumeric(signal.optionStopLoss) : null,
-          optionTarget1:
-            signal.optionTarget1 != null ? toDbNumeric(signal.optionTarget1) : null,
-          optionTarget2:
-            signal.optionTarget2 != null ? toDbNumeric(signal.optionTarget2) : null,
-        }
-      : {};
+    // The premium plan now locks exactly once, at the first successful
+    // enrichment backfill (persistOptionPremiums stamps
+    // option_premium_locked_at), and is immutable afterwards. Any sanctioned
+    // correction must go through option_signal_plan_audit — there is no
+    // silent path. The paper trade's actual fill premium lives on its own
+    // paper_trade_fo row (locked at open); plan vs fill divergence is
+    // honest and rendered as separate labeled values in the UI.
     const updated = await db
       .update(optionSignalHistoryTable)
       .set({
@@ -692,7 +729,6 @@ export async function recordOrUpdate(
         maxAdverseExcursion: sql`GREATEST(${optionSignalHistoryTable.maxAdverseExcursion}, ${toDbNumeric(exc.maeBar)}::numeric)`,
         lastSpot: toDbNumeric(snapshot.spot),
         lastEvaluatedAt: now,
-        ...optionPremiumPatch,
       })
       .where(
         and(
@@ -744,6 +780,7 @@ export async function recordOrUpdate(
         lockedTarget1: num(fr.target1),
         lockedTarget2: num(fr.target2),
         lockedEntryTrigger: fr.entryTrigger,
+        ...lockedPlanRowFields(fr),
       };
     }
 
@@ -804,6 +841,7 @@ export async function recordOrUpdate(
       lockedTarget1: lockedT1,
       lockedTarget2: lockedT2,
       lockedEntryTrigger: row.entryTrigger,
+      ...lockedPlanRowFields(row),
     };
   } catch (err) {
     logger.warn(
@@ -1407,11 +1445,17 @@ export async function getAvailableSignalDates(): Promise<string[]> {
 }
 
 /**
- * Batch-update lifecycle rows with option premiums computed by
- * enrichBundlesWithOptionLevels().  The lifecycle INSERT and the
- * PENDING→TRIGGERED refresh both run BEFORE enrichment, so premiums
- * are always null at write time.  This back-fill runs AFTER enrichment
- * and patches every row that still has null optionEntry.
+ * ONE-SHOT premium-plan lock (P0-00). The lifecycle INSERT runs BEFORE
+ * enrichment, so premiums are always null at insert time. This back-fill
+ * runs AFTER enrichment and locks the premium plan on every row that still
+ * has null optionEntry — exactly once, stamping option_premium_locked_at.
+ * The IS NULL guard makes re-runs no-ops: the plan NEVER changes after
+ * this write (status transitions no longer touch premium columns).
+ *
+ * Strike guard: the row only accepts premiums projected for ITS OWN locked
+ * strike. If the live ATM has drifted since emission (leg.strike !== row
+ * strike), the drifted projection prices a DIFFERENT contract and must not
+ * become this row's plan — the row honestly stays premium-less instead.
  *
  * Only updates rows for the current IST date (today's signals).
  */
@@ -1420,6 +1464,11 @@ export async function persistOptionPremiums(
 ): Promise<void> {
   const ist = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
   const today = ist.toISOString().slice(0, 10);
+
+  // P0-00 prod-deploy safety: the one-shot lock writes
+  // option_premium_locked_at — ensure the column/table exist (idempotent,
+  // memoized). Fail-open like the per-row writes below.
+  await ensureOptionSignalPlanSchema().catch(() => {});
 
   for (const s of signals) {
     if (s.optionEntry == null) continue;
@@ -1433,6 +1482,10 @@ export async function persistOptionPremiums(
           optionStopLoss: s.optionStopLoss != null ? toDbNumeric(s.optionStopLoss) : null,
           optionTarget1: s.optionTarget1 != null ? toDbNumeric(s.optionTarget1) : null,
           optionTarget2: s.optionTarget2 != null ? toDbNumeric(s.optionTarget2) : null,
+          // P0-00: stamp WHEN the premium plan locked so the UI can show an
+          // honest asOf. The IS NULL guard below makes this a one-shot
+          // write — the plan is immutable after this backfill.
+          optionPremiumLockedAt: new Date(),
         })
         .where(
           and(
@@ -1441,6 +1494,9 @@ export async function persistOptionPremiums(
             eq(optionSignalHistoryTable.setupKey, s.setupKey ?? ""),
             eq(optionSignalHistoryTable.direction, direction),
             sql`${optionSignalHistoryTable.optionEntry} IS NULL`,
+            // P0-00 strike guard: never backfill premiums projected for a
+            // drifted ATM strike into a row locked to a different contract.
+            eq(optionSignalHistoryTable.strike, toDbNumeric(s.leg.strike)),
           ),
         );
     } catch (err) {
@@ -1454,4 +1510,121 @@ export async function persistOptionPremiums(
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
+}
+
+/**
+ * P0-00: map the persisted (immutable) option-premium plan + contract
+ * identity off a lifecycle row into LifecycleFields. Single source for
+ * every row-backed return branch of recordOrUpdate so no branch can
+ * accidentally omit or recompute the locked plan.
+ */
+function lockedPlanRowFields(row: OptionSignalHistoryRow): Pick<
+  LifecycleFields,
+  | "lockedOptionEntry"
+  | "lockedOptionStopLoss"
+  | "lockedOptionTarget1"
+  | "lockedOptionTarget2"
+  | "optionPremiumLockedAt"
+  | "lockedStrike"
+  | "lockedOptionType"
+  | "lockedConfidence"
+  | "lockedTier"
+> {
+  return {
+    lockedOptionEntry: row.optionEntry != null ? num(row.optionEntry) : null,
+    lockedOptionStopLoss:
+      row.optionStopLoss != null ? num(row.optionStopLoss) : null,
+    lockedOptionTarget1:
+      row.optionTarget1 != null ? num(row.optionTarget1) : null,
+    lockedOptionTarget2:
+      row.optionTarget2 != null ? num(row.optionTarget2) : null,
+    optionPremiumLockedAt: row.optionPremiumLockedAt ?? null,
+    lockedStrike: num(row.strike),
+    lockedOptionType: row.optionType,
+    lockedConfidence: row.confidence ?? 0,
+    lockedTier: row.tier ?? null,
+  };
+}
+
+/** P0-00: minimal paper-fill facts surfaced next to the locked plan. */
+export interface PaperFillLite {
+  entryPremium: number;
+  openedAt: Date;
+  status: string;
+}
+
+/**
+ * P0-00: batch lookup of today's paper_trade_fo fills keyed by
+ * `indexSymbol|setupKey|direction`. Display-only — the fill premium is
+ * locked on its own row at open; we surface it beside the locked PLAN so
+ * plan-vs-fill divergence is honest instead of hidden. Fails OPEN to an
+ * empty map on DB error (card simply omits the fill line).
+ */
+export async function getPaperFillsForDate(
+  signalDate: string,
+): Promise<Map<string, PaperFillLite>> {
+  try {
+    const rows = await db
+      .select({
+        indexSymbol: paperTradeFoTable.indexSymbol,
+        setupKey: paperTradeFoTable.setupKey,
+        direction: paperTradeFoTable.direction,
+        entryPremium: paperTradeFoTable.entryPremium,
+        openedAt: paperTradeFoTable.openedAt,
+        status: paperTradeFoTable.status,
+      })
+      .from(paperTradeFoTable)
+      .where(eq(paperTradeFoTable.signalDate, signalDate))
+      .orderBy(paperTradeFoTable.openedAt);
+    const map = new Map<string, PaperFillLite>();
+    for (const r of rows) {
+      // Later opens overwrite earlier ones — the card shows the most
+      // recent fill for the signal key.
+      map.set(`${r.indexSymbol}|${r.setupKey}|${r.direction}`, {
+        entryPremium: num(r.entryPremium),
+        openedAt: r.openedAt,
+        status: r.status,
+      });
+    }
+    return map;
+  } catch (err) {
+    logger.warn(
+      { err: (err as Error).message },
+      "getPaperFillsForDate failed — paper-fill lines suppressed this cycle",
+    );
+    return new Map();
+  }
+}
+
+/**
+ * P0-00: batch lookup of signals whose plan has sanctioned audit-ledger
+ * revisions (option_signal_plan_audit rows). Returns a Set of
+ * `indexSymbol|setupKey|direction` keys for the given IST date. Display-only
+ * — fails OPEN to an empty set (no warning badge) on DB error.
+ */
+export async function getPlanRevisedKeys(
+  signalDate: string,
+): Promise<Set<string>> {
+  try {
+    // P0-00 prod-deploy safety: the audit table may not exist yet on a
+    // fresh environment's first cycles — ensure it (idempotent, memoized).
+    await ensureOptionSignalPlanSchema();
+    const rows = await db
+      .selectDistinct({
+        indexSymbol: optionSignalPlanAuditTable.indexSymbol,
+        setupKey: optionSignalPlanAuditTable.setupKey,
+        direction: optionSignalPlanAuditTable.direction,
+      })
+      .from(optionSignalPlanAuditTable)
+      .where(eq(optionSignalPlanAuditTable.signalDate, signalDate));
+    return new Set(
+      rows.map((r) => `${r.indexSymbol}|${r.setupKey}|${r.direction}`),
+    );
+  } catch (err) {
+    logger.warn(
+      { err: (err as Error).message },
+      "getPlanRevisedKeys failed — plan-revised badges suppressed this cycle",
+    );
+    return new Set();
+  }
 }

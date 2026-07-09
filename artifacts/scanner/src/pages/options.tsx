@@ -345,19 +345,118 @@ function SetupCard({ sig, planNumber, totalPlans }: { sig: OptionSignal; planNum
         </div>
       </div>
 
-      {/* Option-premium grid — what you actually pay / book on the broker. Derived
-          from the chosen strike's live LTP and delta:
-            optionEntry = optionLtp + delta × (spotEntry − spot)
-            optionT1/T2 = optionEntry + delta × (spotT1/T2 − spotEntry)
-            optionSL    = optionEntry + delta × (spotSL    − spotEntry), floored at ₹0.05
-          Sign cancels for puts (delta<0 with target<entry), so values stay sensible
-          for both CALL and PUT. Section is hidden when the option chain wasn't
-          available at signal time (NSE block / no broker session). */}
-      {sig.optionLtp != null && sig.optionEntry != null ? (
+      {/* P0-00 — Option premiums are rendered as TWO honestly-separated
+          sections:
+            1. LOCKED PLAN — the immutable plan of record from the DB row
+               (premiums lock once at first enrichment and never change).
+            2. LIVE MTM — this cycle's re-projection for the CURRENT ATM
+               strike; display-only, explicitly NOT the plan.
+          Before P0-00 the card showed only the live re-projection labelled as
+          the plan, so "the plan" silently drifted every 30s poll. When the
+          server composition is unavailable (planSnapshot missing) we fall
+          back to the legacy single grid rather than hide premiums. */}
+      {sig.planSnapshot ? (
+        <div className="space-y-2">
+          <div data-testid="plan-locked-section">
+            <div className="text-[9px] font-mono uppercase tracking-wider text-muted-foreground mb-1 flex items-center gap-1.5 flex-wrap">
+              <IndianRupee className="w-3 h-3" />
+              <span>
+                Locked plan ({sig.leg.type === "CALL" ? "CE" : "PE"} {fmt(sig.planSnapshot.strike)}) — plan of record
+              </span>
+              {sig.planSnapshot.premiumLockedAt && (
+                <span className="text-foreground/70 normal-case tracking-normal">
+                  · premiums locked {fmtIstTime(sig.planSnapshot.premiumLockedAt)} IST
+                </span>
+              )}
+              {sig.planRevised && (
+                <span
+                  className="inline-flex items-center gap-1 rounded bg-amber-500/15 text-amber-500 px-1.5 py-0.5 normal-case tracking-normal"
+                  title="This plan has a sanctioned correction in the plan-audit ledger. The values shown are the revised plan of record."
+                  data-testid="plan-revised-badge"
+                >
+                  <AlertTriangle className="w-3 h-3" /> Plan revised
+                </span>
+              )}
+            </div>
+            {sig.planSnapshot.legacyPlanFields ? (
+              <div
+                className="text-[10px] font-mono text-amber-500/90 border border-dashed border-amber-500/40 rounded px-2 py-1.5 leading-relaxed"
+                data-testid="plan-legacy-warning"
+              >
+                <span className="uppercase tracking-wider mr-1">Premium plan not locked:</span>
+                the option chain was unavailable (or the ATM strike had drifted) every cycle since emission, so no premium plan was ever locked for this row. The spot plan above is the plan of record — do not treat the live premiums below as a plan.
+              </div>
+            ) : (
+              <>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs font-mono" data-testid="plan-locked-grid">
+                  <Cell label="Plan Entry" value={`₹${fmt(sig.planSnapshot.entryPremiumPlanned)}`} icon={<Crosshair className="w-3 h-3" />} bold />
+                  <Cell label="Plan T1" value={`₹${fmt(sig.planSnapshot.target1PremiumPlanned)}`} icon={<Target className="w-3 h-3 text-signal-strong-buy" />} />
+                  <Cell label="Plan SL" value={`₹${fmt(sig.planSnapshot.stopPremiumPlanned)}`} icon={<ShieldAlert className="w-3 h-3 text-signal-strong-sell" />} />
+                </div>
+                {sig.planSnapshot.target2PremiumPlanned != null && (
+                  <div className="text-[10px] font-mono text-muted-foreground mt-1">
+                    Plan T2 <span className="text-foreground">₹{fmt(sig.planSnapshot.target2PremiumPlanned)}</span>
+                  </div>
+                )}
+              </>
+            )}
+            {sig.paperFill && (
+              <div className="text-[10px] font-mono text-muted-foreground mt-1" data-testid="paper-fill-line">
+                Paper fill <span className="text-foreground">₹{fmt(sig.paperFill.entryPremium)}</span>
+                {" "}at {fmtIstTime(sig.paperFill.openedAt)} IST · {sig.paperFill.status}
+                {sig.planSnapshot.entryPremiumPlanned != null && (
+                  <span className="ml-1 text-muted-foreground/70">
+                    (plan ₹{fmt(sig.planSnapshot.entryPremiumPlanned)} — fill happens at the live premium of the trigger tick, divergence is expected)
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
+          <div data-testid="live-mtm-section">
+            <div className="text-[9px] font-mono uppercase tracking-wider text-muted-foreground mb-1 flex items-center gap-1.5">
+              <Activity className="w-3 h-3" />
+              <span>Live MTM — updates every poll · NOT the plan</span>
+              {sig.optionDelta != null && (
+                <span className="text-foreground/70 normal-case tracking-normal">· δ {sig.optionDelta.toFixed(2)}</span>
+              )}
+            </div>
+            {sig.liveMtm?.strikeDrift ? (
+              <div
+                className="text-[10px] font-mono text-amber-500/90 border border-dashed border-amber-500/40 rounded px-2 py-1.5 leading-relaxed"
+                data-testid="strike-drift-warning"
+              >
+                <span className="uppercase tracking-wider mr-1">ATM strike drifted:</span>
+                the live ATM is now {fmt(sig.liveMtm.liveStrike)} vs the locked plan's {fmt(sig.planSnapshot.strike)}. Live premium projections would price a different contract than the plan, so they are hidden. Manage the plan by the locked spot levels above.
+              </div>
+            ) : sig.optionLtp != null && sig.optionEntry != null ? (
+              <>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs font-mono" data-testid="live-mtm-grid">
+                  <Cell label="Opt LTP" value={`₹${fmt(sig.optionLtp)}`} icon={<Activity className="w-3 h-3" />} />
+                  <Cell label="Live Entry" value={`₹${fmt(sig.optionEntry)}`} icon={<Crosshair className="w-3 h-3" />} />
+                  <Cell label="Live T1" value={`₹${fmt(sig.optionTarget1)}`} icon={<Target className="w-3 h-3 text-signal-strong-buy" />} />
+                  <Cell label="Live SL" value={`₹${fmt(sig.optionStopLoss)}`} icon={<ShieldAlert className="w-3 h-3 text-signal-strong-sell" />} />
+                </div>
+                {sig.optionTarget2 != null && (
+                  <div className="text-[10px] font-mono text-muted-foreground mt-1">
+                    Live T2 <span className="text-foreground">₹{fmt(sig.optionTarget2)}</span>
+                    {sig.optionTheta != null && (
+                      <span className="ml-3">θ <span className="text-foreground">{sig.optionTheta.toFixed(2)}</span>/day</span>
+                    )}
+                  </div>
+                )}
+              </>
+            ) : (
+              <div className="text-[10px] font-mono text-muted-foreground/80 border border-dashed border-border/40 rounded px-2 py-1.5 leading-relaxed">
+                live chain unavailable right now (broker session offline / NSE blocked) — the locked plan above is unaffected.
+              </div>
+            )}
+          </div>
+        </div>
+      ) : sig.optionLtp != null && sig.optionEntry != null ? (
         <div>
           <div className="text-[9px] font-mono uppercase tracking-wider text-muted-foreground mb-1 flex items-center gap-1.5">
             <IndianRupee className="w-3 h-3" />
-            <span>Option premium ({sig.leg.type === "CALL" ? "CE" : "PE"} {fmt(sig.leg.strike)}) — what you pay & book</span>
+            <span>Option premium ({sig.leg.type === "CALL" ? "CE" : "PE"} {fmt(sig.leg.strike)}) — live projection (plan lock unavailable)</span>
             {sig.optionDelta != null && (
               <span className="text-foreground/70 normal-case tracking-normal">· δ {sig.optionDelta.toFixed(2)}</span>
             )}
