@@ -195,6 +195,88 @@ describe("buildCanonicalFnoReadiness", () => {
     expect(r.telegramSummary).toContain("Signals: generated 2");
     expect(r.telegramSummary.length).toBeGreaterThan(0);
   });
+
+  // ── GAP 4+5: per-index diagnostics + one-index failure isolation ─────────
+
+  it("GAP4: indexDiagnostics is populated for all 3 indices when nothing is suppressed", () => {
+    const r = buildCanonicalFnoReadiness(inputs({ cycle: cycle({ suppressed: [] }) }));
+    expect(Object.keys(r.indexDiagnostics)).toHaveLength(3);
+    for (const sym of ["NIFTY", "BANKNIFTY", "SENSEX"]) {
+      const d = r.indexDiagnostics[sym];
+      expect(d, `${sym} missing from indexDiagnostics`).toBeDefined();
+      expect(d!.blocked).toBe(false);
+      expect(d!.intradayBarsOk).toBe(true);
+      expect(d!.dailyBarsOk).toBe(true);
+      expect(d!.exactBlockReason).toBeNull();
+    }
+  });
+
+  it("GAP4: SENSEX intraday fail marks SENSEX blocked; NIFTY and BANKNIFTY remain unblocked", () => {
+    const r = buildCanonicalFnoReadiness(
+      inputs({
+        cycle: cycle({
+          suppressed: [{ index: "SENSEX", reasons: ["no_live_kite_intraday: SENSEX bars unavailable"] }],
+        }),
+      }),
+    );
+    const sensex = r.indexDiagnostics["SENSEX"]!;
+    expect(sensex.blocked).toBe(true);
+    expect(sensex.intradayBarsOk).toBe(false);
+    expect(sensex.dailyBarsOk).toBe(true); // daily never ran for this index
+    expect(sensex.exactBlockReason).toBeTruthy();
+
+    expect(r.indexDiagnostics["NIFTY"]!.blocked).toBe(false);
+    expect(r.indexDiagnostics["BANKNIFTY"]!.blocked).toBe(false);
+  });
+
+  it("GAP4: BANKNIFTY daily fail → dailyBarsOk=false, intradayBarsOk=true", () => {
+    const r = buildCanonicalFnoReadiness(
+      inputs({
+        cycle: cycle({
+          suppressed: [{ index: "BANKNIFTY", reasons: ["daily_history_missing: no bars"] }],
+        }),
+      }),
+    );
+    const bk = r.indexDiagnostics["BANKNIFTY"]!;
+    expect(bk.blocked).toBe(true);
+    expect(bk.dailyBarsOk).toBe(false);
+    expect(bk.intradayBarsOk).toBe(true); // intraday succeeded before daily failed
+    expect(r.indexDiagnostics["NIFTY"]!.blocked).toBe(false);
+    expect(r.indexDiagnostics["SENSEX"]!.blocked).toBe(false);
+  });
+
+  it("GAP5: telegramSummary includes per-index reason when an index is suppressed", () => {
+    const r = buildCanonicalFnoReadiness(
+      inputs({
+        cycle: cycle({
+          suppressed: [{ index: "SENSEX", reasons: ["no_live_kite_intraday: bars missing"] }],
+        }),
+      }),
+    );
+    expect(r.telegramSummary).toContain("Suppressed: SENSEX");
+    expect(r.telegramSummary).toContain("SENSEX:");
+  });
+
+  it("GAP5: one-index fail isolates signals — NIFTY and BANKNIFTY diagnostics are unblocked", () => {
+    const r = buildCanonicalFnoReadiness(
+      inputs({
+        cycle: cycle({
+          signalCount: 3,
+          highConvictionCount: 2,
+          suppressed: [{ index: "SENSEX", reasons: ["no_live_kite_intraday: SENSEX only"] }],
+        }),
+      }),
+    );
+    // Signal counts are per-index signals not blocked by the failed index
+    expect(r.signalCycle.generatedSignals).toBe(3);
+    expect(r.signalCycle.tradeableSignals).toBe(2);
+    expect(r.signalCycle.suppressedSignals).toBe(1);
+    // The non-failing indices remain clean
+    expect(r.indexDiagnostics["NIFTY"]!.blocked).toBe(false);
+    expect(r.indexDiagnostics["BANKNIFTY"]!.blocked).toBe(false);
+    // Only SENSEX is marked
+    expect(r.indexDiagnostics["SENSEX"]!.blocked).toBe(true);
+  });
 });
 
 describe("deriveMarketSessionLabel", () => {

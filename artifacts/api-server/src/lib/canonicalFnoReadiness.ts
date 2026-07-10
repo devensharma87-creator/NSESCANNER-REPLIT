@@ -41,6 +41,18 @@ export type BarsStatus = "READY" | "PARTIAL" | "MISSING" | "UNKNOWN";
 export type OptionChainReadinessStatus = "READY" | "PARTIAL" | "MISSING" | "STALE" | "UNKNOWN";
 export type SignalCycleStatus = "READY" | "NO_SETUP" | "DATA_BLOCKED" | "MARKET_CLOSED" | "UNKNOWN";
 
+/** Per-index diagnostic — which data layer blocked this index (if any). */
+export interface IndexFnoDiagnostic {
+  index: string;
+  blocked: boolean;
+  /** True when intraday bars were NOT the failure for this index. */
+  intradayBarsOk: boolean;
+  /** True when daily bars were NOT the failure for this index. */
+  dailyBarsOk: boolean;
+  /** Human-readable block reason, null when not blocked. */
+  exactBlockReason: string | null;
+}
+
 export interface CanonicalFnoReadiness {
   checkedAt: string;
   kiteSession: KiteSessionState;
@@ -59,6 +71,8 @@ export interface CanonicalFnoReadiness {
     /** Names of suppressed indices (e.g. ["BANKNIFTY"]) for per-index granularity in reports. */
     suppressedIndices: string[];
   };
+  /** Per-index diagnostic — keyed by index symbol (NIFTY / BANKNIFTY / SENSEX). */
+  indexDiagnostics: Record<string, IndexFnoDiagnostic>;
   tradeGrade: boolean;
   canGenerateSignals: boolean;
   canOpenPaperTrades: boolean;
@@ -236,6 +250,32 @@ export function buildCanonicalFnoReadiness(inputs: CanonicalFnoReadinessInputs):
   const cycleReasons = cycle ? cycle.suppressed.map((s) => s.reasons[0] ?? s.index).filter(Boolean) : [];
   const suppressedIndices = cycle ? cycle.suppressed.map((s) => s.index) : [];
 
+  // Per-index diagnostics — derived from cycle.suppressed; zero extra computation.
+  const indexDiagnostics: Record<string, IndexFnoDiagnostic> = {};
+  for (const idx of OPTION_INDICES) {
+    const sup = cycle ? cycle.suppressed.find((s) => s.index === idx.symbol) : undefined;
+    if (sup == null) {
+      indexDiagnostics[idx.symbol] = {
+        index: idx.symbol,
+        blocked: false,
+        intradayBarsOk: true,
+        dailyBarsOk: true,
+        exactBlockReason: null,
+      };
+    } else {
+      const reason = sup.reasons[0] ?? null;
+      const isDailyFail = reason != null && reason.includes("daily_history");
+      const failedStep = isDailyFail ? ("dailyBars" as const) : ("intradayBars" as const);
+      indexDiagnostics[idx.symbol] = {
+        index: idx.symbol,
+        blocked: true,
+        intradayBarsOk: isDailyFail,   // intraday OK when it was a daily failure
+        dailyBarsOk: !isDailyFail,     // daily OK when it was an intraday failure
+        exactBlockReason: humanizeReason(reason, { ...classifyCtx, failedStep }),
+      };
+    }
+  }
+
   const tradeGrade =
     kiteSession === "ACTIVE" &&
     feedStatusOut === "CONNECTED" &&
@@ -265,6 +305,7 @@ export function buildCanonicalFnoReadiness(inputs: CanonicalFnoReadinessInputs):
     tradeableSignals: cycle?.highConvictionCount ?? 0,
     suppressedSignals: cycle?.suppressed.length ?? 0,
     suppressedIndices,
+    indexDiagnostics,
   });
 
   return {
@@ -284,6 +325,7 @@ export function buildCanonicalFnoReadiness(inputs: CanonicalFnoReadinessInputs):
       reasons: cycleReasons,
       suppressedIndices,
     },
+    indexDiagnostics,
     tradeGrade,
     canGenerateSignals,
     canOpenPaperTrades,
@@ -303,6 +345,7 @@ function buildTelegramSummary(f: {
   tradeableSignals: number;
   suppressedSignals: number;
   suppressedIndices: string[];
+  indexDiagnostics: Record<string, IndexFnoDiagnostic>;
 }): string {
   const parts = [
     `Kite: ${f.kiteSession} | Feed: ${f.feedStatus} | Market: ${f.marketSession}`,
@@ -314,6 +357,20 @@ function buildTelegramSummary(f: {
   ];
   if (f.suppressedIndices.length > 0 && (f.signalCycleStatus === "DATA_BLOCKED" || f.suppressedSignals > 0)) {
     parts.push(`Suppressed: ${f.suppressedIndices.join(", ")}`);
+    // Per-index block reasons — tell exactly WHY each index was suppressed (GAP 4+5)
+    for (const idx of f.suppressedIndices) {
+      const diag = f.indexDiagnostics[idx];
+      if (diag?.exactBlockReason) {
+        parts.push(`  ${idx}: ${diag.exactBlockReason}`);
+      } else if (diag?.blocked) {
+        const layer = !diag.intradayBarsOk
+          ? "intraday bars missing"
+          : !diag.dailyBarsOk
+            ? "daily bars missing"
+            : "data unavailable";
+        parts.push(`  ${idx}: ${layer}`);
+      }
+    }
   }
   return parts.join("\n");
 }

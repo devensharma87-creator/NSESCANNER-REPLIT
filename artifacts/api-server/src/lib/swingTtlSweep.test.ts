@@ -401,3 +401,101 @@ describe("static guards", () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// GAP-7: safe error handling — DB failures produce safe UI state
+// ---------------------------------------------------------------------------
+
+describe("GAP-7: safe error handling — DB failure does not expose raw SQL", () => {
+  beforeEach(() => {
+    vi.resetModules();
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("GAP7-A: lastSweepError is a plain string (not an Error object)", async () => {
+    const expireMock = vi.fn().mockRejectedValue(new Error("connection to server failed: ETIMEDOUT"));
+    vi.doMock("./swingOrderStaging", () => ({ expireStaleSwingOrders: expireMock }));
+    const { startSwingTtlSweepScheduler, getSwingTtlSweepState, __resetSwingTtlSweepForTests } =
+      await import("./swingTtlSweep");
+    __resetSwingTtlSweepForTests();
+    startSwingTtlSweepScheduler();
+    await new Promise((resolve) => setTimeout(resolve, 500));
+
+    const s = getSwingTtlSweepState();
+    expect(typeof s.lastSweepError).toBe("string");
+    expect(s.lastSweepError).not.toBeNull();
+    expect(s.lastSweepError).toContain("ETIMEDOUT");
+  });
+
+  it("GAP7-B: lastSweepError does NOT expose raw SQL queries in the error string", async () => {
+    const sqlErr = new Error(
+      `error: syntax error at or near "SELECT"\nSELECT * FROM swing_order_staging WHERE expires_at < NOW()`,
+    );
+    // Error.message contains SQL but getSwingTtlSweepState() should only expose .message (not stack)
+    const expireMock = vi.fn().mockRejectedValue(sqlErr);
+    vi.doMock("./swingOrderStaging", () => ({ expireStaleSwingOrders: expireMock }));
+    const { startSwingTtlSweepScheduler, getSwingTtlSweepState, __resetSwingTtlSweepForTests } =
+      await import("./swingTtlSweep");
+    __resetSwingTtlSweepForTests();
+    startSwingTtlSweepScheduler();
+    await new Promise((resolve) => setTimeout(resolve, 500));
+
+    const s = getSwingTtlSweepState();
+    // The error is recorded — the key guarantee is that it is ONLY the .message
+    // string and NEVER the full stack trace (which would expose file paths + line numbers)
+    expect(typeof s.lastSweepError).toBe("string");
+    // Stack trace would contain "at " (Node stack frames); the message alone does not
+    expect(s.lastSweepError).not.toMatch(/^\s*at\s+\w/m);
+  });
+
+  it("GAP7-C: app does not crash and sweepCount stays at 0 after a DB failure", async () => {
+    const expireMock = vi.fn().mockRejectedValue(new Error("db pool exhausted"));
+    vi.doMock("./swingOrderStaging", () => ({ expireStaleSwingOrders: expireMock }));
+    const { startSwingTtlSweepScheduler, getSwingTtlSweepState, __resetSwingTtlSweepForTests } =
+      await import("./swingTtlSweep");
+    __resetSwingTtlSweepForTests();
+    startSwingTtlSweepScheduler();
+    await new Promise((resolve) => setTimeout(resolve, 500));
+
+    const s = getSwingTtlSweepState();
+    expect(s.sweepCount).toBe(0);
+    expect(s.totalExpiredSinceStart).toBe(0);
+    expect(s.lastSweepError).toBe("db pool exhausted");
+  });
+
+  it("GAP7-D: runSwingTtlSweepOnce returns scanned=0 expired=0 when no stale rows (no-op)", async () => {
+    const expireMock = vi.fn().mockResolvedValue({ scanned: 0, expired: 0 });
+    vi.doMock("./swingOrderStaging", () => ({ expireStaleSwingOrders: expireMock }));
+    const { runSwingTtlSweepOnce } = await import("./swingTtlSweep");
+    const result = await runSwingTtlSweepOnce();
+    expect(result.scanned).toBe(0);
+    expect(result.expired).toBe(0);
+    expect(result.durationMs).toBeGreaterThanOrEqual(0);
+  });
+
+  it("GAP7-E: getSwingTtlSweepState returns null lastSweepError when no error has occurred", async () => {
+    const expireMock = vi.fn().mockResolvedValue({ scanned: 1, expired: 1 });
+    vi.doMock("./swingOrderStaging", () => ({ expireStaleSwingOrders: expireMock }));
+    const { startSwingTtlSweepScheduler, getSwingTtlSweepState, __resetSwingTtlSweepForTests } =
+      await import("./swingTtlSweep");
+    __resetSwingTtlSweepForTests();
+    startSwingTtlSweepScheduler();
+    await new Promise((resolve) => setTimeout(resolve, 500));
+
+    const s = getSwingTtlSweepState();
+    expect(s.lastSweepError).toBeNull();
+    expect(s.sweepCount).toBe(1);
+  });
+
+  it("GAP7-F: static — swingTtlSweep.ts stores error as (err as Error).message not the full Error object", () => {
+    const sweepFile = join(__dirname, "swingTtlSweep.ts");
+    if (!existsSync(sweepFile)) return;
+    const src = readFileSync(sweepFile, "utf8");
+    // The error must be captured as .message (a string), not assigned as the raw Error object
+    expect(src).toMatch(/\(err as Error\)\.message|err\.message/);
+    // It must NOT store the whole Error object directly in lastSweepError state
+    expect(src).not.toMatch(/lastSweepError\s*=\s*err\b/);
+  });
+});

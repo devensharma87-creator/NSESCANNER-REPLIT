@@ -351,6 +351,14 @@ export interface PreMarketSwing {
   approvalRequired: number;
   approved: number;
   expired: number;
+  /** paper_trade_eq rows opened today with source=SWING_STAGED_APPROVAL. */
+  openedToday: number;
+  /** paper_trade_eq rows closed today with source=SWING_STAGED_APPROVAL. */
+  closedToday: number;
+  /** swing_order_staging rows that failed re-check today (RECHECK_BLOCKED). */
+  blockedToday: number;
+  /** Always 0 — notification failure tracking is in-memory only (no DB counter yet). */
+  notificationFailures: number;
 }
 
 /** INFO_ONLY: FII/DII cash net flows from NSE archive (previous day). */
@@ -425,11 +433,14 @@ export function buildPreMarketReport(data: PreMarketReportData): string {
   lines.push("");
   lines.push("Swing staging:");
   if (data.swing != null) {
-    // Compact 3-field template (Part C) — APPROVAL_REQUIRED rows are still
-    // awaiting action, same as STAGED, so both fold into "Pending" here; the
-    // full 4-way breakdown remains available via the JSON preview contract.
+    // Compact staging template — APPROVAL_REQUIRED rows fold into "Pending" here;
+    // the full breakdown remains available via the JSON preview contract.
     lines.push(
       `Pending ${data.swing.pending + data.swing.approvalRequired} | Approved ${data.swing.approved} | Expired ${data.swing.expired}`,
+    );
+    // GAP 3: equity paper counts surface in Telegram (openedToday/closedToday/blockedToday)
+    lines.push(
+      `Opened ${data.swing.openedToday} | Closed ${data.swing.closedToday} | Blocked ${data.swing.blockedToday}`,
     );
   } else {
     lines.push("Pending 0 | Approved 0 | Expired 0 (unavailable this run)");
@@ -499,6 +510,21 @@ export interface PostMarketSwing {
   pending: number;
   approved: number;
   expired: number;
+  /** paper_trade_eq rows opened today with source=SWING_STAGED_APPROVAL. */
+  openedToday: number;
+  /** paper_trade_eq rows closed today with source=SWING_STAGED_APPROVAL. */
+  closedToday: number;
+  /** swing_order_staging RECHECK_BLOCKED rows created today. */
+  blockedToday: number;
+  /** Live open paper_trade_eq positions with source=SWING_STAGED_APPROVAL. */
+  equityOpenCount: number;
+}
+
+/** Overall equity paper counts (all sources) for the post-market report. */
+export interface PostMarketEquityPaper {
+  openedToday: number;
+  closedToday: number;
+  openCount: number;
 }
 
 export interface PostMarketIndexRow {
@@ -540,6 +566,8 @@ export interface PostMarketReportData {
   canonicalFno: CanonicalFnoReadiness | null;
   fno: PostMarketFno | null;
   swing: PostMarketSwing | null;
+  /** Overall equity paper trade counts (all sources) for today. Null if query fails. */
+  equityPaper: PostMarketEquityPaper | null;
   indexPerformance: PostMarketIndexPerformance | null;
   optionChainEod: PostMarketOptionChainEod | null;
   /** True once the exit-monitor trust-gate has recorded at least one EXIT
@@ -634,8 +662,22 @@ export function buildPostMarketReport(data: PostMarketReportData): string {
   lines.push("Swing:");
   if (data.swing != null) {
     lines.push(`Pending ${data.swing.pending} | Approved ${data.swing.approved} | Expired ${data.swing.expired}`);
+    // GAP 3: equity paper counts surface in Telegram
+    lines.push(
+      `Opened ${data.swing.openedToday} | Closed ${data.swing.closedToday} | Blocked ${data.swing.blockedToday} | Live ${data.swing.equityOpenCount}`,
+    );
   } else {
     lines.push("Pending 0 | Approved 0 | Expired 0 (unavailable this run)");
+  }
+
+  lines.push("");
+  lines.push("Equity paper:");
+  if (data.equityPaper != null) {
+    lines.push(
+      `Opened ${data.equityPaper.openedToday} | Closed ${data.equityPaper.closedToday} | Live ${data.equityPaper.openCount}`,
+    );
+  } else {
+    lines.push("Unavailable — query failed this run");
   }
 
   lines.push("");
@@ -797,6 +839,11 @@ export async function gatherPreMarketData(
 
   let swing: PreMarketSwing | null = null;
   try {
+    // IST day boundary for today's opened/closed/blocked counts
+    const preIstNowMs = nowMs + 5.5 * 60 * 60_000;
+    const preIstDayStart = new Date(Math.floor(preIstNowMs / 86_400_000) * 86_400_000 - 5.5 * 60 * 60_000);
+    const preIstDayEnd = new Date(preIstDayStart.getTime() + 86_400_000);
+
     const rows = (await db.execute(sql`
       SELECT status, approval_status, COUNT(*)::int AS n
       FROM swing_order_staging
@@ -814,6 +861,33 @@ export async function gatherPreMarketData(
         AND created_at > NOW() - INTERVAL '1 day'
     `)) as unknown as { rows: Array<{ n: number | string }> };
 
+    const ptOpenedRows = (await db.execute(sql`
+      SELECT COUNT(*)::int AS n
+      FROM paper_trade_eq
+      WHERE source = 'SWING_STAGED_APPROVAL'
+        AND opened_at >= ${preIstDayStart.toISOString()}
+        AND opened_at < ${preIstDayEnd.toISOString()}
+    `)) as unknown as { rows: Array<{ n: number | string }> };
+
+    const ptClosedRows = (await db.execute(sql`
+      SELECT COUNT(*)::int AS n
+      FROM paper_trade_eq
+      WHERE source = 'SWING_STAGED_APPROVAL'
+        AND status = 'CLOSED'
+        AND exited_at IS NOT NULL
+        AND exited_at >= ${preIstDayStart.toISOString()}
+        AND exited_at < ${preIstDayEnd.toISOString()}
+    `)) as unknown as { rows: Array<{ n: number | string }> };
+
+    const blockedRows = (await db.execute(sql`
+      SELECT COUNT(*)::int AS n
+      FROM swing_order_staging
+      WHERE owner_key = 'owner'
+        AND status = 'RECHECK_BLOCKED'
+        AND created_at >= ${preIstDayStart.toISOString()}
+        AND created_at < ${preIstDayEnd.toISOString()}
+    `)) as unknown as { rows: Array<{ n: number | string }> };
+
     let pending = 0, approvalRequired = 0, approved = 0;
     for (const row of rows.rows) {
       const n = Number(row.n);
@@ -822,7 +896,10 @@ export async function gatherPreMarketData(
       else approvalRequired += n;
     }
     const expired = Number(expiredRows.rows[0]?.n ?? 0);
-    swing = { pending, approvalRequired, approved, expired };
+    const openedToday = Number(ptOpenedRows.rows[0]?.n ?? 0);
+    const closedToday = Number(ptClosedRows.rows[0]?.n ?? 0);
+    const blockedToday = Number(blockedRows.rows[0]?.n ?? 0);
+    swing = { pending, approvalRequired, approved, expired, openedToday, closedToday, blockedToday, notificationFailures: 0 };
   } catch (err) {
     logger.warn({ err: (err as Error).message }, "dailyReports: gatherPreMarketData swing section failed");
   }
@@ -1002,6 +1079,11 @@ export async function gatherPostMarketData(
 
   let swing: PostMarketSwing | null = null;
   try {
+    // IST day boundary
+    const postIstNowMs = nowMs + 5.5 * 60 * 60_000;
+    const postIstDayStart = new Date(Math.floor(postIstNowMs / 86_400_000) * 86_400_000 - 5.5 * 60 * 60_000);
+    const postIstDayEnd = new Date(postIstDayStart.getTime() + 86_400_000);
+
     const rows = (await db.execute(sql`
       SELECT status, approval_status, COUNT(*)::int AS n
       FROM swing_order_staging
@@ -1019,6 +1101,40 @@ export async function gatherPostMarketData(
         AND created_at > NOW() - INTERVAL '1 day'
     `)) as unknown as { rows: Array<{ n: number | string }> };
 
+    const ptSwingOpenedRows = (await db.execute(sql`
+      SELECT COUNT(*)::int AS n
+      FROM paper_trade_eq
+      WHERE source = 'SWING_STAGED_APPROVAL'
+        AND opened_at >= ${postIstDayStart.toISOString()}
+        AND opened_at < ${postIstDayEnd.toISOString()}
+    `)) as unknown as { rows: Array<{ n: number | string }> };
+
+    const ptSwingClosedRows = (await db.execute(sql`
+      SELECT COUNT(*)::int AS n
+      FROM paper_trade_eq
+      WHERE source = 'SWING_STAGED_APPROVAL'
+        AND status = 'CLOSED'
+        AND exited_at IS NOT NULL
+        AND exited_at >= ${postIstDayStart.toISOString()}
+        AND exited_at < ${postIstDayEnd.toISOString()}
+    `)) as unknown as { rows: Array<{ n: number | string }> };
+
+    const swingBlockedRows = (await db.execute(sql`
+      SELECT COUNT(*)::int AS n
+      FROM swing_order_staging
+      WHERE owner_key = 'owner'
+        AND status = 'RECHECK_BLOCKED'
+        AND created_at >= ${postIstDayStart.toISOString()}
+        AND created_at < ${postIstDayEnd.toISOString()}
+    `)) as unknown as { rows: Array<{ n: number | string }> };
+
+    const swingLiveRows = (await db.execute(sql`
+      SELECT COUNT(*)::int AS n
+      FROM paper_trade_eq
+      WHERE source = 'SWING_STAGED_APPROVAL'
+        AND status = 'OPEN'
+    `)) as unknown as { rows: Array<{ n: number | string }> };
+
     let pending = 0, approvalRequired = 0, approved = 0;
     for (const row of rows.rows) {
       const n = Number(row.n);
@@ -1027,9 +1143,50 @@ export async function gatherPostMarketData(
       else approvalRequired += n;
     }
     const expired = Number(expiredRows.rows[0]?.n ?? 0);
-    swing = { pending: pending + approvalRequired, approved, expired };
+    const openedToday = Number(ptSwingOpenedRows.rows[0]?.n ?? 0);
+    const closedToday = Number(ptSwingClosedRows.rows[0]?.n ?? 0);
+    const blockedToday = Number(swingBlockedRows.rows[0]?.n ?? 0);
+    const equityOpenCount = Number(swingLiveRows.rows[0]?.n ?? 0);
+    swing = { pending: pending + approvalRequired, approved, expired, openedToday, closedToday, blockedToday, equityOpenCount };
   } catch (err) {
     logger.warn({ err: (err as Error).message }, "dailyReports: gatherPostMarketData swing section failed");
+  }
+
+  let equityPaper: PostMarketEquityPaper | null = null;
+  try {
+    const eqIstNowMs = nowMs + 5.5 * 60 * 60_000;
+    const eqIstDayStart = new Date(Math.floor(eqIstNowMs / 86_400_000) * 86_400_000 - 5.5 * 60 * 60_000);
+    const eqIstDayEnd = new Date(eqIstDayStart.getTime() + 86_400_000);
+
+    const eqOpenedRows = (await db.execute(sql`
+      SELECT COUNT(*)::int AS n
+      FROM paper_trade_eq
+      WHERE opened_at >= ${eqIstDayStart.toISOString()}
+        AND opened_at < ${eqIstDayEnd.toISOString()}
+    `)) as unknown as { rows: Array<{ n: number | string }> };
+
+    const eqClosedRows = (await db.execute(sql`
+      SELECT COUNT(*)::int AS n
+      FROM paper_trade_eq
+      WHERE status = 'CLOSED'
+        AND exited_at IS NOT NULL
+        AND exited_at >= ${eqIstDayStart.toISOString()}
+        AND exited_at < ${eqIstDayEnd.toISOString()}
+    `)) as unknown as { rows: Array<{ n: number | string }> };
+
+    const eqLiveRows = (await db.execute(sql`
+      SELECT COUNT(*)::int AS n
+      FROM paper_trade_eq
+      WHERE status = 'OPEN'
+    `)) as unknown as { rows: Array<{ n: number | string }> };
+
+    equityPaper = {
+      openedToday: Number(eqOpenedRows.rows[0]?.n ?? 0),
+      closedToday: Number(eqClosedRows.rows[0]?.n ?? 0),
+      openCount: Number(eqLiveRows.rows[0]?.n ?? 0),
+    };
+  } catch (err) {
+    logger.warn({ err: (err as Error).message }, "dailyReports: gatherPostMarketData equity paper section failed");
   }
 
   return {
@@ -1040,6 +1197,7 @@ export async function gatherPostMarketData(
     canonicalFno,
     fno,
     swing,
+    equityPaper,
     indexPerformance,
     optionChainEod,
     exitMonitorVerified,

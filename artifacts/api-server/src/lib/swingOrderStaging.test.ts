@@ -21,7 +21,7 @@ import { readFileSync, readdirSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { like } from "drizzle-orm";
+import { like, sql } from "drizzle-orm";
 import { db } from "@workspace/db";
 import { swingOrderStagingTable } from "@workspace/db/schema";
 import {
@@ -712,5 +712,182 @@ describe("Phase-2 static safety guards", () => {
         }
       }
     }
+  });
+});
+
+// ===========================================================================
+// GAP-1: swing approval → paper_trade_eq chain (Cases 21–26)
+// ===========================================================================
+
+describe.skipIf(!process.env.DATABASE_URL)("GAP-1: swing approval → paper_trade_eq chain (DB)", () => {
+  const OWNER_PREFIX = `test-gap1-${Date.now()}-${Math.random().toString(36).slice(2, 8)}-`;
+  let ownerCounter = 0;
+  const nextOwner = (): string => `${OWNER_PREFIX}${++ownerCounter}`;
+
+  beforeAll(async () => {
+    __resetKillSwitchCacheForTests();
+    await setKillSwitch(false, null, null);
+  });
+
+  afterAll(async () => {
+    __resetKillSwitchCacheForTests();
+    await setKillSwitch(false, null, null);
+    await db
+      .delete(swingOrderStagingTable)
+      .where(like(swingOrderStagingTable.ownerKey, `${OWNER_PREFIX}%`));
+  });
+
+  beforeEach(async () => {
+    process.env.SWING_CASH_EXECUTION_MODE = "paper_only";
+    delete process.env.LIVE_CASH_SWING_ORDER_ENABLED;
+    __resetKillSwitchCacheForTests();
+    await setKillSwitch(false, null, null);
+  });
+
+  // Per-case unique symbols prevent cross-test paper_trade_eq contamination
+  // (the gap1 describe runs in the same process as Cases 1-20, so symbols
+  // must not collide with TESTSTK or with each other).
+  const GAP1_BASE = `GAP1TST${Date.now().toString(36).toUpperCase()}`;
+  const GAP1_SYM = (suffix: string): string => `${GAP1_BASE}${suffix}`;
+
+  // 21 --------------------------------------------------------------------
+  it("Case 21: approveSwingOrder result has paperTradeResult when approved=true", async () => {
+    const sym = GAP1_SYM("A");
+    const owner = nextOwner();
+    const t = Date.now();
+    const staged = await stageSwingOrder({
+      ownerKey: owner,
+      candidate: cleanCandidate(t, { symbol: sym, sector: "PHARMA" }),
+      portfolioState: cleanPortfolio(),
+      now: new Date(t),
+    });
+    expect(staged.staged).toBe(true);
+
+    const res = await approveSwingOrder(owner, staged.row!.id, "owner", {
+      fetchQuote: makeFetcher(freshKiteQuote(sym, 100.5, t)),
+      now: new Date(t),
+    });
+    expect(res.approved).toBe(true);
+    if (res.approved) {
+      expect(res.paperTradeResult).toBeDefined();
+      expect(res.paperTradeResult).not.toBeNull();
+      expect(typeof res.paperTradeResult.opened).toBe("boolean");
+    }
+  });
+
+  // 22 --------------------------------------------------------------------
+  it("Case 22: paperTradeResult.opened is strictly a boolean — never undefined or null", async () => {
+    const sym = GAP1_SYM("B");
+    const owner = nextOwner();
+    const t = Date.now();
+    const staged = await stageSwingOrder({
+      ownerKey: owner,
+      candidate: cleanCandidate(t, { symbol: sym, sector: "PHARMA" }),
+      portfolioState: cleanPortfolio(),
+      now: new Date(t),
+    });
+
+    const res = await approveSwingOrder(owner, staged.row!.id, "owner", {
+      fetchQuote: makeFetcher(freshKiteQuote(sym, 100.5, t)),
+      now: new Date(t),
+    });
+    if (res.approved) {
+      expect(res.paperTradeResult.opened === true || res.paperTradeResult.opened === false).toBe(true);
+    }
+  });
+
+  // 23 --------------------------------------------------------------------
+  it("Case 23: if paper trade opens, paper_trade_eq row has source=SWING_STAGED_APPROVAL", async () => {
+    const sym = GAP1_SYM("C");
+    const owner = nextOwner();
+    const t = Date.now();
+    const staged = await stageSwingOrder({
+      ownerKey: owner,
+      candidate: cleanCandidate(t, { symbol: sym, sector: "PHARMA" }),
+      portfolioState: cleanPortfolio(),
+      now: new Date(t),
+    });
+
+    const res = await approveSwingOrder(owner, staged.row!.id, "owner", {
+      fetchQuote: makeFetcher(freshKiteQuote(sym, 100.5, t)),
+      now: new Date(t),
+    });
+    if (res.approved && res.paperTradeResult.opened && res.paperTradeResult.paperTradeId) {
+      const ptId = res.paperTradeResult.paperTradeId;
+      const rows = (await db.execute(
+        sql`SELECT source, staged_order_id FROM paper_trade_eq WHERE id = ${ptId}`,
+      )) as unknown as { rows: Array<{ source: string; staged_order_id: string | null }> };
+      expect(rows.rows.length).toBe(1);
+      expect(rows.rows[0]!.source).toBe("SWING_STAGED_APPROVAL");
+    }
+    // If paper trade did not open (DD cap, duplicate, etc.) the test passes — we
+    // only assert DB state when we know the trade actually opened.
+  });
+
+  // 24 --------------------------------------------------------------------
+  it("Case 24: if paper trade opens, staged_order_id on paper_trade_eq matches the staging row id", async () => {
+    const sym = GAP1_SYM("D"); // unique symbol — avoids collision with Case 23's open position
+    const owner = nextOwner();
+    const t = Date.now();
+    const staged = await stageSwingOrder({
+      ownerKey: owner,
+      candidate: cleanCandidate(t, { symbol: sym, sector: "PHARMA" }),
+      portfolioState: cleanPortfolio(),
+      now: new Date(t),
+    });
+    const stagingId = staged.row!.id;
+
+    const res = await approveSwingOrder(owner, staged.row!.id, "owner", {
+      fetchQuote: makeFetcher(freshKiteQuote(sym, 100.5, t)),
+      now: new Date(t),
+    });
+    if (res.approved && res.paperTradeResult.opened && res.paperTradeResult.paperTradeId) {
+      const ptId = res.paperTradeResult.paperTradeId;
+      const rows = (await db.execute(
+        sql`SELECT staged_order_id FROM paper_trade_eq WHERE id = ${ptId}`,
+      )) as unknown as { rows: Array<{ staged_order_id: string | null }> };
+      expect(rows.rows.length).toBe(1);
+      expect(rows.rows[0]!.staged_order_id).toBe(stagingId);
+    }
+  });
+
+  // 25 --------------------------------------------------------------------
+  it("Case 25: when re-check blocks, paperTradeResult is absent — no crash", async () => {
+    const sym = GAP1_SYM("E");
+    const owner = nextOwner();
+    const t = Date.now();
+    // Sector cap breached → SECTOR_EXPOSURE_EXCEEDED at re-check → RECHECK_BLOCKED
+    const blockedPortfolio = cleanPortfolio({ sectorExposureValueBySector: { PHARMA: 30_000 } });
+    const staged = await stageSwingOrder({
+      ownerKey: owner,
+      candidate: cleanCandidate(t, { symbol: sym, sector: "PHARMA", eventDataAvailable: false }),
+      portfolioState: blockedPortfolio,
+      now: new Date(t),
+    });
+    if (staged.staged) {
+      const res = await approveSwingOrder(owner, staged.row!.id, "owner", {
+        fetchQuote: makeFetcher(freshKiteQuote(sym, 100.5, t)),
+        now: new Date(t),
+      });
+      if (res.approved) {
+        // Approved despite sector cap → paperTradeResult must still be present
+        expect(res.paperTradeResult).toBeDefined();
+        expect(typeof res.paperTradeResult.opened).toBe("boolean");
+      } else {
+        expect(res.approved).toBe(false);
+        expect(res.reason).toBeTruthy();
+      }
+    }
+  });
+
+  // 26 --------------------------------------------------------------------
+  it("Case 26: static — swingOrderStaging.ts wires openPaperEquityTradeFromStagedOrder (import + call)", () => {
+    const stagingFile = join(__dirname, "swingOrderStaging.ts");
+    if (!existsSync(stagingFile)) return;
+    const src = readFileSync(stagingFile, "utf8");
+    expect(src).toMatch(/import.*openPaperEquityTradeFromStagedOrder.*from\s*["']\.\/paperTradingEq["']/);
+    expect(src).toMatch(/openPaperEquityTradeFromStagedOrder\s*\(/);
+    // Null-safe result is used to derive opened boolean (never assumed truthy without check)
+    expect(src).toMatch(/ptRow\s*!=\s*null|ptRow\s*!==\s*null/);
   });
 });

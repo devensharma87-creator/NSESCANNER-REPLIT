@@ -67,6 +67,7 @@ const healthyCanonicalFno: CanonicalFnoReadiness = {
   tradeGrade: true,
   canGenerateSignals: true,
   canOpenPaperTrades: true,
+  indexDiagnostics: {},
   telegramSummary: "Kite: ACTIVE | Feed: CONNECTED | Market: open",
 };
 
@@ -142,8 +143,14 @@ const noSetupCanonicalFno: CanonicalFnoReadiness = {
   canOpenPaperTrades: false,
 };
 
-const healthySwing: PreMarketSwing = { pending: 2, approvalRequired: 1, approved: 0, expired: 3 };
-const zeroSwing: PreMarketSwing = { pending: 0, approvalRequired: 0, approved: 0, expired: 0 };
+const healthySwing: PreMarketSwing = {
+  pending: 2, approvalRequired: 1, approved: 0, expired: 3,
+  openedToday: 1, closedToday: 0, blockedToday: 0, notificationFailures: 0,
+};
+const zeroSwing: PreMarketSwing = {
+  pending: 0, approvalRequired: 0, approved: 0, expired: 0,
+  openedToday: 0, closedToday: 0, blockedToday: 0, notificationFailures: 0,
+};
 
 function makePreMarket(overrides: Partial<PreMarketReportData> = {}): PreMarketReportData {
   return {
@@ -450,7 +457,10 @@ const nullPnlFno: PostMarketFno = {
   totalPnl: null,
 };
 
-const healthyPostSwing: PostMarketSwing = { pending: 3, approved: 0, expired: 3 };
+const healthyPostSwing: PostMarketSwing = {
+  pending: 3, approved: 0, expired: 3,
+  openedToday: 2, closedToday: 1, blockedToday: 0, equityOpenCount: 1,
+};
 
 const healthyPostIndexPerformance: PostMarketIndexPerformance = {
   rows: [
@@ -483,6 +493,7 @@ function makePostMarket(overrides: Partial<PostMarketReportData> = {}): PostMark
     canonicalFno: healthyCanonicalFno,
     fno: healthyPostFno,
     swing: healthyPostSwing,
+    equityPaper: null,
     indexPerformance: null,
     optionChainEod: null,
     exitMonitorVerified: false,
