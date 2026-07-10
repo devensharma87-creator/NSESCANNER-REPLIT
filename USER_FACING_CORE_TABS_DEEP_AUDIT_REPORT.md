@@ -1296,3 +1296,16 @@ Canonical F&O readiness now includes a `suppressedIndices: string[]` field. The 
 | F | Targeted regression | **2,047 tests, 108 files, 0 failures** — swing/paper/fno/daily/routes + scanner full suite |
 | F | Typecheck | **EXIT:0** — typecheck:libs, scanner, api-server all clean |
 | F | LLM index | **354 files, all fresh** — rebuilt 2026-07-10T14:21:52Z |
+
+### Authenticated API proof (owner session)
+
+| Check | Authenticated production result | Verdict |
+|---|---|---|
+| Swing staged orders | RELIANCE row: `status=EXPIRED`, `brokerStatus=BROKER_DISABLED`, no raw SQL | ✅ |
+| TTL sweep | `{expired:0,scanned:0,brokerStatus:"DISABLED"}` — safe JSON only | ✅ |
+| Telegram pre dry-run | `preview:true`, FII ₹-3912 Cr, DII ₹+5109 Cr, `Broker execution: DISABLED` | ✅ |
+| Telegram post dry-run | `preview:true`, `Equity paper: Opened 2 \| Closed 0 \| Live 10`, `Broker execution: DISABLED` | ✅ |
+| Post-market not "none today" | Equity paper: `Opened 2 \| Closed 0 \| Live 10` — real counts | ✅ |
+| F&O per-index diagnostics | NIFTY/BANKNIFTY/SENSEX: all 7 `IndexFnoDiagnostic` fields live, `blocked=false` | ✅ |
+| Paper equity source field | All 10 positions: `source` + `stagedOrderId` fields present | ✅ |
+| Broker disabled | Confirmed in swing execution block, sweep, both Telegram messages | ✅ |

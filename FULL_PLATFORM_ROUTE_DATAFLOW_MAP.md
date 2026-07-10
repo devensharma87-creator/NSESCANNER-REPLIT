@@ -784,3 +784,14 @@ POST /swing/staged-orders/expire-stale
 | Targeted regression | **2,047 tests, 108 files, 0 failures** (swing/paper/fno/daily/routes + scanner) |
 | typecheck (all 3) | **EXIT:0** — libs, scanner, api-server all clean |
 | LLM index | **354 files, all fresh** — rebuilt 2026-07-10T14:21:52Z |
+
+### Authenticated API proof (owner session, 2026-07-10 20:05 IST)
+
+| Endpoint | Method | Authenticated result |
+|---|---|---|
+| `/api/swing/staged-orders` | GET | 1 row: RELIANCE EXPIRED — real lifecycle data, no raw SQL |
+| `/api/swing/staged-orders/expire-stale` | POST | `{expired:0,scanned:0,execution:{brokerStatus:"DISABLED"}}` — safe JSON |
+| `/api/daily-analysis/telegram/preview?type=pre` | GET | `preview:true` — FII/DII ₹-3912 Cr, swing counts, broker DISABLED |
+| `/api/daily-analysis/telegram/preview?type=post` | GET | `preview:true` — Equity paper Opened 2 / Live 10, broker DISABLED |
+| `/api/paper/positions/eq` | GET | 10 OPEN positions, all `source`+`stagedOrderId` fields present |
+| `indexDiagnostics` (via Telegram preview data) | GET | NIFTY/BANKNIFTY/SENSEX: all 7 fields present, blocked=false |

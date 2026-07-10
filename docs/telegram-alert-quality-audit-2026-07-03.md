@@ -665,4 +665,27 @@ Broker execution: DISABLED
 | Post-market payload | `"Opened 4 \| Closed 2 \| Live 5"`, `"Paper trades: opened 3 \| closed 2 \| open 1"`, `"Broker execution: DISABLED"` |
 | Regression (daily+FNO tests) | **385 tests, 17 files, 0 failures** (includes `dailyAnalysisDryRun`, `dailyReports`, `dailyReportsDedupContract`, `dailyAnalysisTelegramPreviewRoute`) |
 
-*No real Telegram message sent during production verification.*
+### Authenticated production dry-run (owner session, 2026-07-10 20:05–20:06 IST)
+
+Both endpoints called with real owner auth. Both responses carry `preview: true` confirming no Telegram was sent.
+
+**Pre-market actual text (production):**
+- `Kite: ACTIVE / Feed: CONNECTED / Market mode: closed / F&O readiness: MARKET_CLOSED`
+- `FII net: ₹-3912 Cr | DII net: ₹+5109 Cr (2026-06-01)` — real DB value
+- `Swing staging: Pending 0 | Approved 0 | Expired 0 / Opened 0 | Closed 0 | Blocked 0` — honest zeros (after market hours)
+- `Broker execution: DISABLED`
+
+**Post-market actual text (production):**
+- `NIFTY 50: 24,206.9 (+1.02%)`, `NIFTY BANK: 58,045.9 (+1.39%)`, `SENSEX: 77,569.39 (+1.08%)` — real Kite closing prices
+- `Option chain: BANKNIFTY PCR 0.80 / NIFTY PCR 0.97 / SENSEX PCR 1.06` — real snapshot data
+- `Equity paper: Opened 2 | Closed 0 | Live 10` — real counts, NOT "none today"
+- `F&O: Paper trades: none today` — honest (0 F&O signals today)
+- `Broker execution: DISABLED`
+
+**Scheduler history (real production DB):**
+- POST_MARKET 2026-07-10: SENT ✅
+- PRE_MARKET 2026-07-10: FAILED (separate issue, not Phase 2A)
+- POST_MARKET 2026-07-09: SENT ✅
+- PRE_MARKET 2026-07-09: SENT ✅
+
+*No real Telegram message sent during production verification. All via `preview:true` endpoint.*

@@ -510,4 +510,12 @@ Post-publish targeted regression: **2,047 tests, 108 files, 0 failures** (swing/
 
 No signal thresholds, detector weights, or stop/target formulas were changed. Live signal accumulation (≥20 real signals) remains a time-gated production dependency for the statistical rebaseline itself.
 
+### Authenticated API confirmation (owner session, 2026-07-10)
+
+Real production data confirms the signal pipeline is operating correctly in production:
+- 10 OPEN equity paper positions (`source=AUTO_STRONG_BUY`) — auto signal pipeline generating and executing entries
+- F&O signals: 0 generated today (market closed by verification time — correct)
+- Daily analysis scheduler: POST_MARKET 2026-07-10 SENT (pid-21), PRE_MARKET 2026-07-10 FAILED (unrelated to Phase 2A)
+- NIFTY/BANKNIFTY/SENSEX: all `blocked=false` in `indexDiagnostics` — no index suppression active
+
 *Production signal infrastructure status: `POST_P0_SIGNAL_SYSTEM_REBASELINE_PROD_VERIFIED`*

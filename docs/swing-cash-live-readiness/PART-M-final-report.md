@@ -312,9 +312,36 @@ Proven by `swingOrderStaging.test.ts` Case 23 (live DB insert → list → asser
 
 `POST /api/swing/staged-orders/expire-stale` returns `{"error":"unauthorized","code":"AUTH_REQUIRED"}` for anonymous requests — owner-only auth gate active, zero raw SQL or table names in any production response. Route-level try/catch on production commit `3ee67447` proven by `swingStagingSweepSafe.test.ts` 5/5.
 
-### Production swing → paper_trade_eq chain confirmation
+### Production swing → paper_trade_eq chain confirmation (authenticated)
 
-`swingOrderStaging.test.ts` Cases 21–26 run on production commit:
-- Case 23: `paper_trade_eq.source = "SWING_STAGED_APPROVAL"` — DB row confirmed
+Real authenticated `GET /api/swing/staged-orders` and `GET /api/paper/positions/eq` responses:
+
+**Swing staged orders (production DB):**
+- 1 row: RELIANCE — `status=EXPIRED`, `approvalStatus=EXPIRED`, `brokerStatus=BROKER_DISABLED`, `executionMode=paper_only`
+- Full `riskDecision` JSON returned including cost breakdown (STT, GST, brokerage, slippage)
+- No raw SQL anywhere in response
+
+**Paper equity positions (production DB):**
+- 10 OPEN positions, all `source=AUTO_STRONG_BUY`, all `stagedOrderId=null`
+- `source` field present on all rows ✅
+- `stagedOrderId` field present on all rows ✅
+- No `SWING_STAGED_APPROVAL` source yet — RELIANCE staged row expired before approval; pipeline is wired but not triggered in production with a real approval yet
+
+**TTL sweep (production):**
+```json
+{
+  "expired": 0, "scanned": 0,
+  "execution": {
+    "mode": "paper_only",
+    "liveCashSwingOrderEnabled": false,
+    "brokerExecutionEnabled": false,
+    "brokerStatus": "DISABLED",
+    "summary": "mode=paper_only; broker execution DISABLED — staging/approval only, no real order is ever placed"
+  }
+}
+```
+
+**Code proof (same commit in production):**
+- Case 23: `paper_trade_eq.source = "SWING_STAGED_APPROVAL"` — DB proven in test environment
 - Case 24: `paper_trade_eq.staged_order_id` matches staging row `id`
-- Case 26: static import proof — `openPaperEquityTradeFromStagedOrder` is wired in production code
+- Case 26: static import proof — `openPaperEquityTradeFromStagedOrder` is wired in production code `3ee67447`

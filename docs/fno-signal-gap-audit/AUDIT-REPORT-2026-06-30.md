@@ -443,3 +443,15 @@ Tests prove NIFTY/BANKNIFTY diagnostics are unaffected when SENSEX fails:
 | F&O regression targeted | **379 tests, 17 files, 0 failures** (FNO chunk 2 + routes chunk 1) — `fnoSignalAlerts`, `fnoExitDecision`, `fnoExitMonitorHealth`, `fnoObservability`, `kiteTimeout`, `dailyAnalysisTelegramPreviewRoute`, `swingStagingSweepSafe` all pass. |
 
 Production build: `commitSha: 3ee67447daeb06e3a786b280fc3a4bd2b32b9ef4`, `buildTime: 2026-07-10T14:13:26Z`, `environment: production`.
+
+### Authenticated per-index diagnostics (owner session, 2026-07-10 20:05 IST)
+
+All 7 new `IndexFnoDiagnostic` fields confirmed in production via Telegram preview `data.canonicalFno.indexDiagnostics`:
+
+| Index | dailyBarsCount | dailyBarsOk | intradayBarsCount | intradayBarsOk | optionChainFetchOk | quoteStatus | source | freshness | exactBlockReason | blocked |
+|---|---:|---|---:|---|---|---|---|---|---|---|
+| NIFTY | 1 | true | 1 | true | true | ok | kite | UNKNOWN* | null | false |
+| BANKNIFTY | 1 | true | 1 | true | true | ok | kite | UNKNOWN* | null | false |
+| SENSEX | 1 | true | 1 | true | true | ok | kite | UNKNOWN* | null | false |
+
+*`freshness=UNKNOWN` is correct post-session (market closed at 20:05 IST — bars exist but the active signal cycle has not run since close). `blocked=false` for all three — no index suppressed. `exactBlockReason=null` — no failure to explain. One-index isolation proof remains in test suite: SENSEX intraday fail → only SENSEX blocked.
