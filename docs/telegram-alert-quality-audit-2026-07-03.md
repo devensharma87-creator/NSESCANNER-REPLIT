@@ -558,3 +558,42 @@ the human-readable reason text inside the message changed. Rows 1–2 (pre/post-
 dedup) are likewise unaffected: the reports' *content* got more informative, their scheduling and
 `daily_report_runs` dedup mechanism did not change. No new alert family, scheduler, or dedup
 primitive was introduced by Checkpoint 1.
+
+---
+
+## Phase 2A Update — 2026-07-10
+
+**Verdict:** `PHASE_2A_SWING_TELEGRAM_FNO_P0_PARTIAL_GAP_REMAINS`
+
+### Accepted changes affecting Telegram alert quality
+
+#### 1. FII/DII wired into pre-market report (PARTIAL)
+
+The `── FII / DII ACTIVITY ──` section of the pre-market Telegram now renders actual net FII/DII flows from the `fii_dii_monthly` DB table via `getFiiDiiMonthly()`. Format: `FII Net: ₹+1,234 Cr | DII Net: ₹-456 Cr | Combined: ₹+778 Cr`. Fails open to "Unavailable" if the DB query fails.
+
+Source honesty: data is T+1 delayed (NSE archive). Not labeled live. No change to DAILY_ANALYSIS_COVERAGE status for FII_DII section — still SOURCE_NOT_INTEGRATED for a real-time source; the DB fetch is from the existing archive pipeline.
+
+#### 2. suppressedIndices appended to F&O Telegram summary (PARTIAL)
+
+`buildTelegramSummary()` now appends `"Suppressed indices: BANKNIFTY, SENSEX"` when `suppressedIndices` is non-empty. Gives owner index-level visibility in the pre-market Telegram without requiring a UI login.
+
+**Gap remaining:** suppressed index names are listed but no per-index reason (e.g. `SENSEX: intraday bars missing (0/8 bars)` or `BANKNIFTY: option chain fetch timeout`). See FP-P0-03A.
+
+### Outstanding Telegram quality gaps (Phase 2A P0)
+
+| Gap | ID | Required |
+|---|---|---|
+| Post-market says "none today" when paper rows exist | FP-P0-02A | Wire paper_trade_eq/fo counts into post-market builder |
+| Swing counts absent (staged/approved/expired/opened/closed) | FP-P0-02B | Add swing count fields to pre+post Telegram sections |
+| Per-index DATA_BLOCKED reason not in Telegram | FP-P0-03A | Add symbol-level block reason: "SENSEX: intraday bars missing" |
+| Notification failures count absent from Telegram | FP-P0-02B | Add notification failure tally to post-market report |
+| No dry-run payload provided to verify full report structure | FP-P0-01A | Run preview endpoint and attach full pre+post payloads |
+
+### Telegram bot separation — unchanged
+
+- Default bot (`TELEGRAM_BOT_TOKEN`): F&O/swing/urgent trade alerts only.
+- PREPOST bot (`PREPOST_TELEGRAM_BOT_TOKEN`): daily pre/post-market reports only. No fallback between bots.
+
+No Telegram was sent during Phase 2A development. All changes are dry-run verifiable via `GET /api/daily-analysis/telegram/preview?type=pre|post` (owner-only, no Telegram send, no dedup mutation).
+
+*Phase 2A Telegram audit update: `PHASE_2A_DOCUMENTATION_UPDATED_PARTIAL_GAP_REMAINS`*

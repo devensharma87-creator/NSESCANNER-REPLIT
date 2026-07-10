@@ -656,3 +656,64 @@ Pre/Post Market Reports (dailyReports.ts)
 | Post-market report | 15:45 IST | buildPostMarketReport → Telegram |
 | Instflows refresh | 15 min | FII/DII + Participant OI from NSE archives |
 | DB pool stats log | periodic | Log DB connection pool stats |
+
+---
+
+## Phase 2A Update — 2026-07-10
+
+**Verdict:** `PHASE_2A_SWING_TELEGRAM_FNO_P0_PARTIAL_GAP_REMAINS`
+
+### New / modified data flows
+
+#### Swing Approval → Paper Equity (NEW — code path wired, end-to-end proof pending)
+
+```
+Owner clicks Approve on staged swing order
+  └─ POST /swing/staged-orders/:id/approve
+       └─ approveSwingOrder() [swingOrderStaging.ts]
+            └─ CAS: UPDATE paper_trade_eq_staging SET status='APPROVED' WHERE status='PENDING'
+                 └─ (on success) openPaperEquityTradeFromStagedOrder(stagingRow) [paperTradingEq.ts]
+                      └─ openPaperEquityTrade({ source: "SWING_STAGED_APPROVAL", stagedOrderId })
+                           ├─ INSERT INTO paper_trade_eq (source='SWING_STAGED_APPROVAL', is_autonomous=false)
+                           └─ raw SQL UPDATE paper_trade_eq SET staged_order_id=:id WHERE id=:newTradeId
+```
+
+**Status:** Code path wired. DB reconciliation, portfolio surface, and Telegram dry-run proof still required (FP-P0-01A).
+
+**Fire-safe design:** approval CAS is committed before paper-open is attempted. If paper-open fails, approval remains APPROVED and the failure is logged. Paper-open failure never rolls back the approval.
+
+#### Pre-Market Telegram — FII/DII Section (UPDATED)
+
+```
+buildPreMarketReport() [dailyReports.ts]
+  └─ gatherPreMarketData()
+       └─ getFiiDiiMonthly() [instFlows.ts]
+            └─ SELECT FROM fii_dii_monthly ORDER BY month DESC LIMIT 3
+                 └─ flatMap months → daily rows → take most recent row
+                      └─ PreMarketFiiDii { date, fiiNet, diiNet, source }
+```
+
+Section `── FII / DII ACTIVITY ──` now renders actual net flows in crores (₹ sign, + prefix for positives). Falls back to "Unavailable" if DB query fails (fail-open).
+
+#### F&O Readiness — suppressedIndices (UPDATED)
+
+```
+buildCanonicalFnoReadiness() [canonicalFnoReadiness.ts]
+  └─ signalCycle.suppressedIndices = cycle.suppressed.map(s => s.index)
+       └─ buildTelegramSummary({ suppressedIndices })
+            └─ appends "Suppressed indices: BANKNIFTY, SENSEX" when non-empty
+```
+
+**Status:** Index names surfaced. Per-index diagnostic reasons (daily bars / intraday / option-chain / quote / failure reason) not yet added (FP-P0-03A).
+
+### Outstanding flow gaps (Phase 2A P0)
+
+| Gap | Flow not yet implemented |
+|---|---|
+| FP-P0-01A | paper_trade_eq row → portfolio surface → Telegram dry-run |
+| FP-P0-02A | gatherPostMarketData → paper_trade_eq/fo counts by source |
+| FP-P0-02B | Pre/post-market Telegram → swing staged/approved/expired/opened/closed counts |
+| FP-P0-03A | Per-index DATA_BLOCKED: dailyBars/intradayBars/optionChain/quote status + reason |
+| FP-P0-03B | Index isolation: SENSEX failure must not suppress NIFTY/BANKNIFTY |
+
+*Phase 2A route/dataflow update: `PHASE_2A_DOCUMENTATION_UPDATED_PARTIAL_GAP_REMAINS`*

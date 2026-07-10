@@ -1193,3 +1193,58 @@ The F&O signal card (`SetupCard` in `options.tsx`) now renders a `ContractMaster
 See P0_LANE1_CANONICAL_DATA_PARITY_CONTRACT_MASTER_REPORT.md — 78+58+85+9+161+249+770 = 1411 tests passing across all targeted suites.
 
 **Final verdict: P0_LANE1_CANONICAL_DATA_PARITY_CONTRACT_MASTER_DEV_VERIFIED**
+
+---
+
+## Phase 2A Update — 2026-07-10
+
+**Verdict:** `PHASE_2A_SWING_TELEGRAM_FNO_P0_PARTIAL_GAP_REMAINS`
+
+### Accepted partial completions affecting user-facing surfaces
+
+#### Swing Queue tab — approval now attempts paper_trade_eq open
+
+When the owner clicks Approve on a staged swing order, the system now attempts to open a live paper equity trade via `openPaperEquityTradeFromStagedOrder()`. The approval UI flow is unchanged but the backend now has a wired paper-open path.
+
+**What is visible to user after Phase 2A:**
+- Approval still shows status `APPROVED` in the staging table (same as before).
+- A new `paper_trade_eq` row should appear in the Paper Trading tab if the open succeeds.
+- The Paper Trading tab's equity positions list should show source `SWING_STAGED_APPROVAL`.
+
+**What is NOT yet proven (FP-P0-01A):**
+- No verified screenshot or API response showing the paper trade appearing after approval.
+- No UI test confirming the Paper Trading tab shows the new row with correct source.
+- `staged_order_id` linkage from paper row back to staging row — not UI-verified.
+
+#### Daily Analysis tab — FII/DII section now shows real data
+
+Pre-market report `── FII / DII ACTIVITY ──` now renders actual FII and DII net flows from `fii_dii_monthly` DB table. Previously always showed "Unavailable."
+
+**What is visible to user after Phase 2A:**
+- FII net, DII net, combined net displayed in crores with ₹ sign.
+- Labeled as INFO_ONLY / T+1 (NSE archive data, not live).
+
+**What is NOT yet proven (FP-P0-02A, FP-P0-02B):**
+- Post-market report `── TRADE JOURNAL TIE-IN ──` still has no paper trade counts.
+- Swing counts (staged/approved/expired/opened/closed) missing from both reports.
+- No Telegram dry-run payload showing the full updated report.
+
+#### F&O Options tab / signal cards — suppressedIndices surface
+
+Canonical F&O readiness now includes a `suppressedIndices: string[]` field. The Telegram summary appends "Suppressed indices: BANKNIFTY" when at least one index is suppressed. The UI F&O signal cards themselves do not surface per-index block reasons yet.
+
+**What is NOT yet proven (FP-P0-03A, FP-P0-03B):**
+- Per-index diagnostic panel (daily bars / intraday / option chain status per NIFTY/BANKNIFTY/SENSEX) does not exist in the UI.
+- No UI test showing NIFTY signal card is unaffected when SENSEX data is missing.
+
+### Outstanding UI-level P0 gaps
+
+| Surface | Gap | Blocker ID |
+|---|---|---|
+| Paper Trading tab | No verified row after swing approval | FP-P0-01A |
+| Daily Analysis / Telegram | Post-market paper trade counts absent | FP-P0-02A |
+| Daily Analysis / Telegram | Swing queue counts absent from reports | FP-P0-02B |
+| F&O / Infra Health | No per-index diagnostic reasons for DATA_BLOCKED | FP-P0-03A |
+| Swing Queue | TTL sweep UI may expose raw SQL errors | FP-P0-05B |
+
+*Phase 2A UI audit update: `PHASE_2A_DOCUMENTATION_UPDATED_PARTIAL_GAP_REMAINS`*

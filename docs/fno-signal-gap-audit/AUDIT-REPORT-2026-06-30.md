@@ -343,3 +343,53 @@ BASELINE (conf 50-55) in ranging conditions, POST_CLAMP_RR filtering applied. Al
 **Three planned improvements**: daily history warmup, F&O page expiry banner, signal gap tracking.
 
 None of these changes alter signal thresholds, risk guards, or any trading logic.
+
+---
+
+## Phase 2A Update — 2026-07-10
+
+**Verdict:** `PHASE_2A_SWING_TELEGRAM_FNO_P0_PARTIAL_GAP_REMAINS`
+
+### Accepted changes affecting F&O signal gap audit
+
+#### suppressedIndices added to canonical F&O readiness
+
+`canonicalFnoReadiness.ts` now includes `suppressedIndices: string[]` in the `signalCycle` object, populated from `cycle.suppressed.map(s => s.index)`. The Telegram summary appends suppressed index names when the list is non-empty.
+
+This is a partial improvement to observability. It tells the owner *which* index is suppressed but not *why* — the per-index diagnostic fields (daily bar count/status, intraday bar count/status, option-chain fetch result, quote status, exact failure reason) are not yet implemented.
+
+#### What remains open (Phase 2A P0 — F&O specific)
+
+**FP-P0-03A — Per-index DATA_BLOCKED diagnostics not yet added:**
+
+Required per index (NIFTY / BANKNIFTY / SENSEX):
+
+| Field | Status |
+|---|---|
+| dailyBarsCount / dailyBarsOk | ❌ Not yet in CanonicalFnoReadiness |
+| intradayBarsCount / intradayBarsOk | ❌ Not yet |
+| optionChainFetchOk | ❌ Not yet |
+| quoteStatus / asOf | ❌ Not yet |
+| exactBlockReason | ❌ Not yet |
+| blockedByIndex: boolean | ❌ Not yet |
+
+**FP-P0-03B — One-index failure isolation not proven:**
+
+No test exists to confirm that NIFTY remains tradeable when SENSEX bars fail. The current suppression logic may block all three indices simultaneously for a single-index data failure. Isolation test required:
+
+```
+NIFTY: dailyBars ✅, intradayBars ✅, optionChain ✅  → must NOT be suppressed
+SENSEX: intradayBars ❌ (timeout)                    → must be suppressed with reason
+BANKNIFTY: (normal)                                  → must NOT be suppressed
+```
+
+**FP-P0-04B — Kite timeout proof missing:**
+
+`kiteAuth.ts` has `timeout:15000` confirmed from memory. However:
+- No test proves a stalled Kite request resolves within the timeout.
+- Full audit of all `kiteIntraday.ts` / `kiteOptionChain.ts` / `kiteScanner.ts` Kite REST calls for `timeout:15000` not yet completed.
+- Telegram/diagnostics do not yet surface `KITE_TIMEOUT_BLOCKED` as a named reason code.
+
+### No signal thresholds, gate weights, or risk guard modes were changed in Phase 2A.
+
+*Phase 2A F&O gap audit update: `PHASE_2A_DOCUMENTATION_UPDATED_PARTIAL_GAP_REMAINS`*

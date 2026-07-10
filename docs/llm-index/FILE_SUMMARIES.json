@@ -795,7 +795,7 @@
   {
     "path": "artifacts/api-server/src/lib/canonicalFnoReadiness.ts",
     "purpose": "fno-engine",
-    "lines": 355,
+    "lines": 364,
     "exports": [
       "KiteSessionState",
       "FeedConnState",
@@ -814,7 +814,7 @@
     ],
     "externalImports": [],
     "routes": [],
-    "hash": "6e591163a8c2c8be"
+    "hash": "01830caeb1c888cf"
   },
   {
     "path": "artifacts/api-server/src/lib/chart.provenance.test.ts",
@@ -992,7 +992,7 @@
     ],
     "externalImports": [],
     "routes": [],
-    "hash": "01d952aec07ea070"
+    "hash": "aa7bdc3db4695517"
   },
   {
     "path": "artifacts/api-server/src/lib/csvExport.ts",
@@ -1022,18 +1022,18 @@
   {
     "path": "artifacts/api-server/src/lib/dailyReports.test.ts",
     "purpose": "test",
-    "lines": 844,
+    "lines": 849,
     "exports": [],
     "externalImports": [
       "vitest"
     ],
     "routes": [],
-    "hash": "780d5ad1b0c6a8b1"
+    "hash": "c55dc73b3a296764"
   },
   {
     "path": "artifacts/api-server/src/lib/dailyReports.ts",
     "purpose": "lib",
-    "lines": 1185,
+    "lines": 1222,
     "exports": [
       "ensureDailyReportRunsTable",
       "tryClaimScheduledReport",
@@ -1042,6 +1042,7 @@
       "DAILY_ANALYSIS_COVERAGE",
       "PreMarketKite",
       "PreMarketSwing",
+      "PreMarketFiiDii",
       "PreMarketReportData",
       "buildPreMarketReport",
       "PostMarketFno",
@@ -1053,15 +1054,14 @@
       "PostMarketReportData",
       "buildPostMarketReport",
       "DailyReportRecord",
-      "getLastPreMarketReportRecord",
-      "getLastPostMarketReportRecord"
+      "getLastPreMarketReportRecord"
     ],
     "externalImports": [
       "drizzle-orm",
       "@workspace/db"
     ],
     "routes": [],
-    "hash": "a9c1f8ab130ae324"
+    "hash": "101f2940b56b0986"
   },
   {
     "path": "artifacts/api-server/src/lib/dailyReportsDedupContract.test.ts",
@@ -2873,7 +2873,7 @@
   {
     "path": "artifacts/api-server/src/lib/marketData/compat.ts",
     "purpose": "api-route",
-    "lines": 234,
+    "lines": 246,
     "exports": [
       "centralIndexCandles",
       "centralHasIndexCoverage",
@@ -2883,7 +2883,7 @@
     ],
     "externalImports": [],
     "routes": [],
-    "hash": "d9e89c46d653f67f"
+    "hash": "124bba8f28cbc417"
   },
   {
     "path": "artifacts/api-server/src/lib/marketData/diagnostics.ts",
@@ -4165,7 +4165,7 @@
       "drizzle-orm"
     ],
     "routes": [],
-    "hash": "ab1039c9260f2be2"
+    "hash": "51f16d7b9ffb305d"
   },
   {
     "path": "artifacts/api-server/src/lib/paperEqLifecycleSummary.test.ts",
@@ -4316,7 +4316,7 @@
   {
     "path": "artifacts/api-server/src/lib/paperTradingEq.ts",
     "purpose": "paper-trading",
-    "lines": 1022,
+    "lines": 1097,
     "exports": [
       "EquityExitReason",
       "mapWriteSourceToProvenance",
@@ -4327,15 +4327,17 @@
       "forceClosePaperEquityTrade",
       "evaluatePaperEquityTrades",
       "runEquityPaperTradingTick",
-      "hasOpenEquityTrade"
+      "hasOpenEquityTrade",
+      "openPaperEquityTradeFromStagedOrder"
     ],
     "externalImports": [
       "@workspace/db",
+      "@workspace/db/schema",
       "drizzle-orm",
       "@workspace/api-zod"
     ],
     "routes": [],
-    "hash": "50b324d6235bec85"
+    "hash": "fad18319e5128ae6"
   },
   {
     "path": "artifacts/api-server/src/lib/paperTradingEqProvenance.test.ts",
@@ -4395,7 +4397,7 @@
       "@workspace/api-zod"
     ],
     "routes": [],
-    "hash": "c78b4796af39262c"
+    "hash": "335f4661c3cf0fda"
   },
   {
     "path": "artifacts/api-server/src/lib/paperTradingFoExitMonitorApi.test.ts",
@@ -5128,7 +5130,7 @@
   {
     "path": "artifacts/api-server/src/lib/swingOrderStaging.ts",
     "purpose": "swing-engine",
-    "lines": 829,
+    "lines": 851,
     "exports": [
       "SwingOrderStatus",
       "SwingApprovalStatus",
@@ -5156,7 +5158,7 @@
       "@workspace/db"
     ],
     "routes": [],
-    "hash": "e5ae437ab6f30660"
+    "hash": "f21b2929d730f452"
   },
   {
     "path": "artifacts/api-server/src/lib/swingScanner.ts",

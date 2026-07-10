@@ -446,3 +446,27 @@ Zero changes to: broker execution, real orders, Telegram, strategy thresholds, d
 **P0_LANE1_CANONICAL_DATA_PARITY_CONTRACT_MASTER_DEV_VERIFIED**
 
 PROD_VERIFIED pending: owner publishes and `/api/build-info` confirms the Lane 1 fix commit is live.
+
+---
+
+## Phase 2A Update — 2026-07-10
+
+**Verdict:** `PHASE_2A_SWING_TELEGRAM_FNO_P0_PARTIAL_GAP_REMAINS`
+
+### Accepted partial work in Phase 2A affecting signal rebaseline
+
+1. **suppressedIndices added to F&O readiness** — `canonicalFnoReadiness.ts` now surfaces which indices are suppressed by name. This improves observability for the signal rebaseline — when a post-P0 sample has suppressed indices the reason is now partially visible. However, per-index reasons (daily bars / intraday / option chain) are not yet granular.
+
+2. **FII/DII wired into pre-market report** — pre-market report now shows actual FII/DII net flow from `fii_dii_monthly`. This does not affect signal logic but improves context for manual rebaseline review.
+
+3. **Provider import guard cleanup** — no impact on signal logic or rebaseline. Infrastructure cleanup only.
+
+### Rebaseline blockers remaining (unchanged from prior status)
+
+- Post-P0 live signal accumulation: requires ≥20 post-Phase-2A signals in production before a meaningful win-rate / confidence-distribution rebaseline can be computed.
+- F&O DATA_BLOCKED per-index diagnostics are still incomplete (suppressedIndices only, no per-index reason). Until FP-P0-03A is closed, it is impossible to distinguish signal suppression from data failure vs genuine no-setup conditions.
+- Swing approval → paper_trade_eq reconciliation (FP-P0-01A): until the full pipeline is proven end-to-end, swing paper-trade performance data for rebaseline cannot be trusted to be complete.
+
+### No signal thresholds, detectors, weights, or stop/target formulas were changed in Phase 2A.
+
+*Rebaseline status remains: `POST_P0_SIGNAL_SYSTEM_REBASELINE_PARTIAL_GAP_REMAINS`*

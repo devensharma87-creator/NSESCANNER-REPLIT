@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-09T13:13:49.305Z",
+  "generatedAt": "2026-07-10T09:42:43.234Z",
   "generatorVersion": "1.0.0",
   "files": {
     "artifacts/api-server/src/routes/admin.ts": {
@@ -283,9 +283,9 @@
       "mtime": "2026-06-09T12:50:41.186Z"
     },
     "artifacts/api-server/src/lib/canonicalFnoReadiness.ts": {
-      "hash": "6e591163a8c2c8be",
-      "lines": 355,
-      "mtime": "2026-07-03T19:55:27.543Z"
+      "hash": "01830caeb1c888cf",
+      "lines": 364,
+      "mtime": "2026-07-10T07:51:24.216Z"
     },
     "artifacts/api-server/src/lib/chartDatafeed.ts": {
       "hash": "d4489bb9149fd325",
@@ -308,9 +308,9 @@
       "mtime": "2026-07-07T14:51:45.809Z"
     },
     "artifacts/api-server/src/lib/contractMasterFact.ts": {
-      "hash": "01d952aec07ea070",
+      "hash": "aa7bdc3db4695517",
       "lines": 318,
-      "mtime": "2026-07-09T13:06:40.614Z"
+      "mtime": "2026-07-10T08:04:02.725Z"
     },
     "artifacts/api-server/src/lib/csvExport.ts": {
       "hash": "016a1804572714c9",
@@ -318,9 +318,9 @@
       "mtime": "2026-04-29T13:07:30.486Z"
     },
     "artifacts/api-server/src/lib/dailyReports.ts": {
-      "hash": "a9c1f8ab130ae324",
-      "lines": 1185,
-      "mtime": "2026-07-04T07:45:53.641Z"
+      "hash": "101f2940b56b0986",
+      "lines": 1222,
+      "mtime": "2026-07-10T07:51:56.883Z"
     },
     "artifacts/api-server/src/lib/dataParity/classify.ts": {
       "hash": "176a5e6160adaac1",
@@ -663,9 +663,9 @@
       "mtime": "2026-06-09T10:45:29.972Z"
     },
     "artifacts/api-server/src/lib/marketData/compat.ts": {
-      "hash": "d9e89c46d653f67f",
-      "lines": 234,
-      "mtime": "2026-07-04T15:37:09.107Z"
+      "hash": "124bba8f28cbc417",
+      "lines": 246,
+      "mtime": "2026-07-10T08:04:01.125Z"
     },
     "artifacts/api-server/src/lib/marketData/diagnostics.ts": {
       "hash": "9f86b4403ec60390",
@@ -908,9 +908,9 @@
       "mtime": "2026-05-17T10:14:48.030Z"
     },
     "artifacts/api-server/src/lib/paperEqAudit.ts": {
-      "hash": "ab1039c9260f2be2",
+      "hash": "51f16d7b9ffb305d",
       "lines": 227,
-      "mtime": "2026-07-03T21:32:26.652Z"
+      "mtime": "2026-07-10T07:53:37.531Z"
     },
     "artifacts/api-server/src/lib/paperEqLifecycleSummary.ts": {
       "hash": "c82479d5e7eab0ad",
@@ -933,14 +933,14 @@
       "mtime": "2026-05-13T14:26:02.749Z"
     },
     "artifacts/api-server/src/lib/paperTradingEq.ts": {
-      "hash": "50b324d6235bec85",
-      "lines": 1022,
-      "mtime": "2026-07-03T21:48:35.599Z"
+      "hash": "fad18319e5128ae6",
+      "lines": 1097,
+      "mtime": "2026-07-10T07:52:10.488Z"
     },
     "artifacts/api-server/src/lib/paperTradingFO.ts": {
-      "hash": "c78b4796af39262c",
+      "hash": "335f4661c3cf0fda",
       "lines": 3333,
-      "mtime": "2026-07-09T11:20:57.586Z"
+      "mtime": "2026-07-10T08:04:03.532Z"
     },
     "artifacts/api-server/src/lib/preMarket.ts": {
       "hash": "77d19a892b79c49f",
@@ -1078,9 +1078,9 @@
       "mtime": "2026-06-29T14:46:55.000Z"
     },
     "artifacts/api-server/src/lib/swingOrderStaging.ts": {
-      "hash": "e5ae437ab6f30660",
-      "lines": 829,
-      "mtime": "2026-07-02T16:17:51.061Z"
+      "hash": "f21b2929d730f452",
+      "lines": 851,
+      "mtime": "2026-07-10T07:51:13.652Z"
     },
     "artifacts/api-server/src/lib/swingScanner.ts": {
       "hash": "5cac481bd2734b09",

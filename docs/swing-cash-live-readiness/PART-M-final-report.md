@@ -188,3 +188,66 @@ When a staged order expires (sweep or explicit expire), `missed_opportunity_json
 ```
 LIVE_STAGED_APPROVAL_READY_BUT_BROKER_DISABLED
 ```
+
+---
+
+## Phase 2A Update — 2026-07-10
+
+**Verdict:** `PHASE_2A_SWING_TELEGRAM_FNO_P0_PARTIAL_GAP_REMAINS`
+
+### Swing staging → paper_trade_eq code path: WIRED but not proven
+
+Phase 2A wired the critical missing link between swing staging approval and paper equity trade creation.
+
+**What was done:**
+- `swingOrderStaging.ts` → `approveSwingOrder()` now calls `openPaperEquityTradeFromStagedOrder(stagingRow)` after the CAS approval succeeds.
+- `openPaperEquityTradeFromStagedOrder()` added to `paperTradingEq.ts`: reads frozen staging row fields, calls `openPaperEquityTrade()` with `source: "SWING_STAGED_APPROVAL"`, `stagedOrderId`.
+- `paper_trade_eq.staged_order_id` set via raw SQL `UPDATE` after successful insert (column was already added via `ALTER TABLE … ADD COLUMN IF NOT EXISTS`).
+- `is_autonomous = false` (owner-initiated, not auto).
+- Audit label: `SWING_APPROVAL_OPEN`.
+- Fire-safe: approval commit cannot be rolled back by a paper-open failure.
+- `ApproveResult` type now includes `paperTradeResult?: { tradeId: number } | { error: string }`.
+
+**What is NOT yet proven (FP-P0-01A):**
+
+The required reconciliation table has not been provided:
+
+| Step | Evidence Required | Status |
+|---|---|---|
+| Staged swing candidate exists | DB query / API row | ❌ Not shown |
+| Approval changes status to APPROVED | DB row before/after | ❌ Not shown |
+| `paper_trade_eq` row created | DB query with new row | ❌ Not shown |
+| `staged_order_id` populated | Column value in DB | ❌ Not shown |
+| Portfolio / live positions show SWING_QUEUE source | UI or API JSON | ❌ Not shown |
+| Telegram dry-run includes paper open | Payload sample | ❌ Not shown |
+| Post-market does not say "none today" | Actual report text | ❌ Not shown |
+| Broker execution disabled | Diagnostics confirmed | ❌ Not confirmed |
+
+**Required tests still missing (FP-P0-01A):**
+1. `approveSwingOrder()` creates a `paper_trade_eq` row.
+2. Portfolio / live positions API returns row with `source: SWING_STAGED_APPROVAL`.
+3. Telegram dry-run payload includes the new paper open.
+4. Post-market builder does not say "none today" when a swing paper row exists in DB.
+5. Approval failure (paper-open throws) records `conversionBlockReason` without rolling back approval.
+
+### Swing Telegram counts: still missing (FP-P0-02B)
+
+Neither the pre-market nor post-market Telegram report includes swing queue counts:
+- staged count
+- approved count  
+- expired count
+- converted/opened today
+- closed today
+- blocked count
+- notification failures
+
+These must be added to the Telegram report builders and proven via dry-run payload.
+
+### TTL sweep: logic correct but no tests (FP-P0-05B)
+
+The 8h TTL sweep (`expireStaleSwingOrders`) was audited and confirmed logically correct. However:
+- No unit tests for sweep success / expired candidate / no-op / failed query → safe UI error.
+- A prior screenshot showed raw SQL/schema errors surfacing in the sweep UI. This has not been confirmed fixed.
+- Manual "Run sweep now" path not tested.
+
+*Phase 2A swing readiness update: `PHASE_2A_DOCUMENTATION_UPDATED_PARTIAL_GAP_REMAINS`*
