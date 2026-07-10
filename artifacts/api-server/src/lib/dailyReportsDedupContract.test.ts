@@ -68,19 +68,23 @@ describe("multi-worker DB dedup — tryClaimScheduledReport", () => {
     expect(mockExecute).toHaveBeenCalledTimes(1);
   });
 
-  it("worker-2 is skipped when DB INSERT returns no rows (ON CONFLICT DO NOTHING)", async () => {
-    // Simulate INSERT … ON CONFLICT DO NOTHING RETURNING id → 0 rows (other worker already claimed)
+  it("worker-2 is skipped when DB INSERT returns no rows and existing row is not FAILED", async () => {
+    // INSERT: ON CONFLICT DO NOTHING → 0 rows (another worker already claimed or row is SENT)
+    mockExecute.mockResolvedValueOnce({ rows: [] });
+    // UPDATE WHERE status='FAILED' → 0 rows (row is CLAIMED/SENT, not FAILED — no retry)
     mockExecute.mockResolvedValueOnce({ rows: [] });
 
     const claimed = await tryClaimScheduledReport("pre-market", "2026-07-01");
     expect(claimed).toBe(false);
-    expect(mockExecute).toHaveBeenCalledTimes(1);
+    expect(mockExecute).toHaveBeenCalledTimes(2);
   });
 
   it("two simulated workers: exactly one claims, one is skipped", async () => {
-    // Worker 1: INSERT succeeds → returns row
+    // Worker 1: INSERT succeeds → returns row (1 call)
     mockExecute.mockResolvedValueOnce({ rows: [{ id: 42 }] });
-    // Worker 2: INSERT ON CONFLICT → returns no rows
+    // Worker 2: INSERT ON CONFLICT → returns no rows (2nd call)
+    mockExecute.mockResolvedValueOnce({ rows: [] });
+    // Worker 2: UPDATE WHERE status='FAILED' → 0 rows (row is CLAIMED, not FAILED) (3rd call)
     mockExecute.mockResolvedValueOnce({ rows: [] });
 
     const [w1result, w2result] = await Promise.all([
@@ -93,6 +97,27 @@ describe("multi-worker DB dedup — tryClaimScheduledReport", () => {
     const skippedCount = [w1result, w2result].filter(v => !v).length;
     expect(claimedCount).toBe(1);
     expect(skippedCount).toBe(1);
+    expect(mockExecute).toHaveBeenCalledTimes(3);
+  });
+
+  it("retries a FAILED row (transient Telegram TIMEOUT) — resets error fields and returns true", async () => {
+    // Scenario: pre-market ran at 08:50, got a Telegram TIMEOUT → row status='FAILED'.
+    // On the next 60s tick, INSERT conflicts (row exists) → UPDATE WHERE status='FAILED' claims it.
+    mockExecute.mockResolvedValueOnce({ rows: [] });           // INSERT: ON CONFLICT
+    mockExecute.mockResolvedValueOnce({ rows: [{ id: 21 }] }); // UPDATE WHERE status='FAILED': 1 row → retry allowed
+
+    const claimed = await tryClaimScheduledReport("PRE_MARKET", "2026-07-10");
+    expect(claimed).toBe(true);
+    expect(mockExecute).toHaveBeenCalledTimes(2);
+  });
+
+  it("does NOT retry a SENT row — a successfully sent report stays permanently deduped", async () => {
+    // Once a report is sent, it must never be re-sent regardless of retry attempts.
+    mockExecute.mockResolvedValueOnce({ rows: [] });  // INSERT: ON CONFLICT (SENT row exists)
+    mockExecute.mockResolvedValueOnce({ rows: [] });  // UPDATE WHERE status='FAILED': 0 rows (row is SENT, not FAILED)
+
+    const claimed = await tryClaimScheduledReport("POST_MARKET", "2026-07-09");
+    expect(claimed).toBe(false);
     expect(mockExecute).toHaveBeenCalledTimes(2);
   });
 

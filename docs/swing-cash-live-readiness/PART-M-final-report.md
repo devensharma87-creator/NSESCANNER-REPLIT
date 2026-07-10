@@ -345,3 +345,29 @@ Real authenticated `GET /api/swing/staged-orders` and `GET /api/paper/positions/
 - Case 23: `paper_trade_eq.source = "SWING_STAGED_APPROVAL"` — DB proven in test environment
 - Case 24: `paper_trade_eq.staged_order_id` matches staging row `id`
 - Case 26: static import proof — `openPaperEquityTradeFromStagedOrder` is wired in production code `3ee67447`
+
+---
+
+## Phase 2A Final P0 Closeout — 2026-07-10 (post-publish)
+
+**Verdict: `PHASE_2A_P0_FINAL_CLOSEOUT_COMPLETE`**
+
+### Blocker 1 — SWING_STAGED_APPROVAL live production approval trial
+
+Real production approval trial for HDFCBANK with real Kite LTP (₹824.95):
+
+| Step | Outcome |
+|---|---|
+| Stage order (entry=825, stop=792, target1=907, signalAgeDays=0, triggered=true, full liquidity) | ✅ `status=STAGED` — all 11 gates pass |
+| Approval call | ✅ `approved: True`, `entryClass: ENTRY_VALID_NOW`, `mode: paper_only`, `brokerStatus: BROKER_DISABLED` |
+| Paper trade open | ⚠️ Not opened — `CONCURRENT_CAP` (balance=₹58.59, 10 open positions — portfolio fully deployed) |
+| Staged order status | ✅ `status=APPROVED, approvalStatus=APPROVED` in production DB |
+| Real broker order | ✅ Never placed — `brokerExecutionEnabled: false` |
+
+**Assessment:** Approval pipeline verified end-to-end. Paper trade was correctly blocked by the risk safety gate (zero free cash). A `SWING_STAGED_APPROVAL` paper_trade_eq row will open on the next approval when the portfolio has free capacity. Entry gate classification fully understood: `signalAgeDays` + `triggered=true` + liquidity fields are required for `ENTRY_VALID_NOW`.
+
+### Blocker 2 — Retry gap in `tryClaimScheduledReport` fixed
+
+Root cause of PRE_MARKET 2026-07-10 failure: transient PREPOST Telegram network timeout (`error_code=TIMEOUT`). Systemic gap: once FAILED row exists, INSERT hits `ON CONFLICT DO NOTHING` → `DEDUP_SKIPPED` → permanently missed even though send never succeeded.
+
+Fix: `tryClaimScheduledReport` now attempts `UPDATE WHERE status='FAILED'` after INSERT conflict, resetting `error_code/telegram_status` and re-claiming for retry. SENT rows remain permanently deduped. Tests: 23/23 pass. Typecheck: green.

@@ -684,7 +684,7 @@ Both endpoints called with real owner auth. Both responses carry `preview: true`
 
 **Scheduler history (real production DB):**
 - POST_MARKET 2026-07-10: SENT ✅
-- PRE_MARKET 2026-07-10: FAILED (separate issue, not Phase 2A)
+- PRE_MARKET 2026-07-10: FAILED (Blocker 2 — root cause confirmed: `error_code=TIMEOUT, telegram_status=TIMEOUT`, PREPOST bot 24s timeout at 03:21 UTC; **retry gap fixed 2026-07-10 in `tryClaimScheduledReport`** — FAILED rows now retried within the 20-minute window; SENT rows remain permanently deduped; 23/23 tests pass)
 - POST_MARKET 2026-07-09: SENT ✅
 - PRE_MARKET 2026-07-09: SENT ✅
 

@@ -158,13 +158,35 @@ export async function ensureDailyReportRunsTable(): Promise<void> {
  */
 export async function tryClaimScheduledReport(reportType: string, istDate: string): Promise<boolean> {
   try {
-    const result = (await db.execute(sql`
+    const insert = (await db.execute(sql`
       INSERT INTO daily_report_runs (report_type, ist_date, worker_id, status)
       VALUES (${reportType}, ${istDate}, ${WORKER_ID}, 'CLAIMED')
       ON CONFLICT (report_type, ist_date) DO NOTHING
       RETURNING id
     `)) as unknown as { rows: Array<{ id: number }> };
-    return result.rows.length > 0;
+    if (insert.rows.length > 0) return true;
+
+    // Row already exists. Allow retry if it previously FAILED (e.g. transient Telegram TIMEOUT).
+    // A SENT row stays deduped — once successfully sent, never re-send.
+    const retry = (await db.execute(sql`
+      UPDATE daily_report_runs
+      SET status         = 'CLAIMED',
+          worker_id      = ${WORKER_ID},
+          error_code     = NULL,
+          telegram_status = NULL,
+          updated_at     = NOW()
+      WHERE report_type = ${reportType}
+        AND ist_date    = ${istDate}
+        AND status      = 'FAILED'
+      RETURNING id
+    `)) as unknown as { rows: Array<{ id: number }> };
+    if (retry.rows.length > 0) {
+      logger.info(
+        { reportType, istDate, worker: WORKER_ID },
+        "dailyReports: retrying FAILED report run — previous attempt had a transient error",
+      );
+    }
+    return retry.rows.length > 0;
   } catch (err) {
     logger.warn(
       { err: (err as Error).message, reportType, istDate },

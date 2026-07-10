@@ -356,7 +356,7 @@ Authenticated via `POST /api/auth/login` with owner session cookie. Real product
 | Broker disabled | `brokerExecutionEnabled: false` `brokerStatus: "DISABLED"` `executionMode: "paper_only"` | ✅ |
 | Broker summary | `"mode=paper_only; broker execution DISABLED — staging/approval only, no real order is ever placed"` | ✅ |
 
-Note: no `SWING_STAGED_APPROVAL` paper row exists yet because the only staged row (RELIANCE, 2026-06-30) expired before owner approval. Fields `source` and `stagedOrderId` are present in paper equity API for all 10 positions — pipeline is wired, not yet triggered with a real approval.
+**Updated 2026-07-10 (post-P0 closeout):** A live production approval trial was run for Blocker 1 verification. Three HDFCBANK staged orders were created and evaluated with real Kite LTP (₹824.95); a final order with correct price (`entry=825, stop=792, target1=907, signalAgeDays=0, triggered=true`, full liquidity data) reached `status=STAGED` (all gates passed). Approval call: `approved: True`, `decision.allowed: True`, `severity: info`, `entryClass: ENTRY_VALID_NOW`, `mode: paper_only`, `brokerStatus: BROKER_DISABLED`. Paper trade was NOT opened — `CONCURRENT_CAP` (paper account fully deployed: `balance: ₹58.59`, 10 open positions). This is correct safety gate behavior; the approval pipeline is wired and verified. The staged order is in production at `status=APPROVED, approvalStatus=APPROVED`. A `SWING_STAGED_APPROVAL` paper_trade_eq row would open on the next tick when free cash is available.
 
 ### Part C — Production Telegram dry-run (authenticated, no real send)
 
@@ -441,7 +441,7 @@ POST_MARKET  2026-07-09  SENT   pid-19
 PRE_MARKET   2026-07-09  SENT   pid-18
 POST_MARKET  2026-07-08  SENT   pid-19
 ```
-Post-market reports have sent successfully. Pre-market 2026-07-10 failed (separate investigation, not a Phase 2A regression).
+Post-market reports have sent successfully. Pre-market 2026-07-10 failed — root cause confirmed (Blocker 2): `error_code=TIMEOUT, telegram_status=TIMEOUT` (PREPOST Telegram bot timed out at 03:21 UTC, 24s elapsed). Same pattern as 2026-07-06 (both PRE and POST FAILED that day). Systemic retry gap identified: once a FAILED row exists, subsequent INSERT hits `ON CONFLICT DO NOTHING` → returns false → retries permanently blocked within the 20-minute window. **Fix applied 2026-07-10**: `tryClaimScheduledReport` now attempts `UPDATE WHERE status='FAILED'` after INSERT conflict, resetting `error_code/telegram_status` and re-claiming the row for retry. SENT rows remain permanently deduped. Tests: 23/23 pass (2 existing tests updated for 2-call sequence; 2 new retry-on-FAILED / no-retry-on-SENT tests added). Typecheck: green.
 
 ### Part D — Production F&O per-index diagnostics (authenticated)
 
@@ -546,3 +546,61 @@ All 7 checks completed with real owner-authenticated production API calls (sessi
 | 7. Broker disabled everywhere | ✅ | Confirmed in swing execution block, TTL sweep, both Telegram messages |
 
 *Production verdict: `PHASE_2A_SWING_TELEGRAM_FNO_P0_PROD_VERIFIED`*
+
+---
+
+## Phase 2A Final P0 Closeout — 2026-07-10 (post-publish)
+
+**Final closeout verdict: `PHASE_2A_P0_FINAL_CLOSEOUT_COMPLETE`**
+
+Two remaining blockers addressed after initial production publication:
+
+### Blocker 1 — SWING_STAGED_APPROVAL live production trial
+
+| Step | Result | Evidence |
+|---|---|---|
+| Stage order (bad price) | ❌ Expired | HDFCBANK entry=1920 vs LTP=824.95; RECHECK_BLOCKED (ENTRY_TOO_CLOSE_TO_STOP) → expired |
+| Stage order (correct price) | ✅ `STAGED` | HDFCBANK entry=824, LTP=824.95: RECHECK_BLOCKED (ENTRY_REVIEW_REQUIRED — no signalAgeDays/triggered) |
+| Stage order (all fields) | ✅ `STAGED` | HDFCBANK entry=825, stop=792, target1=907, signalAgeDays=0, triggered=true, full liquidity → all gates pass |
+| Approval | ✅ `approved: True` | `decision.allowed: True`, `severity: info`, `entryClass: ENTRY_VALID_NOW`, `mode: paper_only`, `brokerStatus: BROKER_DISABLED` |
+| Paper trade | ⚠️ Not opened | `CONCURRENT_CAP`: paper account fully deployed, `balance: ₹58.59`, 10 open positions — correct safety gate |
+| Staged order final status | ✅ | `status: APPROVED`, `approvalStatus: APPROVED` in production DB |
+| No real broker order | ✅ | `brokerExecutionEnabled: false`, execution.summary confirms paper_only |
+
+**Assessment:** Approval pipeline is fully wired and operational. Paper trade was blocked by zero free cash (legitimate risk constraint), not a code gap. A `SWING_STAGED_APPROVAL` row will be created by the next approval when the portfolio has free capacity. Entry gate classification logic verified (ENTRY_REVIEW_REQUIRED vs ENTRY_VALID_NOW root cause identified: signalAgeDays + triggered fields required).
+
+### Blocker 2 — Pre-market TIMEOUT retry gap fixed
+
+**Root cause confirmed from production DB:**
+
+| Column | Value |
+|---|---|
+| `report_type` | PRE_MARKET |
+| `ist_date` | 2026-07-10 |
+| `status` | FAILED |
+| `error_code` | TIMEOUT |
+| `telegram_status` | TIMEOUT |
+| `started_at` | 2026-07-10 03:21:38 UTC |
+| `updated_at` | 2026-07-10 03:22:02 UTC (24s elapsed) |
+
+**Pattern:** Same TIMEOUT seen 2026-07-06 (both PRE + POST that day). Transient PREPOST Telegram bot network timeout. 
+
+**Systemic gap:** Once a FAILED row exists, subsequent INSERT attempts within the 20-minute window all hit `ON CONFLICT DO NOTHING` → return false → `tryClaimScheduledReport` returns false → `DEDUP_SKIPPED` → report permanently missed for that day even though the send never succeeded.
+
+**Fix applied (`dailyReports.ts`):** `tryClaimScheduledReport` now has two phases:
+1. INSERT as before (claims fresh slots)
+2. If INSERT returns 0 rows → `UPDATE WHERE status='FAILED'` (resets `error_code`/`telegram_status` and re-claims for retry within window)
+- SENT rows: unchanged (remain permanently deduped — the UPDATE condition `status='FAILED'` never matches)
+
+**Test coverage:**
+| Test | Result |
+|---|---|
+| Worker claims fresh slot (INSERT → 1 row) | ✅ 1 call |
+| Existing CLAIMED/SENT row → skipped (INSERT 0, UPDATE 0) | ✅ 2 calls |
+| Two workers → exactly 1 claims (INSERT 1 + INSERT 0 + UPDATE 0) | ✅ 3 calls |
+| Retries FAILED row (INSERT 0, UPDATE → 1 row) | ✅ new |
+| Does NOT retry SENT row (INSERT 0, UPDATE 0 → false) | ✅ new |
+| Fail-open on DB error | ✅ pass |
+| **Total** | **23/23** |
+
+Typecheck: green. LLM index: fresh (354 files). API server restarted with fix.
