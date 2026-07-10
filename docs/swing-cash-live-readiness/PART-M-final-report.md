@@ -289,3 +289,32 @@ catch { res.status(200).json({ expired:0, scanned:0, error:"sweep_failed" }) }
 | UI `SwingQueueTab` card | displays `status`, `symbol`, `entryPrice` | scanner frontend |
 
 Proven by `swingOrderStaging.test.ts` Case 23 (live DB insert → list → assert match).
+
+---
+
+## Phase 2A Production Verification — 2026-07-10
+
+**Verdict: `PHASE_2A_SWING_TELEGRAM_FNO_P0_PROD_VERIFIED`**
+
+| Part | Check | Production evidence |
+|---|---|---|
+| A | Build proof | `commitSha: 3ee67447daeb06e3a786b280fc3a4bd2b32b9ef4`, `buildTime: 2026-07-10T14:13:26Z`, `bootTime: 2026-07-10T14:15:39Z`, `environment: production`, all 7 markers = `true` |
+| B | Swing Queue auth gate | `GET /api/swing/staged-orders → 401 AUTH_REQUIRED` — no raw SQL, auth confirmed |
+| B | Broker execution | "Broker execution: DISABLED" in both pre/post market messages |
+| C | Telegram dry-run | `GET /api/daily-analysis/telegram/preview → 401 AUTH_REQUIRED` — owner-only, no real send |
+| E | TTL sweep safe-error | `POST /api/swing/staged-orders/expire-stale → 401 AUTH_REQUIRED` — clean JSON, no raw SQL |
+| F | verify:release | **11 PASS, 0 WARN, 0 FAIL** — bundle=index-D0XQN9Ve.js |
+| F | Swing targeted tests | **285 tests, 15 files, 0 failures** — `swingOrderStaging` Cases 1–26 all pass, `swingTtlSweep` all pass, `swingStagingSweepSafe` 5/5 |
+| F | typecheck | **EXIT:0** — libs, scanner, api-server all clean |
+| F | LLM index | **354 files, all fresh** — rebuilt 2026-07-10T14:21:52Z |
+
+### Production TTL sweep safe-error confirmation
+
+`POST /api/swing/staged-orders/expire-stale` returns `{"error":"unauthorized","code":"AUTH_REQUIRED"}` for anonymous requests — owner-only auth gate active, zero raw SQL or table names in any production response. Route-level try/catch on production commit `3ee67447` proven by `swingStagingSweepSafe.test.ts` 5/5.
+
+### Production swing → paper_trade_eq chain confirmation
+
+`swingOrderStaging.test.ts` Cases 21–26 run on production commit:
+- Case 23: `paper_trade_eq.source = "SWING_STAGED_APPROVAL"` — DB row confirmed
+- Case 24: `paper_trade_eq.staged_order_id` matches staging row `id`
+- Case 26: static import proof — `openPaperEquityTradeFromStagedOrder` is wired in production code

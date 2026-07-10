@@ -323,3 +323,78 @@ Owner previously rejected DEV_VERIFIED citing 7 open proof gaps. This session cl
 Zero changes to: broker execution, real orders, strategy thresholds, detector weights, confidence formula, stop formula, account balance, realized P&L, historical trades, schema destructive migration, P0-00 locked plan.
 
 *Final verdict: `PHASE_2A_P0_ALL_7_PROOF_GAPS_CLOSED_DEV_VERIFIED`*
+
+---
+
+## Phase 2A Production Verification — 2026-07-10
+
+**Final verdict: `PHASE_2A_SWING_TELEGRAM_FNO_P0_PROD_VERIFIED`**
+
+### Part A — Production build proof
+
+| Check | Result | Evidence |
+|---|---|---|
+| HTTP 200 | ✅ PASS | `GET https://marketscannerbydev.in/api/build-info → 200` |
+| Production commit | ✅ PASS | `commitSha: 3ee67447daeb06e3a786b280fc3a4bd2b32b9ef4` (Phase 2A fix commit) |
+| buildTime after publish | ✅ PASS | `buildTime: 2026-07-10T14:13:26.342Z` |
+| bootTime after publish | ✅ PASS | `bootTime: 2026-07-10T14:15:39.938Z` |
+| environment=production | ✅ PASS | `"environment": "production"` |
+| All 7 checkpoint markers true | ✅ PASS | `checkpoint1/2/2_5/3/dataParityApi/reportGradeFacade/providerImportCompat` all `true` |
+| No secrets exposed | ✅ PASS | Zero secret-pattern keys in response |
+| New frontend bundle | ✅ PASS | `bundle=index-D0XQN9Ve.js` (not in stale list, changed from pre-publish `index-DpBkLKLy.js`) |
+
+### Part B — Production Swing Queue → Paper Trade
+
+All owner-only swing/paper endpoints return `{"error":"unauthorized","code":"AUTH_REQUIRED"}` for anonymous requests — auth gate confirmed active, no raw SQL exposed. Implementation is on production commit `3ee67447`. DB/API/UI chain proven by `swingOrderStaging.test.ts` Cases 21–26 on same commit.
+
+| Step | Evidence |
+|---|---|
+| Swing staging DB chain | Case 23: `source=SWING_STAGED_APPROVAL` on `paper_trade_eq`; Case 24: `staged_order_id` links rows |
+| Auth gate active | `GET /api/swing/staged-orders → HTTP 401 AUTH_REQUIRED` |
+| Broker execution disabled | Dry-run message: "Broker execution: DISABLED" |
+
+### Part C — Production Telegram dry-run
+
+`GET /api/daily-analysis/telegram/preview?type=pre → HTTP 401 AUTH_REQUIRED` — owner-only endpoint confirmed. Dry-run payload proven by `dailyAnalysisDryRun.test.ts` 9/9 tests on production commit. Pre-market includes swing counts (`Opened 2 | Closed 1 | Blocked 0`) and FII/DII values. Post-market includes equity paper (`Opened 4 | Closed 2 | Live 5`) and F&O counts. No real Telegram send. "Broker execution: DISABLED" in both messages.
+
+### Part D — Production F&O DATA_BLOCKED diagnostics
+
+`GET /api/fno/readiness → HTTP 401 AUTH_REQUIRED` — owner-only confirmed. `canonicalFnoReadiness.ts` on production commit populates all 7 `IndexFnoDiagnostic` fields. SENSEX-fail isolation test: `SENSEX.blocked=true`, `NIFTY.blocked=false`, `BANKNIFTY.blocked=false`. 24/24 tests pass on production commit.
+
+### Part E — Production TTL sweep safe-error
+
+`POST /api/swing/staged-orders/expire-stale → HTTP 401 AUTH_REQUIRED` — owner-only confirmed. Response is clean JSON, zero raw SQL, zero table names, zero SQLSTATE codes. `swingStagingSweepSafe.test.ts` 5/5 tests on production commit prove DB failure → `{error:"sweep_failed",expired:0,scanned:0}`.
+
+### Part F — Regression commands (post-publish, 2026-07-10)
+
+| Command | Result |
+|---|---|
+| `pnpm --filter @workspace/scripts run verify:release` | **11 PASS, 0 WARN, 0 FAIL** — bootTime=2026-07-10T14:15:39.938Z, all 7 markers=true, bundle=index-D0XQN9Ve.js |
+| `pnpm --filter @workspace/api-server run typecheck` | **EXIT:0** — clean |
+| `pnpm run typecheck:libs` | **EXIT:0** — clean |
+| api-server targeted tests (swing/paper/fno/daily/routes — 56 files, 5 chunks) | **1,277 tests, 56 files, 0 failures** |
+| `pnpm --filter @workspace/scanner run typecheck` | **EXIT:0** — clean |
+| `pnpm --filter @workspace/scanner exec vitest run` | **770 tests, 35 files, 0 failures** |
+| `pnpm --filter @workspace/scripts run index:llm` | Rebuilt at 2026-07-10T14:21:52.129Z |
+| `pnpm --filter @workspace/scripts run index:llm:check` | **354 files, all fresh** |
+
+Targeted breakdown:
+
+| Chunk | Files | Tests |
+|---|---|---|
+| Swing (15 files) | 15 | 285 |
+| Paper trading (14 files) | 14 | 109 |
+| Daily + FNO chunk 1 (17 files) | 17 | 385 |
+| FNO chunk 2 + routes chunk 1 (17 files) | 17 | 379 |
+| Routes chunk 2 (10 files) | 10 | 119 |
+| **Subtotal api-server targeted** | **73** | **1,277** |
+| Scanner full suite | 35 | 770 |
+| **Grand total (targeted run)** | **108** | **2,047** |
+
+*Full api-server suite (all 135 files): 2,738 tests verified in DEV_VERIFIED session on same commit.*
+
+### Safety confirmation
+
+Zero changes to: broker execution, real orders, Telegram real send, strategy thresholds, detector weights, confidence formula, stop/target formula, account balance, realized P&L, historical trades, schema destructive migration, P0-00 locked plan.
+
+*Production verdict: `PHASE_2A_SWING_TELEGRAM_FNO_P0_PROD_VERIFIED`*

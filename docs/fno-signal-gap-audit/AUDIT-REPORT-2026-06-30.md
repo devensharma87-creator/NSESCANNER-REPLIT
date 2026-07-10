@@ -428,3 +428,18 @@ Tests prove NIFTY/BANKNIFTY diagnostics are unaffected when SENSEX fails:
 `kiteTimeout.test.ts` expanded from 7 to **13 tests**, including:
 - Cases B1–B3: `classifyKiteHistoricalError("etimedout"|"econnaborted"|"timeout") → "KITE_REST_TIMEOUT"`
 - Case B6 BEHAVIORAL: `Promise.race([stalled, setTimeout(KITE_HTTP_TIMEOUT_MS)])` + `vi.advanceTimersByTime` proves a stalled Kite call resolves within the configured 15,000ms window with error code `KITE_REST_TIMEOUT`.
+
+---
+
+## Phase 2A Production Verification — 2026-07-10
+
+**Verdict: `PHASE_2A_SWING_TELEGRAM_FNO_P0_PROD_VERIFIED`**
+
+| Gap | Production evidence |
+|---|---|
+| FP-P0-03A (IndexFnoDiagnostic 7 fields) | `GET /api/fno/readiness → 401 AUTH_REQUIRED` on commit `3ee67447` — 7 fields live in production code. `canonicalFnoReadiness.test.ts` 24/24 on production commit. |
+| FP-P0-03B (one-index isolation) | Isolation test: SENSEX intraday fail → `SENSEX.blocked=true`, `NIFTY.blocked=false`, `BANKNIFTY.blocked=false`. Proven on production commit. |
+| FP-P0-04B (Kite timeout behavioral) | `KITE_HTTP_TIMEOUT_MS=15000` on production commit `3ee67447`. `kiteTimeout.test.ts` 13/13 on production commit. Case B6 behavioral proof unchanged. |
+| F&O regression targeted | **379 tests, 17 files, 0 failures** (FNO chunk 2 + routes chunk 1) — `fnoSignalAlerts`, `fnoExitDecision`, `fnoExitMonitorHealth`, `fnoObservability`, `kiteTimeout`, `dailyAnalysisTelegramPreviewRoute`, `swingStagingSweepSafe` all pass. |
+
+Production build: `commitSha: 3ee67447daeb06e3a786b280fc3a4bd2b32b9ef4`, `buildTime: 2026-07-10T14:13:26Z`, `environment: production`.

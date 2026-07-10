@@ -1,5 +1,14 @@
 [
   {
+    "path": "artifacts/api-server/src/lib/__dryrun_tmp.ts",
+    "purpose": "lib",
+    "lines": 38,
+    "exports": [],
+    "externalImports": [],
+    "routes": [],
+    "hash": "f2f98cd093554f7d"
+  },
+  {
     "path": "artifacts/api-server/src/lib/__tests__/sectorStrength.test.ts",
     "purpose": "test",
     "lines": 270,

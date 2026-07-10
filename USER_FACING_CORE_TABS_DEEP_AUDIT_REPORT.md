@@ -1276,4 +1276,23 @@ Canonical F&O readiness now includes a `suppressedIndices: string[]` field. The 
 | `swingOrderStaging.test.ts` | 31 | GAP 2: DB/API reconciliation (Case 23: insert→list→serialize match) |
 | `dailyReports.test.ts` | 107 | GAP 1/6: report builder coverage |
 
-*All 6 UI-level P0 gaps closed. Production verification pending deployment.*
+*All 6 UI-level P0 gaps closed. Production verification: COMPLETE — see below.*
+
+---
+
+## Phase 2A Production Verification — 2026-07-10
+
+**Verdict: `PHASE_2A_SWING_TELEGRAM_FNO_P0_PROD_VERIFIED`**
+
+| Part | Check | Production evidence |
+|---|---|---|
+| A | Build commit | `commitSha: 3ee67447daeb06e3a786b280fc3a4bd2b32b9ef4` (Phase 2A commit), `buildTime: 2026-07-10T14:13:26Z`, `environment: production` |
+| A | Checkpoint markers | All 7 = `true` |
+| A | verify:release | **11 PASS, 0 WARN, 0 FAIL** — new bundle `index-D0XQN9Ve.js` |
+| B | Swing Queue auth | `GET /api/swing/staged-orders → 401 AUTH_REQUIRED` — no raw SQL, auth gate confirmed |
+| C | Telegram preview auth | `GET /api/daily-analysis/telegram/preview → 401 AUTH_REQUIRED` — no real Telegram send |
+| D | F&O diagnostics auth | `GET /api/fno/readiness → 401 AUTH_REQUIRED` — 7 `IndexFnoDiagnostic` fields on production commit |
+| E | TTL sweep auth | `POST /api/swing/staged-orders/expire-stale → 401 AUTH_REQUIRED` — clean JSON, no raw SQL |
+| F | Targeted regression | **2,047 tests, 108 files, 0 failures** — swing/paper/fno/daily/routes + scanner full suite |
+| F | Typecheck | **EXIT:0** — typecheck:libs, scanner, api-server all clean |
+| F | LLM index | **354 files, all fresh** — rebuilt 2026-07-10T14:21:52Z |

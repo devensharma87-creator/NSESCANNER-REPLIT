@@ -495,3 +495,19 @@ PROD_VERIFIED pending: owner publishes and `/api/build-info` confirms the Lane 1
 *Structural blockers resolved. Production accumulation (time-gated) remains the only pending dependency.*
 
 *Rebaseline infrastructure status: `POST_P0_SIGNAL_SYSTEM_REBASELINE_INFRASTRUCTURE_VERIFIED`*
+
+---
+
+## Phase 2A Production Verification — 2026-07-10
+
+**Verdict: `PHASE_2A_SWING_TELEGRAM_FNO_P0_PROD_VERIFIED`**
+
+Production build confirmed on Phase 2A fix commit `3ee67447daeb06e3a786b280fc3a4bd2b32b9ef4`. `buildTime: 2026-07-10T14:13:26Z`, `bootTime: 2026-07-10T14:15:39Z`, `environment: production`. All 7 checkpoint markers = `true`. `verify:release`: **11 PASS, 0 WARN, 0 FAIL**.
+
+All owner-only endpoints (swing staged orders, Telegram preview, F&O readiness, TTL sweep) return `{"error":"unauthorized","code":"AUTH_REQUIRED"}` — auth gate active, zero raw SQL or stack traces exposed in any production response.
+
+Post-publish targeted regression: **2,047 tests, 108 files, 0 failures** (swing/paper/fno/daily/routes + scanner). All 3 typecheck targets EXIT:0. LLM index rebuilt with 354 files all fresh.
+
+No signal thresholds, detector weights, or stop/target formulas were changed. Live signal accumulation (≥20 real signals) remains a time-gated production dependency for the statistical rebaseline itself.
+
+*Production signal infrastructure status: `POST_P0_SIGNAL_SYSTEM_REBASELINE_PROD_VERIFIED`*

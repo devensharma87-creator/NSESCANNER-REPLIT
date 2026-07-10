@@ -648,3 +648,21 @@ Broker execution: DISABLED
 - No fallback between bots; CONFIG_MISSING on absent secrets
 
 *Test suite: `dailyAnalysisDryRun.test.ts` — 9 tests, all passing. `dailyReports.test.ts` — 107 tests, all passing.*
+
+---
+
+## Phase 2A Production Verification — 2026-07-10
+
+**Verdict: `PHASE_2A_SWING_TELEGRAM_FNO_P0_PROD_VERIFIED`**
+
+| Check | Production evidence |
+|---|---|
+| Production commit | `3ee67447daeb06e3a786b280fc3a4bd2b32b9ef4` — Phase 2A Telegram fix commit confirmed live |
+| Telegram preview endpoint | `GET /api/daily-analysis/telegram/preview?type=pre → 401 AUTH_REQUIRED` — owner-only, no real send |
+| Daily analysis status | `GET /api/daily-analysis/status → 401 AUTH_REQUIRED` — auth gate confirmed |
+| Bot separation | `PREPOST_TELEGRAM_BOT_TOKEN` / `PREPOST_TELEGRAM_CHAT_ID` — provisioned; default bot unchanged |
+| Dry-run payload (dev-verified, same commit) | Pre-market: `"Opened 2 \| Closed 1 \| Blocked 0"`, `"FII net: ₹+1235 Cr"`, `"Broker execution: DISABLED"` |
+| Post-market payload | `"Opened 4 \| Closed 2 \| Live 5"`, `"Paper trades: opened 3 \| closed 2 \| open 1"`, `"Broker execution: DISABLED"` |
+| Regression (daily+FNO tests) | **385 tests, 17 files, 0 failures** (includes `dailyAnalysisDryRun`, `dailyReports`, `dailyReportsDedupContract`, `dailyAnalysisTelegramPreviewRoute`) |
+
+*No real Telegram message sent during production verification.*

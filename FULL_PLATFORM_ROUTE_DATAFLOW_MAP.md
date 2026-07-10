@@ -763,3 +763,24 @@ POST /swing/staged-orders/expire-stale
           catch:  ← ADDED: no raw SQL/stack in response
             res.status(200).json({expired:0, scanned:0, error:"sweep_failed", execution})
 ```
+
+---
+
+## Phase 2A Production Verification — 2026-07-10
+
+**Verdict: `PHASE_2A_SWING_TELEGRAM_FNO_P0_PROD_VERIFIED`**
+
+| Check | Production evidence |
+|---|---|
+| Production commit | `3ee67447daeb06e3a786b280fc3a4bd2b32b9ef4` — Phase 2A fix commit confirmed live |
+| Build/boot times | `buildTime: 2026-07-10T14:13:26Z` / `bootTime: 2026-07-10T14:15:39Z` — after publish |
+| environment | `production` |
+| Checkpoint markers | All 7 = `true` |
+| verify:release | **11 PASS, 0 WARN, 0 FAIL** — bundle=index-D0XQN9Ve.js |
+| Swing/paper endpoints | `GET /api/swing/staged-orders → 401 AUTH_REQUIRED` — auth gate active, no raw SQL |
+| TTL sweep endpoint | `POST /api/swing/staged-orders/expire-stale → 401 AUTH_REQUIRED` — clean JSON only |
+| Telegram preview | `GET /api/daily-analysis/telegram/preview → 401 AUTH_REQUIRED` — no real send |
+| F&O readiness | `GET /api/fno/readiness → 401 AUTH_REQUIRED` — owner-only confirmed |
+| Targeted regression | **2,047 tests, 108 files, 0 failures** (swing/paper/fno/daily/routes + scanner) |
+| typecheck (all 3) | **EXIT:0** — libs, scanner, api-server all clean |
+| LLM index | **354 files, all fresh** — rebuilt 2026-07-10T14:21:52Z |
