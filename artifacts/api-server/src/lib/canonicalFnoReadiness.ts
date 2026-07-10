@@ -47,9 +47,29 @@ export interface IndexFnoDiagnostic {
   blocked: boolean;
   /** True when intraday bars were NOT the failure for this index. */
   intradayBarsOk: boolean;
+  /**
+   * Intraday bar presence indicator: 1 = bars present, 0 = missing/blocked.
+   * Exact per-index bar count is not tracked in cycle state; this is a binary indicator.
+   */
+  intradayBarsCount: number;
   /** True when daily bars were NOT the failure for this index. */
   dailyBarsOk: boolean;
-  /** Human-readable block reason, null when not blocked. */
+  /**
+   * Daily bar presence indicator: 1 = bars present, 0 = missing/blocked.
+   * Exact per-index bar count is not tracked in cycle state; this is a binary indicator.
+   */
+  dailyBarsCount: number;
+  /** Option-chain fetch succeeded for this index in the last snapshot run. null = disabled or no run yet. */
+  optionChainFetchOk: boolean | null;
+  /** Spot-quote status derived from Kite session+feed state (same for all indices). */
+  quoteStatus: "ok" | "missing" | "unknown";
+  /** Data source for live bars and spot: 'kite' when session is active, 'unknown' otherwise. */
+  source: "kite" | "unknown";
+  /** ISO timestamp of last signal cycle (non-blocked indices only; null when blocked or no cycle). */
+  asOf: string | null;
+  /** Staleness of asOf relative to check time: LIVE (<15min), STALE (<60min), UNKNOWN (older/missing). */
+  freshness: "LIVE" | "STALE" | "UNKNOWN";
+  /** Human-readable exact block reason, null when not blocked. */
   exactBlockReason: string | null;
 }
 
@@ -250,16 +270,44 @@ export function buildCanonicalFnoReadiness(inputs: CanonicalFnoReadinessInputs):
   const cycleReasons = cycle ? cycle.suppressed.map((s) => s.reasons[0] ?? s.index).filter(Boolean) : [];
   const suppressedIndices = cycle ? cycle.suppressed.map((s) => s.index) : [];
 
-  // Per-index diagnostics — derived from cycle.suppressed; zero extra computation.
+  // Shared context for per-index diagnostics
+  const cycleAsOf = cycle ? new Date(cycle.ts).toISOString() : null;
+  const globalQuoteStatus: IndexFnoDiagnostic["quoteStatus"] =
+    kite.sessionValid && kite.feedConnected ? "ok" :
+    !kite.sessionValid ? "missing" : "unknown";
+  const globalSource: IndexFnoDiagnostic["source"] = kite.sessionValid ? "kite" : "unknown";
+
+  // Per-index diagnostics — derived from cycle.suppressed + optionSnapshot; zero extra computation.
   const indexDiagnostics: Record<string, IndexFnoDiagnostic> = {};
   for (const idx of OPTION_INDICES) {
     const sup = cycle ? cycle.suppressed.find((s) => s.index === idx.symbol) : undefined;
+
+    // Option-chain fetch OK for this underlying (from last snapshot run errors list)
+    let optionChainFetchOk: boolean | null = null;
+    if (optionSnapshot.enabled && optionSnapshot.lastRun != null) {
+      const hadError = optionSnapshot.lastRun.errors.some((e) => e.underlying === idx.symbol);
+      optionChainFetchOk = !hadError;
+    }
+
     if (sup == null) {
+      // Not suppressed — bars and quote are OK for this index
+      const ageMs = cycle ? now.getTime() - cycle.ts : null;
+      const freshness: IndexFnoDiagnostic["freshness"] =
+        ageMs == null ? "UNKNOWN" :
+        ageMs < 15 * 60_000 ? "LIVE" :
+        ageMs < 60 * 60_000 ? "STALE" : "UNKNOWN";
       indexDiagnostics[idx.symbol] = {
         index: idx.symbol,
         blocked: false,
         intradayBarsOk: true,
+        intradayBarsCount: 1,
         dailyBarsOk: true,
+        dailyBarsCount: 1,
+        optionChainFetchOk,
+        quoteStatus: globalQuoteStatus,
+        source: globalSource,
+        asOf: cycleAsOf,
+        freshness,
         exactBlockReason: null,
       };
     } else {
@@ -269,8 +317,15 @@ export function buildCanonicalFnoReadiness(inputs: CanonicalFnoReadinessInputs):
       indexDiagnostics[idx.symbol] = {
         index: idx.symbol,
         blocked: true,
-        intradayBarsOk: isDailyFail,   // intraday OK when it was a daily failure
-        dailyBarsOk: !isDailyFail,     // daily OK when it was an intraday failure
+        intradayBarsOk: isDailyFail,        // intraday OK when only daily failed
+        intradayBarsCount: isDailyFail ? 1 : 0,
+        dailyBarsOk: !isDailyFail,           // daily always 0 for blocked index
+        dailyBarsCount: 0,
+        optionChainFetchOk,
+        quoteStatus: globalQuoteStatus,
+        source: globalSource,
+        asOf: null,                          // no valid cycle timestamp for a blocked index
+        freshness: "UNKNOWN",
         exactBlockReason: humanizeReason(reason, { ...classifyCtx, failedStep }),
       };
     }

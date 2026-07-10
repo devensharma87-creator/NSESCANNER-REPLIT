@@ -15,7 +15,8 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { classifyKiteHistoricalError } from "./kiteIntraday";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -81,5 +82,49 @@ describe("GAP-6: Kite timeout fail-fast proof", () => {
         `${file} must not have any direct KiteConnect instantiation — must use getRestClient`,
       ).toBe(0);
     }
+  });
+});
+
+// ── BEHAVIORAL: error classifier + timeout-race ──────────────────────────────
+
+describe("GAP-6 BEHAVIORAL: classifyKiteHistoricalError maps timeout messages to KITE_REST_TIMEOUT", () => {
+  it("Case B1: 'etimedout' → KITE_REST_TIMEOUT (standard axios TCP timeout)", () => {
+    expect(classifyKiteHistoricalError("etimedout")).toBe("KITE_REST_TIMEOUT");
+  });
+
+  it("Case B2: 'econnaborted' → KITE_REST_TIMEOUT (axios request timeout abort)", () => {
+    expect(classifyKiteHistoricalError("econnaborted")).toBe("KITE_REST_TIMEOUT");
+  });
+
+  it("Case B3: 'timeout' → KITE_REST_TIMEOUT (generic timeout string)", () => {
+    expect(classifyKiteHistoricalError("Request timeout: kite getHistoricalData")).toBe("KITE_REST_TIMEOUT");
+  });
+
+  it("Case B4: 'tokenexception' → KITE_SESSION_EXPIRED (not a timeout)", () => {
+    expect(classifyKiteHistoricalError("TokenException: Invalid access token")).toBe("KITE_SESSION_EXPIRED");
+  });
+
+  it("Case B5: 'econnreset' → KITE_NETWORK_ERROR (not a timeout)", () => {
+    expect(classifyKiteHistoricalError("ECONNRESET: connection reset by peer")).toBe("KITE_NETWORK_ERROR");
+  });
+
+  it("Case B6: BEHAVIORAL — a stalled promise races against a timeout and resolves with KITE_REST_TIMEOUT", async () => {
+    vi.useFakeTimers();
+    const TIMEOUT_MS = 15_000;
+
+    const stalled = new Promise<never>(() => {}); // intentionally never resolves
+    const timeoutErr = new Error("etimedout: Kite REST timeout");
+    const timeoutP = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(timeoutErr), TIMEOUT_MS),
+    );
+
+    const raceP = Promise.race([stalled, timeoutP]).catch((err: Error) => err.message);
+
+    vi.advanceTimersByTime(TIMEOUT_MS);
+    const result = await raceP;
+    const code = classifyKiteHistoricalError(result);
+    expect(code).toBe("KITE_REST_TIMEOUT");
+
+    vi.useRealTimers();
   });
 });

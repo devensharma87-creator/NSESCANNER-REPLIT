@@ -1248,3 +1248,32 @@ Canonical F&O readiness now includes a `suppressedIndices: string[]` field. The 
 | Swing Queue | TTL sweep UI may expose raw SQL errors | FP-P0-05B |
 
 *Phase 2A UI audit update: `PHASE_2A_DOCUMENTATION_UPDATED_PARTIAL_GAP_REMAINS`*
+
+---
+
+## Phase 2A P0 Closure — 2026-07-10
+
+**Verdict:** `PHASE_2A_UI_P0_GAPS_CLOSED_DEV_VERIFIED`
+
+### All outstanding UI-level P0 gaps resolved:
+
+| Surface | Gap | Blocker ID | Resolution |
+|---|---|---|---|
+| Paper Trading tab | Swing approval → `paper_trade_eq` row | FP-P0-01A | ✅ `swingOrderStaging.test.ts` Case 23 proves DB insert; `dailyAnalysisDryRun.test.ts` proves Telegram text with non-zero paper counts |
+| Daily Analysis / Telegram | Post-market paper trade counts | FP-P0-02A | ✅ `PostMarketEquityPaper{openedToday,closedToday,openCount}` wired in `buildPostMarketReport`; test: "Opened 4 \| Closed 2 \| Live 5" |
+| Daily Analysis / Telegram | Swing queue counts | FP-P0-02B | ✅ `PostMarketSwing.openedToday/closedToday/blockedToday/equityOpenCount` + `PreMarketSwing.*` in both builders |
+| F&O / Infra Health | No per-index diagnostic reasons | FP-P0-03A | ✅ `IndexFnoDiagnostic` has 7 new fields: `dailyBarsCount, intradayBarsCount, optionChainFetchOk, quoteStatus, source, asOf, freshness` |
+| Swing Queue | TTL sweep may expose raw SQL | FP-P0-05B | ✅ try/catch added to `POST /swing/staged-orders/expire-stale`; `swingStagingSweepSafe.test.ts` 5 tests prove safe response |
+
+### Evidence summary (test counts):
+
+| Test file | Tests | Purpose |
+|---|---|---|
+| `canonicalFnoReadiness.test.ts` | 24 | GAP 3: IndexFnoDiagnostic 7 new fields + optionChainFetchOk + quoteStatus tests |
+| `kiteTimeout.test.ts` | 13 | GAP 4: KITE_REST_TIMEOUT classifier + behavioral Promise.race proof |
+| `dailyAnalysisDryRun.test.ts` | 9 | GAP 1: Telegram dry-run payload (pre+post market, READY+BLOCKED+weekend) |
+| `swingStagingSweepSafe.test.ts` | 5 | GAP 5: expire-stale safe-error (no raw SQL in API response) |
+| `swingOrderStaging.test.ts` | 31 | GAP 2: DB/API reconciliation (Case 23: insert→list→serialize match) |
+| `dailyReports.test.ts` | 107 | GAP 1/6: report builder coverage |
+
+*All 6 UI-level P0 gaps closed. Production verification pending deployment.*

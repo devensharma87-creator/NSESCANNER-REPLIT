@@ -285,12 +285,17 @@ router.post("/swing/staged-orders/expire-stale", requireOwner, async (req, res) 
     res.status(401).json({ error: "unauthorized" });
     return;
   }
-  const result = await expireStaleSwingOrders(owner, {
-    now: new Date(),
-    fetchQuote: createKiteSwingQuoteFetcher(),
-    expiryReason: "BATCH_EXPIRE",
-  });
-  res.json({ expired: result.expired, scanned: result.scanned, execution: executionSnapshot() });
+  try {
+    const result = await expireStaleSwingOrders(owner, {
+      now: new Date(),
+      fetchQuote: createKiteSwingQuoteFetcher(),
+      expiryReason: "BATCH_EXPIRE",
+    });
+    res.json({ expired: result.expired, scanned: result.scanned, execution: executionSnapshot() });
+  } catch {
+    // Fail-safe: never expose raw SQL/stack traces in the API response.
+    res.status(200).json({ expired: 0, scanned: 0, error: "sweep_failed", execution: executionSnapshot() });
+  }
 });
 
 // ---------------------------------------------------------------------------

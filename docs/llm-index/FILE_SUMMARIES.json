@@ -784,18 +784,18 @@
   {
     "path": "artifacts/api-server/src/lib/canonicalFnoReadiness.test.ts",
     "purpose": "test",
-    "lines": 213,
+    "lines": 338,
     "exports": [],
     "externalImports": [
       "vitest"
     ],
     "routes": [],
-    "hash": "873518ac43d4d215"
+    "hash": "9d13897d9695ed4a"
   },
   {
     "path": "artifacts/api-server/src/lib/canonicalFnoReadiness.ts",
     "purpose": "fno-engine",
-    "lines": 364,
+    "lines": 476,
     "exports": [
       "KiteSessionState",
       "FeedConnState",
@@ -803,6 +803,7 @@
       "BarsStatus",
       "OptionChainReadinessStatus",
       "SignalCycleStatus",
+      "IndexFnoDiagnostic",
       "CanonicalFnoReadiness",
       "FnoCycleMetaLike",
       "OptionSnapshotRunLike",
@@ -814,7 +815,7 @@
     ],
     "externalImports": [],
     "routes": [],
-    "hash": "01830caeb1c888cf"
+    "hash": "9f6991cd703e87dd"
   },
   {
     "path": "artifacts/api-server/src/lib/chart.provenance.test.ts",
@@ -1009,6 +1010,17 @@
     "hash": "016a1804572714c9"
   },
   {
+    "path": "artifacts/api-server/src/lib/dailyAnalysisDryRun.test.ts",
+    "purpose": "test",
+    "lines": 334,
+    "exports": [],
+    "externalImports": [
+      "vitest"
+    ],
+    "routes": [],
+    "hash": "e05f0d4c85e09c53"
+  },
+  {
     "path": "artifacts/api-server/src/lib/dailyReports.gatherPostMarket.integration.test.ts",
     "purpose": "test",
     "lines": 172,
@@ -1022,18 +1034,18 @@
   {
     "path": "artifacts/api-server/src/lib/dailyReports.test.ts",
     "purpose": "test",
-    "lines": 849,
+    "lines": 860,
     "exports": [],
     "externalImports": [
       "vitest"
     ],
     "routes": [],
-    "hash": "c55dc73b3a296764"
+    "hash": "fa0582757b64cca6"
   },
   {
     "path": "artifacts/api-server/src/lib/dailyReports.ts",
     "purpose": "lib",
-    "lines": 1222,
+    "lines": 1380,
     "exports": [
       "ensureDailyReportRunsTable",
       "tryClaimScheduledReport",
@@ -1047,21 +1059,21 @@
       "buildPreMarketReport",
       "PostMarketFno",
       "PostMarketSwing",
+      "PostMarketEquityPaper",
       "PostMarketIndexRow",
       "PostMarketIndexPerformance",
       "PostMarketOptionChainRow",
       "PostMarketOptionChainEod",
       "PostMarketReportData",
       "buildPostMarketReport",
-      "DailyReportRecord",
-      "getLastPreMarketReportRecord"
+      "DailyReportRecord"
     ],
     "externalImports": [
       "drizzle-orm",
       "@workspace/db"
     ],
     "routes": [],
-    "hash": "101f2940b56b0986"
+    "hash": "970064baefbaf9ae"
   },
   {
     "path": "artifacts/api-server/src/lib/dailyReportsDedupContract.test.ts",
@@ -2743,6 +2755,20 @@
     "externalImports": [],
     "routes": [],
     "hash": "5b85ba678e71a449"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/kiteTimeout.test.ts",
+    "purpose": "test",
+    "lines": 131,
+    "exports": [],
+    "externalImports": [
+      "node:fs",
+      "node:url",
+      "node:path",
+      "vitest"
+    ],
+    "routes": [],
+    "hash": "4a297f0401df169e"
   },
   {
     "path": "artifacts/api-server/src/lib/kiteWarmup.ts",
@@ -5113,7 +5139,7 @@
   {
     "path": "artifacts/api-server/src/lib/swingOrderStaging.test.ts",
     "purpose": "test",
-    "lines": 717,
+    "lines": 894,
     "exports": [],
     "externalImports": [
       "node:fs",
@@ -5125,7 +5151,7 @@
       "@workspace/db/schema"
     ],
     "routes": [],
-    "hash": "76cb31c776aa402d"
+    "hash": "7180f32a4fb2553a"
   },
   {
     "path": "artifacts/api-server/src/lib/swingOrderStaging.ts",
@@ -5366,7 +5392,7 @@
   {
     "path": "artifacts/api-server/src/lib/swingTtlSweep.test.ts",
     "purpose": "test",
-    "lines": 404,
+    "lines": 502,
     "exports": [],
     "externalImports": [
       "node:fs",
@@ -5375,7 +5401,7 @@
       "vitest"
     ],
     "routes": [],
-    "hash": "a99583136bd53edb"
+    "hash": "5128416efb60bdee"
   },
   {
     "path": "artifacts/api-server/src/lib/swingTtlSweep.ts",
@@ -6230,6 +6256,17 @@
     "hash": "4dcba93e5ba895d4"
   },
   {
+    "path": "artifacts/api-server/src/routes/__tests__/swingStagingSweepSafe.test.ts",
+    "purpose": "api-route",
+    "lines": 105,
+    "exports": [],
+    "externalImports": [
+      "vitest"
+    ],
+    "routes": [],
+    "hash": "aa81b92d5cd641d8"
+  },
+  {
     "path": "artifacts/api-server/src/routes/admin.ts",
     "purpose": "api-route",
     "lines": 181,
@@ -6826,7 +6863,7 @@
   {
     "path": "artifacts/api-server/src/routes/swingStaging.ts",
     "purpose": "api-route",
-    "lines": 453,
+    "lines": 458,
     "exports": [],
     "externalImports": [
       "express",
@@ -6849,7 +6886,7 @@
       "POST /swing/staged-orders/:id/watch",
       "POST /swing/staged-orders/:id/expire"
     ],
-    "hash": "18755e04f2366149"
+    "hash": "ca42c03e270ac97c"
   },
   {
     "path": "artifacts/api-server/src/routes/system.ts",

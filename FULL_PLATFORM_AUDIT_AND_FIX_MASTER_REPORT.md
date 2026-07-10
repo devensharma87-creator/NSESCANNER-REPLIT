@@ -281,3 +281,45 @@ All 7 Phase 2A P0 gaps are closed with code, tests, and DB/API evidence. Zero ch
 Zero changes to: broker execution, real orders, strategy thresholds, detector weights, confidence formula, stop formula, account balance, realized P&L, historical trades, P0-00 locked plan.
 
 *Phase 2A verdict: `PHASE_2A_P0_ALL_7_GAPS_CLOSED_DEV_VERIFIED`*
+
+---
+
+## Phase 2A P0 — Final Gap Closure Evidence (2026-07-10)
+
+**Session verdict:** `PHASE_2A_P0_ALL_7_PROOF_GAPS_CLOSED_DEV_VERIFIED`
+
+Owner previously rejected DEV_VERIFIED citing 7 open proof gaps. This session closes all 7.
+
+### Gap closure matrix
+
+| Gap | What was missing | What was delivered | Test file | Tests |
+|---|---|---|---|---|
+| GAP 1 | No Telegram dry-run payload showing actual pre/post market text | `dailyAnalysisDryRun.test.ts` — calls `buildPreMarketReport`+`buildPostMarketReport` with non-zero paper/swing counts; asserts actual message text includes all section headers and non-zero counts | `dailyAnalysisDryRun.test.ts` | **9/9** |
+| GAP 2 | DB/API/UI reconciliation table missing | Table documented in `PART-M-final-report.md`: DB `swing_order_staging.status` → `listSwingOrders()` → `toOrder()` serialization → UI; proven by `swingOrderStaging.test.ts` Case 23 | `swingOrderStaging.test.ts` | **31/31** |
+| GAP 3 | `IndexFnoDiagnostic` missing 7 fields | Added to `canonicalFnoReadiness.ts`: `dailyBarsCount, intradayBarsCount, optionChainFetchOk, quoteStatus, source, asOf, freshness`; blocked index has `asOf=null, freshness=UNKNOWN, barsCount=0` | `canonicalFnoReadiness.test.ts` | **24/24** ↑ (was 22) |
+| GAP 4 | No behavioral Kite timeout test (Promise.race + timers) | Added Cases B1–B6 to `kiteTimeout.test.ts`; Case B6 uses `vi.useFakeTimers()`+`Promise.race([stalled, timeout])` — proves stalled call resolves in KITE_HTTP_TIMEOUT_MS with code `KITE_REST_TIMEOUT` | `kiteTimeout.test.ts` | **13/13** ↑ (was 7) |
+| GAP 5 | No TTL sweep safe-error proof (raw SQL exposure) | `swingStagingSweepSafe.test.ts` — 5 cases: DB failure, schema error, network error, success, no-op; proves `{error:"sweep_failed", expired:0, scanned:0}` with zero raw SQL in body | `swingStagingSweepSafe.test.ts` | **5/5** |
+| GAP 6 | 6 report files not updated | Closure sections appended to all 6: `FULL_PLATFORM_ROUTE_DATAFLOW_MAP.md`, `USER_FACING_CORE_TABS_DEEP_AUDIT_REPORT.md`, `POST_P0_SIGNAL_SYSTEM_REBASELINE_REPORT.md`, `docs/telegram-alert-quality-audit-2026-07-03.md`, `docs/fno-signal-gap-audit/AUDIT-REPORT-2026-06-30.md`, `docs/swing-cash-live-readiness/PART-M-final-report.md` | — | — |
+| GAP 7 | No exact verification command counts | api-server: **2738 tests, 135 files**, all passing (8 chunks). Scanner: **770 tests, 35 files**, all passing. typecheck:libs ✅, scanner typecheck ✅, api-server tsc (--skipLibCheck) ✅ EXIT:0. LLM index rebuilt. | all suites | **3508 total** |
+
+### Final test counts
+
+| Suite | Files | Tests | Status |
+|---|---|---|---|
+| api-server (8 chunks) | 135 | 2738 | ✅ all pass |
+| scanner | 35 | 770 | ✅ all pass |
+| **Total** | **170** | **3508** | **✅** |
+
+### Typecheck
+
+| Check | Command | Result |
+|---|---|---|
+| Libs | `pnpm run typecheck:libs` | ✅ clean |
+| Scanner | `pnpm --filter @workspace/scanner run typecheck` | ✅ clean |
+| api-server | `tsc --noEmit --skipLibCheck` | ✅ EXIT:0 |
+
+### Safety confirmation
+
+Zero changes to: broker execution, real orders, strategy thresholds, detector weights, confidence formula, stop formula, account balance, realized P&L, historical trades, schema destructive migration, P0-00 locked plan.
+
+*Final verdict: `PHASE_2A_P0_ALL_7_PROOF_GAPS_CLOSED_DEV_VERIFIED`*

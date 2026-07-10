@@ -597,3 +597,54 @@ Source honesty: data is T+1 delayed (NSE archive). Not labeled live. No change t
 No Telegram was sent during Phase 2A development. All changes are dry-run verifiable via `GET /api/daily-analysis/telegram/preview?type=pre|post` (owner-only, no Telegram send, no dedup mutation).
 
 *Phase 2A Telegram audit update: `PHASE_2A_DOCUMENTATION_UPDATED_PARTIAL_GAP_REMAINS`*
+
+---
+
+## Phase 2A P0 Closure — 2026-07-10
+
+**Verdict:** `PHASE_2A_TELEGRAM_P0_GAPS_CLOSED_DEV_VERIFIED`
+
+### All outstanding Telegram quality gaps closed:
+
+| Gap | ID | Status | Evidence |
+|---|---|---|---|
+| Post-market paper trade counts | FP-P0-02A | ✅ CLOSED | `buildPostMarketReport` wired: `PostMarketFno{tradesOpened,tradesClosed,openCount,totalPnl}` + `PostMarketEquityPaper{openedToday,closedToday,openCount}` |
+| Swing counts in reports | FP-P0-02B | ✅ CLOSED | `PreMarketSwing.openedToday/closedToday/blockedToday`, `PostMarketSwing.openedToday/closedToday/blockedToday/equityOpenCount` all wired |
+| Per-index DATA_BLOCKED reason | FP-P0-03A | ✅ CLOSED | `IndexFnoDiagnostic` now has `dailyBarsCount, intradayBarsCount, optionChainFetchOk, quoteStatus, source, asOf, freshness` |
+| No dry-run payload | FP-P0-01A | ✅ CLOSED | `dailyAnalysisDryRun.test.ts` — 9 tests produce concrete pre+post Telegram text |
+
+### Dry-run payload excerpt (READY state):
+```
+PRE-MARKET STATUS
+Date: 10 Jul 2026 10:00 IST
+
+Kite: ACTIVE
+Feed: CONNECTED
+Market mode: open
+F&O readiness: READY
+Daily bars: 3/3
+Intraday bars: 3/3
+Option chain: READY
+Signals: 5 generated | 2 tradeable | 0 suppressed
+
+Swing staging:
+Pending 3 | Approved 3 | Expired 0
+Opened 2 | Closed 1 | Blocked 0
+
+FII/DII (INFO-ONLY — NSE archive, prev day):
+FII net: ₹+1235 Cr | DII net: ₹-890 Cr (2026-07-09)
+
+Action:
+- Monitor /option-chain if data ready
+
+Not included: GIFT Nifty, live global cues, India VIX, news/events — provider not configured.
+
+Broker execution: DISABLED
+```
+
+### Bot separation: unchanged
+- Default bot (`TELEGRAM_BOT_TOKEN`): F&O/swing/urgent alerts only
+- PREPOST bot (`PREPOST_TELEGRAM_BOT_TOKEN`): pre/post market reports only
+- No fallback between bots; CONFIG_MISSING on absent secrets
+
+*Test suite: `dailyAnalysisDryRun.test.ts` — 9 tests, all passing. `dailyReports.test.ts` — 107 tests, all passing.*

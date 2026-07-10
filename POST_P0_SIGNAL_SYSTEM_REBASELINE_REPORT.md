@@ -470,3 +470,28 @@ PROD_VERIFIED pending: owner publishes and `/api/build-info` confirms the Lane 1
 ### No signal thresholds, detectors, weights, or stop/target formulas were changed in Phase 2A.
 
 *Rebaseline status remains: `POST_P0_SIGNAL_SYSTEM_REBASELINE_PARTIAL_GAP_REMAINS`*
+
+---
+
+## Phase 2A P0 Closure — 2026-07-10
+
+**Verdict:** `PHASE_2A_SIGNAL_REBASELINE_P0_GAPS_CLOSED_DEV_VERIFIED`
+
+### Rebaseline blockers resolved:
+
+1. **F&O per-index diagnostics complete (FP-P0-03A closed)** — `IndexFnoDiagnostic` now carries `dailyBarsCount, intradayBarsCount, optionChainFetchOk, quoteStatus, source, asOf, freshness`. It is now possible to definitively distinguish "NIFTY data missing" from "genuine no-setup conditions" per index. Signal suppression reason codes are machine-readable and logged.
+
+2. **Kite timeout behavioral proof (FP-P0-04B closed)** — `classifyKiteHistoricalError()` returns `KITE_REST_TIMEOUT` for "etimedout"/"econnaborted"/"timeout" messages. A `Promise.race` + `vi.useFakeTimers` behavioral test (Case B6) proves a stalled Kite call resolves within 15,000ms with this named code. Diagnostics surface the code as `exactBlockReason` in `IndexFnoDiagnostic`.
+
+3. **Swing → paper_trade_eq pipeline proven (FP-P0-01A closed)** — Telegram dry-run test produces concrete pre/post market messages with non-zero swing counts. `swingOrderStaging.test.ts` Case 23 proves DB insert → `listSwingOrders()` → `toOrder()` serialization matches. DB/API/UI reconciliation table documented in `PART-M-final-report.md`.
+
+### Still pending (not changed by Phase 2A P0 code work):
+
+- Live post-P0 signal accumulation: ≥20 real signals in production required before statistical win-rate rebaseline is meaningful. This is a time-gated production dependency.
+- No signal thresholds, detector weights, or stop/target formulas were changed.
+
+### Final signal rebaseline status:
+
+*Structural blockers resolved. Production accumulation (time-gated) remains the only pending dependency.*
+
+*Rebaseline infrastructure status: `POST_P0_SIGNAL_SYSTEM_REBASELINE_INFRASTRUCTURE_VERIFIED`*

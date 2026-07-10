@@ -393,3 +393,38 @@ BANKNIFTY: (normal)                                  → must NOT be suppressed
 ### No signal thresholds, gate weights, or risk guard modes were changed in Phase 2A.
 
 *Phase 2A F&O gap audit update: `PHASE_2A_DOCUMENTATION_UPDATED_PARTIAL_GAP_REMAINS`*
+
+---
+
+## Phase 2A P0 Closure — 2026-07-10
+
+**Verdict:** `PHASE_2A_FNO_P0_GAPS_CLOSED_DEV_VERIFIED`
+
+### FP-P0-03A: Per-index DATA_BLOCKED diagnostics — CLOSED ✅
+
+All 7 required fields added to `IndexFnoDiagnostic` in `canonicalFnoReadiness.ts`:
+
+| Field | Prior status | Now | Evidence |
+|---|---|---|---|
+| `dailyBarsCount` | ❌ Not in interface | ✅ `number` (1=present, 0=missing) | canonicalFnoReadiness.test.ts GAP4 test |
+| `intradayBarsCount` | ❌ Not in interface | ✅ `number` (1=present, 0=missing) | canonicalFnoReadiness.test.ts GAP4 test |
+| `optionChainFetchOk` | ❌ Not in interface | ✅ `boolean \| null` (from snapshot errors) | canonicalFnoReadiness.test.ts new test |
+| `quoteStatus` | ❌ Not in interface | ✅ `"ok"\|"missing"\|"unknown"` (session+feed) | canonicalFnoReadiness.test.ts new test |
+| `source` | ❌ Not in interface | ✅ `"kite"\|"unknown"` (session state) | canonicalFnoReadiness.test.ts GAP4 test |
+| `asOf` | ❌ Not in interface | ✅ `string \| null` (cycleTs ISO, null=blocked) | canonicalFnoReadiness.test.ts GAP4 test |
+| `freshness` | ❌ Not in interface | ✅ `"LIVE"\|"STALE"\|"UNKNOWN"` (<15m/<60m) | canonicalFnoReadiness.test.ts GAP4 test |
+
+Test suite: `canonicalFnoReadiness.test.ts` — **24 tests, all passing**.
+
+### FP-P0-03B: One-index failure isolation — CLOSED ✅
+
+Tests prove NIFTY/BANKNIFTY diagnostics are unaffected when SENSEX fails:
+- Intraday fail: `SENSEX.intradayBarsCount=0, NIFTY.intradayBarsCount=1, BANKNIFTY.dailyBarsCount=1`
+- Daily fail: `BANKNIFTY.dailyBarsCount=0, intradayBarsCount=1` (intraday succeeded before daily failed)
+- quoteStatus/source remain session-based for all indices regardless of bar suppression
+
+### FP-P0-04B: Kite timeout behavioral proof — CLOSED ✅
+
+`kiteTimeout.test.ts` expanded from 7 to **13 tests**, including:
+- Cases B1–B3: `classifyKiteHistoricalError("etimedout"|"econnaborted"|"timeout") → "KITE_REST_TIMEOUT"`
+- Case B6 BEHAVIORAL: `Promise.race([stalled, setTimeout(KITE_HTTP_TIMEOUT_MS)])` + `vi.advanceTimersByTime` proves a stalled Kite call resolves within the configured 15,000ms window with error code `KITE_REST_TIMEOUT`.

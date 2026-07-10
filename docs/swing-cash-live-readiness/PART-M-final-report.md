@@ -251,3 +251,41 @@ The 8h TTL sweep (`expireStaleSwingOrders`) was audited and confirmed logically 
 - Manual "Run sweep now" path not tested.
 
 *Phase 2A swing readiness update: `PHASE_2A_DOCUMENTATION_UPDATED_PARTIAL_GAP_REMAINS`*
+
+---
+
+## Phase 2A P0 Closure — 2026-07-10
+
+**Verdict:** `PHASE_2A_SWING_P0_GAPS_CLOSED_DEV_VERIFIED`
+
+### FP-P0-01A: Telegram dry-run payload — CLOSED ✅
+
+`dailyAnalysisDryRun.test.ts` (**9 tests**, all passing) calls `buildPreMarketReport` and `buildPostMarketReport` with realistic fixtures (paper trades > 0, swing counts > 0, FII/DII data). Proves:
+- Pre-market: `"Opened 2 | Closed 1 | Blocked 0"` appears with non-zero counts
+- Post-market: `"Opened 2 | Closed 1 | Blocked 0 | Live 3"` (swing) + `"Opened 4 | Closed 2 | Live 5"` (equity paper)
+- Weekend path: short message, no fabricated counts
+- DATA_BLOCKED path: no fabricated "READY", honest fallback text
+
+### FP-P0-05B: TTL sweep safe-error — CLOSED ✅
+
+`swingStaging.ts` route `POST /swing/staged-orders/expire-stale` now has try/catch:
+```
+try { result = await expireStaleSwingOrders(...); res.json({...}) }
+catch { res.status(200).json({ expired:0, scanned:0, error:"sweep_failed" }) }
+```
+`swingStagingSweepSafe.test.ts` (**5 tests**, all passing) proves:
+- Success path: `{expired:N, scanned:M}` (no error field)
+- DB failure: `{error:"sweep_failed", expired:0, scanned:0}` — zero raw SQL in body
+- Schema error, network error: same safe response
+- No-op (0 expired, 5 scanned): NOT treated as error
+
+### DB/API/UI reconciliation table
+
+| Layer | Value | Source |
+|---|---|---|
+| DB `swing_order_staging.status` | `"PENDING"` | `stageSwingOrder()` insert |
+| API `listSwingOrders()` → `.status` | `"PENDING"` | drizzle select |
+| API route `toOrder(row)` → `.id, .symbol, .status` | serialized row fields | `swingStaging.ts:toOrder()` |
+| UI `SwingQueueTab` card | displays `status`, `symbol`, `entryPrice` | scanner frontend |
+
+Proven by `swingOrderStaging.test.ts` Case 23 (live DB insert → list → assert match).

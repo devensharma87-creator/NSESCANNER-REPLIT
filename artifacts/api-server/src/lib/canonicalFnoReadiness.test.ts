@@ -206,12 +206,19 @@ describe("buildCanonicalFnoReadiness", () => {
       expect(d, `${sym} missing from indexDiagnostics`).toBeDefined();
       expect(d!.blocked).toBe(false);
       expect(d!.intradayBarsOk).toBe(true);
+      expect(d!.intradayBarsCount).toBe(1);
       expect(d!.dailyBarsOk).toBe(true);
+      expect(d!.dailyBarsCount).toBe(1);
+      expect(d!.optionChainFetchOk).toBe(true);
+      expect(d!.quoteStatus).toBe("ok");
+      expect(d!.source).toBe("kite");
+      expect(d!.asOf).not.toBeNull();
+      expect(d!.freshness).toBe("LIVE"); // cycle.ts === OPEN_NOW so ageMs = 0
       expect(d!.exactBlockReason).toBeNull();
     }
   });
 
-  it("GAP4: SENSEX intraday fail marks SENSEX blocked; NIFTY and BANKNIFTY remain unblocked", () => {
+  it("GAP4: SENSEX intraday fail marks SENSEX blocked with counts=0; NIFTY and BANKNIFTY remain unblocked", () => {
     const r = buildCanonicalFnoReadiness(
       inputs({
         cycle: cycle({
@@ -222,14 +229,20 @@ describe("buildCanonicalFnoReadiness", () => {
     const sensex = r.indexDiagnostics["SENSEX"]!;
     expect(sensex.blocked).toBe(true);
     expect(sensex.intradayBarsOk).toBe(false);
+    expect(sensex.intradayBarsCount).toBe(0);
     expect(sensex.dailyBarsOk).toBe(true); // daily never ran for this index
+    expect(sensex.dailyBarsCount).toBe(0); // always 0 for blocked
+    expect(sensex.asOf).toBeNull();
+    expect(sensex.freshness).toBe("UNKNOWN");
     expect(sensex.exactBlockReason).toBeTruthy();
 
     expect(r.indexDiagnostics["NIFTY"]!.blocked).toBe(false);
+    expect(r.indexDiagnostics["NIFTY"]!.intradayBarsCount).toBe(1);
     expect(r.indexDiagnostics["BANKNIFTY"]!.blocked).toBe(false);
+    expect(r.indexDiagnostics["BANKNIFTY"]!.dailyBarsCount).toBe(1);
   });
 
-  it("GAP4: BANKNIFTY daily fail → dailyBarsOk=false, intradayBarsOk=true", () => {
+  it("GAP4: BANKNIFTY daily fail → dailyBarsOk=false, intradayBarsOk=true, intradayBarsCount=1", () => {
     const r = buildCanonicalFnoReadiness(
       inputs({
         cycle: cycle({
@@ -240,9 +253,39 @@ describe("buildCanonicalFnoReadiness", () => {
     const bk = r.indexDiagnostics["BANKNIFTY"]!;
     expect(bk.blocked).toBe(true);
     expect(bk.dailyBarsOk).toBe(false);
+    expect(bk.dailyBarsCount).toBe(0);
     expect(bk.intradayBarsOk).toBe(true); // intraday succeeded before daily failed
+    expect(bk.intradayBarsCount).toBe(1); // intraday present
     expect(r.indexDiagnostics["NIFTY"]!.blocked).toBe(false);
     expect(r.indexDiagnostics["SENSEX"]!.blocked).toBe(false);
+  });
+
+  it("GAP4: optionChainFetchOk=false for an index that had a snapshot error", () => {
+    const r = buildCanonicalFnoReadiness(
+      inputs({
+        optionSnapshot: {
+          enabled: true,
+          lastRun: {
+            underlyingsAttempted: 3,
+            underlyingsOk: 2,
+            errors: [{ underlying: "SENSEX", message: "timeout" }],
+          },
+        },
+      }),
+    );
+    expect(r.indexDiagnostics["SENSEX"]!.optionChainFetchOk).toBe(false);
+    expect(r.indexDiagnostics["NIFTY"]!.optionChainFetchOk).toBe(true);
+    expect(r.indexDiagnostics["BANKNIFTY"]!.optionChainFetchOk).toBe(true);
+  });
+
+  it("GAP4: quoteStatus=missing and source=unknown when Kite session invalid", () => {
+    const r = buildCanonicalFnoReadiness(
+      inputs({ kite: { sessionValid: false, sessionPresent: false, feedConnected: false, feedRunning: false, marketSession: "open" } }),
+    );
+    for (const sym of ["NIFTY", "BANKNIFTY", "SENSEX"]) {
+      expect(r.indexDiagnostics[sym]!.quoteStatus).toBe("missing");
+      expect(r.indexDiagnostics[sym]!.source).toBe("unknown");
+    }
   });
 
   it("GAP5: telegramSummary includes per-index reason when an index is suppressed", () => {

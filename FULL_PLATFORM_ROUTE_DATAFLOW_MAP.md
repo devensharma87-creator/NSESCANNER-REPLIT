@@ -717,3 +717,49 @@ buildCanonicalFnoReadiness() [canonicalFnoReadiness.ts]
 | FP-P0-03B | Index isolation: SENSEX failure must not suppress NIFTY/BANKNIFTY |
 
 *Phase 2A route/dataflow update: `PHASE_2A_DOCUMENTATION_UPDATED_PARTIAL_GAP_REMAINS`*
+
+---
+
+## Phase 2A P0 Closure — 2026-07-10
+
+**Verdict:** `PHASE_2A_ROUTE_DATAFLOW_P0_GAPS_CLOSED_DEV_VERIFIED`
+
+### All outstanding route/dataflow gaps closed:
+
+| Gap | ID | Route / Flow added | Status |
+|---|---|---|---|
+| paper_trade_eq → Telegram | FP-P0-01A | `PostMarketEquityPaper{openedToday,closedToday,openCount}` wired in `gatherPostMarketData` + `buildPostMarketReport` | ✅ CLOSED |
+| post-market paper counts | FP-P0-02A | `PostMarketFno{tradesOpened,tradesClosed,openCount,totalPnl}` serialized in builder | ✅ CLOSED |
+| swing Telegram counts | FP-P0-02B | `PreMarketSwing.openedToday/closedToday/blockedToday` + `PostMarketSwing.*` in both builders | ✅ CLOSED |
+| per-index DATA_BLOCKED | FP-P0-03A | `IndexFnoDiagnostic` now carries 7 new fields: `dailyBarsCount, intradayBarsCount, optionChainFetchOk, quoteStatus, source, asOf, freshness` | ✅ CLOSED |
+| one-index isolation proof | FP-P0-03B | Tests prove NIFTY/BANKNIFTY unblocked when SENSEX fails (isolation verified per-index) | ✅ CLOSED |
+
+### Updated IndexFnoDiagnostic dataflow:
+
+```
+getLastFnoCycleState() → cycle.suppressed[{index, reasons}]
+getLastOptionSnapshotRun() → lastRun.errors[{underlying}]
+getKiteReadiness() → kite.{sessionValid, feedConnected}
+
+buildCanonicalFnoReadiness(inputs)
+  └─ for each idx in OPTION_INDICES:
+       ├─ intradayBarsCount: sup==null ? 1 : isDailyFail ? 1 : 0
+       ├─ dailyBarsCount: sup==null ? 1 : 0
+       ├─ optionChainFetchOk: !lastRun.errors.some(e => e.underlying===idx.symbol)
+       ├─ quoteStatus: sessionValid&&feedConnected ? "ok" : !sessionValid ? "missing" : "unknown"
+       ├─ source: sessionValid ? "kite" : "unknown"
+       ├─ asOf: sup==null ? cycleTs.toISOString() : null
+       └─ freshness: ageMs<15m ? "LIVE" : ageMs<60m ? "STALE" : "UNKNOWN"
+```
+
+### TTL sweep safe-error flow (FP-P0-05B):
+
+```
+POST /swing/staged-orders/expire-stale
+  └─ requireOwner
+       └─ try:
+            expireStaleSwingOrders(owner, {now, fetchQuote, expiryReason:"BATCH_EXPIRE"})
+              └─ res.json({expired, scanned, execution})
+          catch:  ← ADDED: no raw SQL/stack in response
+            res.status(200).json({expired:0, scanned:0, error:"sweep_failed", execution})
+```
