@@ -101,7 +101,7 @@ interface RecordCtx {
   deploy?: number | null;
   balance?: number | null;
   accountValue?: number | null;
-  source?: "AUTO" | "MANUAL";
+  source?: "AUTO" | "MANUAL" | "SWING_STAGED_APPROVAL";
   /**
    * The paper_trade_eq row id this OPEN decision produced (Checkpoint 2,
    * 2026-07-03). Only ever passed on decision="OPEN" — the trade insert
@@ -133,7 +133,7 @@ export async function recordEqDecision(ctx: RecordCtx): Promise<void> {
       symbol: ctx.symbol,
       title: ctx.emitEvent.title,
       detail: ctx.detail,
-      source: (ctx.source ?? "AUTO").toLowerCase() as "auto" | "manual",
+      source: (ctx.source === "SWING_STAGED_APPROVAL" ? "manual" : (ctx.source ?? "AUTO").toLowerCase()) as "auto" | "manual",
       severity: ctx.emitEvent.severity,
     });
   }

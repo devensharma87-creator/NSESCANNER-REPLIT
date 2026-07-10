@@ -45,6 +45,7 @@ import {
 } from "./swingCashLiveCandidateAdapter";
 import { getSwingCashBookCapital, getSwingExecutionMode } from "./swingLiveExecutionConfig";
 import { isKillSwitchActive } from "./swingKillSwitch";
+import { logger } from "./logger";
 import { placeOrderDryRun } from "./swingDryRunBroker";
 import {
   alertSwingOrderStaged,
@@ -52,6 +53,7 @@ import {
   alertSwingOrderRejected,
   alertSwingOrderApprovedDryRun,
 } from "./swingAlerts";
+import { openPaperEquityTradeFromStagedOrder } from "./paperTradingEq";
 
 // ---------------------------------------------------------------------------
 // Lifecycle vocab (kept in sync with the schema CHECK constraints).
@@ -590,6 +592,10 @@ export type ApproveResult =
       decision: SwingCashRiskDecision;
       availability: SwingRecheckAvailability;
       row: SwingOrderStagingRow;
+      /** Result of the paper trade open attempt that follows a successful approval.
+       *  `opened: false` means a safety gate (DD cap, heat cap, etc.) blocked it —
+       *  the approval itself is still committed and the staging row is APPROVED. */
+      paperTradeResult: { opened: boolean; paperTradeId?: string };
     };
 
 /**
@@ -704,12 +710,28 @@ export async function approveSwingOrder(
     )
     .returning();
   if (res.length === 0) return { approved: false, reason: "CONCURRENT_MODIFICATION" };
-  const approvedRow = res[0];
+  const approvedRow = res[0]!;
   // Alert dry-run approvals — fire-and-forget, never rolls back approval.
   if (newStatus === "DRY_RUN_PLACED") {
     try { alertSwingOrderApprovedDryRun(approvedRow); } catch { /* safe-fail */ }
   }
-  return { approved: true, status: newStatus, decision, availability, row: approvedRow };
+
+  // Open a paper equity trade from the approved staging row. The approval is
+  // already committed — a paper trade failure here does NOT roll it back.
+  // All safety gates (DD caps, heat cap, stop-sanity) still apply; the returned
+  // `opened: false` only means a cap was hit after approval, not a code error.
+  let paperTradeResult: { opened: boolean; paperTradeId?: string } = { opened: false };
+  try {
+    const ptRow = await openPaperEquityTradeFromStagedOrder(approvedRow);
+    paperTradeResult = { opened: ptRow != null, paperTradeId: ptRow?.id?.toString() };
+  } catch (err) {
+    logger.warn(
+      { err: (err as Error).message, stagingId: approvedRow.id },
+      "approveSwingOrder: paper trade open failed (approval already committed)",
+    );
+  }
+
+  return { approved: true, status: newStatus, decision, availability, row: approvedRow, paperTradeResult };
 }
 
 // ---------------------------------------------------------------------------

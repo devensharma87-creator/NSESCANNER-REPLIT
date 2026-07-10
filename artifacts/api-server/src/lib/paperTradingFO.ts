@@ -60,7 +60,7 @@ import {
 } from "./paperAccount";
 import { computeFnoLotSizing } from "./fnoSizingHelper";
 import { fetchOptionChain, LOT_SIZES, type OcResponse } from "./optionChain";
-import { getCachedLotSizeForIndex } from "./kiteFnoInstruments";
+import { centralCachedLotSizeForIndex as getCachedLotSizeForIndex } from "./marketData/compat";
 import { ensureContractMasterSchemaColumns } from "./ensureContractMasterColumns";
 // Type-only: does not create a runtime import of fnoExitDecision.ts at
 // module load time (the runtime import is dynamic, inside

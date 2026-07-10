@@ -30,11 +30,11 @@
  *   5. No historical row is rewritten; this module only produces NEW facts.
  */
 
+import type { FnoInstrument } from "./kiteFnoInstruments";
 import {
-  FnoInstrument,
-  getCachedFnoInstruments,
-  getCachedLotSizeForIndex,
-} from "./kiteFnoInstruments";
+  centralCachedFnoInstruments as getCachedFnoInstruments,
+  centralCachedLotSizeForIndex as getCachedLotSizeForIndex,
+} from "./marketData/compat";
 import { LOT_SIZES } from "./optionChain";
 
 // ---------------------------------------------------------------------------

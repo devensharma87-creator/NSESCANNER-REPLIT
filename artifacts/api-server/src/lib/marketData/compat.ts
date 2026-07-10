@@ -197,6 +197,18 @@ export {
   checkEtfRecognition as centralCheckEtfRecognition,
 } from "../kiteScanner";
 
+// ─── F&O instruments compat ─────────────────────────────────────────────────
+
+/**
+ * Central F&O instrument cache (lot-size lookup + full instrument rows).
+ * Wraps `kiteFnoInstruments` helpers. Consumers must use these, not the
+ * raw provider directly — see PROVIDER_IMPORT_BURNDOWN.md.
+ */
+export {
+  getCachedLotSizeForIndex as centralCachedLotSizeForIndex,
+  getCachedFnoInstruments as centralCachedFnoInstruments,
+} from "../kiteFnoInstruments";
+
 // ─── Kite session compat ────────────────────────────────────────────────────
 
 /**

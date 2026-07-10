@@ -56,6 +56,8 @@ export interface CanonicalFnoReadiness {
     suppressedSignals: number;
     status: SignalCycleStatus;
     reasons: string[];
+    /** Names of suppressed indices (e.g. ["BANKNIFTY"]) for per-index granularity in reports. */
+    suppressedIndices: string[];
   };
   tradeGrade: boolean;
   canGenerateSignals: boolean;
@@ -232,6 +234,7 @@ export function buildCanonicalFnoReadiness(inputs: CanonicalFnoReadinessInputs):
   }
 
   const cycleReasons = cycle ? cycle.suppressed.map((s) => s.reasons[0] ?? s.index).filter(Boolean) : [];
+  const suppressedIndices = cycle ? cycle.suppressed.map((s) => s.index) : [];
 
   const tradeGrade =
     kiteSession === "ACTIVE" &&
@@ -261,6 +264,7 @@ export function buildCanonicalFnoReadiness(inputs: CanonicalFnoReadinessInputs):
     generatedSignals: cycle?.signalCount ?? 0,
     tradeableSignals: cycle?.highConvictionCount ?? 0,
     suppressedSignals: cycle?.suppressed.length ?? 0,
+    suppressedIndices,
   });
 
   return {
@@ -278,6 +282,7 @@ export function buildCanonicalFnoReadiness(inputs: CanonicalFnoReadinessInputs):
       suppressedSignals: cycle?.suppressed.length ?? 0,
       status: signalCycleStatus,
       reasons: cycleReasons,
+      suppressedIndices,
     },
     tradeGrade,
     canGenerateSignals,
@@ -297,6 +302,7 @@ function buildTelegramSummary(f: {
   generatedSignals: number;
   tradeableSignals: number;
   suppressedSignals: number;
+  suppressedIndices: string[];
 }): string {
   const parts = [
     `Kite: ${f.kiteSession} | Feed: ${f.feedStatus} | Market: ${f.marketSession}`,
@@ -306,6 +312,9 @@ function buildTelegramSummary(f: {
     `Option chain: ${f.optionChain.status}`,
     `Signals: generated ${f.generatedSignals} | tradeable ${f.tradeableSignals} | suppressed ${f.suppressedSignals}`,
   ];
+  if (f.suppressedIndices.length > 0 && (f.signalCycleStatus === "DATA_BLOCKED" || f.suppressedSignals > 0)) {
+    parts.push(`Suppressed: ${f.suppressedIndices.join(", ")}`);
+  }
   return parts.join("\n");
 }
 

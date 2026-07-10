@@ -45,6 +45,7 @@
  */
 
 import { sql } from "drizzle-orm";
+import { getFiiDiiMonthly } from "./instFlows";
 import { db } from "@workspace/db";
 import { logger } from "./logger";
 import { getActiveSessionStatus } from "./kiteAuth";
@@ -352,6 +353,13 @@ export interface PreMarketSwing {
   expired: number;
 }
 
+/** INFO_ONLY: FII/DII cash net flows from NSE archive (previous day). */
+export interface PreMarketFiiDii {
+  date: string;         // YYYY-MM-DD of the latest available row
+  fiiNetCr: number;     // ₹ Cr net (buy − sell); negative = net seller
+  diiNetCr: number;
+}
+
 export interface PreMarketReportData {
   isManualTest: boolean;
   istDatetime: string;
@@ -362,6 +370,8 @@ export interface PreMarketReportData {
    *  gatherer itself failed (fail-open — never fabricated). */
   canonicalFno: CanonicalFnoReadiness | null;
   swing: PreMarketSwing | null;
+  /** INFO_ONLY: latest FII/DII cash net from NSE archive. Null when DB has no rows. */
+  fiiDii?: PreMarketFiiDii | null;
 }
 
 // ── Pre-market builder (pure — no async, no imports, fully testable) ──────────
@@ -400,6 +410,9 @@ export function buildPreMarketReport(data: PreMarketReportData): string {
     lines.push(`Daily bars: ${r.dailyBars.readyCount}/${r.dailyBars.totalCount}`);
     const intradayReason = r.intradayBars.reason ? ` — ${r.intradayBars.reason}` : "";
     lines.push(`Intraday bars: ${r.intradayBars.readyCount}/${r.intradayBars.totalCount}${intradayReason}`);
+    if (r.signalCycle.suppressedIndices.length > 0 && (readinessLabel === "DATA_BLOCKED" || r.signalCycle.suppressedSignals > 0)) {
+      lines.push(`Suppressed indices: ${r.signalCycle.suppressedIndices.join(", ")}`);
+    }
     lines.push(`Option chain: ${r.optionChain.status}`);
     lines.push(
       `Signals: ${r.signalCycle.generatedSignals} generated | ${r.signalCycle.tradeableSignals} tradeable | ${r.signalCycle.suppressedSignals} suppressed`,
@@ -420,6 +433,18 @@ export function buildPreMarketReport(data: PreMarketReportData): string {
     );
   } else {
     lines.push("Pending 0 | Approved 0 | Expired 0 (unavailable this run)");
+  }
+
+  lines.push("");
+  lines.push("FII/DII (INFO-ONLY — NSE archive, prev day):");
+  if (data.fiiDii != null) {
+    const fiiSign = data.fiiDii.fiiNetCr >= 0 ? "+" : "";
+    const diiSign = data.fiiDii.diiNetCr >= 0 ? "+" : "";
+    lines.push(
+      `FII net: ₹${fiiSign}${data.fiiDii.fiiNetCr.toFixed(0)} Cr | DII net: ₹${diiSign}${data.fiiDii.diiNetCr.toFixed(0)} Cr (${data.fiiDii.date})`,
+    );
+  } else {
+    lines.push("Unavailable — NSE archive not yet fetched for this date");
   }
 
   const actions: string[] = [];
@@ -802,7 +827,19 @@ export async function gatherPreMarketData(
     logger.warn({ err: (err as Error).message }, "dailyReports: gatherPreMarketData swing section failed");
   }
 
-  return { isManualTest, istDatetime: datetimeStr, isWeekend, kite, canonicalFno, swing };
+  let fiiDii: PreMarketFiiDii | null = null;
+  try {
+    const months = await getFiiDiiMonthly(1);
+    const allDays = months.flatMap((m) => m.days);
+    const latest = allDays[allDays.length - 1] ?? null;
+    if (latest != null) {
+      fiiDii = { date: latest.date, fiiNetCr: latest.fiiNet, diiNetCr: latest.diiNet };
+    }
+  } catch (err) {
+    logger.warn({ err: (err as Error).message }, "dailyReports: gatherPreMarketData fiiDii section failed");
+  }
+
+  return { isManualTest, istDatetime: datetimeStr, isWeekend, kite, canonicalFno, swing, fiiDii };
 }
 
 export async function gatherPostMarketData(

@@ -34,6 +34,7 @@ import {
   paperTradeEqTable,
 } from "@workspace/db";
 import type { PaperTradeEqRow, PaperTradeEqSource } from "@workspace/db";
+import type { SwingOrderStagingRow } from "@workspace/db/schema";
 import { and, eq, ne, sql } from "drizzle-orm";
 import {
   ensureDailyReset,
@@ -82,14 +83,13 @@ export type EquityExitReason =
 
 /**
  * Maps the write-path `opts.source` to the richer stored provenance.
- * `SWING_STAGED_APPROVAL` (in the `PaperTradeEqSource` DB enum) is reserved
- * for when `approveSwingOrder` — currently a fully separate dry-run pipeline
- * that never calls this function — is wired to open real paper trades; no
- * live caller passes anything but AUTO/MANUAL today, so this stays a
- * 2-way map until that day comes.
+ * `SWING_STAGED_APPROVAL` maps to the same-named DB enum value, representing
+ * a paper trade opened from the swing staging queue after owner approval.
  */
-export function mapWriteSourceToProvenance(source: "AUTO" | "MANUAL" | undefined): PaperTradeEqSource {
-  return source === "MANUAL" ? "MANUAL_BUY" : "AUTO_STRONG_BUY";
+export function mapWriteSourceToProvenance(source: "AUTO" | "MANUAL" | "SWING_STAGED_APPROVAL" | undefined): PaperTradeEqSource {
+  if (source === "MANUAL") return "MANUAL_BUY";
+  if (source === "SWING_STAGED_APPROVAL") return "SWING_STAGED_APPROVAL";
+  return "AUTO_STRONG_BUY";
 }
 
 /**
@@ -188,7 +188,7 @@ export function ensurePaperEqProvenanceColumns(): Promise<void> {
  */
 export async function openPaperEquityTrade(
   signal: SwingSignal,
-  opts?: { qtyOverride?: number; source?: "AUTO" | "MANUAL"; signalLabel?: string },
+  opts?: { qtyOverride?: number; source?: "AUTO" | "MANUAL" | "SWING_STAGED_APPROVAL"; signalLabel?: string; stagedOrderId?: string | null },
 ): Promise<PaperTradeEqRow | null> {
   const sigLabel = opts?.signalLabel ?? "STRONG_BUY";
   const today = signal.signalDate;
@@ -519,6 +519,15 @@ export async function openPaperEquityTrade(
         return null;
       }
 
+      // Link to the originating staging order when opened from the swing queue.
+      // staged_order_id is an out-of-schema column (added via ALTER TABLE in
+      // applyPaperEqProvenanceColumns) — set it via raw SQL, never drizzle insert.
+      if (opts?.stagedOrderId != null) {
+        await tx.execute(
+          sql`UPDATE paper_trade_eq SET staged_order_id = ${opts.stagedOrderId} WHERE id = ${inserted[0]!.id}`,
+        );
+      }
+
       // Atomic debit + counter bumps. Cap predicates repeated as
       // defence-in-depth even though the FOR UPDATE above already
       // serialised us — keeps the invariants enforced even if a
@@ -559,17 +568,19 @@ export async function openPaperEquityTrade(
         "Paper EQ OPENED",
       );
       const isManual = opts?.source === "MANUAL";
+      const isSwingApproval = opts?.source === "SWING_STAGED_APPROVAL";
+      const actionLabel = isManual ? "Manual" : isSwingApproval ? "Swing queue" : "Auto";
       await recordEqDecision({
         symbol: signal.symbol, decision: "OPEN", reason: "OPENED",
-        detail: `${isManual ? "Manual" : "Auto"} buy filled: ${qty} × ₹${signal.entryPrice.toFixed(2)} (stop ₹${signal.stopPrice.toFixed(2)}, T1 ₹${signal.target1Price.toFixed(2)}, T2 ₹${signal.target2Price.toFixed(2)})`,
+        detail: `${actionLabel} buy filled: ${qty} × ₹${signal.entryPrice.toFixed(2)} (stop ₹${signal.stopPrice.toFixed(2)}, T1 ₹${signal.target1Price.toFixed(2)}, T2 ₹${signal.target2Price.toFixed(2)})`,
         signal: sigLabel, score: signal.score,
         entry: signal.entryPrice, stop: signal.stopPrice, qty,
         deploy: capitalDeployed, balance: num(debited[0]!.balance),
-        source: isManual ? "MANUAL" : "AUTO",
+        source: opts?.source ?? "AUTO",
         paperTradeId: inserted[0]!.id,
         emitEvent: {
-          type: isManual ? "MANUAL_BUY" : "BUY_EXECUTED",
-          title: `${isManual ? "Manual buy" : "Buy filled"}: ${signal.symbol}`,
+          type: isManual || isSwingApproval ? "MANUAL_BUY" : "BUY_EXECUTED",
+          title: `${isManual ? "Manual buy" : isSwingApproval ? "Swing queue buy" : "Buy filled"}: ${signal.symbol}`,
           severity: "success",
         },
       });
@@ -1015,6 +1026,70 @@ export async function hasOpenEquityTrade(symbol: string): Promise<boolean> {
     )
     .limit(1);
   return rows.length > 0;
+}
+
+/**
+ * Open a paper equity trade from an already-approved swing staging order.
+ *
+ * Builds the minimum-viable `SwingSignal` from the staging row's frozen plan
+ * and delegates to `openPaperEquityTrade`. All safety gates (DD caps, heat
+ * cap, stop-sanity, daily limits) still apply — an approved staging row is
+ * NOT guaranteed to open if a cap was hit after approval.
+ *
+ * The staging row's `quantity` is used as `qtyOverride` so the pre-computed
+ * sizing (set at stage time with full risk calculations) is stable across the
+ * approval delay. The `atr14` is back-derived from the stop distance using
+ * the standard 1.5× multiplier — it is only used for audit logging, never
+ * for sizing.
+ *
+ * Returns the opened `PaperTradeEqRow`, or `null` if any gate blocked the
+ * open. Never places real broker orders — paper only.
+ */
+export async function openPaperEquityTradeFromStagedOrder(
+  stagingRow: SwingOrderStagingRow,
+): Promise<PaperTradeEqRow | null> {
+  const now = new Date();
+  const ist = new Date(now.getTime() + 5.5 * 60 * 60 * 1000);
+  const signalDate = ist.toISOString().slice(0, 10);
+
+  const perShareRisk = stagingRow.entryPrice - stagingRow.stopLoss;
+  if (!(perShareRisk > 0)) {
+    logger.warn(
+      { stagingId: stagingRow.id, entry: stagingRow.entryPrice, stop: stagingRow.stopLoss },
+      "openPaperEquityTradeFromStagedOrder: invalid per-share risk (entry ≤ stop) — skip",
+    );
+    return null;
+  }
+  // ATR(14) is not stored in the staging snapshot; approximate from the stop
+  // formula (stop ≈ entry − 1.5 × ATR) so the SwingSignal type contract is
+  // satisfied. The value only appears in audit log fields — it does not affect
+  // sizing because qtyOverride overrides the quantity calculation entirely.
+  const atr14Approx = perShareRisk / 1.5;
+
+  const signal: SwingSignal = {
+    symbol: stagingRow.symbol,
+    name: stagingRow.symbol,              // no dedicated name column in staging
+    exchange: stagingRow.exchange ?? "NSE",
+    triggeredAt: now,
+    signalDate,
+    score: 0,                             // score not persisted in staging row
+    entryPrice: stagingRow.entryPrice,
+    stopPrice: stagingRow.stopLoss,
+    target1Price: stagingRow.target1,
+    target2Price: stagingRow.target2 ?? stagingRow.target1,
+    perShareRisk,
+    atr14: atr14Approx,
+    swing20Low: stagingRow.stopLoss,      // conservative: swing low ≤ stop level
+    levelsSource: "yahoo",                // conservative — original calc was Yahoo-based
+    levelsWarnings: ["levels restored from staged snapshot; not re-computed at approval"],
+  };
+
+  return openPaperEquityTrade(signal, {
+    qtyOverride: stagingRow.quantity,
+    source: "SWING_STAGED_APPROVAL",
+    stagedOrderId: stagingRow.id,
+    signalLabel: "SWING_QUEUE_APPROVED",
+  });
 }
 
 // `ne`/`istDateKey` re-exported for the routes layer's manual exits.
