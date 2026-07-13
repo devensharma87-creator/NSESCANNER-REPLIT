@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-13T09:21:04.135Z",
+  "generatedAt": "2026-07-13T10:58:53.076Z",
   "generatorVersion": "1.0.0",
   "files": {
     "artifacts/api-server/src/routes/admin.ts": {
@@ -1468,9 +1468,9 @@
       "mtime": "2026-06-10T12:05:16.883Z"
     },
     "artifacts/scanner/src/pages/options.tsx": {
-      "hash": "37670fb5f0d00688",
-      "lines": 1674,
-      "mtime": "2026-07-13T08:26:55.342Z"
+      "hash": "3aa5a3b00e09583d",
+      "lines": 1678,
+      "mtime": "2026-07-13T10:04:51.188Z"
     },
     "artifacts/scanner/src/pages/paper-reports.tsx": {
       "hash": "bdf9cdfe4482b23a",
@@ -1598,9 +1598,9 @@
       "mtime": "2026-06-04T07:34:40.625Z"
     },
     "artifacts/scanner/src/lib/fnoEmptyState.ts": {
-      "hash": "cdbe3ab28b81789a",
-      "lines": 145,
-      "mtime": "2026-06-30T10:31:17.398Z"
+      "hash": "e34d14855ea6f4ed",
+      "lines": 159,
+      "mtime": "2026-07-13T10:04:43.020Z"
     },
     "artifacts/scanner/src/lib/foCockpitView.ts": {
       "hash": "0b4a62f77517925f",

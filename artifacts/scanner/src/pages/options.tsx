@@ -879,9 +879,20 @@ function FnoIndexStatusTable({ rows }: { rows: FnoIndexRow[] }) {
 
 export default function OptionsPage() {
   const [tab, setTab] = useState<Tab>("live");
-  const { data, isLoading } = useGetOptionSignals({
+  const { data, isLoading, refetch } = useGetOptionSignals({
     query: { refetchInterval: 30000, queryKey: getGetOptionSignalsQueryKey() },
   });
+
+  // Legacy-payload guard: if the cached payload predates the marketStatus field
+  // (React Query stale-while-revalidate can serve an old pre-fix entry that has
+  // marketStatus=undefined), immediately request a fresh fetch. This ensures the
+  // market-closed gate never relies on absent marketStatus for more than one cycle.
+  useEffect(() => {
+    if (data != null && data.marketStatus == null) {
+      void refetch();
+    }
+  }, [data, refetch]);
+
   const readiness = useKiteReadiness();
   const noSignalGap = useFnoNoSignalGap(readiness !== null);
   const bannerState = deriveSessionBannerState(
@@ -1009,19 +1020,18 @@ export default function OptionsPage() {
           <CardContent className="py-12 text-center space-y-2">
             <Clock className="w-8 h-8 text-muted-foreground mx-auto" />
             <div className="text-muted-foreground font-mono text-sm">
-              {data?.marketStatus
-                ? (data.marketStatus.reason === "PRE_OPEN"
-                    ? "Pre-open session (09:00 – 09:15 IST)"
-                    : data.marketStatus.reason === "BEFORE_OPEN"
-                      ? "Market opens at 09:15 IST"
-                      : data.marketStatus.reason === "AFTER_CLOSE"
-                        ? "Market closed at 15:30 IST"
-                        : data.marketStatus.reason === "WEEKEND"
-                          ? "Weekend — next session resumes Monday"
-                          : data.marketStatus.reason === "HOLIDAY"
-                            ? "NSE holiday — market is closed today"
-                            : "Market is closed")
-                : (data?.marketState === "pre_open" ? "Pre-open session" : "Market is closed")}
+              {/* Gate guarantees marketStatus is non-null here */}
+              {data?.marketStatus?.reason === "PRE_OPEN"
+                ? "Pre-open session (09:00 – 09:15 IST)"
+                : data?.marketStatus?.reason === "BEFORE_OPEN"
+                  ? "Market opens at 09:15 IST"
+                  : data?.marketStatus?.reason === "AFTER_CLOSE"
+                    ? "Market closed at 15:30 IST"
+                    : data?.marketStatus?.reason === "WEEKEND"
+                      ? "Weekend — next session resumes Monday"
+                      : data?.marketStatus?.reason === "HOLIDAY"
+                        ? "NSE holiday — market is closed today"
+                        : "Market is closed"}
             </div>
             <div className="text-xs text-muted-foreground/70">
               Live signals are only generated during market hours (09:15 — 15:30 IST).

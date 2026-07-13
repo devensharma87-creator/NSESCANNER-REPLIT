@@ -7296,7 +7296,7 @@
   {
     "path": "artifacts/scanner/src/lib/fnoEmptyState.test.ts",
     "purpose": "test",
-    "lines": 270,
+    "lines": 376,
     "exports": [],
     "externalImports": [
       "vitest",
@@ -7304,12 +7304,12 @@
       "@/components/global-status-banner"
     ],
     "routes": [],
-    "hash": "9dce15eae07bdc52"
+    "hash": "e7af0b6012de76d1"
   },
   {
     "path": "artifacts/scanner/src/lib/fnoEmptyState.ts",
     "purpose": "fno-engine",
-    "lines": 145,
+    "lines": 159,
     "exports": [
       "FnoBannerKind",
       "FnoBannerState",
@@ -7324,7 +7324,7 @@
       "@/components/global-status-banner"
     ],
     "routes": [],
-    "hash": "cdbe3ab28b81789a"
+    "hash": "e34d14855ea6f4ed"
   },
   {
     "path": "artifacts/scanner/src/lib/foCockpitView.test.ts",
@@ -8442,7 +8442,7 @@
   {
     "path": "artifacts/scanner/src/pages/options.tsx",
     "purpose": "ui-page",
-    "lines": 1674,
+    "lines": 1678,
     "exports": [],
     "externalImports": [
       "@/components/ui/card",
@@ -8457,7 +8457,7 @@
       "@/lib/setupExplanation"
     ],
     "routes": [],
-    "hash": "37670fb5f0d00688"
+    "hash": "3aa5a3b00e09583d"
   },
   {
     "path": "artifacts/scanner/src/pages/paper-reports.tsx",

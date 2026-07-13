@@ -1,0 +1,235 @@
+URGENT PROFESSIONAL CODER PROMPT — STOP LOOPING: F&O INTRADAY FALSE “MARKET IS CLOSED” ROOT-CAUSE CLOSEOUT
+
+We are stuck on the same F&O Intraday / /options page bug. The owner still sees “Market is closed” even when it should not appear during IST market hours.
+
+Latest investigation already found the deeper root cause:
+
+1. /api/options/signals and rich marketStatus were fixed in DEV.
+2. React Query/browser cache could still hold stale pre-fix data where:
+   - marketStatus is absent/undefined
+   - deprecated marketState = "closed"
+3. Previous fallback still trusted deprecated marketState when marketStatus was absent.
+4. Therefore stale cache made the UI show the prominent “Market is closed” card.
+5. Correct behavior: only trust marketStatus.marketOpen for market-closed UI.
+6. If marketStatus is absent, do NOT show “Market is closed.”
+
+Current status:
+
+PHASE_2A_IST_MARKET_HOURS_AND_EXECUTION_CONFIRMATION_DEV_VERIFIED_STALE_CACHE_FIX_ADDED
+PROD_DEPLOY_AND_UI_PROOF_PENDING
+
+Do not claim PROD_VERIFIED until latest stale-cache fix is deployed and proven on the real website.
+
+P0 OBJECTIVE:
+The F&O Intraday page must never show “Market is closed” unless:
+
+marketStatus.marketOpen === false
+
+with a valid reason:
+BEFORE_OPEN / AFTER_CLOSE / WEEKEND / HOLIDAY / SPECIAL_SESSION_CLOSED
+
+If marketStatus is missing, stale, undefined, or API errored, do not show “Market is closed.”
+
+PART 1 — Prove deployed build
+
+Before writing code, capture:
+
+GET https://marketscannerbydev.in/api/build-info
+
+Return:
+- production commitShort
+- production commitSha
+- buildTime
+- bootTime
+- environment
+- frontend bundle filename
+- whether latest stale-cache fix is live
+
+If not deployed, deploy first. If still old build, verdict:
+
+PHASE_2A_FNO_MARKET_CLOSED_FIX_BUILD_NOT_DEPLOYED
+
+PART 2 — Find every renderer that can show Market Closed
+
+Run:
+
+grep -R "Market is closed" -n artifacts scanner lib src . || true
+grep -R "Market closed" -n artifacts scanner lib src . || true
+grep -R "marketState" -n artifacts/scanner/src artifacts/api-server/src lib || true
+grep -R "marketStatus" -n artifacts/scanner/src artifacts/api-server/src lib || true
+grep -R "No setups because the market is closed" -n . || true
+
+Create table:
+File | Line | Text rendered | Condition used | Uses deprecated marketState? | Fix needed?
+
+PART 3 — One canonical UI state
+
+Create/centralize:
+
+deriveFnoIntradayUiState({ data, error, isLoading, nowIst })
+
+It must return:
+LOADING
+API_ERROR
+MARKET_STATUS_UNKNOWN
+MARKET_OPEN_WITH_SETUPS
+MARKET_OPEN_NO_TRADEABLE_SETUP
+MARKET_CLOSED_BEFORE_OPEN
+MARKET_CLOSED_AFTER_CLOSE
+MARKET_CLOSED_WEEKEND
+MARKET_CLOSED_HOLIDAY
+MARKET_CLOSED_SPECIAL_SESSION
+
+Use it for:
+1. /options main page
+2. empty state
+3. session banner
+4. signal alerter/diagnostic cards
+5. any Paper Trading F&O tab if shared
+
+PART 4 — Correct logic
+
+Allowed:
+
+data?.marketStatus?.marketOpen === false
+
+Forbidden for showing Market Closed:
+
+data?.marketState !== "open"
+data?.marketState === "closed"
+data?.marketState === "pre_open"
+!data
+data == null
+error
+api 500
+marketStatus missing
+stale cached payload
+
+If marketStatus is missing, show:
+“Live market status unavailable — refreshing Kite/NSE status...”
+or
+“No live setup currently. Waiting for fresh market-status payload.”
+
+PART 5 — Fix stale React Query/browser cache
+
+Do all applicable:
+1. Include build/API schema version in React Query key for /api/options/signals.
+2. If fetched payload lacks marketStatus, treat it as legacy and invalidate/refetch.
+3. Do not render Market Closed card while legacy payload is present.
+4. On app boot after new build, clear/invalidate old F&O signal query cache.
+5. If persisted cache/localStorage is used, bump cache schema version and purge old F&O keys.
+6. Add dev-only debug showing:
+   - commitShort
+   - marketStatus.marketOpen
+   - reason
+   - legacy/missing marketStatus
+
+Return exactly what cache mechanism exists and what was changed.
+
+PART 6 — API behavior
+
+/api/options/signals must return HTTP 200 and include marketStatus and setupState.
+
+If backend error occurs, frontend shows API/data error, not “Market is closed.”
+
+PART 7 — Execution confirmation
+
+Prove /api/options/signal-history includes execution.
+
+INFO_ONLY must never show false NOT_CONFIRMED.
+
+PART 8 — Tests
+
+Add/verify:
+1. marketStatus.marketOpen=true + liveSetupsCount=0 → no Market Closed.
+2. marketStatus.marketOpen=false AFTER_CLOSE → after-close reason.
+3. WEEKEND → weekend reason.
+4. marketStatus absent + stale marketState="closed" → must not show Market Closed.
+5. marketStatus absent + stale marketState="pre_open" → must not show Market Closed.
+6. API error/data undefined → must not show Market Closed.
+7. Monday 10:12 IST → marketOpen=true.
+8. Monday 09:14 IST → BEFORE_OPEN.
+9. Monday 15:31 IST → AFTER_CLOSE.
+10. NSE holiday → HOLIDAY.
+11. INFO_ONLY execution → no paper expected.
+12. TRADEABLE + paper row → confirmed.
+13. TRADEABLE + blocked → exact reason.
+14. Missing paper record → investigation required.
+
+PART 9 — Required commands
+
+Run and report exact counts:
+
+pnpm --filter @workspace/api-server run typecheck
+pnpm --filter @workspace/api-server run typecheck:libs
+pnpm --filter @workspace/scanner run typecheck
+pnpm --filter @workspace/scanner exec vitest run
+pnpm --filter @workspace/api-server exec vitest run src/lib/marketEvents.test.ts src/lib/dailyReports.test.ts src/lib/contractMasterFact.test.ts
+pnpm --filter @workspace/scripts run verify:release
+pnpm --filter @workspace/scripts run index:llm
+pnpm --filter @workspace/scripts run index:llm:check
+
+PART 10 — Production proof
+
+After deploy, provide:
+
+Build proof:
+- /api/build-info commitShort
+- commitSha
+- buildTime
+- bootTime
+- bundle filename
+- verify:release result
+
+API proof:
+- HTTP status
+- marketStatus.marketOpen
+- marketStatus.reason
+- serverIst
+- exchangeTimezone
+- setupState.liveSetupsCount
+- setupState.tradeableCount
+- contractInstrumentToken type
+- signalHistory execution present
+
+Browser proof:
+1. hard refresh /options
+2. clear site cache/localStorage/React Query persisted cache if needed
+3. capture DOM/screenshot
+4. confirm during market open no false “Market is closed”
+5. confirm stale legacy payload does not show Market Closed
+6. confirm API error does not show Market Closed
+7. confirm INFO_ONLY does not show false NOT_CONFIRMED
+
+PART 11 — Reports
+
+Update:
+1. FULL_PLATFORM_AUDIT_AND_FIX_MASTER_REPORT.md
+2. FULL_PLATFORM_BUG_REGISTER.csv
+3. USER_FACING_CORE_TABS_DEEP_AUDIT_REPORT.md
+4. POST_P0_SIGNAL_SYSTEM_REBASELINE_REPORT.md
+5. docs/fno-signal-gap-audit/AUDIT-REPORT-2026-06-30.md
+
+FINAL RESPONSE FORMAT ONLY:
+
+Verdict:
+PHASE_2A_FNO_MARKET_CLOSED_STALE_CACHE_FIX_DEV_VERIFIED
+or
+PHASE_2A_FNO_MARKET_CLOSED_STALE_CACHE_FIX_PROD_VERIFIED
+or
+PHASE_2A_FNO_MARKET_CLOSED_FIX_BUILD_NOT_DEPLOYED
+or
+RELEASE_INTEGRITY_REGRESSION_FOUND
+or
+ROLLBACK_REQUIRED
+
+Then return tables only:
+1. Root cause table
+2. Code audit table
+3. Cache handling proof
+4. API proof
+5. Browser proof
+6. Test counts
+7. Safety confirmation
+
+No long narrative. No guessing. No more partial fixes.
