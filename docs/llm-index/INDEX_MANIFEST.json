@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-10T15:20:47.315Z",
+  "generatedAt": "2026-07-13T06:31:15.751Z",
   "generatorVersion": "1.0.0",
   "files": {
     "artifacts/api-server/src/routes/admin.ts": {
@@ -158,9 +158,9 @@
       "mtime": "2026-06-10T10:08:34.721Z"
     },
     "artifacts/api-server/src/routes/swingStaging.ts": {
-      "hash": "ca42c03e270ac97c",
-      "lines": 458,
-      "mtime": "2026-07-10T13:01:56.019Z"
+      "hash": "7571b9a85b9ac146",
+      "lines": 507,
+      "mtime": "2026-07-13T06:28:52.219Z"
     },
     "artifacts/api-server/src/routes/system.ts": {
       "hash": "8d6a00e4fa272341",
@@ -1083,9 +1083,9 @@
       "mtime": "2026-06-29T14:46:55.000Z"
     },
     "artifacts/api-server/src/lib/swingOrderStaging.ts": {
-      "hash": "f21b2929d730f452",
-      "lines": 851,
-      "mtime": "2026-07-10T07:51:13.652Z"
+      "hash": "7a5aebaec426f8d2",
+      "lines": 885,
+      "mtime": "2026-07-13T06:28:36.563Z"
     },
     "artifacts/api-server/src/lib/swingScanner.ts": {
       "hash": "5cac481bd2734b09",

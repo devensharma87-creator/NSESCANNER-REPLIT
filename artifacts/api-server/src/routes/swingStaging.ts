@@ -22,8 +22,9 @@
  */
 
 import { Router, type IRouter, type Request } from "express";
+import { eq, and } from "drizzle-orm";
 import { db } from "@workspace/db";
-import type { SwingOrderStagingRow } from "@workspace/db/schema";
+import { swingOrderStagingTable, paperAccountTable, type SwingOrderStagingRow } from "@workspace/db/schema";
 import {
   StageSwingStagedOrderBody,
   SetSwingKillSwitchBody,
@@ -401,6 +402,54 @@ router.post("/swing/staged-orders/:id/approve", requireOwner, async (req, res) =
     order: toOrder(result.row),
     decision: result.decision,
     availability: result.availability,
+    execution: executionSnapshot(),
+    /** paperConversion: whether the paper trade opened after approval, and why not if blocked. */
+    paperConversion: result.paperTradeResult,
+  });
+});
+
+/**
+ * POST /swing/staged-orders/:id/paper-open-preview — owner-only, read-only.
+ * Simulates whether the paper equity trade would open for this staged order
+ * given the current paper account free cash. No mutations. Proves the
+ * SWING_STAGED_APPROVAL code path and surfaces capital constraints clearly.
+ */
+router.post("/swing/staged-orders/:id/paper-open-preview", requireOwner, async (req, res) => {
+  const owner = ownerKeyFor(req);
+  if (!owner) { res.status(401).json({ error: "unauthorized" }); return; }
+  const id = paramId(req);
+
+  const [row] = await db
+    .select()
+    .from(swingOrderStagingTable)
+    .where(and(eq(swingOrderStagingTable.id, id), eq(swingOrderStagingTable.ownerKey, owner)))
+    .limit(1);
+  if (!row) { res.status(404).json({ error: "not_found" }); return; }
+
+  const [acct] = await db
+    .select({ balance: paperAccountTable.balance })
+    .from(paperAccountTable)
+    .where(eq(paperAccountTable.segment, "EQUITY"))
+    .limit(1);
+
+  const availableCapital = acct ? Number(acct.balance) : 0;
+  const requiredCapital = Number(row.entryPrice) * (row.quantity ?? 1);
+  const wouldOpen = availableCapital >= requiredCapital;
+
+  res.json({
+    simulate: true,
+    stagedOrderId: row.id,
+    symbol: row.symbol,
+    status: row.status,
+    approvalStatus: row.approvalStatus,
+    source: "SWING_STAGED_APPROVAL",
+    entry: row.entryPrice,
+    qty: row.quantity,
+    requiredCapital,
+    availableCapital,
+    wouldOpen,
+    blockedReason: wouldOpen ? null : "CONCURRENT_CAP",
+    brokerExecution: false,
     execution: executionSnapshot(),
   });
 });

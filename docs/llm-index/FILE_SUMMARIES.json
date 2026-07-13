@@ -5165,7 +5165,7 @@
   {
     "path": "artifacts/api-server/src/lib/swingOrderStaging.ts",
     "purpose": "swing-engine",
-    "lines": 851,
+    "lines": 885,
     "exports": [
       "SwingOrderStatus",
       "SwingApprovalStatus",
@@ -5193,7 +5193,7 @@
       "@workspace/db"
     ],
     "routes": [],
-    "hash": "f21b2929d730f452"
+    "hash": "7a5aebaec426f8d2"
   },
   {
     "path": "artifacts/api-server/src/lib/swingScanner.ts",
@@ -6872,10 +6872,11 @@
   {
     "path": "artifacts/api-server/src/routes/swingStaging.ts",
     "purpose": "api-route",
-    "lines": 458,
+    "lines": 507,
     "exports": [],
     "externalImports": [
       "express",
+      "drizzle-orm",
       "@workspace/db",
       "@workspace/db/schema"
     ],
@@ -6891,11 +6892,12 @@
       "GET /swing/staged-orders/:id",
       "POST /swing/staged-orders/:id/refresh",
       "POST /swing/staged-orders/:id/approve",
+      "POST /swing/staged-orders/:id/paper-open-preview",
       "POST /swing/staged-orders/:id/reject",
       "POST /swing/staged-orders/:id/watch",
       "POST /swing/staged-orders/:id/expire"
     ],
-    "hash": "ca42c03e270ac97c"
+    "hash": "7571b9a85b9ac146"
   },
   {
     "path": "artifacts/api-server/src/routes/system.ts",

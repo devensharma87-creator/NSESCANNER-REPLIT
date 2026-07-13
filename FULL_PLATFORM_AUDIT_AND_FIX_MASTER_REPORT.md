@@ -545,7 +545,7 @@ All 7 checks completed with real owner-authenticated production API calls (sessi
 | 6. Paper equity source/provenance | ✅ | `source` + `stagedOrderId` fields on all 10 positions; no SWING_STAGED_APPROVAL yet (pipeline wired, not triggered) |
 | 7. Broker disabled everywhere | ✅ | Confirmed in swing execution block, TTL sweep, both Telegram messages |
 
-*Production verdict: `PHASE_2A_SWING_TELEGRAM_FNO_P0_PROD_VERIFIED`*
+*Production verdict at initial publication: `PHASE_2A_SWING_TELEGRAM_FNO_P0_PROD_VERIFIED`*
 
 ---
 
@@ -604,3 +604,54 @@ Two remaining blockers addressed after initial production publication:
 | **Total** | **23/23** |
 
 Typecheck: green. LLM index: fresh (354 files). API server restarted with fix.
+
+---
+
+## Phase 2A Closeout Correction — 2026-07-13
+
+**Owner review verdict:** `PHASE_2A_PROD_FINAL_CLOSEOUT_PARTIAL_GAP_REMAINS`
+
+Two gaps identified after owner review of the 2026-07-10 closeout attempt:
+
+### Gap 1 — PRE_MARKET retry fix not yet deployed to production
+Retry fix was committed (`52b4956`) but not published. Production still on `3ee67447`. Fix must be deployed and verified via `/api/build-info` before `PRE_MARKET_RETRY_FIX_PROD_DEPLOYED_NEXT_RUN_PENDING` can be stamped.
+
+### Gap 2 — paperConversion blocked reason not surfaced in approve API
+When `openPaperEquityTradeFromStagedOrder` is blocked by `CONCURRENT_CAP`, the approve route returned `approved: true` with NO information about why the paper trade did not open. Owner had to check logs to understand balance=₹58.59 vs requiredCapital≈₹825.
+
+### Code changes applied (2026-07-13)
+
+**`swingOrderStaging.ts`:**
+- Added `paperAccountTable` import
+- Extended `ApproveResult.paperTradeResult` type: adds `blockedReason?`, `availableCapital?`, `requiredCapital?`
+- After failed paper open: queries EQUITY paper account balance, computes `blockedReason` (`CONCURRENT_CAP` when balance < required, `GATE_BLOCKED` otherwise). Fail-open — balance query failure never breaks approval response.
+
+**`swingStaging.ts` (route):**
+- `POST /swing/staged-orders/:id/approve` now returns `paperConversion: result.paperTradeResult` in the HTTP success body — owner sees `opened / blockedReason / availableCapital / requiredCapital` without logs.
+- New endpoint `POST /swing/staged-orders/:id/paper-open-preview` (owner-only, read-only): pure simulation — queries the staging row + EQUITY account balance, returns `{ simulate:true, wouldOpen, source:"SWING_STAGED_APPROVAL", stagedOrderId, entry, qty, requiredCapital, availableCapital, blockedReason, brokerExecution:false, execution }`. No mutations.
+
+**Tests:** 166 tests pass (swingOrderStaging 114 + dailyReportsDedupContract 23 + swingTtlSweep 20 + swingStagingSweepSafe 5 + dailyAnalysisDryRun 9). Typecheck EXIT:0 (api-server + libs). LLM index rebuilt 2026-07-13T06:31:15Z.
+
+### Final evidence table (post-correction-pass code changes)
+
+| Item | Production evidence | Verdict |
+|---|---|---|
+| PRE_MARKET timeout root cause | `error_code=TIMEOUT`, `telegram_status=TIMEOUT`, 24s elapsed at 03:21 UTC 2026-07-10 — confirmed from prod DB | ✅ CONFIRMED |
+| retry FAILED-row fix code | `tryClaimScheduledReport` UPDATE WHERE status='FAILED' — committed + 23/23 tests | ✅ CODE_DONE |
+| retry fix deployed to production | Pending publish of current commit | ⏳ PENDING_DEPLOY |
+| verify:release after deploy | Pending publish | ⏳ PENDING_DEPLOY |
+| next pre-market retry / success | Next business day 08:50 IST will exercise retry path | ⏳ PRE_MARKET_RETRY_FIX_PROD_DEPLOYED_NEXT_RUN_PENDING |
+| paper account available cash | ₹58.59 (10 open AUTO_STRONG_BUY positions; portfolio fully deployed) | ✅ CONFIRMED |
+| staged approval passes | HDFCBANK 2026-07-10: `approved:true`, `entryClass:ENTRY_VALID_NOW`, `mode:paper_only`, `brokerStatus:BROKER_DISABLED` | ✅ CONFIRMED |
+| paper conversion blocked reason shown | NEW: approve route now returns `paperConversion: { opened:false, blockedReason:"CONCURRENT_CAP", availableCapital:58.59, requiredCapital:825 }`. `paper-open-preview` endpoint added. Pending deploy + re-test. | ⏳ PENDING_DEPLOY |
+| live SWING_STAGED_APPROVAL row created OR pending capital | HDFCBANK approved 2026-07-10, blocked by CONCURRENT_CAP (₹58.59 vs ₹825 required), TTL-expired 2026-07-13. New trial needed post-deploy when capital freed | ⏳ PHASE_2A_PROD_LIVE_SWING_APPROVAL_SAMPLE_PENDING_CAPITAL_BLOCKED |
+| Telegram dry-run includes swing open OR pending capital | No SWING_STAGED_APPROVAL paper row → dry-run shows "none today" (honest). Pending capital availability | ⏳ PENDING_CAPITAL |
+| broker execution disabled | `brokerExecutionEnabled:false` confirmed in all surfaces on 2026-07-10 and unchanged | ✅ CONFIRMED |
+
+**Current verdict:** `PHASE_2A_PROD_LIVE_SWING_APPROVAL_SAMPLE_PENDING_CAPITAL_BLOCKED`
+
+Post-deploy actions required (owner):
+1. Publish current commit → verify `/api/build-info` shows new commitSha → run `verify:release` (expect 11/11)
+2. Stage a new swing candidate + approve → confirm `paperConversion.blockedReason = "CONCURRENT_CAP"` in response OR close an existing paper position and re-approve to get `paperConversion.opened = true`
+3. If `opened: true`: confirm `source=SWING_STAGED_APPROVAL` in `GET /api/paper/positions/eq` + confirm Telegram dry-run includes swing open
+4. Stamp `PHASE_2A_SWING_TELEGRAM_FNO_P0_PROD_VERIFIED` only when all three pass

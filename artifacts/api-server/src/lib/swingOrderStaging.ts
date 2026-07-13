@@ -20,6 +20,7 @@ import { and, desc, eq, gt, inArray, lt } from "drizzle-orm";
 import { db } from "@workspace/db";
 import {
   swingOrderStagingTable,
+  paperAccountTable,
   type NewSwingOrderStagingRow,
   type SwingOrderStagingRow,
 } from "@workspace/db/schema";
@@ -595,7 +596,16 @@ export type ApproveResult =
       /** Result of the paper trade open attempt that follows a successful approval.
        *  `opened: false` means a safety gate (DD cap, heat cap, etc.) blocked it —
        *  the approval itself is still committed and the staging row is APPROVED. */
-      paperTradeResult: { opened: boolean; paperTradeId?: string };
+      paperTradeResult: {
+        opened: boolean;
+        paperTradeId?: string;
+        /** Why the paper trade was not opened (when opened=false). */
+        blockedReason?: string;
+        /** Paper account free cash at time of open attempt (EQUITY segment). */
+        availableCapital?: number;
+        /** Capital required to open: entry × qty. */
+        requiredCapital?: number;
+      };
     };
 
 /**
@@ -720,7 +730,13 @@ export async function approveSwingOrder(
   // already committed — a paper trade failure here does NOT roll it back.
   // All safety gates (DD caps, heat cap, stop-sanity) still apply; the returned
   // `opened: false` only means a cap was hit after approval, not a code error.
-  let paperTradeResult: { opened: boolean; paperTradeId?: string } = { opened: false };
+  let paperTradeResult: {
+    opened: boolean;
+    paperTradeId?: string;
+    blockedReason?: string;
+    availableCapital?: number;
+    requiredCapital?: number;
+  } = { opened: false };
   try {
     const ptRow = await openPaperEquityTradeFromStagedOrder(approvedRow);
     paperTradeResult = { opened: ptRow != null, paperTradeId: ptRow?.id?.toString() };
@@ -729,6 +745,24 @@ export async function approveSwingOrder(
       { err: (err as Error).message, stagingId: approvedRow.id },
       "approveSwingOrder: paper trade open failed (approval already committed)",
     );
+  }
+
+  // When the paper trade did not open, surface capital info so the owner can
+  // see WHY (e.g. CONCURRENT_CAP = insufficient free cash) without digging logs.
+  if (!paperTradeResult.opened) {
+    try {
+      const [acct] = await db
+        .select({ balance: paperAccountTable.balance })
+        .from(paperAccountTable)
+        .where(eq(paperAccountTable.segment, "EQUITY"))
+        .limit(1);
+      const availableCapital = acct ? Number(acct.balance) : 0;
+      const requiredCapital = Number(approvedRow.entryPrice) * (approvedRow.quantity ?? 1);
+      const blockedReason = availableCapital < requiredCapital ? "CONCURRENT_CAP" : "GATE_BLOCKED";
+      paperTradeResult = { ...paperTradeResult, blockedReason, availableCapital, requiredCapital };
+    } catch {
+      /* fail-open: capital query failure must not break the approval response */
+    }
   }
 
   return { approved: true, status: newStatus, decision, availability, row: approvedRow, paperTradeResult };
