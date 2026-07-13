@@ -198,3 +198,27 @@ id = "jd_z8XpDiws-YdVYzmHJs"
 uri = "file://docs/quant-grade-audit-2026-07-08.md"
 type = "text"
 title = "Quant-Grade Audit Report — 2026-07-08"
+
+[[outputs]]
+id = "r0rbShS1E4CPcSiUCDZmP"
+uri = "file://.export/db-exports.zip"
+type = "unspecified"
+title = "Database Exports (6.4 MB) — 37 tables as CSV"
+
+[[outputs]]
+id = "q8Lzrt_KBkEWYluRK-Oel"
+uri = "file://.export/reference-data.zip"
+type = "unspecified"
+title = "Reference Data (656 KB) — sector maps, candle CSVs, OpenAPI spec"
+
+[[outputs]]
+id = "py26ay5XZzRsDiQp6s2mT"
+uri = "file://.export/source-code.zip"
+type = "unspecified"
+title = "Source Code (12 MB) — all TypeScript/React src files"
+
+[[outputs]]
+id = "Q-7q_g1yERafx194G5BNX"
+uri = "file://.export/api-snapshots.zip"
+type = "unspecified"
+title = "API Snapshots (4 KB) — live API responses at export time"
