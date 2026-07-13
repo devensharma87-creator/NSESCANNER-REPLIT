@@ -62,17 +62,27 @@ function mkReadiness(over: Partial<KiteReadiness>): KiteReadiness {
 }
 
 describe("deriveFnoEmptyReason — cause priority", () => {
-  it("market closed wins over everything (even when Kite is offline)", () => {
+  it("market closed (marketStatus.marketOpen=false) wins over everything (even when Kite is offline)", () => {
     const r = deriveFnoEmptyReason(
-      mkSet({ marketState: "closed" }),
+      mkSet({ marketStatus: { marketOpen: false }, marketState: "closed" }),
       mkReadiness({ sessionValid: false, feedConnected: false }),
     );
     expect(r).toBe("No setups because the market is closed.");
   });
 
-  it("pre_open is also treated as market closed", () => {
-    expect(deriveFnoEmptyReason(mkSet({ marketState: "pre_open" }), null)).toBe(
-      "No setups because the market is closed.",
+  it("pre_open (marketStatus.marketOpen=false, reason=PRE_OPEN) is treated as market closed", () => {
+    expect(deriveFnoEmptyReason(
+      mkSet({ marketStatus: { marketOpen: false, reason: "PRE_OPEN" }, marketState: "pre_open" }),
+      null,
+    )).toBe("No setups because the market is closed.");
+  });
+
+  it("stale cache: marketState=closed with NO marketStatus → floor message (not market-closed)", () => {
+    // Critical stale-cache regression: old React Query cache entries pre-dating the
+    // marketStatus field have marketState="closed" from a prior non-market-hours fetch.
+    // This must NOT falsely say "market is closed" during actual trading hours.
+    expect(deriveFnoEmptyReason(mkSet({ marketState: "closed" }), null)).toBe(
+      "No setups because no candidate cleared the confidence floor or risk gates right now.",
     );
   });
 
@@ -243,8 +253,13 @@ describe("deriveSessionBannerState", () => {
     expect(state.show).toBe(false);
   });
 
-  it("returns show:false when market is closed", () => {
-    const data = mkSet({ marketState: "closed" });
+  it("returns show:false when market is closed (marketStatus.marketOpen=false)", () => {
+    // Even when all 3 indices are suppressed, banner stays hidden when market is closed.
+    const data = mkSet({
+      marketStatus: { marketOpen: false, reason: "AFTER_CLOSE" },
+      marketState: "closed",
+      suppressed: FNO_TABLE_INDICES.map((index) => ({ index, reasons: ["no_live_kite_intraday"] })),
+    });
     const state = deriveSessionBannerState(data, mkReadiness({}), null, null);
     expect(state.show).toBe(false);
   });

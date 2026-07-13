@@ -35,11 +35,10 @@ export function deriveSessionBannerState(
   lastSignalAny: string | null | undefined,
 ): FnoBannerState {
   if (readiness == null) return { show: false }; // non-owner
-  // Prefer the reliable marketStatus.marketOpen; fall back to deprecated marketState
-  // for responses pre-dating the marketStatus field (stale React Query cache).
-  const marketClosed = data?.marketStatus != null
-    ? !data.marketStatus.marketOpen
-    : (data?.marketState != null && data.marketState !== "open");
+  // Only trust marketStatus.marketOpen — never fall back to deprecated marketState.
+  // Stale React Query cache can hold marketState="closed" from a prior session, which
+  // would incorrectly suppress the banner during actual market hours.
+  const marketClosed = data?.marketStatus != null && !data.marketStatus.marketOpen;
   if (marketClosed) return { show: false };
 
   const suppressed = data?.diagnostics?.suppressed ?? [];
@@ -78,12 +77,12 @@ export function deriveFnoEmptyReason(
   data: OptionSignalSet | undefined,
   readiness: KiteReadiness | null,
 ): string {
-  // Prefer the reliable marketStatus.marketOpen; fall back to deprecated marketState
-  // for responses pre-dating the marketStatus field (stale React Query cache).
-  const marketClosed = data?.marketStatus != null
-    ? !data.marketStatus.marketOpen
-    : (data?.marketState != null && data.marketState !== "open");
-  if (marketClosed) {
+  // Only trust marketStatus.marketOpen — never fall back to deprecated marketState.
+  // Stale React Query cache can hold marketState="closed" from a prior closed session;
+  // using it would falsely say "market is closed" during actual trading hours.
+  // When marketStatus is absent (pre-fix stale cache), assume market might be open
+  // and show the generic empty-state message — it clears on the next fresh fetch.
+  if (data?.marketStatus != null && !data.marketStatus.marketOpen) {
     return "No setups because the market is closed.";
   }
   const kiteOffline = readiness ? (!readiness.sessionValid || !readiness.feedConnected) : false;
