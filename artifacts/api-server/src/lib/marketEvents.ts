@@ -216,6 +216,74 @@ export function computeMarketStatus(now: Date): "open" | "closed" | "pre_open" {
   if (mins >= 9 * 60 + 15 && mins <= 15 * 60 + 30) return "open";
   return "closed";
 }
+
+export type MarketStatusReason =
+  | "OPEN"
+  | "BEFORE_OPEN"
+  | "PRE_OPEN"
+  | "AFTER_CLOSE"
+  | "WEEKEND"
+  | "HOLIDAY"
+  | "UNKNOWN";
+
+export interface FnoMarketStatusDetail {
+  isTradingDay: boolean;
+  marketOpen: boolean;
+  reason: MarketStatusReason;
+  serverUtc: string;
+  serverIst: string;
+  exchangeTimezone: string;
+  openTimeIst: string;
+  closeTimeIst: string;
+  calendarSource: string;
+  calendarAsOf: string;
+}
+
+/** Rich IST market-hours status.  Use marketOpen (boolean) for gating; reason for display copy. */
+export function getMarketStatusDetail(now: Date): FnoMarketStatusDetail {
+  const ist = new Date(now.getTime() + 5.5 * 60 * 60 * 1000);
+  const dow = ist.getUTCDay(); // 0=Sun .. 6=Sat
+  const mins = ist.getUTCHours() * 60 + ist.getUTCMinutes();
+
+  const pad2 = (n: number) => String(n).padStart(2, "0");
+  const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  const serverIst = `${pad2(ist.getUTCHours())}:${pad2(ist.getUTCMinutes())} ${pad2(ist.getUTCDate())}-${months[ist.getUTCMonth()]}-${ist.getUTCFullYear()}`;
+
+  let reason: MarketStatusReason;
+  let marketOpen = false;
+  let isTradingDay = false;
+
+  if (dow === 0 || dow === 6) {
+    reason = "WEEKEND";
+  } else if (isNseHoliday(ist)) {
+    reason = "HOLIDAY";
+  } else {
+    isTradingDay = true;
+    if (mins < 9 * 60) {
+      reason = "BEFORE_OPEN";
+    } else if (mins < 9 * 60 + 15) {
+      reason = "PRE_OPEN";
+    } else if (mins <= 15 * 60 + 30) {
+      reason = "OPEN";
+      marketOpen = true;
+    } else {
+      reason = "AFTER_CLOSE";
+    }
+  }
+
+  return {
+    isTradingDay,
+    marketOpen,
+    reason,
+    serverUtc: now.toISOString(),
+    serverIst,
+    exchangeTimezone: "Asia/Kolkata",
+    openTimeIst: "09:15",
+    closeTimeIst: "15:30",
+    calendarSource: "NSE_CURATED_2026",
+    calendarAsOf: "2026-12-31",
+  };
+}
 const ECONOMIC_EVENTS_BY_YEAR: Record<number, EconomicEvent[]> = {
   2026: ECONOMIC_EVENTS_2026,
   2027: ECONOMIC_EVENTS_2027,

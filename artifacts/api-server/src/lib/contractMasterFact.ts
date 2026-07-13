@@ -222,7 +222,11 @@ export function resolveContractMaster(
         underlying: sym,
         exchange,
         segment: exactRow.segment,
-        instrumentToken: exactRow.instrument_token,
+        // Kite CSV parser may return instrument_token as a string despite the
+        // TS type annotation; coerce to number so Zod parse & DB write both succeed.
+        instrumentToken: exactRow.instrument_token != null
+          ? Number(exactRow.instrument_token)
+          : null,
         tradingSymbol: exactRow.tradingsymbol,
         expiry: algorithmicExpiry,
         expirySource: "instrument_master",

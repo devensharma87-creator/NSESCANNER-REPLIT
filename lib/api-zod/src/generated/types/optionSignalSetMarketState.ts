@@ -7,7 +7,7 @@
  */
 
 /**
- * NSE equity-market session state at generation time.
+ * NSE equity-market session state at generation time. Deprecated — prefer marketStatus.marketOpen + marketStatus.reason.
  */
 export type OptionSignalSetMarketState =
   (typeof OptionSignalSetMarketState)[keyof typeof OptionSignalSetMarketState];

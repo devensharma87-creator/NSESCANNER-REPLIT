@@ -1000,23 +1000,34 @@ export default function OptionsPage() {
 
       {tab === "report" ? (
         <ReportTab />
-      ) : (data?.marketState !== "open" && !isLoading) ? (
+      ) : isLoading ? (
+        <div className="space-y-6">
+          {Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-96 w-full" />)}
+        </div>
+      ) : (data?.marketStatus && !data.marketStatus.marketOpen) ? (
         <Card>
           <CardContent className="py-12 text-center space-y-2">
             <Clock className="w-8 h-8 text-muted-foreground mx-auto" />
             <div className="text-muted-foreground font-mono text-sm">
-              Market is {data?.marketState === "pre_open" ? "in pre-open" : "closed"}
+              {data.marketStatus.reason === "PRE_OPEN"
+                ? "Pre-open session (09:00 – 09:15 IST)"
+                : data.marketStatus.reason === "BEFORE_OPEN"
+                  ? "Market opens at 09:15 IST"
+                  : data.marketStatus.reason === "AFTER_CLOSE"
+                    ? "Market closed at 15:30 IST"
+                    : data.marketStatus.reason === "WEEKEND"
+                      ? "Weekend — next session resumes Monday"
+                      : data.marketStatus.reason === "HOLIDAY"
+                        ? "NSE holiday — market is closed today"
+                        : "Market is closed"}
             </div>
             <div className="text-xs text-muted-foreground/70">
               Live signals are only generated during market hours (09:15 — 15:30 IST).
               Check the <button onClick={() => setTab("report")} className="underline text-primary hover:text-primary/80">Report</button> tab for historical performance.
             </div>
+            <div className="text-xs text-muted-foreground/50 font-mono pt-1">{data.marketStatus.serverIst} IST</div>
           </CardContent>
         </Card>
-      ) : isLoading ? (
-        <div className="space-y-6">
-          {Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-96 w-full" />)}
-        </div>
       ) : grouped.length === 0 ? (
         <Card>
           <CardContent className="py-8 space-y-4">

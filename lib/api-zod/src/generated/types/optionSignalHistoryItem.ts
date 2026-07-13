@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { OptionSignalHistoryItemDirection } from "./optionSignalHistoryItemDirection";
+import type { OptionSignalHistoryItemExecution } from "./optionSignalHistoryItemExecution";
 import type { OptionSignalHistoryItemExitReason } from "./optionSignalHistoryItemExitReason";
 import type { OptionSignalHistoryItemOptionType } from "./optionSignalHistoryItemOptionType";
 import type { OptionSignalHistoryItemStatus } from "./optionSignalHistoryItemStatus";
@@ -42,4 +43,6 @@ export interface OptionSignalHistoryItem {
   maxAdverseExcursionPts: number;
   lastSpot: number;
   lastEvaluatedAt: Date;
+  /** Real paper-trade execution truth enriched from DB. Always present on /options/signal-history rows. Use executionStatus for popup state. */
+  execution?: OptionSignalHistoryItemExecution;
 }

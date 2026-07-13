@@ -1606,7 +1606,65 @@ export interface OptionSignalDiagnostics {
 }
 
 /**
- * NSE equity-market session state at generation time.
+ * OPEN=during session, BEFORE_OPEN=before 09:15 IST, PRE_OPEN=09:00–09:15 IST, AFTER_CLOSE=after 15:30 IST, WEEKEND=Sat/Sun, HOLIDAY=NSE holiday, UNKNOWN=internal error.
+ */
+export type FnoMarketStatusReason =
+  (typeof FnoMarketStatusReason)[keyof typeof FnoMarketStatusReason];
+
+export const FnoMarketStatusReason = {
+  OPEN: "OPEN",
+  BEFORE_OPEN: "BEFORE_OPEN",
+  PRE_OPEN: "PRE_OPEN",
+  AFTER_CLOSE: "AFTER_CLOSE",
+  WEEKEND: "WEEKEND",
+  HOLIDAY: "HOLIDAY",
+  UNKNOWN: "UNKNOWN",
+} as const;
+
+/**
+ * Rich NSE market-hours status. Always returned with /options/signals. Use marketOpen (boolean) for gating, reason for display.
+ */
+export interface FnoMarketStatus {
+  /** True when the IST calendar date is a weekday and not an NSE holiday. */
+  isTradingDay: boolean;
+  /** True only during 09:15–15:30 IST on a trading day. */
+  marketOpen: boolean;
+  /** OPEN=during session, BEFORE_OPEN=before 09:15 IST, PRE_OPEN=09:00–09:15 IST, AFTER_CLOSE=after 15:30 IST, WEEKEND=Sat/Sun, HOLIDAY=NSE holiday, UNKNOWN=internal error. */
+  reason: FnoMarketStatusReason;
+  /** Server wall-clock time (UTC) when status was computed. */
+  serverUtc: string;
+  /** Server time converted to IST (HH:MM DD-Mon-YYYY). */
+  serverIst: string;
+  /** Always Asia/Kolkata. */
+  exchangeTimezone: string;
+  /** Session open time in IST. Always 09:15. */
+  openTimeIst: string;
+  /** Session close time in IST. Always 15:30. */
+  closeTimeIst: string;
+  /** Source of the holiday calendar used. */
+  calendarSource: string;
+  /** Date through which the holiday calendar is valid. */
+  calendarAsOf: string;
+}
+
+/**
+ * Live setup counts — how many setups were evaluated and are currently live.
+ */
+export interface FnoSetupState {
+  /** Number of F&O indices evaluated this cycle. */
+  indicesEvaluated: number;
+  /** Total live setups returned (all tiers). */
+  liveSetupsCount: number;
+  /** Setups with tradeClass=TRADEABLE. */
+  tradeableCount: number;
+  /** Setups gated/suppressed by risk/data gates this cycle. */
+  suppressedCount: number;
+  /** Human-readable reason when liveSetupsCount=0 during market hours. */
+  noSetupReason?: string | null;
+}
+
+/**
+ * NSE equity-market session state at generation time. Deprecated — prefer marketStatus.marketOpen + marketStatus.reason.
  */
 export type OptionSignalSetMarketState =
   (typeof OptionSignalSetMarketState)[keyof typeof OptionSignalSetMarketState];
@@ -1622,8 +1680,12 @@ export interface OptionSignalSet {
   generatedAt: string;
   /** Alias for generatedAt for UI consistency. */
   lastUpdated?: string;
-  /** NSE equity-market session state at generation time. */
+  /** NSE equity-market session state at generation time. Deprecated — prefer marketStatus.marketOpen + marketStatus.reason. */
   marketState?: OptionSignalSetMarketState;
+  /** Rich market-hours status. Always present. Use marketStatus.marketOpen for gating. */
+  marketStatus?: FnoMarketStatus;
+  /** Live setup counts for this cycle. */
+  setupState?: FnoSetupState;
   diagnostics?: OptionSignalDiagnostics;
 }
 
@@ -1671,6 +1733,39 @@ export const OptionSignalHistoryItemExitReason = {
   STALE_TRIGGER: "STALE_TRIGGER",
 } as const;
 
+/**
+ * NOT_APPLICABLE=info-only, OPENED=paper trade confirmed, BLOCKED=risk/data gate blocked, NOT_CONFIRMED=HC/STANDARD with no DB record (server restart / timing gap).
+ */
+export type OptionSignalHistoryItemExecutionExecutionStatus =
+  (typeof OptionSignalHistoryItemExecutionExecutionStatus)[keyof typeof OptionSignalHistoryItemExecutionExecutionStatus];
+
+export const OptionSignalHistoryItemExecutionExecutionStatus = {
+  NOT_APPLICABLE: "NOT_APPLICABLE",
+  OPENED: "OPENED",
+  BLOCKED: "BLOCKED",
+  NOT_CONFIRMED: "NOT_CONFIRMED",
+} as const;
+
+/**
+ * Real paper-trade execution truth enriched from DB. Always present on /options/signal-history rows. Use executionStatus for popup state.
+ */
+export type OptionSignalHistoryItemExecution = {
+  /** Signal tier as stored (HIGH_CONVICTION, BASELINE, INFO_ONLY). */
+  signalTier?: string;
+  /** True when tier is HC/STANDARD and auto-trade is possible. */
+  signalTradeable?: boolean;
+  /** NOT_APPLICABLE=info-only, OPENED=paper trade confirmed, BLOCKED=risk/data gate blocked, NOT_CONFIRMED=HC/STANDARD with no DB record (server restart / timing gap). */
+  executionStatus?: OptionSignalHistoryItemExecutionExecutionStatus;
+  /** Specific block reason code (e.g. DAILY_DD_CAP, PORTFOLIO_HEAT). Null when status≠BLOCKED. */
+  executionBlockedReason?: string | null;
+  paperTradeOpened?: boolean;
+  paperTradePositionId?: string | null;
+  paperTradeLots?: number | null;
+  paperTradeEntryPremium?: number | null;
+  /** INFO_ONLY | PAPER_TRADE_OPENED | TRADEABLE_EXECUTION_BLOCKED | EXECUTION_NOT_CONFIRMED | STOPPED. */
+  finalAlertClass?: string;
+} | null;
+
 export interface OptionSignalHistoryItem {
   /** IST trading date YYYY-MM-DD */
   signalDate: string;
@@ -1703,6 +1798,8 @@ export interface OptionSignalHistoryItem {
   maxAdverseExcursionPts: number;
   lastSpot: number;
   lastEvaluatedAt: string;
+  /** Real paper-trade execution truth enriched from DB. Always present on /options/signal-history rows. Use executionStatus for popup state. */
+  execution?: OptionSignalHistoryItemExecution;
 }
 
 export interface OptionSignalHistorySet {

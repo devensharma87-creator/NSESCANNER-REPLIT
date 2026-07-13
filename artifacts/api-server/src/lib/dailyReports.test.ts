@@ -857,3 +857,52 @@ describe("istDate format regression — must be ISO YYYY-MM-DD", () => {
     expect("01 Jul 2026").not.toMatch(/^\d{4}-\d{2}-\d{2}$/);
   });
 });
+
+// ── Weekday regression — 2026-07-13 is MONDAY, not Sunday ──────────────────────
+// An earlier evidence summary incorrectly stated "2026-07-13 is Sunday". These
+// tests anchor the correct UTC→IST day-of-week arithmetic that the scheduler
+// uses (UTC + 5.5h, then getUTCDay()).  They are pure date math — no Kite, no DB.
+//
+// IST = UTC + 5h30m; getUTCDay() on the shifted Date gives IST day-of-week.
+// 2026-07-13 04:43 UTC → +5.5h → 2026-07-13 10:13 IST → getUTCDay()=1 (Monday).
+
+describe("weekday regression — 2026-07-13 is Monday per IST offset arithmetic", () => {
+  function istDayOfWeek(utcMs: number): number {
+    return new Date(utcMs + 5.5 * 60 * 60 * 1000).getUTCDay();
+  }
+
+  it("2026-07-13T04:43:00Z → IST day-of-week = 1 (Monday)", () => {
+    const utc = Date.UTC(2026, 6, 13, 4, 43, 0); // month is 0-indexed
+    expect(istDayOfWeek(utc)).toBe(1);
+  });
+
+  it("2026-07-14T03:20:00Z → IST day-of-week = 2 (Tuesday)", () => {
+    const utc = Date.UTC(2026, 6, 14, 3, 20, 0);
+    expect(istDayOfWeek(utc)).toBe(2);
+  });
+
+  it("2026-07-12T04:43:00Z → IST day-of-week = 0 (Sunday)", () => {
+    const utc = Date.UTC(2026, 6, 12, 4, 43, 0);
+    expect(istDayOfWeek(utc)).toBe(0);
+  });
+
+  it("2026-07-11T04:43:00Z → IST day-of-week = 6 (Saturday)", () => {
+    const utc = Date.UTC(2026, 6, 11, 4, 43, 0);
+    expect(istDayOfWeek(utc)).toBe(6);
+  });
+
+  it("pre-market scheduler window: 08:50 IST = 03:20 UTC on same day", () => {
+    // 08:50 IST − 5:30 = 03:20 UTC
+    const preMktIst = Date.UTC(2026, 6, 13, 8, 50, 0) - 5.5 * 60 * 60 * 1000;
+    const utcHH = new Date(preMktIst).getUTCHours();
+    const utcMM = new Date(preMktIst).getUTCMinutes();
+    expect(utcHH).toBe(3);
+    expect(utcMM).toBe(20);
+  });
+
+  it("scheduler weekend gate: dayOfWeek===0||6 is false for 2026-07-13 (Monday)", () => {
+    const utc = Date.UTC(2026, 6, 13, 4, 43, 0);
+    const dow = istDayOfWeek(utc);
+    expect(dow === 0 || dow === 6).toBe(false);
+  });
+});

@@ -5,6 +5,8 @@
  * NSE Stock Scanner API
  * OpenAPI spec version: 0.1.0
  */
+import type { FnoMarketStatus } from "./fnoMarketStatus";
+import type { FnoSetupState } from "./fnoSetupState";
 import type { OptionSignal } from "./optionSignal";
 import type { OptionSignalDiagnostics } from "./optionSignalDiagnostics";
 import type { OptionSignalSetMarketState } from "./optionSignalSetMarketState";
@@ -14,7 +16,11 @@ export interface OptionSignalSet {
   generatedAt: Date;
   /** Alias for generatedAt for UI consistency. */
   lastUpdated?: Date;
-  /** NSE equity-market session state at generation time. */
+  /** NSE equity-market session state at generation time. Deprecated — prefer marketStatus.marketOpen + marketStatus.reason. */
   marketState?: OptionSignalSetMarketState;
+  /** Rich market-hours status. Always present. Use marketStatus.marketOpen for gating. */
+  marketStatus?: FnoMarketStatus;
+  /** Live setup counts for this cycle. */
+  setupState?: FnoSetupState;
   diagnostics?: OptionSignalDiagnostics;
 }

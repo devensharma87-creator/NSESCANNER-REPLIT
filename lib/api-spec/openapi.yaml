@@ -3290,6 +3290,36 @@ components:
               items: { type: string }
               description: "Plain-English lines describing every active gate. UI banner reads these verbatim."
 
+    FnoMarketStatus:
+      type: object
+      required: [isTradingDay, marketOpen, reason, serverUtc, serverIst, exchangeTimezone, openTimeIst, closeTimeIst, calendarSource, calendarAsOf]
+      description: "Rich NSE market-hours status. Always returned with /options/signals. Use marketOpen (boolean) for gating, reason for display."
+      properties:
+        isTradingDay:      { type: boolean, description: "True when the IST calendar date is a weekday and not an NSE holiday." }
+        marketOpen:        { type: boolean, description: "True only during 09:15–15:30 IST on a trading day." }
+        reason:
+          type: string
+          enum: [OPEN, BEFORE_OPEN, PRE_OPEN, AFTER_CLOSE, WEEKEND, HOLIDAY, UNKNOWN]
+          description: "OPEN=during session, BEFORE_OPEN=before 09:15 IST, PRE_OPEN=09:00–09:15 IST, AFTER_CLOSE=after 15:30 IST, WEEKEND=Sat/Sun, HOLIDAY=NSE holiday, UNKNOWN=internal error."
+        serverUtc:         { type: string, format: date-time, description: "Server wall-clock time (UTC) when status was computed." }
+        serverIst:         { type: string, description: "Server time converted to IST (HH:MM DD-Mon-YYYY)." }
+        exchangeTimezone:  { type: string, description: "Always Asia/Kolkata." }
+        openTimeIst:       { type: string, description: "Session open time in IST. Always 09:15." }
+        closeTimeIst:      { type: string, description: "Session close time in IST. Always 15:30." }
+        calendarSource:    { type: string, description: "Source of the holiday calendar used." }
+        calendarAsOf:      { type: string, description: "Date through which the holiday calendar is valid." }
+
+    FnoSetupState:
+      type: object
+      required: [indicesEvaluated, liveSetupsCount, tradeableCount, suppressedCount]
+      description: "Live setup counts — how many setups were evaluated and are currently live."
+      properties:
+        indicesEvaluated: { type: integer, description: "Number of F&O indices evaluated this cycle." }
+        liveSetupsCount:  { type: integer, description: "Total live setups returned (all tiers)." }
+        tradeableCount:   { type: integer, description: "Setups with tradeClass=TRADEABLE." }
+        suppressedCount:  { type: integer, description: "Setups gated/suppressed by risk/data gates this cycle." }
+        noSetupReason:    { type: string, nullable: true, description: "Human-readable reason when liveSetupsCount=0 during market hours." }
+
     OptionSignalSet:
       type: object
       required: [signals, generatedAt]
@@ -3302,7 +3332,13 @@ components:
         marketState:
           type: string
           enum: [open, closed, pre_open]
-          description: "NSE equity-market session state at generation time."
+          description: "NSE equity-market session state at generation time. Deprecated — prefer marketStatus.marketOpen + marketStatus.reason."
+        marketStatus:
+          $ref: "#/components/schemas/FnoMarketStatus"
+          description: "Rich market-hours status. Always present. Use marketStatus.marketOpen for gating."
+        setupState:
+          $ref: "#/components/schemas/FnoSetupState"
+          description: "Live setup counts for this cycle."
         diagnostics: { $ref: "#/components/schemas/OptionSignalDiagnostics" }
 
     OptionSignalHistoryItem:
@@ -3366,6 +3402,23 @@ components:
         maxAdverseExcursionPts:   { type: number }
         lastSpot:      { type: number }
         lastEvaluatedAt: { type: string, format: date-time }
+        execution:
+          type: object
+          nullable: true
+          description: "Real paper-trade execution truth enriched from DB. Always present on /options/signal-history rows. Use executionStatus for popup state."
+          properties:
+            signalTier:            { type: string, description: "Signal tier as stored (HIGH_CONVICTION, BASELINE, INFO_ONLY)." }
+            signalTradeable:       { type: boolean, description: "True when tier is HC/STANDARD and auto-trade is possible." }
+            executionStatus:
+              type: string
+              enum: [NOT_APPLICABLE, OPENED, BLOCKED, NOT_CONFIRMED]
+              description: "NOT_APPLICABLE=info-only, OPENED=paper trade confirmed, BLOCKED=risk/data gate blocked, NOT_CONFIRMED=HC/STANDARD with no DB record (server restart / timing gap)."
+            executionBlockedReason: { type: string, nullable: true, description: "Specific block reason code (e.g. DAILY_DD_CAP, PORTFOLIO_HEAT). Null when status≠BLOCKED." }
+            paperTradeOpened:       { type: boolean }
+            paperTradePositionId:   { type: string, nullable: true }
+            paperTradeLots:         { type: number, nullable: true }
+            paperTradeEntryPremium: { type: number, nullable: true }
+            finalAlertClass:        { type: string, description: "INFO_ONLY | PAPER_TRADE_OPENED | TRADEABLE_EXECUTION_BLOCKED | EXECUTION_NOT_CONFIRMED | STOPPED." }
 
     OptionSignalHistorySet:
       type: object

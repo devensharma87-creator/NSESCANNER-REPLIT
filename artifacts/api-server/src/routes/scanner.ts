@@ -32,7 +32,7 @@ import { scanFullNse, getFullNseStatus, startFullNseScannerBackground, getAllSca
 import { fetchIndexChart, fetchFundamentals, fetchStatements } from "../lib/marketData/analyticsYahoo";
 import { pivots } from "../lib/indicators";
 import { getFinancials, getHoldings, getMarketNews, getNewsForSymbol } from "../lib/financials";
-import { getMarketEvents, computeMarketStatus } from "../lib/marketEvents";
+import { getMarketEvents, computeMarketStatus, getMarketStatusDetail } from "../lib/marketEvents";
 import { getPreMarketReport } from "../lib/preMarket";
 import { getWatchlist } from "../lib/watchlist";
 import { buildBasket, resolveBasketKey } from "../lib/watchlistBasket";
@@ -222,11 +222,39 @@ router.get("/options/signals", requireSubscriberOrOwner("FNO"), async (_req, res
   try {
     const { signals, diagnostics } = await getOptionSignals();
     const now = new Date();
+    const marketStatus = getMarketStatusDetail(now);
+    const tradeableCount = signals.filter(s => s.tradeClass === "TRADEABLE").length;
+    const suppressedCount = (diagnostics?.gates?.correlationDroppedCount ?? 0) + (diagnostics?.gates?.oiVetoCount ?? 0);
+    const setupState = {
+      indicesEvaluated: diagnostics?.indicesConfigured ?? 3,
+      liveSetupsCount: signals.length,
+      tradeableCount,
+      suppressedCount,
+      noSetupReason: signals.length === 0 && marketStatus.marketOpen
+        ? (diagnostics?.gates?.notes?.[0] ?? "No high-conviction setup generated this cycle")
+        : null,
+    };
+    // Kite CSV parser returns instrument_token as a string; coerce to number
+    // before Zod parse (affects both live signals and disk-cached signals).
+    const normalizedSignals = signals.map(s => ({
+      ...s,
+      leg: s.leg
+        ? {
+            ...s.leg,
+            contractInstrumentToken:
+              s.leg.contractInstrumentToken != null
+                ? Number(s.leg.contractInstrumentToken)
+                : s.leg.contractInstrumentToken,
+          }
+        : s.leg,
+    }));
     const data = GetOptionSignalsResponse.parse({
-      signals,
+      signals: normalizedSignals,
       generatedAt: now,
       lastUpdated: now,
       marketState: computeMarketStatus(now),
+      marketStatus,
+      setupState,
       diagnostics,
     });
     res.json(data);

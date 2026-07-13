@@ -1,0 +1,167 @@
+CONSOLIDATED P0 PROMPT — PHASE 2A CLOSEOUT + IST MARKET-HOURS BUG
+
+Do not use the previous prompt separately. Use this consolidated prompt only.
+
+Current accepted production evidence:
+- Production is now on commit 7be8c17d.
+- /api/build-info confirms new production build.
+- verify:release = 11 PASS / 0 WARN / 0 FAIL.
+- paperConversion preview works with owner auth.
+- HDFCBANK staged order is APPROVED.
+- paperConversion.opened=false.
+- blockedReason=CONCURRENT_CAP.
+- availableCapital=₹58.59.
+- requiredCapital=₹4,950.
+- brokerExecution=false.
+- brokerStatus=DISABLED.
+- No real order placed.
+
+Accepted statuses:
+PHASE_2A_PROD_AUTH_FUNCTIONAL_CORE_VERIFIED
+PRE_MARKET_RETRY_FIX_PROD_DEPLOYED_NEXT_RUN_PENDING
+PHASE_2A_PROD_LIVE_SWING_APPROVAL_SAMPLE_PENDING_CAPITAL_BLOCKED
+
+Do not mark full PROD_VERIFIED yet.
+
+New urgent issue from owner screenshots:
+- Website shows KITE LIVE.
+- Signal popup triggered at around 10:13 IST.
+- But F&O Live Setups panel says “Market is closed.”
+- It also says “0 live setups across 0 indices.”
+- Popup says: “Execution not confirmed — no paper trade record found for this signal.”
+
+The website must use Asia/Kolkata / IST for all:
+1. market-hours checks,
+2. live setup gating,
+3. report scheduling,
+4. user-facing timestamps.
+
+NSE F&O normal market hours are 09:15–15:30 IST unless holiday/special session config says otherwise.
+
+P0 TASK A — Fix IST market-hours/live setup bug
+
+Audit:
+1. F&O Live Setups frontend condition.
+2. API endpoint returning market status.
+3. market-hours utility.
+4. trading-day/holiday calendar.
+5. server timezone.
+6. browser timezone.
+7. cache layer storing marketOpen=false.
+8. production build timestamp.
+
+Required API payload:
+marketStatus must include:
+- isTradingDay
+- marketOpen
+- reason: OPEN / BEFORE_OPEN / AFTER_CLOSE / WEEKEND / HOLIDAY / SPECIAL_SESSION_CLOSED / UNKNOWN
+- serverUtc
+- serverIst
+- exchangeTimezone: Asia/Kolkata
+- openTimeIst: 09:15
+- closeTimeIst: 15:30
+- calendarSource
+- calendarAsOf
+
+Frontend behavior:
+1. marketOpen=true + zero setups:
+   show “Market open — no live tradeable setup currently.”
+2. marketOpen=false:
+   show exact reason, for example:
+   “Market closed — after 15:30 IST”
+   “Market closed — weekend”
+   “Market closed — NSE holiday”
+3. Never show “Market is closed” if marketOpen=true.
+4. Never rely on browser timezone without converting to Asia/Kolkata.
+
+Required tests:
+1. Monday 10:12 IST → marketOpen=true.
+2. Monday 09:14 IST → BEFORE_OPEN.
+3. Monday 15:31 IST → AFTER_CLOSE.
+4. Weekend → WEEKEND.
+5. NSE holiday → HOLIDAY.
+6. Market open + zero setups → do not show Market closed.
+7. All timestamps shown to owner are IST.
+
+P0 TASK B — Investigate paper execution not confirmed popup
+
+Evidence:
+- INFO ALERT — ENTRY LEVEL REACHED.
+- BANK NIFTY 57900 CALL.
+- Triggered at 10:13:16 IST.
+- Paper Trade: NOT CONFIRMED.
+- Message: “Execution not confirmed — no paper trade record found.”
+
+Audit:
+1. signal row / signal ID,
+2. lifecycle trigger transition,
+3. paper trade creation function,
+4. paper_trade_fo insert,
+5. popup lookup,
+6. server restart/timing gap,
+7. idempotency key/setup key,
+8. stale cache,
+9. INFO_ONLY vs TRADEABLE_SIGNAL,
+10. whether risk/capital/data gate blocked it.
+
+Required popup states:
+1. INFO_ONLY:
+   “Info-only alert — no paper trade expected.”
+2. Tradeable but blocked:
+   “Paper trade blocked — [exact reason].”
+3. Trade created:
+   “Paper trade confirmed — trade ID [id].”
+4. Trade expected but missing:
+   “Execution mismatch — paper record missing.”
+5. Server restart/timing:
+   “Execution not confirmed — server restart/timing gap detected.”
+
+Required tests:
+1. INFO_ONLY alert → no paper trade expected.
+2. TRADEABLE signal + successful paper insert → confirmed trade ID.
+3. TRADEABLE signal + blocked risk/capital/data → exact blocked reason.
+4. TRADEABLE signal + insert failure → execution mismatch with error code.
+5. Restart/timing gap → explicit restart/timing state.
+6. Popup timestamps are IST.
+
+P0 TASK C — Fix date/scheduler IST issue if present
+
+Latest coder response said “2026-07-13 is Sunday” and “next run Mon 2026-07-14.”
+That is suspicious/wrong and must be audited.
+
+Check:
+1. weekday calculation,
+2. server UTC vs IST date,
+3. pre-market scheduler 08:50 IST,
+4. post-market scheduler,
+5. weekend detection,
+6. NSE holiday calendar.
+
+Add tests:
+1. 2026-07-13 Asia/Kolkata is Monday.
+2. 2026-07-14 Asia/Kolkata is Tuesday.
+3. 08:50 IST maps to correct UTC time.
+4. scheduler skips only actual weekends/holidays.
+
+Required final output:
+1. Root cause.
+2. Fixed files.
+3. API payload before/after.
+4. Frontend condition before/after.
+5. Paper execution root cause.
+6. Exact tests and counts.
+7. Production /api/build-info after deploy.
+8. verify:release result.
+9. Safety confirmation:
+   - no broker execution,
+   - no real orders,
+   - no real Telegram send,
+   - broker disabled.
+
+Allowed verdicts:
+PHASE_2A_IST_MARKET_HOURS_AND_EXECUTION_CONFIRMATION_DEV_VERIFIED
+PHASE_2A_IST_MARKET_HOURS_AND_EXECUTION_CONFIRMATION_PROD_VERIFIED
+PRE_MARKET_RETRY_FIX_PROD_DEPLOYED_NEXT_RUN_PENDING
+PHASE_2A_PROD_LIVE_SWING_APPROVAL_SAMPLE_PENDING_CAPITAL_BLOCKED
+RELEASE_INTEGRITY_REGRESSION_FOUND
+ROLLBACK_REQUIRED

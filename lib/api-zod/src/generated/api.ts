@@ -4315,7 +4315,79 @@ export const GetOptionSignalsResponse = zod.object({
   marketState: zod
     .enum(["open", "closed", "pre_open"])
     .optional()
-    .describe("NSE equity-market session state at generation time."),
+    .describe(
+      "NSE equity-market session state at generation time. Deprecated — prefer marketStatus.marketOpen + marketStatus.reason.",
+    ),
+  marketStatus: zod
+    .object({
+      isTradingDay: zod
+        .boolean()
+        .describe(
+          "True when the IST calendar date is a weekday and not an NSE holiday.",
+        ),
+      marketOpen: zod
+        .boolean()
+        .describe("True only during 09:15–15:30 IST on a trading day."),
+      reason: zod
+        .enum([
+          "OPEN",
+          "BEFORE_OPEN",
+          "PRE_OPEN",
+          "AFTER_CLOSE",
+          "WEEKEND",
+          "HOLIDAY",
+          "UNKNOWN",
+        ])
+        .describe(
+          "OPEN=during session, BEFORE_OPEN=before 09:15 IST, PRE_OPEN=09:00–09:15 IST, AFTER_CLOSE=after 15:30 IST, WEEKEND=Sat\/Sun, HOLIDAY=NSE holiday, UNKNOWN=internal error.",
+        ),
+      serverUtc: zod.coerce
+        .date()
+        .describe("Server wall-clock time (UTC) when status was computed."),
+      serverIst: zod
+        .string()
+        .describe("Server time converted to IST (HH:MM DD-Mon-YYYY)."),
+      exchangeTimezone: zod.string().describe("Always Asia\/Kolkata."),
+      openTimeIst: zod
+        .string()
+        .describe("Session open time in IST. Always 09:15."),
+      closeTimeIst: zod
+        .string()
+        .describe("Session close time in IST. Always 15:30."),
+      calendarSource: zod
+        .string()
+        .describe("Source of the holiday calendar used."),
+      calendarAsOf: zod
+        .string()
+        .describe("Date through which the holiday calendar is valid."),
+    })
+    .optional()
+    .describe(
+      "Rich market-hours status. Always present. Use marketStatus.marketOpen for gating.",
+    ),
+  setupState: zod
+    .object({
+      indicesEvaluated: zod
+        .number()
+        .describe("Number of F&O indices evaluated this cycle."),
+      liveSetupsCount: zod
+        .number()
+        .describe("Total live setups returned (all tiers)."),
+      tradeableCount: zod
+        .number()
+        .describe("Setups with tradeClass=TRADEABLE."),
+      suppressedCount: zod
+        .number()
+        .describe("Setups gated\/suppressed by risk\/data gates this cycle."),
+      noSetupReason: zod
+        .string()
+        .nullish()
+        .describe(
+          "Human-readable reason when liveSetupsCount=0 during market hours.",
+        ),
+    })
+    .optional()
+    .describe("Live setup counts for this cycle."),
   diagnostics: zod
     .object({
       indicesConfigured: zod.number(),
@@ -4465,6 +4537,47 @@ export const GetOptionSignalHistoryResponse = zod.object({
       maxAdverseExcursionPts: zod.number(),
       lastSpot: zod.number(),
       lastEvaluatedAt: zod.coerce.date(),
+      execution: zod
+        .object({
+          signalTier: zod
+            .string()
+            .optional()
+            .describe(
+              "Signal tier as stored (HIGH_CONVICTION, BASELINE, INFO_ONLY).",
+            ),
+          signalTradeable: zod
+            .boolean()
+            .optional()
+            .describe(
+              "True when tier is HC\/STANDARD and auto-trade is possible.",
+            ),
+          executionStatus: zod
+            .enum(["NOT_APPLICABLE", "OPENED", "BLOCKED", "NOT_CONFIRMED"])
+            .optional()
+            .describe(
+              "NOT_APPLICABLE=info-only, OPENED=paper trade confirmed, BLOCKED=risk\/data gate blocked, NOT_CONFIRMED=HC\/STANDARD with no DB record (server restart \/ timing gap).",
+            ),
+          executionBlockedReason: zod
+            .string()
+            .nullish()
+            .describe(
+              "Specific block reason code (e.g. DAILY_DD_CAP, PORTFOLIO_HEAT). Null when status≠BLOCKED.",
+            ),
+          paperTradeOpened: zod.boolean().optional(),
+          paperTradePositionId: zod.string().nullish(),
+          paperTradeLots: zod.number().nullish(),
+          paperTradeEntryPremium: zod.number().nullish(),
+          finalAlertClass: zod
+            .string()
+            .optional()
+            .describe(
+              "INFO_ONLY | PAPER_TRADE_OPENED | TRADEABLE_EXECUTION_BLOCKED | EXECUTION_NOT_CONFIRMED | STOPPED.",
+            ),
+        })
+        .nullish()
+        .describe(
+          "Real paper-trade execution truth enriched from DB. Always present on \/options\/signal-history rows. Use executionStatus for popup state.",
+        ),
     }),
   ),
 });
@@ -4541,6 +4654,47 @@ export const GetOptionSignalReportResponse = zod.object({
       maxAdverseExcursionPts: zod.number(),
       lastSpot: zod.number(),
       lastEvaluatedAt: zod.coerce.date(),
+      execution: zod
+        .object({
+          signalTier: zod
+            .string()
+            .optional()
+            .describe(
+              "Signal tier as stored (HIGH_CONVICTION, BASELINE, INFO_ONLY).",
+            ),
+          signalTradeable: zod
+            .boolean()
+            .optional()
+            .describe(
+              "True when tier is HC\/STANDARD and auto-trade is possible.",
+            ),
+          executionStatus: zod
+            .enum(["NOT_APPLICABLE", "OPENED", "BLOCKED", "NOT_CONFIRMED"])
+            .optional()
+            .describe(
+              "NOT_APPLICABLE=info-only, OPENED=paper trade confirmed, BLOCKED=risk\/data gate blocked, NOT_CONFIRMED=HC\/STANDARD with no DB record (server restart \/ timing gap).",
+            ),
+          executionBlockedReason: zod
+            .string()
+            .nullish()
+            .describe(
+              "Specific block reason code (e.g. DAILY_DD_CAP, PORTFOLIO_HEAT). Null when status≠BLOCKED.",
+            ),
+          paperTradeOpened: zod.boolean().optional(),
+          paperTradePositionId: zod.string().nullish(),
+          paperTradeLots: zod.number().nullish(),
+          paperTradeEntryPremium: zod.number().nullish(),
+          finalAlertClass: zod
+            .string()
+            .optional()
+            .describe(
+              "INFO_ONLY | PAPER_TRADE_OPENED | TRADEABLE_EXECUTION_BLOCKED | EXECUTION_NOT_CONFIRMED | STOPPED.",
+            ),
+        })
+        .nullish()
+        .describe(
+          "Real paper-trade execution truth enriched from DB. Always present on \/options\/signal-history rows. Use executionStatus for popup state.",
+        ),
     }),
   ),
 });
