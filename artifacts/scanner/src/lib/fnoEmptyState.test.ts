@@ -5,18 +5,39 @@ import { deriveFnoEmptyReason, buildFnoIndexRows, deriveSessionBannerState, FNO_
 
 /**
  * Unit tests for the PURE F&O no-live-data helpers (PART C). Display-only:
- * they read marketState + diagnostics.suppressed + signals + owner readiness and
+ * they read marketState/marketStatus + diagnostics.suppressed + signals + owner readiness and
  * NEVER recompute a signal. Pins the cause-priority order and the honest "—".
  */
 
+type MkMarketStatus = {
+  marketOpen: boolean;
+  reason?: "OPEN" | "BEFORE_OPEN" | "PRE_OPEN" | "AFTER_CLOSE" | "WEEKEND" | "HOLIDAY" | "UNKNOWN";
+};
+
 function mkSet(over: {
   marketState?: "open" | "closed" | "pre_open";
+  marketStatus?: MkMarketStatus;
   signals?: { index: string }[];
   suppressed?: { index: string; reasons: string[] }[];
 }): OptionSignalSet {
+  const ms = over.marketStatus;
   return {
     signals: over.signals ?? [],
     marketState: over.marketState,
+    ...(ms != null ? {
+      marketStatus: {
+        marketOpen: ms.marketOpen,
+        reason: ms.reason ?? (ms.marketOpen ? "OPEN" : "AFTER_CLOSE"),
+        isTradingDay: true,
+        serverUtc: new Date(),
+        serverIst: "10:00 13-Jul-2026",
+        exchangeTimezone: "Asia/Kolkata",
+        openTimeIst: "09:15",
+        closeTimeIst: "15:30",
+        calendarSource: "TEST",
+        calendarAsOf: "2026-12-31",
+      },
+    } : {}),
     diagnostics: { suppressed: over.suppressed ?? [] },
   } as unknown as OptionSignalSet;
 }
@@ -92,6 +113,35 @@ describe("deriveFnoEmptyReason — cause priority", () => {
       "No setups because no candidate cleared the confidence floor or risk gates right now.",
     );
   });
+
+  it("marketStatus.marketOpen=false wins over stale marketState (prefer new field)", () => {
+    expect(deriveFnoEmptyReason(
+      mkSet({ marketStatus: { marketOpen: false }, marketState: "open" }),
+      null,
+    )).toBe("No setups because the market is closed.");
+  });
+
+  it("marketStatus.marketOpen=true → does NOT say market is closed even when marketState=closed (stale cache fix)", () => {
+    const r = deriveFnoEmptyReason(
+      mkSet({ marketStatus: { marketOpen: true }, marketState: "closed" }),
+      mkReadiness({}),
+    );
+    expect(r).not.toContain("market is closed");
+    expect(r).toBe("No setups because no candidate cleared the confidence floor or risk gates right now.");
+  });
+
+  it("marketStatus.marketOpen=true + Kite offline → Kite message (not market closed)", () => {
+    expect(deriveFnoEmptyReason(
+      mkSet({ marketStatus: { marketOpen: true } }),
+      mkReadiness({ sessionValid: false }),
+    )).toBe("No setups because Kite live intraday data is unavailable. Reconnect Kite.");
+  });
+
+  it("no marketStatus and no marketState → floor message (safe when both absent)", () => {
+    expect(deriveFnoEmptyReason(mkSet({}), null)).toBe(
+      "No setups because no candidate cleared the confidence floor or risk gates right now.",
+    );
+  });
 });
 
 describe("buildFnoIndexRows", () => {
@@ -155,6 +205,25 @@ describe("buildFnoIndexRows", () => {
     expect(buildFnoIndexRows(mkSet({ marketState: "closed" }), null)[0]!.state).toBe("Closed");
     expect(buildFnoIndexRows(mkSet({ marketState: "pre_open" }), null)[0]!.state).toBe("Pre-open");
     expect(buildFnoIndexRows(mkSet({}), null)[0]!.state).toBe("—");
+  });
+
+  it("state label prefers marketStatus.marketOpen=true over stale marketState=closed", () => {
+    const rows = buildFnoIndexRows(
+      mkSet({ marketStatus: { marketOpen: true }, marketState: "closed" }),
+      null,
+    );
+    expect(rows[0]!.state).toBe("Open");
+  });
+
+  it("state label from marketStatus: closed→Closed, PRE_OPEN→Pre-open", () => {
+    expect(buildFnoIndexRows(
+      mkSet({ marketStatus: { marketOpen: false } }),
+      null,
+    )[0]!.state).toBe("Closed");
+    expect(buildFnoIndexRows(
+      mkSet({ marketStatus: { marketOpen: false, reason: "PRE_OPEN" } }),
+      null,
+    )[0]!.state).toBe("Pre-open");
   });
 });
 
@@ -265,5 +334,27 @@ describe("deriveSessionBannerState", () => {
     expect(state.show).toBe(true);
     if (!state.show) return;
     expect(state.gapTradingDays).toBeNull();
+  });
+
+  it("returns show:false when marketStatus.marketOpen=false (prefers new field over marketState)", () => {
+    const data = mkSet({
+      marketStatus: { marketOpen: false },
+      marketState: "open",
+      suppressed: FNO_TABLE_INDICES.map(index => ({ index, reasons: ["no_live_kite_intraday"] })),
+    });
+    const state = deriveSessionBannerState(data, mkReadiness({}), null, null);
+    expect(state.show).toBe(false);
+  });
+
+  it("shows banner when marketStatus.marketOpen=true even if marketState=closed (stale cache fix)", () => {
+    const data = mkSet({
+      marketStatus: { marketOpen: true },
+      marketState: "closed",
+      suppressed: FNO_TABLE_INDICES.map(index => ({ index, reasons: ["no_live_kite_intraday (session expired)"] })),
+    });
+    const state = deriveSessionBannerState(data, mkReadiness({}), null, null);
+    expect(state.show).toBe(true);
+    if (!state.show) return;
+    expect(state.kind).toBe("KITE_SESSION_EXPIRED");
   });
 });

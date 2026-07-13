@@ -1004,28 +1004,35 @@ export default function OptionsPage() {
         <div className="space-y-6">
           {Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-96 w-full" />)}
         </div>
-      ) : (data?.marketStatus && !data.marketStatus.marketOpen) ? (
+      ) : (data?.marketStatus != null
+          ? !data.marketStatus.marketOpen
+          : (data?.marketState != null && data.marketState !== "open")
+        ) ? (
         <Card>
           <CardContent className="py-12 text-center space-y-2">
             <Clock className="w-8 h-8 text-muted-foreground mx-auto" />
             <div className="text-muted-foreground font-mono text-sm">
-              {data.marketStatus.reason === "PRE_OPEN"
-                ? "Pre-open session (09:00 – 09:15 IST)"
-                : data.marketStatus.reason === "BEFORE_OPEN"
-                  ? "Market opens at 09:15 IST"
-                  : data.marketStatus.reason === "AFTER_CLOSE"
-                    ? "Market closed at 15:30 IST"
-                    : data.marketStatus.reason === "WEEKEND"
-                      ? "Weekend — next session resumes Monday"
-                      : data.marketStatus.reason === "HOLIDAY"
-                        ? "NSE holiday — market is closed today"
-                        : "Market is closed"}
+              {data?.marketStatus
+                ? (data.marketStatus.reason === "PRE_OPEN"
+                    ? "Pre-open session (09:00 – 09:15 IST)"
+                    : data.marketStatus.reason === "BEFORE_OPEN"
+                      ? "Market opens at 09:15 IST"
+                      : data.marketStatus.reason === "AFTER_CLOSE"
+                        ? "Market closed at 15:30 IST"
+                        : data.marketStatus.reason === "WEEKEND"
+                          ? "Weekend — next session resumes Monday"
+                          : data.marketStatus.reason === "HOLIDAY"
+                            ? "NSE holiday — market is closed today"
+                            : "Market is closed")
+                : (data?.marketState === "pre_open" ? "Pre-open session" : "Market is closed")}
             </div>
             <div className="text-xs text-muted-foreground/70">
               Live signals are only generated during market hours (09:15 — 15:30 IST).
               Check the <button onClick={() => setTab("report")} className="underline text-primary hover:text-primary/80">Report</button> tab for historical performance.
             </div>
-            <div className="text-xs text-muted-foreground/50 font-mono pt-1">{data.marketStatus.serverIst} IST</div>
+            {data?.marketStatus?.serverIst && (
+              <div className="text-xs text-muted-foreground/50 font-mono pt-1">{data.marketStatus.serverIst} IST</div>
+            )}
           </CardContent>
         </Card>
       ) : grouped.length === 0 ? (

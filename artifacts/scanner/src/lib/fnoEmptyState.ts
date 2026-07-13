@@ -35,7 +35,12 @@ export function deriveSessionBannerState(
   lastSignalAny: string | null | undefined,
 ): FnoBannerState {
   if (readiness == null) return { show: false }; // non-owner
-  if (data?.marketState && data.marketState !== "open") return { show: false };
+  // Prefer the reliable marketStatus.marketOpen; fall back to deprecated marketState
+  // for responses pre-dating the marketStatus field (stale React Query cache).
+  const marketClosed = data?.marketStatus != null
+    ? !data.marketStatus.marketOpen
+    : (data?.marketState != null && data.marketState !== "open");
+  if (marketClosed) return { show: false };
 
   const suppressed = data?.diagnostics?.suppressed ?? [];
   // Only surface the banner when all 3 F&O indices are suppressed.
@@ -73,7 +78,12 @@ export function deriveFnoEmptyReason(
   data: OptionSignalSet | undefined,
   readiness: KiteReadiness | null,
 ): string {
-  if (data?.marketState && data.marketState !== "open") {
+  // Prefer the reliable marketStatus.marketOpen; fall back to deprecated marketState
+  // for responses pre-dating the marketStatus field (stale React Query cache).
+  const marketClosed = data?.marketStatus != null
+    ? !data.marketStatus.marketOpen
+    : (data?.marketState != null && data.marketState !== "open");
+  if (marketClosed) {
     return "No setups because the market is closed.";
   }
   const kiteOffline = readiness ? (!readiness.sessionValid || !readiness.feedConnected) : false;
@@ -119,10 +129,15 @@ export function buildFnoIndexRows(
       ? "Live"
       : "Offline";
 
-  const stateLabel = marketState === "open" ? "Open"
-    : marketState === "pre_open" ? "Pre-open"
-    : marketState === "closed" ? "Closed"
-    : "—";
+  // Prefer the reliable marketStatus fields; fall back to deprecated marketState.
+  const stateLabel = data?.marketStatus != null
+    ? (data.marketStatus.marketOpen ? "Open"
+       : data.marketStatus.reason === "PRE_OPEN" ? "Pre-open"
+       : "Closed")
+    : marketState === "open" ? "Open"
+      : marketState === "pre_open" ? "Pre-open"
+      : marketState === "closed" ? "Closed"
+      : "—";
 
   return FNO_TABLE_INDICES.map(index => {
     const idxSignals = signals.filter(s => s.index === index);
