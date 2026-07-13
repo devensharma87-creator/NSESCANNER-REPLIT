@@ -991,7 +991,7 @@
   {
     "path": "artifacts/api-server/src/lib/contractMasterFact.ts",
     "purpose": "lib",
-    "lines": 318,
+    "lines": 322,
     "exports": [
       "ExpirySource",
       "ContractGrade",
@@ -1002,7 +1002,7 @@
     ],
     "externalImports": [],
     "routes": [],
-    "hash": "aa7bdc3db4695517"
+    "hash": "89133e49d5a02e4f"
   },
   {
     "path": "artifacts/api-server/src/lib/csvExport.ts",
@@ -1043,13 +1043,13 @@
   {
     "path": "artifacts/api-server/src/lib/dailyReports.test.ts",
     "purpose": "test",
-    "lines": 860,
+    "lines": 909,
     "exports": [],
     "externalImports": [
       "vitest"
     ],
     "routes": [],
-    "hash": "fa0582757b64cca6"
+    "hash": "cdca8d4beb1182f3"
   },
   {
     "path": "artifacts/api-server/src/lib/dailyReports.ts",
@@ -3576,22 +3576,36 @@
     "hash": "ad99c1a0836f91a6"
   },
   {
+    "path": "artifacts/api-server/src/lib/marketEvents.test.ts",
+    "purpose": "test",
+    "lines": 200,
+    "exports": [],
+    "externalImports": [
+      "vitest"
+    ],
+    "routes": [],
+    "hash": "e529571ee8a99ac6"
+  },
+  {
     "path": "artifacts/api-server/src/lib/marketEvents.ts",
     "purpose": "market-data",
-    "lines": 382,
+    "lines": 450,
     "exports": [
       "MarketHoliday",
       "EarningResult",
       "EconomicEvent",
       "isNseHoliday",
       "computeMarketStatus",
+      "MarketStatusReason",
+      "FnoMarketStatusDetail",
+      "getMarketStatusDetail",
       "getUpcomingEarnings",
       "MarketEventsResponse",
       "getMarketEvents"
     ],
     "externalImports": [],
     "routes": [],
-    "hash": "0f05e624b123d347"
+    "hash": "8f7928f1045a841d"
   },
   {
     "path": "artifacts/api-server/src/lib/marketTrend.ts",
@@ -6817,7 +6831,7 @@
   {
     "path": "artifacts/api-server/src/routes/scanner.ts",
     "purpose": "api-route",
-    "lines": 1027,
+    "lines": 1055,
     "exports": [],
     "externalImports": [
       "express",
@@ -6845,7 +6859,7 @@
       "GET /stocks/:symbol/statements",
       "GET /stocks/:symbol/history"
     ],
-    "hash": "fe26f0737458614e"
+    "hash": "5782961c48c411d2"
   },
   {
     "path": "artifacts/api-server/src/routes/stocksToWatch.ts",
@@ -8428,7 +8442,7 @@
   {
     "path": "artifacts/scanner/src/pages/options.tsx",
     "purpose": "ui-page",
-    "lines": 1663,
+    "lines": 1674,
     "exports": [],
     "externalImports": [
       "@/components/ui/card",
@@ -8443,7 +8457,7 @@
       "@/lib/setupExplanation"
     ],
     "routes": [],
-    "hash": "83fd15077fb28a64"
+    "hash": "37670fb5f0d00688"
   },
   {
     "path": "artifacts/scanner/src/pages/paper-reports.tsx",

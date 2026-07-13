@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-13T06:31:15.751Z",
+  "generatedAt": "2026-07-13T09:21:04.135Z",
   "generatorVersion": "1.0.0",
   "files": {
     "artifacts/api-server/src/routes/admin.ts": {
@@ -148,9 +148,9 @@
       "mtime": "2026-06-10T11:14:40.329Z"
     },
     "artifacts/api-server/src/routes/scanner.ts": {
-      "hash": "fe26f0737458614e",
-      "lines": 1027,
-      "mtime": "2026-07-01T15:32:38.870Z"
+      "hash": "5782961c48c411d2",
+      "lines": 1055,
+      "mtime": "2026-07-13T08:42:58.611Z"
     },
     "artifacts/api-server/src/routes/stocksToWatch.ts": {
       "hash": "04b6672e08fd4469",
@@ -313,9 +313,9 @@
       "mtime": "2026-07-07T14:51:45.809Z"
     },
     "artifacts/api-server/src/lib/contractMasterFact.ts": {
-      "hash": "aa7bdc3db4695517",
-      "lines": 318,
-      "mtime": "2026-07-10T08:04:02.725Z"
+      "hash": "89133e49d5a02e4f",
+      "lines": 322,
+      "mtime": "2026-07-13T08:37:59.817Z"
     },
     "artifacts/api-server/src/lib/csvExport.ts": {
       "hash": "016a1804572714c9",
@@ -803,9 +803,9 @@
       "mtime": "2026-07-01T13:27:56.757Z"
     },
     "artifacts/api-server/src/lib/marketEvents.ts": {
-      "hash": "0f05e624b123d347",
-      "lines": 382,
-      "mtime": "2026-06-17T03:43:06.658Z"
+      "hash": "8f7928f1045a841d",
+      "lines": 450,
+      "mtime": "2026-07-13T08:23:39.863Z"
     },
     "artifacts/api-server/src/lib/marketTrend.ts": {
       "hash": "c5e8780fbb95122e",
@@ -1348,9 +1348,9 @@
       "mtime": "2026-06-05T12:55:17.075Z"
     },
     "lib/api-spec/openapi.yaml": {
-      "hash": "7027e620272a5c59",
-      "lines": 7063,
-      "mtime": "2026-07-09T11:13:26.742Z"
+      "hash": "ad5c97611ced3d9b",
+      "lines": 7116,
+      "mtime": "2026-07-13T08:37:05.106Z"
     },
     "artifacts/scanner/src/pages/admin.tsx": {
       "hash": "4a6ea1da8bb56b02",
@@ -1468,9 +1468,9 @@
       "mtime": "2026-06-10T12:05:16.883Z"
     },
     "artifacts/scanner/src/pages/options.tsx": {
-      "hash": "83fd15077fb28a64",
-      "lines": 1663,
-      "mtime": "2026-07-09T13:11:21.274Z"
+      "hash": "37670fb5f0d00688",
+      "lines": 1674,
+      "mtime": "2026-07-13T08:26:55.342Z"
     },
     "artifacts/scanner/src/pages/paper-reports.tsx": {
       "hash": "bdf9cdfe4482b23a",
