@@ -47,6 +47,27 @@ in the first user message; prior bugs BUG-00..26 belong to the repo's own audit 
 - TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID (+ optional PREPOST_* pair).
 
 ## What's been implemented (dates)
+- 2026-07-14 (Phase 4 kickoff): BUG-85/86/87 Telegram bot + 429 boot-storm polish.
+  * **BUG-87 priority tiers**: `AlertPriority` = CRITICAL | WARN | INFO added to
+    `alerting.ts`. Prefix (`🔴 [CRITICAL]` / `⚠️ [WARN]` / `ℹ️ [INFO]`) is
+    prepended to Telegram messages. `alertOwner(..., priority?)` — default WARN
+    preserves historical behaviour, all existing callers unchanged.
+  * **BUG-85/86 bot commands**: new `telegramBotCommands.ts` — long-polls
+    `getUpdates` (timeout=25s), owner-only whitelist via `TELEGRAM_CHAT_ID`,
+    fail-closed if not configured, first-boot fast-forwards past backlog,
+    persists `telegram_bot_last_update_id` in app_state.
+    Commands: `/help /status /clock /positions /pnl /pause /resume`.
+    `/pause` and `/resume` write to `system_mode_override` (same audit
+    trail as UI override buttons). Started via `scheduleBootJob` at boot+110s.
+    Verified running in supervisor logs.
+    Tests: `telegramBotCommands.test.ts` — 5 tests (routing, /help lists all,
+    `@bot_username` syntax, arg-stripping, case-insensitive). All pass.
+  * **429 boot-storm polish**: added `BOOT_STORM_GRACE_MS = 60_000` skip on
+    `/api/*` rate limiter. Steady-state limit (300/min per-IP) unchanged;
+    the first 60s after api-server start is exempt so the frontend's
+    initial data-hydration burst never trips 429.
+  * Full suite: 3378/3381 (up from 3373; +5 bot-router tests). Same 3 unrelated
+    `globalPresetRoutes` pre-existing failures.
 - 2026-07-14 (Phase 3 continued): BUG-72–79 audit + BUG-73 regime hysteresis.
   * **BUG-72 (detector cooldown) — VERIFIED EXISTS**: `BIAS_FLIP_COOLDOWN_MIN=45`
     in `optionSignalGates.ts`, applied via `isBiasFlipSuppressed()` — after a

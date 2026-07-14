@@ -167,12 +167,21 @@ const webhookLimiter = rateLimit({
   legacyHeaders: false,
   message: { error: "rate_limited" },
 });
+// Boot-storm exemption. On cold start the frontend can fire 20+ requests in
+// the first few seconds (initial data hydration across tabs). The 300/min
+// steady-state cap is right for a runaway client, but has room to breathe
+// during the boot window. During the first BOOT_STORM_GRACE_MS after this
+// process started we skip the per-IP rate limit so the initial page load
+// doesn't get 429'd. Steady-state behaviour is unchanged.
+const BOOT_STORM_GRACE_MS = 60_000;
+const bootStartedAt = Date.now();
 // Default per-IP cap on /api/* so a runaway client can't DoS the upstream feeds.
 const apiLimiter = rateLimit({
   windowMs: 60 * 1000,
   limit: 300,
   standardHeaders: "draft-7",
   legacyHeaders: false,
+  skip: () => Date.now() - bootStartedAt < BOOT_STORM_GRACE_MS,
   message: { error: "rate_limited" },
 });
 
@@ -278,6 +287,15 @@ scheduleBootJob("instruments-integrity", 70_000, () => {
 });
 scheduleBootJob("eod-reconciliation", 100_000, () => {
   startEodReconciliationScheduler();
+});
+
+// BUG-85/86 (fix-file Phase 4): Telegram bot command listener. Long-poll
+// getUpdates against the Telegram Bot API; single-owner allowlist enforced
+// via TELEGRAM_CHAT_ID. Commands: /help /status /clock /positions /pnl
+// /pause /resume. Fail-closed — no-op if bot token / chat id not set.
+scheduleBootJob("telegram-bot-commands", 110_000, async () => {
+  const { startTelegramBotCommands } = await import("./lib/telegramBotCommands");
+  await startTelegramBotCommands();
 });
 
 // W6-P4B5 observability only: read-only post-boot DB pool utilization snapshots

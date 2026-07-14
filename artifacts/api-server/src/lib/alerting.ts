@@ -138,9 +138,26 @@ function formatIstTime(isoString: string): string {
   }
 }
 
-function buildTelegramText(event: string, message: string, metadata?: AlertMetadata): string {
+// ── Priority tiers (BUG-87) ───────────────────────────────────────────────────
+// Every owner alert carries a priority. WARN is the historical default
+// (all existing callers → WARN implicitly), so behaviour is unchanged.
+// The prefix is prepended to the message so the receiving Telegram
+// client shows it inline; nothing in the routing / dedup pipeline
+// changes based on priority.
+export type AlertPriority = "CRITICAL" | "WARN" | "INFO";
+
+const PRIORITY_PREFIX: Record<AlertPriority, string> = {
+  CRITICAL: "🔴 [CRITICAL]",
+  WARN: "⚠️ [WARN]",
+  INFO: "ℹ️ [INFO]",
+};
+
+function buildTelegramText(event: string, message: string, metadata?: AlertMetadata, priority: AlertPriority = "WARN"): string {
   const isRecovery = event === "FNO_DATA_RECOVERED";
-  const header = isRecovery ? "✅ F&O DATA RECOVERED" : "🚨 F&O DATA ALERT";
+  const baseHeader = isRecovery ? "✅ F&O DATA RECOVERED" : "🚨 F&O DATA ALERT";
+  // Priority prefix visible in the Telegram client; WARN is the historical
+  // default so pre-BUG-87 messages render exactly as before.
+  const header = `${PRIORITY_PREFIX[priority]} ${baseHeader}`;
   const lines: string[] = [header, ""];
   lines.push(`Event: ${event}`);
   if (!isRecovery) {
@@ -329,6 +346,8 @@ export function alertOwnerRaw(
  * @param customDedupKey Override the dedup map key. Use this to scope dedup to a trading date
  *                       (e.g. `FNO_DAILY_HISTORY_UNAVAILABLE::2026-07-01`) so the same event on
  *                       a new day is treated as a new incident, and the event logged is still `event`.
+ * @param priority       BUG-87 tier — CRITICAL / WARN (default) / INFO. Prefixed to the
+ *                       Telegram message body; dedup/routing pipeline is not affected.
  */
 export function alertOwner(
   event: string,
@@ -336,12 +355,13 @@ export function alertOwner(
   metadata?: AlertMetadata,
   dedupWindowMs: number = DEDUP_WINDOW_MS,
   customDedupKey?: string,
+  priority: AlertPriority = "WARN",
 ): void {
   const key = customDedupKey ?? event;
   const now = Date.now();
   if (now - (lastAlerted.get(key) ?? 0) < dedupWindowMs) return;
   lastAlerted.set(key, now);
-  const text = buildTelegramText(event, message, metadata);
+  const text = buildTelegramText(event, message, metadata, priority);
   dispatchTelegramBackground(event, text, key, dedupWindowMs, event, message);
 }
 
