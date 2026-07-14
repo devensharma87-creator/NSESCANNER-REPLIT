@@ -763,7 +763,7 @@ function deriveTradeGradeModules(r: CanonicalFnoReadiness): { ready: number; tot
 export interface DailyReportRecord {
   istDate: string;
   sentAt: number;
-  type: "pre-market" | "post-market";
+  type: "pre-market" | "post-market" | "eod-reconcile";
   isManualTest: boolean;
   telegramStatus: string;
   telegramDestination: "prepost";
@@ -772,6 +772,7 @@ export interface DailyReportRecord {
 
 let lastPreMarketRecord: DailyReportRecord | null = null;
 let lastPostMarketRecord: DailyReportRecord | null = null;
+let lastEodReconcileRecord: DailyReportRecord | null = null;
 
 export function getLastPreMarketReportRecord(): DailyReportRecord | null {
   return lastPreMarketRecord ? { ...lastPreMarketRecord } : null;
@@ -779,6 +780,10 @@ export function getLastPreMarketReportRecord(): DailyReportRecord | null {
 
 export function getLastPostMarketReportRecord(): DailyReportRecord | null {
   return lastPostMarketRecord ? { ...lastPostMarketRecord } : null;
+}
+
+export function getLastEodReconcileRecord(): DailyReportRecord | null {
+  return lastEodReconcileRecord ? { ...lastEodReconcileRecord } : null;
 }
 
 // ── Report history (DB query — no secrets) ────────────────────────────────────
@@ -1353,6 +1358,96 @@ export async function sendPostMarketReport(
   logger.info(
     { istDate, isManualTest, telegramStatus: sendResult, telegramDestination: "prepost" },
     "dailyReports: post-market report sent",
+  );
+  return result;
+}
+
+/**
+ * Build and send the EOD reconcile report manually (bypasses time/day-of-week guards).
+ *
+ * @param isManualTest  If true, bypasses DB dedup (manual test still rate-limited by route).
+ * @returns "SENT" | "DEDUP_SKIPPED" | "SEND_FAILED" | "CONFIG_MISSING"
+ */
+export async function sendEodReconcileReport(
+  nowMs: number = Date.now(),
+  isManualTest = false,
+): Promise<ReportSendResult> {
+  const { date: istDate } = istInfo(nowMs);
+
+  const [openRows, closedRows, openedRows] = await Promise.all([
+    db.execute(sql`
+      SELECT COUNT(*)::int AS n
+      FROM paper_trade_fo
+      WHERE status = 'OPEN' AND signal_date = ${istDate}
+    `),
+    db.execute(sql`
+      SELECT COUNT(*)::int AS n, COALESCE(SUM(realised_pnl), 0) AS total_pnl
+      FROM paper_trade_fo
+      WHERE status NOT IN ('OPEN', 'PENDING') AND signal_date = ${istDate}
+    `),
+    db.execute(sql`
+      SELECT COUNT(*)::int AS n
+      FROM paper_trade_fo
+      WHERE signal_date = ${istDate}
+    `),
+  ]);
+
+  const openCount   = Number((openRows.rows[0]   as any)?.n ?? 0);
+  const closedCount = Number((closedRows.rows[0]  as any)?.n ?? 0);
+  const totalOpened = Number((openedRows.rows[0]  as any)?.n ?? 0);
+  const realisedPnl = Number((closedRows.rows[0]  as any)?.total_pnl ?? 0);
+
+  const pnlFormatted = realisedPnl >= 0
+    ? `+₹${Math.round(Math.abs(realisedPnl)).toLocaleString("en-IN")}`
+    : `-₹${Math.round(Math.abs(realisedPnl)).toLocaleString("en-IN")}`;
+  const text =
+    `📊 EOD RECONCILE — ${istDate}${isManualTest ? " [MANUAL TEST]" : ""}\n` +
+    `Trades opened today : ${totalOpened}\n` +
+    `Trades closed       : ${closedCount}\n` +
+    `Realised P&L        : ${pnlFormatted}\n` +
+    (openCount > 0
+      ? `⚠️ OPEN rows remaining: ${openCount} (should be 0 — check 15:20 force-close log)`
+      : `✅ No open rows remaining`);
+
+  if (!isManualTest) {
+    const claimed = await tryClaimScheduledReport(EOD_RECONCILE_REPORT_TYPE, istDate);
+    if (!claimed) {
+      logger.info(
+        { istDate, worker: WORKER_ID },
+        "dailyReports: EOD reconcile already claimed by another worker — skipping",
+      );
+      return "DEDUP_SKIPPED";
+    }
+  }
+
+  const sendResult = await sendPrePostTelegramMessage(text);
+  const result = toReportSendResult(sendResult);
+
+  if (!isManualTest) {
+    await updateReportRunStatus(
+      EOD_RECONCILE_REPORT_TYPE,
+      istDate,
+      result === "SENT" ? "SENT" : "FAILED",
+      sendResult,
+      result !== "SENT" ? sendResult : null,
+      { tradesOpened: totalOpened, tradesClosed: closedCount, openMismatchCount: openCount, realisedPnl },
+    );
+  }
+
+  const prepostStatus = getPrePostTelegramStatus();
+  lastEodReconcileRecord = {
+    istDate,
+    sentAt: nowMs,
+    type: "eod-reconcile",
+    isManualTest,
+    telegramStatus: sendResult,
+    telegramDestination: "prepost",
+    prepostConfigStatus: prepostStatus.status,
+  };
+
+  logger.info(
+    { istDate, isManualTest, telegramStatus: sendResult, telegramDestination: "prepost" },
+    "dailyReports: EOD reconcile report sent",
   );
   return result;
 }

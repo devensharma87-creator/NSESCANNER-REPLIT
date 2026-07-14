@@ -4,10 +4,11 @@
  * GET  /daily-analysis/status                — PREPOST bot status + last report records + schedule info
  * GET  /daily-analysis/pre-market/latest     — latest pre-market report record
  * GET  /daily-analysis/post-market/latest    — latest post-market report record
- * GET  /daily-analysis/history               — DB-backed report run history (last 30)
+ * GET  /daily-analysis/history               — DB-backed report run history (last 30, all types incl. eod_reconcile)
  * GET  /daily-analysis/telegram/preview       — preview rendered report text + data contract (dry-run, no send)
  * POST /daily-analysis/generate-pre-market   — manual generate + send to PREPOST bot (30s rate limit)
  * POST /daily-analysis/generate-post-market  — manual generate + send to PREPOST bot (30s rate limit)
+ * POST /daily-analysis/generate-eod-reconcile — manual EOD reconcile summary (30s rate limit)
  *
  * Safety guarantees:
  *   – All endpoints are owner-only (requireOwner).
@@ -23,8 +24,10 @@ import { getTelegramStatus, getPrePostTelegramStatus } from "../lib/alerting";
 import {
   getLastPreMarketReportRecord,
   getLastPostMarketReportRecord,
+  getLastEodReconcileRecord,
   sendPreMarketReport,
   sendPostMarketReport,
+  sendEodReconcileReport,
   getReportHistory,
   DAILY_ANALYSIS_COVERAGE,
   gatherPreMarketData,
@@ -57,6 +60,7 @@ router.get("/daily-analysis/status", requireOwner, async (_req, res, next) => {
       },
       lastPreMarket: getLastPreMarketReportRecord(),
       lastPostMarket: getLastPostMarketReportRecord(),
+      lastEodReconcile: getLastEodReconcileRecord(),
       recentHistory: history,
       workerDedup: {
         mechanism: "DB UNIQUE(report_type, ist_date) INSERT ON CONFLICT DO NOTHING",
@@ -174,6 +178,7 @@ router.get("/daily-analysis/telegram/preview", requireOwnerStrict, async (req, r
 
 let lastPreMarketGenAt = 0;
 let lastPostMarketGenAt = 0;
+let lastEodReconcileGenAt = 0;
 const GENERATE_RATE_LIMIT_MS = 30_000;
 
 // ── POST /daily-analysis/generate-pre-market ─────────────────────────────
@@ -229,6 +234,39 @@ router.post("/daily-analysis/generate-post-market", requireOwner, async (_req, r
     res.json({
       result,
       type: "post-market",
+      isManualTest: true,
+      telegramDestination: "prepost",
+      prepostTelegramStatus: getPrePostTelegramStatus().status,
+      paperTradeCreated: false,
+      realOrderPlaced: false,
+      brokerExecution: "DISABLED",
+      note: "Manual generate — labeled [MANUAL TEST] in Telegram. Bypasses DB dedup. No trading state mutated.",
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ── POST /daily-analysis/generate-eod-reconcile ──────────────────────────
+
+router.post("/daily-analysis/generate-eod-reconcile", requireOwner, async (_req, res, next) => {
+  try {
+    const now = Date.now();
+    if (now - lastEodReconcileGenAt < GENERATE_RATE_LIMIT_MS) {
+      const retryAfterSec = Math.ceil((GENERATE_RATE_LIMIT_MS - (now - lastEodReconcileGenAt)) / 1000);
+      res.status(429).json({
+        error: "rate_limited",
+        message: `Rate-limited. Retry after ${retryAfterSec}s.`,
+      });
+      return;
+    }
+    lastEodReconcileGenAt = now;
+
+    const result = await sendEodReconcileReport(now, true);
+
+    res.json({
+      result,
+      type: "eod-reconcile",
       isManualTest: true,
       telegramDestination: "prepost",
       prepostTelegramStatus: getPrePostTelegramStatus().status,
