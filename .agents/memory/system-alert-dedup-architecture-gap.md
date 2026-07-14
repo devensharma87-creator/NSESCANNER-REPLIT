@@ -1,26 +1,28 @@
 ---
-name: System alert dedup is in-memory-only, unlike trade alerts
-description: Telegram data-health/session alerts (warmup-failed, session-missing, data-recovered, Kite final warning) dedup via a plain in-process Map and duplicate under autoscale; trade alerts and daily reports already use the correct DB-backed pattern.
+name: System alert dedup — DB-backed, cross-restart safe
+description: Data-health/Kite/session Telegram alerts dedup via claimSystemAlert (system_alert_dedup table) + transitionSystemAlertState (system_alert_state table) — NOT in-memory-only. The architecture gap was fixed; this file documents the resolved design.
 ---
 
-`alerting.ts`'s `lastAlerted` Map (module-scope, in-memory) backs `alertOwner`/`alertOwnerRaw`,
-used by all system/data-health Telegram alerts (F&O warmup-failed, FNO_KITE_SESSION_MISSING,
-FNO_DATA_RECOVERED, Kite pre-open/final-warning). It has zero persistence, so it resets on
-every autoscale cold start and cannot be shared across concurrent replicas — both are normal
-occurrences on this project's `deploymentTarget = "autoscale"`. Combined with short dedup
-windows (10 min for warmup) and keys missing a trading-day component (FNO_DATA_RECOVERED has
-none at all), this produces real-world alert storms even though each individual send is
-"correct" per its own (too-narrow) cooldown.
+The old in-memory-only `lastAlerted` Map in `alerting.ts` has been layered with DB-backed
+dedup via `systemAlertDedup.ts` (`claimSystemAlert` / `transitionSystemAlertState`). The
+in-memory Map is now only a same-process fast-path; the DB claim is the cross-restart /
+cross-replica source of truth.
 
-**Why this matters:** two *other* alert paths in the same codebase already solved this
-correctly and should be the template for any fix:
-- Trade alerts (F&O/Swing entry+exit) → `notification_delivery_log` DB table, keyed by
-  domain+event_type+destination+id, checked via `hasAlreadyDelivered`/`logNotificationDelivery`.
-- Daily pre/post-market reports → `daily_report_runs` table with `UNIQUE(report_type, ist_date)`
-  and an atomic `INSERT ... ON CONFLICT DO NOTHING` claim (`tryClaimScheduledReport`).
+**Architecture (resolved):**
+- `alertOwnerRaw` / `alertOwner` (alerting.ts): in-memory fast-path → `claimSystemAlert`
+  (system_alert_dedup table, windowed INSERT ON CONFLICT). Fail-open on DB error.
+- `FNO_DATA_RECOVERED` (fnoDataRecoveryTransition.ts): CAS via `transitionSystemAlertState`
+  (system_alert_state table, per-family state machine). Each genuine degrade→recover cycle
+  mints a unique incidentId so a second flap on the same day still alerts once.
+- DD latch + BASELINE lock (infraAlerts.ts): `hasAlreadyDelivered` / `logNotificationDelivery`
+  from `tradeLifecycle/notificationLog` (notification_delivery_log table).
+- Boot-time self-test: `systemAlertDedupSelfTest.ts` proves the tables exist and
+  claim/CAS primitives work on every autoscale cold start.
 
-**How to apply:** any new "send at most once" system/ops alert must claim through a DB-backed
-unique constraint (or reuse one of the above tables/patterns) — never rely on the in-memory
-`lastAlerted` Map as the *only* protection. In-memory dedup is fine only as a same-process
-fast-path layered on top of a DB claim, exactly like `dailyReports.ts` does with
-`lastPreMarketReportDate`. Full audit: `docs/telegram-alert-quality-audit-2026-07-03.md`.
+**Cross-restart test coverage:**
+`systemAlertDedup.test.ts` → "cross-restart scenario" describe block (5 tests) explicitly
+simulates autoscale cold starts by resetting the `tablesReady` latch and verifying the DB
+claim prevents duplicate Telegram sends.
+
+**Why:** autoscale replicas have no shared in-memory state. Any "send at most once" alert
+must use a DB-backed unique constraint as the primary dedup gate; in-memory is fast-path only.

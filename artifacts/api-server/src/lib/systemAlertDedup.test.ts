@@ -131,6 +131,138 @@ describe("transitionSystemAlertState", () => {
   });
 });
 
+describe("cross-restart scenario — DB claim survives process restart", () => {
+  beforeEach(() => {
+    mockExecute.mockReset();
+    resetSystemAlertDedupTablesReadyForTest();
+  });
+
+  it("claimSystemAlert: DB claim prevents duplicate send after autoscale cold start (in-memory cleared)", async () => {
+    // ── FIRST PROCESS BOOT ───────────────────────────────────────────────────
+    // Fresh server start: in-memory lastAlerted Map is empty (not modelled here,
+    // lives in alerting.ts). claimSystemAlert is the cross-process/cross-restart
+    // source of truth. First call claims the dedup slot in the DB.
+    mockExecute
+      .mockResolvedValueOnce({ rows: [] }) // CREATE TABLE system_alert_dedup
+      .mockResolvedValueOnce({ rows: [] }) // CREATE TABLE system_alert_state
+      .mockResolvedValueOnce({ rows: [{ dedup_key: "KITE_SESSION_MISSING_PREOPEN::2026-07-14" }] }); // INSERT wins
+
+    const firstClaim = await claimSystemAlert(
+      "KITE_SESSION_MISSING_PREOPEN::2026-07-14",
+      60 * 60 * 1000,
+      "kite_readiness",
+    );
+    expect(firstClaim).toBe(true); // Telegram sent by first process
+
+    // ── SIMULATE AUTOSCALE COLD START ────────────────────────────────────────
+    // All module-level in-memory state (tablesReady, lastAlerted in alerting.ts)
+    // resets when the process image is replaced. resetSystemAlertDedupTablesReadyForTest()
+    // models the tablesReady latch — the key point is the DB row persists.
+    resetSystemAlertDedupTablesReadyForTest();
+    mockExecute.mockReset();
+
+    // ── SECOND PROCESS BOOT (same alert, same 1-hour window) ─────────────────
+    // ensureSystemAlertDedupTables re-runs (CREATE TABLE IF NOT EXISTS is idempotent).
+    // The claim INSERT finds the existing row is still within the dedup window:
+    // DO UPDATE WHERE sent_at < NOW() - interval evaluates to false → no RETURNING.
+    mockExecute
+      .mockResolvedValueOnce({ rows: [] }) // CREATE TABLE system_alert_dedup
+      .mockResolvedValueOnce({ rows: [] }) // CREATE TABLE system_alert_state
+      .mockResolvedValueOnce({ rows: [] }); // ON CONFLICT DO UPDATE WHERE false → no RETURNING row
+
+    const secondClaim = await claimSystemAlert(
+      "KITE_SESSION_MISSING_PREOPEN::2026-07-14",
+      60 * 60 * 1000,
+      "kite_readiness",
+    );
+    expect(secondClaim).toBe(false); // DB-backed dedup prevents the duplicate Telegram
+  });
+
+  it("claimSystemAlert: expired window after restart lets the alert fire again (per-day key scope)", async () => {
+    // A new IST calendar day → a different dedup key → the DB claim for yesterday
+    // does not suppress today's alert. This is by design: per-day keys ensure
+    // the operator gets alerted each day Kite is still offline.
+    resetSystemAlertDedupTablesReadyForTest();
+    mockExecute.mockReset();
+
+    mockExecute
+      .mockResolvedValueOnce({ rows: [] }) // CREATE TABLE system_alert_dedup
+      .mockResolvedValueOnce({ rows: [] }) // CREATE TABLE system_alert_state
+      .mockResolvedValueOnce({ rows: [{ dedup_key: "KITE_SESSION_MISSING_PREOPEN::2026-07-15" }] }); // new day → claims
+
+    const nextDayClaim = await claimSystemAlert(
+      "KITE_SESSION_MISSING_PREOPEN::2026-07-15", // different date suffix = new key
+      60 * 60 * 1000,
+      "kite_readiness",
+    );
+    expect(nextDayClaim).toBe(true);
+  });
+
+  it("transitionSystemAlertState: CAS prevents duplicate DEGRADED alert after restart", async () => {
+    // ── FIRST PROCESS ────────────────────────────────────────────────────────
+    // F&O data goes down → OK→DEGRADED transition succeeds, mints incidentId.
+    mockExecute
+      .mockResolvedValueOnce({ rows: [] }) // CREATE TABLE system_alert_dedup
+      .mockResolvedValueOnce({ rows: [] }) // CREATE TABLE system_alert_state
+      .mockResolvedValueOnce({ rows: [{ incident_id: "fno_data-1714900000000-abc" }] }); // CAS wins
+
+    const first = await transitionSystemAlertState("fno_data", "OK", "DEGRADED");
+    expect(first.claimed).toBe(true);
+    expect(first.incidentId).toBe("fno_data-1714900000000-abc");
+
+    // ── SIMULATE RESTART ─────────────────────────────────────────────────────
+    // In-memory boolean that tracked "we already sent the DEGRADED alert" is gone.
+    // Without DB-backed CAS, the restarted process would send a second alert.
+    resetSystemAlertDedupTablesReadyForTest();
+    mockExecute.mockReset();
+
+    // ── SECOND PROCESS: same degraded state, same family ─────────────────────
+    // DB row says state='DEGRADED'. The CAS WHERE state='OK' clause fails
+    // (state is already DEGRADED) → no RETURNING row.
+    mockExecute
+      .mockResolvedValueOnce({ rows: [] }) // CREATE TABLE system_alert_dedup
+      .mockResolvedValueOnce({ rows: [] }) // CREATE TABLE system_alert_state
+      .mockResolvedValueOnce({ rows: [] }); // WHERE state='OK' excludes DEGRADED row
+
+    const second = await transitionSystemAlertState("fno_data", "OK", "DEGRADED");
+    expect(second.claimed).toBe(false); // No duplicate DEGRADED alert after restart
+    expect(second.incidentId).toBeNull();
+  });
+
+  it("transitionSystemAlertState: recovery (DEGRADED→OK) after restart correctly claims and returns incidentId", async () => {
+    // Scenario: F&O data recovers. The first process that observes recovery claims it.
+    // If the process restarts before alerting, a fresh process observes the same recovery
+    // and must also be able to claim (the DB row is still DEGRADED) and alert.
+    resetSystemAlertDedupTablesReadyForTest();
+    mockExecute.mockReset();
+
+    mockExecute
+      .mockResolvedValueOnce({ rows: [] }) // CREATE TABLE system_alert_dedup
+      .mockResolvedValueOnce({ rows: [] }) // CREATE TABLE system_alert_state
+      .mockResolvedValueOnce({ rows: [{ incident_id: "fno_data-1714900000000-abc" }] }); // recovery CAS wins
+
+    const recovery = await transitionSystemAlertState("fno_data", "DEGRADED", "OK");
+    expect(recovery.claimed).toBe(true);
+    expect(recovery.incidentId).toBe("fno_data-1714900000000-abc"); // same incidentId used for FNO_DATA_RECOVERED alert key
+  });
+
+  it("fail-open on DB error ensures the alert still fires (never silently drops)", async () => {
+    // DB is temporarily unreachable after restart. Both claimSystemAlert and
+    // transitionSystemAlertState must fail-open (return true/claimed=true) so
+    // the Telegram alert is still sent rather than silently dropped.
+    resetSystemAlertDedupTablesReadyForTest();
+    mockExecute.mockRejectedValue(new Error("connection refused after restart"));
+
+    const claimResult = await claimSystemAlert("FNO_DATA_HEALTH::WARMUP_FAILED::NIFTY", 10 * 60 * 1000, "fno_warmup");
+    expect(claimResult).toBe(true); // fail-open: prefer duplicate over silent drop
+
+    mockExecute.mockRejectedValue(new Error("connection refused after restart"));
+    const transResult = await transitionSystemAlertState("fno_data", "OK", "DEGRADED");
+    expect(transResult.claimed).toBe(true); // fail-open
+    expect(transResult.incidentId).toBeNull();
+  });
+});
+
 describe("diagnostics readers", () => {
   beforeEach(() => {
     mockExecute.mockReset();
