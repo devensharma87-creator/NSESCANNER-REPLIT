@@ -499,6 +499,11 @@ export function buildPreMarketReport(data: PreMarketReportData): string {
   lines.push("");
   lines.push("Not included: GIFT Nifty, live global cues, India VIX, news/events — provider not configured.");
 
+  // A.7 fix — explicit legend so every grade label in the message is
+  // decodable by the recipient without external context.
+  lines.push("");
+  lines.push("Legend: TRADE-GRADE = decisioning data (Kite live). INFO-ONLY = supporting context, not for entries. STALE = last known good but past freshness SLA. Unavailable = temporarily missing. Provider not configured = source not integrated.");
+
   lines.push("");
   lines.push("Broker execution: DISABLED");
   return lines.join("\n");
@@ -649,18 +654,20 @@ export function buildPostMarketReport(data: PostMarketReportData): string {
   }
   if (data.fno != null) {
     if (data.fno.tradesOpened === 0 && data.fno.tradesClosed === 0 && data.fno.openCount === 0) {
-      lines.push("Paper trades: none today");
+      // A.6 fix — label is F&O-scoped so equity paper activity in the section
+      // below is never mistaken for "no trades happened today at all".
+      lines.push("F&O paper trades: none today");
     } else {
-      lines.push(`Paper trades: opened ${data.fno.tradesOpened} | closed ${data.fno.tradesClosed} | open ${data.fno.openCount}`);
+      lines.push(`F&O paper trades: opened ${data.fno.tradesOpened} | closed ${data.fno.tradesClosed} | open ${data.fno.openCount}`);
       if (data.fno.totalPnl != null) {
         const sign = data.fno.totalPnl >= 0 ? "+" : "";
-        lines.push(`Realized P&L: ₹${sign}${data.fno.totalPnl.toLocaleString("en-IN")}`);
+        lines.push(`F&O realized P&L: ₹${sign}${data.fno.totalPnl.toLocaleString("en-IN")}`);
       } else {
-        lines.push("Realized P&L: Unavailable");
+        lines.push("F&O realized P&L: Unavailable");
       }
     }
   } else {
-    lines.push("Paper trades: Unavailable — not tracked yet");
+    lines.push("F&O paper trades: Unavailable — query failed this run");
   }
   lines.push(`Exit monitor: ${data.exitMonitorVerified ? "DEV_VERIFIED" : "waiting for live open trade evidence"}`);
 
@@ -693,7 +700,7 @@ export function buildPostMarketReport(data: PostMarketReportData): string {
   }
 
   lines.push("");
-  lines.push("Equity paper:");
+  lines.push("Equity paper trades:");
   if (data.equityPaper != null) {
     lines.push(
       `Opened ${data.equityPaper.openedToday} | Closed ${data.equityPaper.closedToday} | Live ${data.equityPaper.openCount}`,
@@ -729,6 +736,11 @@ export function buildPostMarketReport(data: PostMarketReportData): string {
   lines.push(
     "Not included: Market breadth, live news, India VIX, participant OI, global close — provider not configured.",
   );
+
+  // A.7 fix — explicit legend so every grade label in the message is
+  // decodable by the recipient without external context.
+  lines.push("");
+  lines.push("Legend: TRADE-GRADE = decisioning data (Kite live). INFO-ONLY = supporting context, not for entries. STALE = last known good but past freshness SLA. Unavailable = temporarily missing. Provider not configured = source not integrated.");
 
   lines.push("");
   lines.push("Broker execution: DISABLED");

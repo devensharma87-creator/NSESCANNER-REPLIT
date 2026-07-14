@@ -47,6 +47,44 @@ in the first user message; prior bugs BUG-00..26 belong to the repo's own audit 
 - TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID (+ optional PREPOST_* pair).
 
 ## What's been implemented (dates)
+- 2026-07-14 (Sections A + B.5 + B.1/B.2 + C audit): Zero-compromise fixes.
+  * **A.6 (post-market wording)**: `dailyReports.ts buildPostMarketReport` — F&O section
+    lines are now scoped as `F&O paper trades:` / `F&O realized P&L:`, and Equity block
+    as `Equity paper trades:`. No ambiguity when only one segment has activity.
+  * **A.7 (legend footer)**: Both pre-market and post-market reports now end with a
+    one-line legend explaining TRADE-GRADE / INFO-ONLY / STALE / Unavailable /
+    Provider-not-configured. Consumer no longer needs external context to decode
+    section grades.
+  * **A audit confirmed already correct**: A.1 unavailable-source labels (data
+    coverage map surfaces `SOURCE_NOT_INTEGRATED` honestly), A.2 FII/DII source
+    label ("NSE archive, prev day"), A.4/A.5 retry logic (60s window ticks, DB
+    FAILED-status retry, `dailyReports_pre_market_deliveries_status_check`), A.8
+    "Broker execution: DISABLED" hard-wired in both reports.
+  * **B.5 (owner-facing block reason)**: `/swing/staged-orders/:id/paper-open-preview`
+    was returning `blockedReason: "CONCURRENT_CAP"` on any `wouldOpen=false`, which
+    is misleading — the actual block is a capital shortfall. Now returns
+    `"INSUFFICIENT_CAPITAL"` correctly, plus new `capitalShortfall` field.
+  * **B.1/B.2 (paper account ↔ trade ledger reconciliation)**: new module
+    `paperAccountReconciliation.ts` — pure read-only tie-out for a segment on
+    an IST date. Verifies the identity `seed - Σ(open capital deployed) +
+    Σ(lifetime realized P&L) = balance`, surfaces drift with tolerance
+    (0.01 × rows involved). Includes info-only mark-to-market P&L on open
+    positions. New endpoint `GET /paper/account?segment={FNO|EQUITY}&reconcile=1`.
+    Verified live: FNO seed ₹200k, balance ₹200k, drift 0, reconciled=true.
+    Tests: `paperAccountReconciliation.test.ts` — 2 pure-shape checks.
+  * **C audit — no code changes needed**: `getMarketStatusDetail` returns
+    `marketOpen: boolean` + IST-formatted `serverIst`; the options page gates
+    the "Market is closed" screen strictly on `data?.marketStatus != null &&
+    !data.marketStatus.marketOpen` with a legacy-payload refetch guard.
+    `contractInstrumentToken` string→number coercion is present in the
+    /options/signals route. `execution` truth (executionStatus /
+    executionBlockedReason / paperTradeOpened) fully enriched on every
+    /signal-history row. INFO_ONLY / BLOCKED / NOT_CONFIRMED / OPENED all
+    surface with correct paper-badge label + block-reason mapping in
+    `option-signal-alerter.tsx`. Sections C.1–C.10 verified stable.
+  * Full suite: 3380/3384 (up from 3378). 3 unrelated `globalPresetRoutes`
+    pre-existing failures unchanged; 1 flaky swingTtlSweep "db pool exhausted"
+    race under parallel load (20/20 pass in isolation).
 - 2026-07-14 (Phase 4 kickoff): BUG-85/86/87 Telegram bot + 429 boot-storm polish.
   * **BUG-87 priority tiers**: `AlertPriority` = CRITICAL | WARN | INFO added to
     `alerting.ts`. Prefix (`🔴 [CRITICAL]` / `⚠️ [WARN]` / `ℹ️ [INFO]`) is

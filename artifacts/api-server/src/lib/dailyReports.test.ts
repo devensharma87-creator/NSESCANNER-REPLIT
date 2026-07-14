@@ -526,12 +526,12 @@ describe("buildPostMarketReport — healthy system", () => {
 
   it("shows opened/closed/open trade counts", () => {
     const text = buildPostMarketReport(makePostMarket());
-    expect(text).toContain("Paper trades: opened 3 | closed 2 | open 1");
+    expect(text).toContain("F&O paper trades: opened 3 | closed 2 | open 1");
   });
 
   it("shows positive P&L with rupee sign", () => {
     const text = buildPostMarketReport(makePostMarket());
-    expect(text).toContain("Realized P&L: ₹+4,200");
+    expect(text).toContain("F&O realized P&L: ₹+4,200");
   });
 
   it("shows exit monitor status", () => {
@@ -582,7 +582,7 @@ describe("buildPostMarketReport — fno null", () => {
 
   it("shows Unavailable for F&O paper-trades section, not fake zeros", () => {
     const text = buildPostMarketReport(data);
-    expect(text).toContain("Paper trades: Unavailable — not tracked yet");
+    expect(text).toContain("F&O paper trades: Unavailable — query failed this run");
   });
 
   it("does not fake trades opened as 0", () => {
@@ -598,12 +598,12 @@ describe("buildPostMarketReport — null totalPnl", () => {
 
   it("shows P&L unavailable instead of 0", () => {
     const text = buildPostMarketReport(data);
-    expect(text).toContain("Realized P&L: Unavailable");
+    expect(text).toContain("F&O realized P&L: Unavailable");
   });
 
   it("does not show a fabricated ₹0", () => {
     const text = buildPostMarketReport(data);
-    expect(text).not.toMatch(/Realized P&L: ₹0/);
+    expect(text).not.toMatch(/F&O realized P&L: ₹0/);
   });
 });
 
@@ -614,12 +614,12 @@ describe("buildPostMarketReport — zero trades (no activity)", () => {
 
   it("shows 'none today' instead of a fabricated Opened: 0 / Closed: 0", () => {
     const text = buildPostMarketReport(data);
-    expect(text).toContain("Paper trades: none today");
+    expect(text).toContain("F&O paper trades: none today");
   });
 
   it("does not print a Realized P&L line when there was no activity", () => {
     const text = buildPostMarketReport(data);
-    expect(text).not.toContain("Realized P&L");
+    expect(text).not.toContain("F&O realized P&L");
   });
 });
 
@@ -630,7 +630,16 @@ describe("buildPostMarketReport — zero P&L with trades (legitimate)", () => {
 
   it("shows ₹+0 when P&L is genuinely 0 with real trade activity", () => {
     const text = buildPostMarketReport(data);
-    expect(text).toContain("Realized P&L: ₹+0");
+    expect(text).toContain("F&O realized P&L: ₹+0");
+  });
+});
+
+// ── Post-market builder — F&O paper unavailable ─────────────────────────────
+
+describe("buildPostMarketReport — F&O paper unavailable", () => {
+  it("labels a query-failure path as Unavailable — query failed this run", () => {
+    const text = buildPostMarketReport(makePostMarket({ fno: null }));
+    expect(text).toContain("F&O paper trades: Unavailable — query failed this run");
   });
 });
 
@@ -640,7 +649,7 @@ describe("buildPostMarketReport — negative P&L", () => {
   it("shows negative P&L with minus sign", () => {
     const data = makePostMarket({ fno: { ...healthyPostFno, totalPnl: -1500 } });
     const text = buildPostMarketReport(data);
-    expect(text).toContain("Realized P&L: ₹-1,500");
+    expect(text).toContain("F&O realized P&L: ₹-1,500");
   });
 });
 

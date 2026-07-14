@@ -436,6 +436,18 @@ router.post("/swing/staged-orders/:id/paper-open-preview", requireOwner, async (
   const requiredCapital = Number(row.entryPrice) * (row.quantity ?? 1);
   const wouldOpen = availableCapital >= requiredCapital;
 
+  // B.5: give the owner a precise reason when wouldOpen=false — the earlier
+  // "CONCURRENT_CAP" label was misleading (the actual block is a capital
+  // shortfall). Concurrent-cap (max simultaneously open positions) is a
+  // separate future gate; when it's added, split it into a distinct code.
+  let blockedReason: string | null = null;
+  if (!wouldOpen) {
+    blockedReason =
+      availableCapital < requiredCapital
+        ? "INSUFFICIENT_CAPITAL"
+        : "CONCURRENT_CAP";
+  }
+
   res.json({
     simulate: true,
     stagedOrderId: row.id,
@@ -447,8 +459,12 @@ router.post("/swing/staged-orders/:id/paper-open-preview", requireOwner, async (
     qty: row.quantity,
     requiredCapital,
     availableCapital,
+    // Owner-facing shortfall — negative when there IS enough capital, positive
+    // when there is a shortfall. Consumers can compute it themselves, but
+    // surfacing it here keeps the response self-contained (B.5).
+    capitalShortfall: Math.max(0, requiredCapital - availableCapital),
     wouldOpen,
-    blockedReason: wouldOpen ? null : "CONCURRENT_CAP",
+    blockedReason,
     brokerExecution: false,
     execution: executionSnapshot(),
   });

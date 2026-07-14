@@ -355,6 +355,14 @@ router.get("/paper/account", requireOwner, async (req, res, next) => {
     if (segment !== "FNO" && segment !== "EQUITY") {
       return res.status(400).json({ error: "segment must be FNO or EQUITY" });
     }
+    // B.1/B.2 sibling: `?reconcile=1` returns only the reconciliation
+    // snapshot. Kept as a query flag on the existing /paper/account so
+    // the UI never needs to make two round-trips for the same view.
+    if (req.query.reconcile === "1") {
+      const { reconcilePaperAccount } = await import("../lib/paperAccountReconciliation");
+      const snap = await reconcilePaperAccount(segment as "FNO" | "EQUITY");
+      return res.json(snap);
+    }
     const acct = await ensureDailyReset(segment as Segment);
     const dailyTradeCap =
       segment === "FNO"
