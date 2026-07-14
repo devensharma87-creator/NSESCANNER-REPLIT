@@ -47,6 +47,30 @@ in the first user message; prior bugs BUG-00..26 belong to the repo's own audit 
 - TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID (+ optional PREPOST_* pair).
 
 ## What's been implemented (dates)
+- 2026-07-14 (iteration 4): D unified vocabulary + G reason-category chips.
+  * **D Market-Pulse unified vocabulary** — new `HomeUnifiedGrade` union
+    added to `homeMarketPulseSourceMap.ts` with six canonical values:
+    KITE_TRADE_GRADE / NSE_ARCHIVE / DELAYED_T_PLUS_1 / INFO_ONLY /
+    UNAVAILABLE / PROVIDER_NOT_CONFIGURED. Derived deterministically from
+    the existing (sourceStatus, source) pair via `deriveHomeUnifiedGrade`
+    (pure). Rich 7-value status kept internally as `data-status` attribute
+    for analytics; the primary chip label is the new 6-value vocab, aligned
+    with the daily-reports legend footer added in iteration 1.
+    `SectionSourceLabel` component switched to render the unified grade.
+    Consumer contract updated: `HomeSectionSource` now carries `unifiedGrade`
+    field alongside the legacy `sourceStatus`.
+  * **G F&O Cockpit reason-category chips** — new pure classifier
+    `fnoReasonCategories.ts` maps any suppressed reason prose string into
+    one of seven owner-facing buckets: DATA_FAILURE / MARKET_CLOSED /
+    BROKER_DISABLED / CAPITAL_BLOCK / RISK_VETO / SIGNAL_QUALITY /
+    NO_SETUP (+ OTHER catch-all). New `FnoReasonCategoriesStrip`
+    component consumes `data.diagnostics.suppressed[]`, groups reasons by
+    bucket, renders category chips with count + tooltip samples. Wired
+    into `options.tsx` just below the SignalGateBanner and expiry-day
+    banner. Hidden on a fully clean session.
+    Tests: `fnoReasonCategories.test.ts` — 12 tests (single-reason
+    classification for every bucket, OTHER fallback, summarizeFnoReasons
+    ordering + sample cap). All pass. Scanner suite: 791/791.
 - 2026-07-14 (iteration 3): B.8 writer_version + LedgerHealthCard frontend + roadmap cleanup.
   * **B.8 writer_version schema tag** — nullable text column added to
     `paper_trade_fo` + `paper_trade_eq` via `ensurePaperTradeWriterVersionColumn`

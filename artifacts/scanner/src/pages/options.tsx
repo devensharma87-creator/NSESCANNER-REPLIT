@@ -15,6 +15,7 @@ import { Badge } from "@/components/ui/badge";
 import { DataSourceBadge } from "@/components/ui/data-source-badge";
 import { TradingViewAlerts } from "@/components/tradingview-alerts";
 import { SignalGateBanner } from "@/components/signal-gate-banner";
+import { FnoReasonCategoriesStrip } from "@/components/fno-reason-categories-strip";
 import { useToast } from "@/hooks/use-toast";
 import {
   TrendingUp, TrendingDown, Target, ShieldAlert, Crosshair, Zap, Activity, Layers, Repeat, RotateCcw,
@@ -982,6 +983,12 @@ export default function OptionsPage() {
       {data?.diagnostics?.gates && (
         <SignalGateBanner gates={data.diagnostics.gates} />
       )}
+
+      {/* G — reason-category chips. Bucket the per-index suppressed reasons
+          into the seven owner-facing categories (data / risk / signal-quality
+          / market-closed / no-setup / capital / broker) with counts and
+          tooltip samples. Hidden on a fully-clean session. */}
+      <FnoReasonCategoriesStrip suppressed={data?.diagnostics?.suppressed} />
 
       {/* BUG-80 / F.2 — Expiry-day banner. Shown when at least one index
           on the current session is in EXPIRY_DAY regime. Explains the

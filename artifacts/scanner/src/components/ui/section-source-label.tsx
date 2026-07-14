@@ -13,42 +13,44 @@ import {
   resolveHomeSectionSourceById,
   type HomeSectionRuntime,
   type HomeSourceCategory,
-  type HomeSourceStatus,
+  type HomeUnifiedGrade,
 } from "@/lib/homeMarketPulseSourceMap";
 
-const STATUS_META: Record<
-  HomeSourceStatus,
-  { label: string; cls: string }
-> = {
-  TRADE_GRADE: {
-    label: "TRADE-GRADE",
+// D — canonical unified vocabulary display map. Every Market-Pulse chip
+// now renders one of these six values as the primary label, aligned
+// with the daily-reports legend footer and the swing/staging block-
+// reason vocabulary.
+const UNIFIED_META: Record<HomeUnifiedGrade, { label: string; cls: string }> = {
+  KITE_TRADE_GRADE: {
+    label: "KITE TRADE-GRADE",
     cls: "text-emerald-500 border-emerald-500/30 bg-emerald-500/10",
+  },
+  NSE_ARCHIVE: {
+    label: "NSE ARCHIVE",
+    cls: "text-teal-500 border-teal-500/30 bg-teal-500/10",
+  },
+  DELAYED_T_PLUS_1: {
+    label: "DELAYED T+1",
+    cls: "text-amber-500 border-amber-500/30 bg-amber-500/10",
   },
   INFO_ONLY: {
     label: "INFO ONLY",
     cls: "text-sky-500 border-sky-500/30 bg-sky-500/10",
   },
-  DELAYED: {
-    label: "DELAYED",
-    cls: "text-amber-500 border-amber-500/30 bg-amber-500/10",
-  },
-  STALE: {
-    label: "STALE",
-    cls: "text-orange-500 border-orange-500/30 bg-orange-500/10",
-  },
-  COMPUTED: {
-    label: "COMPUTED",
-    cls: "text-violet-500 border-violet-500/30 bg-violet-500/10",
-  },
-  SOURCE_NOT_INTEGRATED: {
-    label: "NOT INTEGRATED",
-    cls: "text-muted-foreground border-border bg-muted/40",
-  },
   UNAVAILABLE: {
     label: "UNAVAILABLE",
     cls: "text-rose-500 border-rose-500/30 bg-rose-500/10",
   },
+  PROVIDER_NOT_CONFIGURED: {
+    label: "PROVIDER NOT CONFIGURED",
+    cls: "text-muted-foreground border-border bg-muted/40",
+  },
 };
+
+// Legacy per-status color map kept intentionally minimal — richer
+// analytics keys on the `data-status` attribute; the visible label is
+// driven by UNIFIED_META above.
+// (STATUS_META removed — no callers post-D unification.)
 
 const SOURCE_LABEL: Record<HomeSourceCategory, string> = {
   kite: "Kite",
@@ -102,7 +104,7 @@ export function SectionSourceLabel({
   const resolved = resolveHomeSectionSourceById(sectionId, runtime);
   if (!resolved) return null;
 
-  const meta = STATUS_META[resolved.sourceStatus];
+  const meta = UNIFIED_META[resolved.unifiedGrade];
   const asOfLabel = formatAsOf(resolved.asOf);
   const title = resolved.warning
     ? `${resolved.note} — ${resolved.warning}`
@@ -112,6 +114,7 @@ export function SectionSourceLabel({
     <span
       data-testid={`section-source-${sectionId}`}
       data-status={resolved.sourceStatus}
+      data-grade={resolved.unifiedGrade}
       data-source={resolved.source}
       data-can-drive={resolved.canDriveSignals ? "true" : "false"}
       title={title}

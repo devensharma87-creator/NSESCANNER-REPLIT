@@ -84,6 +84,72 @@ export interface HomeSectionSource {
   fallbackUsed: boolean;
   warning: string | null;
   note: string;
+  /**
+   * D — canonical vocabulary that unifies every Market-Pulse cell into
+   * ONE of six owner-facing labels. Derived from `(sourceStatus, source)`
+   * so it stays in lockstep with the underlying richer model; producers
+   * don't need to think about the mapping.
+   *
+   *   KITE_TRADE_GRADE       — decisioning data, Kite live. Only sourceStatus=TRADE_GRADE
+   *                            AND source=kite qualifies.
+   *   NSE_ARCHIVE            — trade-grade but from the NSE EOD archive
+   *                            (not live). Used for FII/DII, participant OI,
+   *                            F&O ban list, delivery data — anything the
+   *                            exchange only publishes T+1 via bhavcopy /
+   *                            archive endpoints.
+   *   DELAYED_T_PLUS_1       — the same NSE archive, but the T+1 batch is
+   *                            not yet available and the shown value is
+   *                            yesterday's or older. Never for trading.
+   *   INFO_ONLY              — context/supporting data, never gates a
+   *                            trade decision (Yahoo, computed, MMI, etc).
+   *   UNAVAILABLE            — configured source but the current fetch
+   *                            failed / is empty; owner sees an explicit
+   *                            gap instead of a stale value.
+   *   PROVIDER_NOT_CONFIGURED — no integration wired yet for this cell.
+   */
+  unifiedGrade: HomeUnifiedGrade;
+}
+
+/** D — six-value canonical Market-Pulse vocabulary. Public. Keep in sync
+ *  with the `derive` helper below and the display-map in
+ *  `section-source-label.tsx`. */
+export type HomeUnifiedGrade =
+  | "KITE_TRADE_GRADE"
+  | "NSE_ARCHIVE"
+  | "DELAYED_T_PLUS_1"
+  | "INFO_ONLY"
+  | "UNAVAILABLE"
+  | "PROVIDER_NOT_CONFIGURED";
+
+/** Pure map — `(sourceStatus, source)` → canonical `HomeUnifiedGrade`.
+ *  Deterministic; no side-effects; never falls back to a fabricated
+ *  grade — an unknown pair collapses to PROVIDER_NOT_CONFIGURED. */
+export function deriveHomeUnifiedGrade(
+  sourceStatus: HomeSourceStatus,
+  source: HomeSourceCategory,
+): HomeUnifiedGrade {
+  if (sourceStatus === "SOURCE_NOT_INTEGRATED") return "PROVIDER_NOT_CONFIGURED";
+  if (sourceStatus === "UNAVAILABLE") return "UNAVAILABLE";
+  if (sourceStatus === "TRADE_GRADE") {
+    if (source === "kite") return "KITE_TRADE_GRADE";
+    if (source === "db" || source === "nse_archive") return "NSE_ARCHIVE";
+    // TRADE_GRADE label with a non-kite, non-archive source is unusual
+    // but survivable — treat as INFO_ONLY so the UI never mislabels
+    // a non-kite source as decisioning data.
+    return "INFO_ONLY";
+  }
+  if (sourceStatus === "DELAYED") {
+    if (source === "db" || source === "nse_archive") return "DELAYED_T_PLUS_1";
+    return "INFO_ONLY";
+  }
+  if (sourceStatus === "STALE") {
+    // Stale trade-grade data has crossed the freshness SLA — the safer
+    // owner-facing framing is INFO_ONLY (definitely not decisionable).
+    return "INFO_ONLY";
+  }
+  if (sourceStatus === "COMPUTED") return "INFO_ONLY";
+  if (sourceStatus === "INFO_ONLY") return "INFO_ONLY";
+  return "PROVIDER_NOT_CONFIGURED";
 }
 
 /**
@@ -257,6 +323,7 @@ export function resolveHomeSectionSource(
         missingStatus === "SOURCE_NOT_INTEGRATED"
           ? descriptor.note
           : "No data received — showing nothing rather than a fabricated value.",
+      unifiedGrade: deriveHomeUnifiedGrade(missingStatus, descriptor.source),
     };
   }
 
@@ -313,6 +380,7 @@ export function resolveHomeSectionSource(
     canDriveSignals: descriptor.canDriveSignals && sourceStatus === "TRADE_GRADE",
     fallbackUsed,
     warning,
+    unifiedGrade: deriveHomeUnifiedGrade(sourceStatus, descriptor.source),
   };
 }
 
