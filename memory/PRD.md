@@ -47,6 +47,26 @@ in the first user message; prior bugs BUG-00..26 belong to the repo's own audit 
 - TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID (+ optional PREPOST_* pair).
 
 ## What's been implemented (dates)
+- 2026-07-14 (iteration 5): Full technical audit + dead-code cleanup.
+  * **Audit doc**: new `/app/memory/AUDIT_2026_07_14.md` capturing the
+    zero-compromise verification — every trade-grade path stays on Kite,
+    zero fake-data leaks, provider-import regression guard enforces
+    boundary at compile time and via a regression test allowlist
+    (63 files reviewed, ZERO direct-yahoo imports in decisioning code).
+  * **Dead code removed**:
+    - `lib/__dryrun_tmp.ts` (temp scratch file, never imported)
+    - `lib/marketData/analyticsRouter.ts` (unwired "central router", zero callers)
+    - `components/market-mood.tsx` (superseded by `mmi-gauge.tsx`)
+    - `components/events-marquee.tsx` (unused page component)
+    - `components/markets-news-card.tsx` (unused page component)
+  * **Intentionally kept**: `lib/optionSignals.legacyEmit.bak.ts` (Phase-3
+    backup — explicit docstring, not compiled, not imported).
+  * **Only surviving mock**: `global-status-banner.tsx::getMockReadiness`
+    — dev-only (`import.meta.env.DEV`), stripped from production builds.
+  * **Regime hysteresis, IST daily latches, force-exit mutex** — every
+    concurrency / timing invariant re-verified in source.
+  * Suites: api-server 3382/3385 (same 3 pre-existing unrelated failures),
+    scanner 791/791. Typecheck clean api-server + scanner + lib/db.
 - 2026-07-14 (iteration 4): D unified vocabulary + G reason-category chips.
   * **D Market-Pulse unified vocabulary** — new `HomeUnifiedGrade` union
     added to `homeMarketPulseSourceMap.ts` with six canonical values:
