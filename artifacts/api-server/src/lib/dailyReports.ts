@@ -1390,6 +1390,60 @@ export async function maybeRunPostMarketReport(): Promise<void> {
   }
 }
 
+// ── Pre-market Kite session validity check (08:50 IST, F-09) ─────────────────
+//
+// Kite access tokens expire at 06:00 IST each day. If the session is invalid
+// at the start of the trading day, ALL signals, quote fetches, and auto-trades
+// fail silently for the entire session. This check fires once in the 08:50 window
+// (same slot as the pre-market report) and sends a PREPOST bot alert if invalid.
+//
+// Uses tryClaimScheduledReport("KITE_SESSION_CHECK", istDate) for DB dedup to
+// prevent duplicate alerts on multi-worker deployments.
+
+let lastKiteSessionCheckDate: string | null = null;
+const KITE_SESSION_CHECK_START_MIN = 8 * 60 + 50;  // 08:50 IST
+const KITE_SESSION_CHECK_WINDOW_MIN = 20;            // fire any time in [08:50, 09:10)
+
+export async function maybeRunKiteSessionCheck(): Promise<void> {
+  const { date, minOfDay, dayOfWeek } = istInfo();
+  if (dayOfWeek === 0 || dayOfWeek === 6) return;
+  if (minOfDay < KITE_SESSION_CHECK_START_MIN || minOfDay >= KITE_SESSION_CHECK_START_MIN + KITE_SESSION_CHECK_WINDOW_MIN) return;
+  if (lastKiteSessionCheckDate === date) return; // fast in-memory dedup
+  try {
+    const claimed = await tryClaimScheduledReport("KITE_SESSION_CHECK", date);
+    if (!claimed) {
+      lastKiteSessionCheckDate = date;
+      return;
+    }
+    const { session, code } = await getActiveSessionStatus();
+    const sessionOk = code === "DB_SESSION_OK" && session !== null;
+    if (!sessionOk) {
+      // Session is invalid — fire a PREPOST bot alert.
+      const text =
+        `⚠️ KITE SESSION INVALID (${date})\n` +
+        `Code: ${code}\n` +
+        `Re-login required at marketscannerbydev.in → Admin before 09:15 IST.\n` +
+        `No live data, signals, or auto-trades until the session is refreshed.`;
+      const sendResult = await sendPrePostTelegramMessage(text);
+      logger.warn(
+        { code, date, telegramResult: sendResult },
+        "dailyReports: Kite session invalid at 08:50 — PREPOST alert sent",
+      );
+      await updateReportRunStatus("KITE_SESSION_CHECK", date, "SENT", sendResult, null);
+    } else {
+      // Session is valid — log success, mark as done for the day.
+      logger.info({ date }, "dailyReports: Kite session valid at 08:50 — no alert needed");
+      await updateReportRunStatus("KITE_SESSION_CHECK", date, "SENT", "PREPOST_NOT_NEEDED", null);
+    }
+    lastKiteSessionCheckDate = date; // burn latch after any resolution
+  } catch (err) {
+    logger.warn(
+      { err: (err as Error).message, date },
+      "dailyReports: Kite session check failed — will retry next tick",
+    );
+  }
+}
+
 // ── Module-load side-effect: ensure table + install 60s tick ─────────────────
 
 void ensureDailyReportRunsTable().catch(() => undefined);
@@ -1398,4 +1452,5 @@ const REPORT_TICK_MS = 60_000;
 setInterval(() => {
   void maybeRunPreMarketReport().catch(() => undefined);
   void maybeRunPostMarketReport().catch(() => undefined);
+  void maybeRunKiteSessionCheck().catch(() => undefined);
 }, REPORT_TICK_MS).unref?.();

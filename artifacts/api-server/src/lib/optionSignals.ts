@@ -8,6 +8,11 @@ import { handleFnoDataSuppressionTransition } from "./fnoDataRecoveryTransition"
 import { scoreConfluence, type ConfluenceInputs } from "./confluenceEngine";
 import { ema, rsi, sessionVwap, volumeProfile, pivots, atr } from "./indicators";
 import { classifyRegime, type RegimeResult } from "./regimeClassifier";
+import {
+  applyRegimeHysteresis,
+  isExpiryDayForAnyIndex as isExpiryDayForAnyIndexHelper,
+  resetRegimeHysteresisForTest,
+} from "./fnoRegimeHysteresis";
 import { recordAtmIv, computeIvMetrics } from "./ivHistory";
 import { logger } from "./logger";
 import { logUpstreamReasoningBatch } from "./fnoSignalReasoningLogger";
@@ -481,7 +486,10 @@ function buildContext(cfg: IndexCfg, intra: YahooChart, daily: YahooChart): Ctx 
   // Phase-1 regime classifier. Pure label — does not gate any setup
   // emission. Surfaced on the API so the UI can show a chip and the
   // owner can spot "all my recent losses came from RANGING days".
-  const regime = classifyRegime({
+  //
+  // Hysteresis (F-26): require 2 consecutive 15-min bars with the same
+  // proposed regime before accepting a flip. EXPIRY_DAY bypasses this.
+  const proposedRegime = classifyRegime({
     bars: { h: highs, l: lows, c: closes },
     spot,
     vwap: effectiveVwap,
@@ -491,6 +499,7 @@ function buildContext(cfg: IndexCfg, intra: YahooChart, daily: YahooChart): Ctx 
     expiryWeekday: cfg.expiryWeekday,
     expiryCadence: cfg.expiryCadence,
   });
+  const regime = applyRegimeHysteresis(cfg.symbol, proposedRegime, closes.length);
 
   return {
     cfg, spot, open0,
@@ -1992,6 +2001,13 @@ const TRIGGER_SWEEP_INTERVAL_MS = 30 * 1000;
 // the rest of the day on a single transient blip.
 let lastForceExit1520Date: string | null = null;
 
+// Expiry-day 12:30 IST early force-exit latch (same burn-on-success
+// semantics as lastForceExit1520Date).
+let lastExpiryEarlyCloseDate: string | null = null;
+
+// Re-export test helper from the extracted pure module.
+export { resetRegimeHysteresisForTest };
+
 setInterval(() => {
   if (triggerSweepRunning) return; // skip if previous tick still in flight
   if (computeMarketStatus(new Date()) !== "open") return;
@@ -2011,6 +2027,30 @@ setInterval(() => {
       const ist = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
       const istDay = ist.toISOString().slice(0, 10);
       const istMin = ist.getUTCHours() * 60 + ist.getUTCMinutes();
+
+      // 2a) Expiry-day early force-close at 12:30 IST (F-31).
+      //     On expiry day, options suffer accelerating gamma/theta in the
+      //     final 3 hours. Close all positions at 12:30 to avoid this.
+      //     The 15:20 latch remains as the final backstop for non-expiry days.
+      const EXPIRY_EARLY_CLOSE_MIN = 12 * 60 + 30; // 12:30 IST
+      if (
+        istMin >= EXPIRY_EARLY_CLOSE_MIN &&
+        lastExpiryEarlyCloseDate !== istDay &&
+        isExpiryDayForAnyIndexHelper(Date.now(), OPTION_INDICES)
+      ) {
+        try {
+          const { forceCloseAllOpenFnoForExpiryDay } = await import("./paperTradingFO");
+          await forceCloseAllOpenFnoForExpiryDay();
+          lastExpiryEarlyCloseDate = istDay; // only burn on success
+        } catch (err) {
+          logger.warn(
+            { err: (err as Error).message },
+            "Paper FO expiry-day 12:30 early-close threw — will retry next tick",
+          );
+        }
+      }
+
+      // 2b) Standard 15:20 IST force-close (all days including expiry).
       if (istMin >= 15 * 60 + 20 && lastForceExit1520Date !== istDay) {
         try {
           const { forceCloseAllOpenFnoFor1520 } = await import("./paperTradingFO");

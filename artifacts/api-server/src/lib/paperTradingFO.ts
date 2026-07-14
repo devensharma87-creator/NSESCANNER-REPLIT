@@ -1645,7 +1645,11 @@ export type CloseReason =
   | "MANUAL_OVERRIDE"
   /** Pass-1 force-exit at 15:20 IST — closes any still-OPEN paper FO trade
    *  before the last-10-min liquidity drop. Settles at lastPremium. */
-  | "TIME_EXIT_1520";
+  | "TIME_EXIT_1520"
+  /** Expiry-day early force-exit at 12:30 IST — closes all OPEN paper FO
+   *  trades 3 hours before close on expiry day to avoid gamma crush / theta
+   *  bleed in the final 2h50m of expiry-day trading. Settles at lastPremium. */
+  | "EXPIRY_EARLY_CLOSE";
 
 /**
  * Reconcile paper_trade_fo rows that are still OPEN despite the
@@ -2531,6 +2535,7 @@ export async function closePaperTradeForSignal(
       EXPIRED: "CLOSED_EXPIRED",
       MANUAL_OVERRIDE: "CLOSED_MANUAL",
       TIME_EXIT_1520: "CLOSED_TIME_EXIT_1520",
+      EXPIRY_EARLY_CLOSE: "CLOSED_TIME_EXIT_1520",
     };
     void logFnoReasoning({
       decision: closeDecisionMap[reason],
@@ -2602,9 +2607,69 @@ function pickExitPremium(r: PaperTradeFoRow, reason: CloseReason): number {
     case "EXPIRED":
     case "MANUAL_OVERRIDE":
     case "TIME_EXIT_1520":
+    case "EXPIRY_EARLY_CLOSE":
     default:
       return num(r.lastPremium);
   }
+}
+
+/**
+ * Expiry-day 12:30 IST early force-exit. Closes every still-OPEN paper F&O
+ * trade at lastPremium with reason `EXPIRY_EARLY_CLOSE`. Fires only when the
+ * caller has already confirmed that today is an expiry day for at least one
+ * active index. Settles at lastPremium (same semantics as TIME_EXIT_1520).
+ *
+ * Rationale: on expiry day, options suffer accelerating theta and gamma
+ * in the final 3 hours. Closing at 12:30 IST avoids the worst of that
+ * while still capturing the morning session's directional moves.
+ *
+ * Returns the count of trades actually closed by this call.
+ */
+export async function forceCloseAllOpenFnoForExpiryDay(): Promise<number> {
+  const openRows = await db
+    .select({
+      signalDate: paperTradeFoTable.signalDate,
+      indexSymbol: paperTradeFoTable.indexSymbol,
+      setupKey: paperTradeFoTable.setupKey,
+      direction: paperTradeFoTable.direction,
+    })
+    .from(paperTradeFoTable)
+    .where(eq(paperTradeFoTable.status, "OPEN"));
+  if (openRows.length === 0) return 0;
+
+  let closed = 0;
+  for (const r of openRows) {
+    try {
+      const out = await closePaperTradeForSignal(
+        r.signalDate,
+        r.indexSymbol,
+        r.setupKey,
+        r.direction as "BULLISH" | "BEARISH",
+        "EXPIRY_EARLY_CLOSE",
+      );
+      if (out) {
+        closed++;
+        void (async () => {
+          try {
+            const chain = await fetchOptionChain(out.indexSymbol);
+            await applyMarketShadowToDb(
+              out.id,
+              captureExitMarketPremium(out, chain),
+            );
+          } catch { /* shadow observation only */ }
+        })();
+      }
+    } catch (err) {
+      logger.warn(
+        { err: (err as Error).message, indexSymbol: r.indexSymbol, setupKey: r.setupKey },
+        "forceCloseAllOpenFnoForExpiryDay: close failed for one row, continuing",
+      );
+    }
+  }
+  if (closed > 0) {
+    logger.info({ closed }, "Paper FO expiry-day 12:30 early-close completed");
+  }
+  return closed;
 }
 
 /**
