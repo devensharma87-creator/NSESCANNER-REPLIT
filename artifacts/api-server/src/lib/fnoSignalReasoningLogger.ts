@@ -109,7 +109,8 @@ export type FnoReasoningDecision =
   | "CLOSED_TARGET2"
   | "CLOSED_EXPIRED"
   | "CLOSED_MANUAL"
-  | "CLOSED_TIME_EXIT_1520";
+  | "CLOSED_TIME_EXIT_1520"
+  | "CLOSED_TIME_EXIT_1430_EXPIRY";
 
 /**
  * Shape accepted by `logFnoReasoning`. Every field except `decision`,

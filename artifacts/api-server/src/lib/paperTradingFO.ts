@@ -1066,8 +1066,14 @@ async function openPaperTrade(input: LifecycleHookInput): Promise<PaperTradeFoRo
       // (2) PORTFOLIO REGIME SCALING: when this signal's regime is
       //     VOLATILE (high realised vol / wide BB but stop envelope
       //     intact), halve size. Stacks multiplicatively with
-      //     POST_STOP_COOLDOWN. EXPIRY_DAY is handled at the signal
-      //     layer (forced to BASELINE tier) so doesn't need a scale.
+      //     POST_STOP_COOLDOWN.
+      //
+      //     BUG-80 EXPIRY_DAY: on the index's own expiry day, apply
+      //     the same 0.5 multiplier — enforced together with the
+      //     MEAN_REVERSION-only detector filter in optionSignals.ts and
+      //     the 14:30 IST auto-close (below). All three legs of the
+      //     expiry-day mode work together.
+      //
       //     `signal.regime` is the per-index regime label from
       //     classifyRegime in optionSignals.ts, surfaced via toSignal.
       const signalRegime = (signal as unknown as { regime?: string }).regime;
@@ -1085,6 +1091,21 @@ async function openPaperTrade(input: LifecycleHookInput): Promise<PaperTradeFoRo
             regime: signalRegime,
           },
           `Paper FO: VOLATILE regime active — sizing halved`,
+        );
+      } else if (signalRegime === "EXPIRY_DAY") {
+        const beforeLots = lots;
+        lots = Math.max(1, Math.floor(lots * REGIME_SIZING.EXPIRY_DAY_MULT));
+        logger.info(
+          {
+            indexSymbol,
+            setupKey,
+            tier,
+            beforeLots,
+            afterLots: lots,
+            sizeMult: REGIME_SIZING.EXPIRY_DAY_MULT,
+            regime: signalRegime,
+          },
+          `Paper FO: EXPIRY_DAY regime active — sizing halved (BUG-80)`,
         );
       }
 
@@ -1645,7 +1666,11 @@ export type CloseReason =
   | "MANUAL_OVERRIDE"
   /** Pass-1 force-exit at 15:20 IST — closes any still-OPEN paper FO trade
    *  before the last-10-min liquidity drop. Settles at lastPremium. */
-  | "TIME_EXIT_1520";
+  | "TIME_EXIT_1520"
+  /** BUG-80 EXPIRY_DAY force-exit at 14:30 IST — on the index's own
+   *  expiry day, close all still-OPEN paper FO trades on that index
+   *  before the last-hour gamma explosion. Settles at lastPremium. */
+  | "TIME_EXIT_1430_EXPIRY";
 
 /**
  * Reconcile paper_trade_fo rows that are still OPEN despite the
@@ -2531,6 +2556,7 @@ export async function closePaperTradeForSignal(
       EXPIRED: "CLOSED_EXPIRED",
       MANUAL_OVERRIDE: "CLOSED_MANUAL",
       TIME_EXIT_1520: "CLOSED_TIME_EXIT_1520",
+      TIME_EXIT_1430_EXPIRY: "CLOSED_TIME_EXIT_1430_EXPIRY",
     };
     void logFnoReasoning({
       decision: closeDecisionMap[reason],
@@ -2602,6 +2628,7 @@ function pickExitPremium(r: PaperTradeFoRow, reason: CloseReason): number {
     case "EXPIRED":
     case "MANUAL_OVERRIDE":
     case "TIME_EXIT_1520":
+    case "TIME_EXIT_1430_EXPIRY":
     default:
       return num(r.lastPremium);
   }
@@ -2674,6 +2701,93 @@ export async function forceCloseAllOpenFnoFor1520(): Promise<number> {
     }
     if (closed > 0) {
       logger.info({ closed }, "Paper FO 15:20 force-exit completed");
+    }
+    timeExit1520LastRowsClosed = closed;
+    timeExit1520RowsClosedTotal += closed;
+    return closed;
+  } catch (err) {
+    timeExit1520LastErrorAt = new Date();
+    timeExit1520LastErrorClass = (err as Error)?.constructor?.name ?? "Error";
+    timeExit1520LastErrorMessage = String((err as Error)?.message ?? err).slice(0, 200);
+    throw err;
+  }
+}
+
+/**
+ * BUG-80 EXPIRY_DAY 14:30 IST force-exit.
+ *
+ * On an index's own expiry day, gamma explodes in the last 60 minutes of the
+ * session. Every open paper F&O trade on an expiring-today index is
+ * force-closed at 14:30 IST with reason `TIME_EXIT_1430_EXPIRY`. Rows on
+ * other indices are untouched — they still ride to the global 15:20 latch.
+ *
+ * `expiringIndexes` MUST be pre-computed by the caller from
+ * `indexesExpiringTodayIst()`; passing an empty list is a no-op. Callers
+ * gate the invocation on both the IST clock (≥ 14:30) and non-emptiness
+ * of the expiring set — this function itself does no time check, so tests
+ * can drive it deterministically.
+ *
+ * Shares the 15:20 observability counters — both are "time-based force
+ * exits" from an ops perspective. Idempotent per-row (per-row CAS in
+ * closePaperTradeForSignal).
+ */
+export async function forceCloseAllOpenFnoFor1430Expiry(
+  expiringIndexes: string[],
+): Promise<number> {
+  if (expiringIndexes.length === 0) return 0;
+  timeExit1520RunsTotal++;
+  timeExit1520LastRunAt = new Date();
+  timeExit1520LastRunDate = istDateString(timeExit1520LastRunAt);
+  try {
+    const openRows = await db
+      .select({
+        signalDate: paperTradeFoTable.signalDate,
+        indexSymbol: paperTradeFoTable.indexSymbol,
+        setupKey: paperTradeFoTable.setupKey,
+        direction: paperTradeFoTable.direction,
+      })
+      .from(paperTradeFoTable)
+      .where(eq(paperTradeFoTable.status, "OPEN"));
+    const expiringSet = new Set(expiringIndexes);
+    const targets = openRows.filter((r) => expiringSet.has(r.indexSymbol));
+    if (targets.length === 0) {
+      timeExit1520LastRowsClosed = 0;
+      return 0;
+    }
+    let closed = 0;
+    for (const r of targets) {
+      try {
+        const out = await closePaperTradeForSignal(
+          r.signalDate,
+          r.indexSymbol,
+          r.setupKey,
+          r.direction as "BULLISH" | "BEARISH",
+          "TIME_EXIT_1430_EXPIRY",
+        );
+        if (out) {
+          closed++;
+          void (async () => {
+            try {
+              const chain = await fetchOptionChain(out.indexSymbol);
+              await applyMarketShadowToDb(
+                out.id,
+                captureExitMarketPremium(out, chain),
+              );
+            } catch { /* shadow observation only */ }
+          })();
+        }
+      } catch (err) {
+        logger.warn(
+          { err: (err as Error).message, indexSymbol: r.indexSymbol, setupKey: r.setupKey },
+          "forceCloseAllOpenFnoFor1430Expiry: close failed for one row, continuing",
+        );
+      }
+    }
+    if (closed > 0) {
+      logger.info(
+        { closed, expiringIndexes },
+        "Paper FO 14:30 EXPIRY_DAY force-exit completed (BUG-80)",
+      );
     }
     timeExit1520LastRowsClosed = closed;
     timeExit1520RowsClosedTotal += closed;

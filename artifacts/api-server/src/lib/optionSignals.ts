@@ -132,6 +132,29 @@ function expiryFor(cfg: IndexCfg): string {
     ? nextWeeklyExpiry(cfg.expiryWeekday)
     : nextMonthlyExpiry(cfg.expiryWeekday);
 }
+
+/** BUG-80 helper — list of index symbols whose expiry is today (IST).
+ *  Weekly indices match by weekday only; monthly indices only match on the
+ *  LAST occurrence of the weekday in the IST month. Pure — no side effects. */
+export function indexesExpiringTodayIst(now: Date = new Date()): string[] {
+  const ist = new Date(now.getTime() + 5.5 * 60 * 60 * 1000);
+  const istWd = ist.getUTCDay();
+  const out: string[] = [];
+  for (const cfg of OPTION_INDICES) {
+    if (istWd !== cfg.expiryWeekday) continue;
+    if (cfg.expiryCadence === "weekly") {
+      out.push(cfg.symbol);
+      continue;
+    }
+    // Monthly: only the LAST occurrence of the weekday in the IST month.
+    const next = new Date(Date.UTC(
+      ist.getUTCFullYear(), ist.getUTCMonth(), ist.getUTCDate() + 7,
+    ));
+    if (next.getUTCMonth() !== ist.getUTCMonth()) out.push(cfg.symbol);
+  }
+  return out;
+}
+
 const MIN_REAL_SESSION_BARS = 15;
 
 function lastSessionBars(chart: YahooChart): YahooChart {
@@ -1497,7 +1520,20 @@ function buildSignalsForIndex(
     } else if (ctx.volRegime === "HIGH") {
       suppressed.push(`vol_regime: HIGH (realized vol ${ctx.realizedVol14?.toFixed(1)}%) — confidence haircut -4 applied`);
     }
+    // BUG-80 EXPIRY_DAY special mode. On the index's own expiry day,
+    // pin/unwind dynamics dominate — directional trend setups behave
+    // erratically and empirically underperform. Restrict to
+    // MEAN_REVERSION only (mean-fade of the pinning move remains the
+    // one setup class that empirically works on expiry). Sizing is
+    // halved (paperAccount.REGIME_SIZING.EXPIRY_DAY_MULT) and every
+    // open position is force-closed at 14:30 IST (see trigger sweep)
+    // to avoid gamma explosion in the last hour.
+    const inExpiryDayForDetectors = ctx.regime.regime === "EXPIRY_DAY";
     for (const det of detectors) {
+      if (inExpiryDayForDetectors && det.trendClass) {
+        suppressed.push(`${det.name}: expiry-day gate (BUG-80: MEAN_REVERSION only on expiry — pin/unwind dynamics dominate)`);
+        continue;
+      }
       // Phase-2 opening-noise gate (trend-class only, before 09:30 IST).
       if (det.trendClass && !openingAllowed) {
         suppressed.push(`${det.name}: opening-noise gate (before 09:30 IST — first 15min order-flow chaos)`);
@@ -1991,6 +2027,12 @@ const TRIGGER_SWEEP_INTERVAL_MS = 30 * 1000;
 // retries — burning the latch up-front would drop the safety net for
 // the rest of the day on a single transient blip.
 let lastForceExit1520Date: string | null = null;
+// BUG-80 companion latch: EXPIRY_DAY 14:30 IST early force-exit for
+// positions on indices expiring today. Separate latch (independent
+// idempotency from the global 15:20 sweep — an expiry-day session runs
+// BOTH: 14:30 closes only expiring-index rows, 15:20 closes anything
+// still open on non-expiring indices).
+let lastForceExit1430ExpiryDate: string | null = null;
 
 setInterval(() => {
   if (triggerSweepRunning) return; // skip if previous tick still in flight
@@ -2011,6 +2053,28 @@ setInterval(() => {
       const ist = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
       const istDay = ist.toISOString().slice(0, 10);
       const istMin = ist.getUTCHours() * 60 + ist.getUTCMinutes();
+
+      // 2a) BUG-80 — 14:30 IST EXPIRY_DAY early force-exit. Runs BEFORE
+      //     the 15:20 branch; only touches rows on indices expiring today.
+      //     Non-expiring rows continue to ride to the 15:20 latch below.
+      if (istMin >= 14 * 60 + 30 && lastForceExit1430ExpiryDate !== istDay) {
+        try {
+          const expiring = indexesExpiringTodayIst(new Date());
+          if (expiring.length > 0) {
+            const { forceCloseAllOpenFnoFor1430Expiry } = await import(
+              "./paperTradingFO"
+            );
+            await forceCloseAllOpenFnoFor1430Expiry(expiring);
+          }
+          lastForceExit1430ExpiryDate = istDay;
+        } catch (err) {
+          logger.warn(
+            { err: (err as Error).message },
+            "Paper FO 14:30 EXPIRY force-exit threw — will retry next tick",
+          );
+        }
+      }
+
       if (istMin >= 15 * 60 + 20 && lastForceExit1520Date !== istDay) {
         try {
           const { forceCloseAllOpenFnoFor1520 } = await import("./paperTradingFO");

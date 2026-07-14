@@ -47,6 +47,30 @@ in the first user message; prior bugs BUG-00..26 belong to the repo's own audit 
 - TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID (+ optional PREPOST_* pair).
 
 ## What's been implemented (dates)
+- 2026-07-14 (later still): BUG-80 EXPIRY_DAY special mode (Phase-3 kickoff).
+  * `optionSignals.ts` buildSignalsForIndex: on `ctx.regime.regime === "EXPIRY_DAY"`,
+    every trend-class detector (trend_continuation, vwap_reclaim, volume_breakout,
+    ema_pullback) is suppressed with reason `expiry-day gate (BUG-80: MEAN_REVERSION
+    only on expiry — pin/unwind dynamics dominate)`. Only `mean_reversion` runs.
+  * `paperAccount.REGIME_SIZING`: added `EXPIRY_DAY_MULT = 0.5`. `paperTradingFO.ts`
+    sizing block applies this multiplier when `signal.regime === "EXPIRY_DAY"`
+    (stacks multiplicatively with POST_STOP_COOLDOWN.SIZE_MULT).
+  * New IST 14:30 auto-close: `paperTradingFO.forceCloseAllOpenFnoFor1430Expiry`
+    closes every OPEN paper F&O row on indices expiring today with reason
+    `TIME_EXIT_1430_EXPIRY`. Hooked into the existing 30s trigger sweep in
+    `optionSignals.ts` with its own daily latch (`lastForceExit1430ExpiryDate`,
+    idempotent per IST day); the global 15:20 latch still fires after that for
+    non-expiring positions.
+  * New `CloseReason: TIME_EXIT_1430_EXPIRY` (paperTradingFO), new
+    `FnoReasoningDecision: CLOSED_TIME_EXIT_1430_EXPIRY` (fnoSignalReasoningLogger),
+    fnoFailureDiagnosis groups both time-exit variants together as force-exits.
+    exit_reason DB column is free-text (no CHECK), so no schema migration.
+  * New `indexesExpiringTodayIst(now?)` helper exported from `optionSignals.ts` —
+    pure, no side effects; used by the trigger sweep + tests.
+  * Tests: new `optionSignals.expiryDay.test.ts` (5 tests — indexesExpiringTodayIst
+    behaviour for weekly/monthly indices on/off expiry day + EXPIRY_DAY_MULT=0.5).
+    Full suite: 3366/3369 passing (3 unrelated pre-existing failures in
+    `globalPresetRoutes` — verified pre-existing via git-stash re-run).
 - 2026-07-13/14: Full environment migration + self-healing infra (postgres bootstrap,
   proxy shim, supervisor programs, schema push). App verified: admin login, Home tab
   with Yahoo-fallback display data + honest source labels, KITE OFFLINE banner correct.

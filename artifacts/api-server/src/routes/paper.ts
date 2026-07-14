@@ -258,7 +258,8 @@ function toClosedTrade(
       | "STOPPED"
       | "EXPIRED"
       | "MANUAL_OVERRIDE"
-      | "TIME_EXIT_1520",
+      | "TIME_EXIT_1520"
+      | "TIME_EXIT_1430_EXPIRY",
     openedAt: r.openedAt.toISOString(),
     exitedAt: (r.exitedAt ?? r.openedAt).toISOString(),
     journal: r.journal ?? null,

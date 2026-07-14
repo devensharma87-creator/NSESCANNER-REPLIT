@@ -252,11 +252,15 @@ export const PORTFOLIO_HEAT = {
  * Bollinger band but stop envelope is intact), we still trade — but at
  * smaller size. Stacks multiplicatively with POST_STOP_COOLDOWN.
  *
- * EXPIRY_DAY is handled separately in the signal layer (force tier to
- * BASELINE) so it doesn't need a sizing scale here.
+ * BUG-80 addition — EXPIRY_DAY: on the index's own expiry day, gamma
+ * risk on the last hour is asymmetric (pin/unwind); size × 0.5 on the
+ * one setup class that survives (MEAN_REVERSION, enforced upstream in
+ * optionSignals.ts). Stacks multiplicatively with POST_STOP_COOLDOWN
+ * and VOLATILE_MULT (unlikely to coexist, but not exclusive).
  */
 export const REGIME_SIZING = {
   VOLATILE_MULT: 0.5,
+  EXPIRY_DAY_MULT: 0.5,
 } as const;
 
 /**

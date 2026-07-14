@@ -520,7 +520,8 @@ export function computeFailureDiagnosis(
         if (fp != null) { fpExpired.add(fp); fpAnyClose.add(fp); }
         break;
       }
-      case "CLOSED_TIME_EXIT_1520": {
+      case "CLOSED_TIME_EXIT_1520":
+      case "CLOSED_TIME_EXIT_1430_EXPIRY": {
         nForceExit += 1;
         const pnl = numFromDecimal(r.realizedPnl); if (pnl != null) { ia.realizedPnl += pnl; ta.realizedPnl += pnl; }
         if (fp != null) fpAnyClose.add(fp);

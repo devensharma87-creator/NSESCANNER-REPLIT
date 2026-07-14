@@ -158,7 +158,8 @@ export interface TradeDetailRow {
     | "STOPPED"
     | "EXPIRED"
     | "MANUAL_OVERRIDE"
-    | "TIME_EXIT_1520";
+    | "TIME_EXIT_1520"
+    | "TIME_EXIT_1430_EXPIRY";
   durationSec: number;
   /** Read-only: highest unrealized P&L observed (peak); null when not recorded. */
   maxRunup: number | null;
