@@ -62,6 +62,7 @@ import { computeFnoLotSizing } from "./fnoSizingHelper";
 import { fetchOptionChain, LOT_SIZES, type OcResponse } from "./optionChain";
 import { centralCachedLotSizeForIndex as getCachedLotSizeForIndex } from "./marketData/compat";
 import { ensureContractMasterSchemaColumns } from "./ensureContractMasterColumns";
+import { CURRENT_WRITER_VERSION } from "./paperTradeWriterVersion";
 // Type-only: does not create a runtime import of fnoExitDecision.ts at
 // module load time (the runtime import is dynamic, inside
 // evaluateOrphanedOpenTrades, to match this file's existing lazy-import
@@ -1187,6 +1188,10 @@ async function openPaperTrade(input: LifecycleHookInput): Promise<PaperTradeFoRo
             if (src === "static_fallback" || src === "unavailable") return "cache_cold";
             return null;
           })(),
+          // B.8 provenance tag — stamped on every new row so consumers
+          // can distinguish pre-B.8 legacy rows (NULL) from rows written
+          // by a specific writer version.
+          writerVersion: CURRENT_WRITER_VERSION,
         })
         .onConflictDoNothing()
         .returning();

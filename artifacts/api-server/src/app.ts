@@ -298,6 +298,18 @@ scheduleBootJob("telegram-bot-commands", 110_000, async () => {
   await startTelegramBotCommands();
 });
 
+// B.8: additive nullable `writer_version` column on paper_trade_fo/eq.
+// Applied via `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` — safe on every
+// call, memoised inside the module so this costs one DB round-trip per
+// process lifetime. Runs early so the writer path never inserts into
+// a missing column on a fresh deploy.
+scheduleBootJob("paper-trade-writer-version-column", 15_000, async () => {
+  const { ensurePaperTradeWriterVersionColumn } = await import(
+    "./lib/paperTradeWriterVersion"
+  );
+  await ensurePaperTradeWriterVersionColumn();
+});
+
 // W6-P4B5 observability only: read-only post-boot DB pool utilization snapshots
 // that bracket the W6-P4A stagger window. These ONLY read the pg pool's
 // in-memory counters — they never run a query, never acquire a connection, and

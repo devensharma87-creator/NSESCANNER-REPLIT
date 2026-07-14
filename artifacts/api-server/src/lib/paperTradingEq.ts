@@ -36,6 +36,7 @@ import {
 import type { PaperTradeEqRow, PaperTradeEqSource } from "@workspace/db";
 import type { SwingOrderStagingRow } from "@workspace/db/schema";
 import { and, eq, ne, sql } from "drizzle-orm";
+import { CURRENT_WRITER_VERSION } from "./paperTradeWriterVersion";
 import {
   ensureDailyReset,
   EQUITY_DD_CAPS,
@@ -506,6 +507,9 @@ export async function openPaperEquityTrade(
           openedAt: now,
           status: "OPEN",
           source: mapWriteSourceToProvenance(opts?.source),
+          // B.8 provenance tag — stamped on every new row so consumers
+          // can distinguish pre-B.8 legacy rows (NULL).
+          writerVersion: CURRENT_WRITER_VERSION,
         })
         .onConflictDoNothing()
         .returning();

@@ -57,6 +57,7 @@ import {
   type FoTradeRow,
   type FoShadowExitsResponse,
 } from "@/lib/foCockpitView";
+import { LedgerHealthCard } from "@/components/ledger-health-card";
 
 const BASE = import.meta.env.BASE_URL;
 
@@ -397,6 +398,7 @@ function EquitySegment() {
   // live-only by design. Reports tab (/paper-reports) carries the history.
   return (
     <div className="space-y-6">
+      <LedgerHealthCard segment="EQUITY" />
       <EqAccountCard
         data={account.data}
         openPositions={positions.data?.positions ?? []}
@@ -1787,6 +1789,7 @@ function FOSegment() {
 
   return (
     <div className="space-y-6">
+      <LedgerHealthCard segment="FNO" />
       <FoCockpitSafetyBanner p25={p25} freshness={freshness} />
       <FoCockpitSummaryCards
         summary={summaryLoading ? null : cockpitSummary}

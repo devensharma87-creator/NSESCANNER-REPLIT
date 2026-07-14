@@ -218,6 +218,15 @@ export const paperTradeFoTable = pgTable(
     contractInstrumentToken: integer("contract_instrument_token"),
     contractGrade: text("contract_grade"),
     contractFallbackReason: text("contract_fallback_reason"),
+
+    /**
+     * B.8 writer_version — provenance tag on every row. Written by the
+     * paper-trade writer at insert time; NULL on all pre-B.8 rows and
+     * NEVER back-filled. Applied via raw `ALTER TABLE ... ADD COLUMN
+     * IF NOT EXISTS` in `ensurePaperTradeWriterVersionColumn()`
+     * (paperTradeWriterVersion.ts).
+     */
+    writerVersion: text("writer_version"),
   },
   (t) => ({
     // 1:1 with the underlying signal — prevents the lifecycle hook from
@@ -342,6 +351,13 @@ export const paperTradeEqTable = pgTable(
      * NULL for every other source.
      */
     stagedOrderId: text("staged_order_id"),
+    /**
+     * B.8 writer_version — provenance tag on every row. Written by the
+     * paper-trade writer at insert time; NULL on all pre-B.8 rows and
+     * NEVER back-filled. Applied via raw `ALTER TABLE ... ADD COLUMN
+     * IF NOT EXISTS` in `ensurePaperTradeWriterVersionColumn()`.
+     */
+    writerVersion: text("writer_version"),
   },
   (t) => ({
     // One open trade per symbol per IST day.

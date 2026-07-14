@@ -47,6 +47,30 @@ in the first user message; prior bugs BUG-00..26 belong to the repo's own audit 
 - TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID (+ optional PREPOST_* pair).
 
 ## What's been implemented (dates)
+- 2026-07-14 (iteration 3): B.8 writer_version + LedgerHealthCard frontend + roadmap cleanup.
+  * **B.8 writer_version schema tag** — nullable text column added to
+    `paper_trade_fo` + `paper_trade_eq` via `ensurePaperTradeWriterVersionColumn`
+    (ALTER TABLE ADD COLUMN IF NOT EXISTS, memoized, retries on transient DB
+    blips). New rows stamped with `CURRENT_WRITER_VERSION = "paper-writer-v1.0.0"`.
+    Pre-B.8 rows carry NULL and are honestly labelled legacy. Bump the version
+    string whenever the writer path materially changes (schema, charges, etc).
+    Boot job "paper-trade-writer-version-column" scheduled at boot+15s so the
+    writer path never inserts into a missing column on a fresh deploy.
+    Drizzle schema updated (`paperTradeFoTable.writerVersion` +
+    `paperTradeEqTable.writerVersion`); `lib/db` rebuilt.
+  * **Frontend Portfolio LedgerHealthCard** — new
+    `scanner/src/components/ledger-health-card.tsx` renders a one-line status
+    row that fetches `/paper/account?segment={FNO|EQUITY}&reconcile=1` every
+    60 s. Shows ✅ Reconciled / ⚠ Drift ₹X / ⌛ Loading / ❌ Failed with a
+    click-to-expand detail (seed, expected, drift, open MTM, gross/net,
+    charges estimate + schedule). `data-testid` hooks for testing agent.
+    Wired into both Equity and F&O segments of `/paper-trading` page.
+  * **BUG-53/54 clarification**: raw fix-file text never made it into the repo
+    — only the numeric IDs. User acknowledged no additional spec exists;
+    dropping these IDs from the roadmap.
+  * **Testing**: 3382/3385 (unchanged from iteration 2). Typecheck clean.
+    Reconciliation smoke-tested end-to-end; `writer_version` column confirmed
+    present in DB after api-server restart.
 - 2026-07-14 (Sections F.2 + B.6/B.7 + G/D/E audit): Zero-compromise iteration 2.
   * **F.2 (expiry-day banner)**: `options.tsx` renders a violet "EXPIRY DAY"
     banner listing indices where `signal.regime === "EXPIRY_DAY"` plus the
