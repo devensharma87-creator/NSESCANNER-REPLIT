@@ -163,6 +163,124 @@ export function classifyRegime(ctx: RegimeContext): RegimeResult {
   };
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// BUG-73 regime hysteresis
+//
+// The raw classifier is stateless — a single borderline bar can flip
+// RANGING ↔ TRENDING_BULL on the 15-min tick, which downstream causes
+// signal-cohort thrash (setups get demoted → un-demoted → demoted). We
+// require N consecutive same-regime reads before the label "sticks".
+// Until confirmation, the previous stable label is retained. EXPIRY_DAY
+// is date-driven (never oscillates within a session) and bypasses
+// hysteresis — it applies immediately.
+//
+// State is in-memory, per index-symbol, and resets on process restart.
+// The classifier is called from a single 30s trigger sweep so the
+// buffer effectively tracks the last N sweep observations, ≈ N × 30s
+// of confirmation delay (default 3 → 90 s). Cheap and deterministic;
+// no DB write required.
+// ─────────────────────────────────────────────────────────────────────────
+
+/** Minimum consecutive same-label reads required to flip regimes. */
+export const REGIME_HYSTERESIS_N = 3;
+
+interface RegimeHysteresisState {
+  /** Currently reported "sticky" regime for this index. */
+  stable: Regime;
+  /** Raw regime observed on the most recent read (may not yet be stable). */
+  pendingRaw: Regime;
+  /** Consecutive count of `pendingRaw` observations. */
+  pendingRun: number;
+  /** Last raw RegimeResult (kept for diag surfacing when we override). */
+  lastResult: RegimeResult;
+}
+
+const regimeHistoryByIndex = new Map<string, RegimeHysteresisState>();
+
+/** Stateful wrapper around `classifyRegime`. First call for an index
+ *  primes the state and returns the raw label immediately (there's no
+ *  prior label to protect). Subsequent calls apply N-bar hysteresis:
+ *  a new label must be observed `hysteresisN` times in a row before
+ *  it replaces the stable label. EXPIRY_DAY bypasses hysteresis. */
+export function classifyRegimeWithHysteresis(
+  indexSymbol: string,
+  ctx: RegimeContext,
+  opts?: { hysteresisN?: number },
+): RegimeResult {
+  const n = Math.max(1, opts?.hysteresisN ?? REGIME_HYSTERESIS_N);
+  const raw = classifyRegime(ctx);
+  const prev = regimeHistoryByIndex.get(indexSymbol);
+
+  // First observation for this index — no prior label to protect.
+  if (!prev) {
+    regimeHistoryByIndex.set(indexSymbol, {
+      stable: raw.regime,
+      pendingRaw: raw.regime,
+      pendingRun: 1,
+      lastResult: raw,
+    });
+    return raw;
+  }
+
+  // EXPIRY_DAY is a hard calendar fact — never damp it.
+  if (raw.regime === "EXPIRY_DAY") {
+    regimeHistoryByIndex.set(indexSymbol, {
+      stable: "EXPIRY_DAY",
+      pendingRaw: "EXPIRY_DAY",
+      pendingRun: n,
+      lastResult: raw,
+    });
+    return raw;
+  }
+
+  // Same label as the current stable → confirms, reset pending.
+  if (raw.regime === prev.stable) {
+    regimeHistoryByIndex.set(indexSymbol, {
+      stable: prev.stable,
+      pendingRaw: prev.stable,
+      pendingRun: n,
+      lastResult: raw,
+    });
+    return raw;
+  }
+
+  // Different label from stable — accumulate the pending run.
+  const nextRun = raw.regime === prev.pendingRaw ? prev.pendingRun + 1 : 1;
+  if (nextRun >= n) {
+    // Hysteresis satisfied — the new label wins.
+    regimeHistoryByIndex.set(indexSymbol, {
+      stable: raw.regime,
+      pendingRaw: raw.regime,
+      pendingRun: nextRun,
+      lastResult: raw,
+    });
+    return raw;
+  }
+
+  // Pending; keep the current stable label but surface the pending
+  // read in the reason string so it's visible in diagnostics.
+  regimeHistoryByIndex.set(indexSymbol, {
+    stable: prev.stable,
+    pendingRaw: raw.regime,
+    pendingRun: nextRun,
+    lastResult: raw,
+  });
+  return {
+    regime: prev.stable,
+    reason:
+      `${prev.lastResult.reason} ` +
+      `[hysteresis: pending ${raw.regime} (${nextRun}/${n}); ` +
+      `regime flip requires ${n} consecutive same-label reads]`,
+    diag: raw.diag,
+  };
+}
+
+/** Test-only helper — clears the per-index hysteresis state. */
+export function __resetRegimeHysteresisForTests(indexSymbol?: string): void {
+  if (indexSymbol) regimeHistoryByIndex.delete(indexSymbol);
+  else regimeHistoryByIndex.clear();
+}
+
 function lastNumeric(arr: (number | null)[]): number | null {
   for (let i = arr.length - 1; i >= 0; i--) {
     const v = arr[i];

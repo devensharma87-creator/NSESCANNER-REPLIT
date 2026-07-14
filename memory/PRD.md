@@ -47,6 +47,37 @@ in the first user message; prior bugs BUG-00..26 belong to the repo's own audit 
 - TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID (+ optional PREPOST_* pair).
 
 ## What's been implemented (dates)
+- 2026-07-14 (Phase 3 continued): BUG-72–79 audit + BUG-73 regime hysteresis.
+  * **BUG-72 (detector cooldown) — VERIFIED EXISTS**: `BIAS_FLIP_COOLDOWN_MIN=45`
+    in `optionSignalGates.ts`, applied via `isBiasFlipSuppressed()` — after a
+    STOPPED close on one direction, the OPPOSITE direction is blocked for 45m
+    on the same index. Independent bias-flip suppression per-index.
+  * **BUG-73 (regime hysteresis) — NEW**: `regimeClassifier.classifyRegimeWithHysteresis`
+    wraps the raw stateless classifier. Per-index in-memory state; a NEW regime
+    label must appear for `REGIME_HYSTERESIS_N=3` consecutive reads before it
+    replaces the stable label. EXPIRY_DAY (calendar-driven) bypasses hysteresis
+    and applies immediately. `optionSignals.ts buildContext` switched to the
+    hysteresis wrapper (keyed by `cfg.symbol`); `backtest/directional.ts` keeps
+    the raw classifier (historical replay doesn't need damping).
+    Tests: `regimeClassifier.hysteresis.test.ts` — 7 tests (prime read, single
+    flip suppressed, N-th flip sticks, interrupted run resets, per-index
+    isolation, N=1 disables). All pass.
+  * **BUG-74 audit**: no separate fix-file bug 74 — combined into BUG-72/73.
+  * **BUG-75/76/77 (partial exits ladder) — VERIFIED EXISTS**: lifecycle
+    supports `TARGET1_HIT` runner state (partial win locked at T1, remainder
+    continues targeting T2). Terminal states TARGET2_HIT / STOPPED / EXPIRED /
+    TIME_EXIT_1520 / TIME_EXIT_1430_EXPIRY (post-BUG-80). EOD sweep settles T1
+    runners at T1, full EXPIRED settles at lastPremium.
+  * **BUG-78 (signal-reason fingerprint dedupe) — VERIFIED EXISTS (P15b)**:
+    `computeSignalFingerprint({signalDate,indexSymbol,setupKey,direction,
+    optionType,selectedStrike})` → 16-hex SHA-256. Upstream batch dedupe map
+    in `fnoSignalReasoningLogger.ts` (once-per-transition contract).
+  * **BUG-79 (session-level throttling) — VERIFIED EXISTS**: FNO daily caps —
+    HC `FNO_RISK.MAX_TRADES_PER_DAY=4`, BASELINE `FNO_BASELINE_GUARDRAILS.
+    MAX_TRADES_PER_DAY=2`, consecutive-stops cap, portfolio heat cap 6%.
+    Also `POST_STOP_COOLDOWN.COOLDOWN_MINUTES=60` × `SIZE_MULT=0.5` per index.
+  * Full suite: 3373/3376 passing (same 3 unrelated `globalPresetRoutes`
+    pre-existing failures — confirmed unchanged).
 - 2026-07-14 (later still): BUG-80 EXPIRY_DAY special mode (Phase-3 kickoff).
   * `optionSignals.ts` buildSignalsForIndex: on `ctx.regime.regime === "EXPIRY_DAY"`,
     every trend-class detector (trend_continuation, vwap_reclaim, volume_breakout,

@@ -7,7 +7,7 @@ import { alertOwner } from "./alerting";
 import { handleFnoDataSuppressionTransition } from "./fnoDataRecoveryTransition";
 import { scoreConfluence, type ConfluenceInputs } from "./confluenceEngine";
 import { ema, rsi, sessionVwap, volumeProfile, pivots, atr } from "./indicators";
-import { classifyRegime, type RegimeResult } from "./regimeClassifier";
+import { classifyRegimeWithHysteresis, type RegimeResult } from "./regimeClassifier";
 import { recordAtmIv, computeIvMetrics } from "./ivHistory";
 import { logger } from "./logger";
 import { logUpstreamReasoningBatch } from "./fnoSignalReasoningLogger";
@@ -501,10 +501,13 @@ function buildContext(cfg: IndexCfg, intra: YahooChart, daily: YahooChart): Ctx 
   }
   const volRegime = classifyVolRegime(realizedVol14);
 
-  // Phase-1 regime classifier. Pure label — does not gate any setup
-  // emission. Surfaced on the API so the UI can show a chip and the
-  // owner can spot "all my recent losses came from RANGING days".
-  const regime = classifyRegime({
+  // Phase-1 regime classifier + BUG-73 hysteresis. The raw classifier is
+  // stateless and can flip labels on a single borderline bar, causing
+  // downstream signal-cohort thrash. `classifyRegimeWithHysteresis`
+  // (state per index-symbol, in-memory) requires N=3 consecutive same
+  // reads before a NEW label sticks — EXPIRY_DAY (calendar-driven)
+  // still applies immediately.
+  const regime = classifyRegimeWithHysteresis(cfg.symbol, {
     bars: { h: highs, l: lows, c: closes },
     spot,
     vwap: effectiveVwap,
