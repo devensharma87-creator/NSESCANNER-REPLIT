@@ -28,6 +28,7 @@ import swingStagingRouter from "./swingStaging";
 import alertsRouter from "./alerts";
 import dailyAnalysisRouter from "./dailyAnalysis";
 import dataHealthRouter from "./dataHealth";
+import secretsVaultRouter from "./secretsVault";
 import parityRouter from "./parity";
 import dataParityRouter from "./dataParity";
 import buildInfoRouter from "./buildInfo";
@@ -71,6 +72,7 @@ router.use(swingStagingRouter);         // /swing/* — Phase 2 Swing CASH live-
 router.use(alertsRouter);               // /alerts/* — owner-only alert diagnostics (GET /alerts/status, includes lastFnoSignalAlert) + test endpoints (test-telegram, test-swing-staged-order, test-fno-trade-signal)
 router.use(dailyAnalysisRouter);        // /daily-analysis/* — owner-only pre/post market daily analysis report management (PREPOST bot, DB dedup, history)
 router.use(dataHealthRouter);           // /data-health/market — PUBLIC canonical market data health (session+feed+market-session, no secrets)
+router.use(secretsVaultRouter);         // /secrets-vault/* — owner-only (strict) credential intake, masked status only
 router.use(parityRouter);               // /parity/* — owner-only Deterministic Parity Verification Harness (dry_run, replay, status — no Telegram to real channel)
 router.use(dataParityRouter);           // /data-parity/* — owner-only Checkpoint 3 Data Parity API (requireOwnerStrict; cross-module symbol/index observation diff, read-only)
 router.use(buildInfoRouter);            // /build-info   — PUBLIC read-only build/deploy identity (no secrets; registered in PUBLIC_ROUTES)

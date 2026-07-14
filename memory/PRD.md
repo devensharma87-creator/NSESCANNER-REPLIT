@@ -50,6 +50,10 @@ in the first user message; prior bugs BUG-00..26 belong to the repo's own audit 
 - 2026-07-13/14: Full environment migration + self-healing infra (postgres bootstrap,
   proxy shim, supervisor programs, schema push). App verified: admin login, Home tab
   with Yahoo-fallback display data + honest source labels, KITE OFFLINE banner correct.
+- 2026-07-14: Secrets Vault (owner-only, requireOwnerStrict): page /secrets-vault +
+  routes /api/secrets-vault/status|set. Writes env file, restarts apiserver via clean
+  process.exit → supervisor autorestart. Verified full cycle incl. masking, chmod 600,
+  clearing keys, anonymous 401.
 
 ## Prioritized backlog (fix-file phases)
 - P0 Phase 1: Data Integrity Constitution (BUG-27..35, 41..43, 88, 89, 91) —

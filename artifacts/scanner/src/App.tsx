@@ -38,6 +38,7 @@ import StatusPage from "@/pages/status";
 import Manifesto from "@/pages/manifesto";
 import AdminPage from "@/pages/admin";
 import InfraHealthPage from "@/pages/infra-health";
+import SecretsVaultPage from "@/pages/secrets-vault";
 import FnODiagnosticsPage from "@/pages/fno-diagnostics";
 import DailyAnalysisPage from "@/pages/daily-analysis";
 import SwingCash from "@/pages/swing-cash";
@@ -102,6 +103,7 @@ function Router() {
       <Route path="/manifesto" component={guarded(Manifesto, { ownerOnly: true })} />
       <Route path="/admin" component={guarded(AdminPage, { ownerOnly: true })} />
       <Route path="/infra-health" component={guarded(InfraHealthPage, { ownerOnly: true })} />
+      <Route path="/secrets-vault" component={guarded(SecretsVaultPage, { ownerOnly: true })} />
       <Route path="/fno-diagnostics" component={guarded(FnODiagnosticsPage, { ownerOnly: true })} />
       <Route path="/daily-analysis" component={guarded(DailyAnalysisPage, { ownerOnly: true })} />
       <Route path="/swing-cash" component={guarded(SwingCash, { ownerOnly: true })} />

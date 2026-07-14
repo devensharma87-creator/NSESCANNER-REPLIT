@@ -304,6 +304,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                     { href: "/infra-health", label: "Infra", desc: "Data infrastructure health", isActive: l => l.startsWith("/infra-health"), ownerOnly: true },
                     { href: "/fno-diagnostics", label: "F&O Diag", desc: "F&O execution & signal observability", isActive: l => l.startsWith("/fno-diagnostics"), ownerOnly: true },
                     { href: "/daily-analysis", label: "Daily Analysis", desc: "Pre / post market daily reports & coverage", isActive: l => l.startsWith("/daily-analysis"), ownerOnly: true },
+                    { href: "/secrets-vault", label: "Secrets Vault", desc: "API keys & tokens — owner-only intake", isActive: l => l.startsWith("/secrets-vault"), ownerOnly: true },
                   ],
                 },
               ];
