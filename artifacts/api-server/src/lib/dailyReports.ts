@@ -137,10 +137,16 @@ export async function ensureDailyReportRunsTable(): Promise<void> {
         sent_at TIMESTAMPTZ,
         telegram_status TEXT,
         error_code TEXT,
+        metadata JSONB,
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         UNIQUE(report_type, ist_date)
       )
+    `);
+    // Additive column for existing tables (idempotent — IF NOT EXISTS guard)
+    await db.execute(sql`
+      ALTER TABLE daily_report_runs
+        ADD COLUMN IF NOT EXISTS metadata JSONB
     `);
     tableReady = true;
     logger.info({ worker: WORKER_ID }, "dailyReports: daily_report_runs table ready");
@@ -202,14 +208,17 @@ async function updateReportRunStatus(
   status: string,
   telegramStatus: string | null,
   errorCode: string | null,
+  metadata?: Record<string, unknown> | null,
 ): Promise<void> {
   try {
+    const metaJson = metadata != null ? JSON.stringify(metadata) : null;
     await db.execute(sql`
       UPDATE daily_report_runs
       SET status = ${status},
           sent_at = CASE WHEN ${status} = 'SENT' THEN NOW() ELSE sent_at END,
           telegram_status = ${telegramStatus},
           error_code = ${errorCode},
+          metadata = CASE WHEN ${metaJson}::jsonb IS NOT NULL THEN ${metaJson}::jsonb ELSE metadata END,
           updated_at = NOW()
       WHERE report_type = ${reportType}
         AND ist_date = ${istDate}
@@ -1566,6 +1575,12 @@ export async function maybeRunEodReconcile(): Promise<void> {
       telegramSent ? "SENT" : "FAILED",
       sendResult,
       telegramSent ? null : "TELEGRAM_SEND_FAILED",
+      {
+        tradesOpened:      totalOpened,
+        tradesClosed:      closedCount,
+        openMismatchCount: openCount,
+        realisedPnl:       realisedPnl,
+      },
     );
     lastEodReconcileDate = date;
   } catch (err) {

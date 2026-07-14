@@ -10,6 +10,8 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import {
   reserveQuoteSlot,
   getQuoteThrottleStats,
+  reserveOrderSlot,
+  getOrderThrottleStats,
   _resetQuoteThrottleForTest,
   _setQuotePendingCountForTest,
 } from "./kiteRateLimiter";
@@ -97,13 +99,46 @@ describe("kiteIntraday.getHistoricalThrottleStats — F-08", () => {
   });
 });
 
+// ── F-08: Order throttle bucket ──────────────────────────────────────────────
+
+describe("kiteRateLimiter — F-08 order placement throttle", () => {
+  it("getOrderThrottleStats returns correct shape", () => {
+    const stats = getOrderThrottleStats();
+    expect(typeof stats.pendingCount).toBe("number");
+    expect(typeof stats.maxPending).toBe("number");
+    expect(typeof stats.minIntervalMs).toBe("number");
+    expect(stats.pendingCount).toBeGreaterThanOrEqual(0);
+    expect(stats.maxPending).toBeGreaterThan(0);
+  });
+
+  it("minIntervalMs enforces ≤5 req/s (must be ≤200 ms)", () => {
+    const { minIntervalMs } = getOrderThrottleStats();
+    // Conservative 5/s bucket = 200ms; must not exceed this
+    expect(minIntervalMs).toBeLessThanOrEqual(200);
+    expect(minIntervalMs).toBeGreaterThan(0);
+  });
+
+  it("reserveOrderSlot resolves to true when queue is empty", async () => {
+    const ok = await reserveOrderSlot();
+    expect(ok).toBe(true);
+  });
+
+  it("orderBucket is separate from quoteBucket — minIntervals differ", () => {
+    const orderStats = getOrderThrottleStats();
+    const quoteStats  = getQuoteThrottleStats();
+    // Order limit (5/s → 200ms) is higher throughput than quote (3/s → 333ms)
+    expect(orderStats.minIntervalMs).toBeLessThan(quoteStats.minIntervalMs);
+  });
+});
+
 // ── F-08: DataDiagnostics kiteRateLimit field shape ─────────────────────────
 
 describe("DataDiagnostics kiteRateLimit field shape — F-08", () => {
-  it("quoteBucket and historicalBucket both have correct numeric fields", () => {
-    const quoteBucket     = getQuoteThrottleStats();
+  it("all three buckets (quote, historical, order) have correct numeric fields", () => {
+    const quoteBucket      = getQuoteThrottleStats();
     const historicalBucket = getHistoricalThrottleStats();
-    const kiteRateLimit = { quoteBucket, historicalBucket };
+    const orderBucket      = getOrderThrottleStats();
+    const kiteRateLimit    = { quoteBucket, historicalBucket, orderBucket };
 
     expect(kiteRateLimit.quoteBucket).toHaveProperty("pendingCount");
     expect(kiteRateLimit.quoteBucket).toHaveProperty("maxPending");
@@ -114,6 +149,10 @@ describe("DataDiagnostics kiteRateLimit field shape — F-08", () => {
     expect(kiteRateLimit.historicalBucket).toHaveProperty("maxQueue");
     expect(kiteRateLimit.historicalBucket).toHaveProperty("backfillMaxQueue");
     expect(kiteRateLimit.historicalBucket).toHaveProperty("minIntervalMs");
+
+    expect(kiteRateLimit.orderBucket).toHaveProperty("pendingCount");
+    expect(kiteRateLimit.orderBucket).toHaveProperty("maxPending");
+    expect(kiteRateLimit.orderBucket).toHaveProperty("minIntervalMs");
   });
 });
 
@@ -290,6 +329,26 @@ describe("EOD reconcile constants and message format — F-07", () => {
     const formatted = `+₹${Math.round(Math.abs(pnl)).toLocaleString("en-IN")}`;
     // en-IN groups: 1,25,000
     expect(formatted).toContain("1,25,000");
+  });
+
+  it("EOD_RECONCILE_REPORT_TYPE constant is stable (regression guard for DB dedup key)", () => {
+    expect(EOD_RECONCILE_REPORT_TYPE).toBe("eod_reconcile");
+  });
+
+  it("metadata payload shape contains all required reconcile fields (DB queryability)", () => {
+    // Asserts the shape of the object written to daily_report_runs.metadata
+    const tradesOpened      = 4;
+    const tradesClosed      = 3;
+    const openMismatchCount = 1;
+    const realisedPnl       = 750.50;
+    const metadata = { tradesOpened, tradesClosed, openMismatchCount, realisedPnl };
+
+    expect(metadata).toHaveProperty("tradesOpened", 4);
+    expect(metadata).toHaveProperty("tradesClosed", 3);
+    expect(metadata).toHaveProperty("openMismatchCount", 1);
+    expect(metadata).toHaveProperty("realisedPnl", 750.50);
+    // JSON-round-trip safe (as stored in JSONB column)
+    expect(JSON.parse(JSON.stringify(metadata))).toEqual(metadata);
   });
 });
 

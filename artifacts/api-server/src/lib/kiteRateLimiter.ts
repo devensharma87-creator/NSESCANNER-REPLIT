@@ -58,6 +58,50 @@ export function getQuoteThrottleStats(): {
   };
 }
 
+// ── Order placement throttle ─────────────────────────────────────────────────
+//
+// Kite's order placement endpoint supports up to 10 req/s. Paper trading does
+// not place real orders, but we expose the bucket so the diagnostics contract
+// is symmetric: quoteBucket + historicalBucket + orderBucket. If/when live
+// order routing is added, callers should `await reserveOrderSlot()` before
+// each Kite order POST.
+//
+// Limit: conservative 5/s (200 ms) to stay safely under the 10/s cap and
+// avoid micro-bursts. Max pending = 5 (one full-second burst in queue).
+
+const ORDER_MIN_INTERVAL_MS = 200; // 5/s
+const ORDER_MAX_PENDING     = 5;
+
+let orderPendingCount = 0;
+let orderNextSlotAt   = 0;
+
+export async function reserveOrderSlot(): Promise<boolean> {
+  if (orderPendingCount >= ORDER_MAX_PENDING) return false;
+  orderPendingCount++;
+  try {
+    const now  = Date.now();
+    const slot = Math.max(now, orderNextSlotAt);
+    orderNextSlotAt = slot + ORDER_MIN_INTERVAL_MS;
+    const wait = slot - now;
+    if (wait > 0) await new Promise<void>((r) => setTimeout(r, wait));
+    return true;
+  } finally {
+    orderPendingCount--;
+  }
+}
+
+export function getOrderThrottleStats(): {
+  pendingCount: number;
+  maxPending: number;
+  minIntervalMs: number;
+} {
+  return {
+    pendingCount: orderPendingCount,
+    maxPending: ORDER_MAX_PENDING,
+    minIntervalMs: ORDER_MIN_INTERVAL_MS,
+  };
+}
+
 // ── Test-only helpers (prefix _ signals internal/test use) ───────────────────
 
 /** Reset throttle state to pristine. Called in test beforeEach. */
