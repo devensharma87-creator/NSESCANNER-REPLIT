@@ -54,7 +54,29 @@ in the first user message; prior bugs BUG-00..26 belong to the repo's own audit 
   routes /api/secrets-vault/status|set. Writes env file, restarts apiserver via clean
   process.exit → supervisor autorestart. Verified full cycle incl. masking, chmod 600,
   clearing keys, anonymous 401.
-- 2026-07-14: Kite connected (user MRV421), Telegram both bots verified (test message SENT).
+- 2026-07-14 (later): Phase 1 continuation — BUG-30/31/35 + Phase-2 SENSEX:
+  * BUG-30 lib/marketData/stalenessWatchdog.ts (guard-exempt layer): age-based (90s)
+    per-token staleness every 15s during market hours; resubscribe nudge (5min cooldown);
+    >5% stale → Telegram + SystemMode DEGRADED driver TOKEN_STALENESS_OVER_5PCT.
+  * BUG-35 lib/marketData/instrumentsIntegrity.ts: daily 08:00–09:20 IST window,
+    forceRefreshInstruments + diff FNO subset (NIFTY/BANKNIFTY/SENSEX, lot/tick/name)
+    vs baseline /app/.cache/instruments_baseline.json; changes → Telegram; failure →
+    sticky app_state flag instruments_refresh_failed_<date> → SystemMode DEGRADED
+    (auto-opens blocked for the day). Verified live (baseline written, result OK).
+  * BUG-31 lib/eodReconciliation.ts: raw-SQL table reconciliation_report (ist_date
+    unique); runs ≥15:35 IST via app_state claim eod_recon_<date>; checks:
+    FO_OPEN_AFTER_CLOSE, FO/EQ_CLOSED_MISSING_PNL, ACCOUNT_DAY_PNL (FNO, ±₹1),
+    ACCOUNT_OPEN_COUNT per segment; Telegram OK/MISMATCH; live recon N/A note.
+    Routes: GET /api/system/reconciliation, POST .../run (force). Verified live (OK).
+  * /api/system/mode now also returns tokenStaleness + instrumentsIntegrity; /metrics
+    adds tokens_tracked/stale/stale_pct + instruments_refresh_failed_today gauges.
+  * UI: ReconciliationPanel + watchdog row in SystemModePanel on /infra-health
+    (testids: section-eod-reconciliation, recon-check-*, recon-run-btn, watchdog-row).
+  * Phase 2 finding: option chain ALREADY has bid/ask, greeks, IV, intrinsic/timeValue,
+    per-strike PCR, max pain, provenance meta, ATM tools — verified SENSEX live via
+    Kite (spot 77k, 166 rows, BFO). Only gap fixed: SENSEX added to QUICK_PRESETS.
+  * Testing agent iteration_2: 100% pass (9/9 backend + frontend). Minor optional:
+    request backoff on 429 boot storm; data-testids on quick presets.
 - 2026-07-14: Fix-file Phase 1 increment (BUG-28/29/89):
   * SystemMode state machine — lib/systemMode.ts (pure derive: session invalid→READ_ONLY,
     WS down>30s @open→DEGRADED, DB>500ms/failed→DEGRADED; worst-of with manual override
