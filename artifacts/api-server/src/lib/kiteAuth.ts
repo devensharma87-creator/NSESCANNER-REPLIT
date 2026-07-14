@@ -656,6 +656,70 @@ export async function forceRefreshInstruments(): Promise<{
   return { cleared, results };
 }
 
+export type KiteTokenProbeResult =
+  | "VALID"           // DB session present + broker confirmed valid
+  | "DB_MISSING"      // No session row in DB
+  | "DB_EXPIRED"      // Session row expired (expiresAt in past)
+  | "DB_READ_FAILED"  // DB read error or decrypt failure
+  | "BROKER_INVALID"  // DB session present but broker returned 401/403/TokenException
+  | "PROBE_NETWORK_ERROR"; // Network timeout / unreachable — fail-open, no alert
+
+/**
+ * Validate the Kite access token against BOTH the DB state and the broker API.
+ *
+ * Steps:
+ *   1. DB check: call getActiveSessionStatus(). Non-OK codes return immediately
+ *      without a network call to Kite.
+ *   2. If DB says OK, call `kc.getProfile()` (Kite `/user/profile`) with the
+ *      stored token. A 401/403/TokenException means the token was revoked by
+ *      Kite (daily expiry or manual logout) even though the DB row looks valid.
+ *   3. Network errors (ECONNABORTED, ENETUNREACH, etc.) return PROBE_NETWORK_ERROR
+ *      so the caller can fail-open (skip the alert) rather than sending a false alarm.
+ *
+ * This is the canonical "is the trading session actually usable?" check for the
+ * pre-market 08:50 IST validation run.
+ */
+export async function probeKiteTokenLive(): Promise<KiteTokenProbeResult> {
+  // Step 1: DB state check.
+  const { session, code } = await getActiveSessionStatus();
+  if (code === "DB_SESSION_MISSING")      return "DB_MISSING";
+  if (code === "DB_SESSION_EXPIRED")      return "DB_EXPIRED";
+  if (code === "DB_SESSION_READ_FAILED")  return "DB_READ_FAILED";
+  if (code === "DB_POOL_CONNECTION_TERMINATED") return "DB_READ_FAILED";
+  if (!session) return "DB_MISSING"; // defensive
+
+  // Step 2: Live broker probe.
+  try {
+    const kc = new KiteConnect({ api_key: session.apiKey, timeout: KITE_HTTP_TIMEOUT_MS });
+    kc.setAccessToken(session.accessToken);
+    await kc.getProfile();
+    return "VALID";
+  } catch (err) {
+    const msg = String((err as Error)?.message ?? "").toLowerCase();
+    // TokenException / 401 / 403 = token actually revoked by Kite.
+    if (
+      msg.includes("tokenexception") ||
+      msg.includes("403") ||
+      msg.includes("401") ||
+      msg.includes("invalid api_key") ||
+      msg.includes("session") ||
+      msg.includes("access_token")
+    ) {
+      logger.warn(
+        { errMsg: (err as Error).message },
+        "Kite token probe: broker returned token error",
+      );
+      return "BROKER_INVALID";
+    }
+    // Network error — fail-open, don't fire an alert.
+    logger.warn(
+      { errMsg: (err as Error).message },
+      "Kite token probe: network error — failing open",
+    );
+    return "PROBE_NETWORK_ERROR";
+  }
+}
+
 /** Build a KiteConnect REST client from the active session, or return null. */
 export async function getRestClient(): Promise<{ kc: any; session: ActiveSession } | null> {
   const session = await getActiveSession();

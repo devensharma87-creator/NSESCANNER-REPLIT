@@ -3,13 +3,18 @@
  *
  * Feature 1: Expiry-day 12:30 IST force-close (EXPIRY_EARLY_CLOSE reason)
  * Feature 2: Pre-market Kite session validity check (maybeRunKiteSessionCheck)
+ *            — uses probeKiteTokenLive (DB + live Kite broker validation)
+ *            — latch is burned ONLY on successful resolution
+ *            — Telegram failure → FAILED DB status → latch not burned → retry
+ *            — PROBE_NETWORK_ERROR → fail-open, no DB write, no latch burn
  * Feature 3: Regime classifier 2-bar hysteresis (applyRegimeHysteresis)
  *
  * The hysteresis and expiry helpers are tested via `fnoRegimeHysteresis.ts`
  * (pure module, no heavy dependencies) — no mocking needed for those.
- * The Kite session check logic is tested via direct mock of getActiveSessionStatus.
  */
 import { describe, it, expect, beforeEach } from "vitest";
+import { KITE_SESSION_CHECK_REPORT_TYPE } from "./dailyReports";
+import type { KiteTokenProbeResult } from "./kiteAuth";
 import type { RegimeResult } from "./regimeClassifier";
 import {
   applyRegimeHysteresis,
@@ -267,54 +272,188 @@ describe("EXPIRY_EARLY_CLOSE reason — structural contract", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Feature 2: Kite session check — session code classification
+// Feature 2: Kite session check — probe-result dispatch and latch semantics
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe("Kite session check — code classification", () => {
-  function isSessionOk(code: string, session: object | null): boolean {
-    return code === "DB_SESSION_OK" && session !== null;
+describe("Kite session check — report type constant (casing)", () => {
+  it("KITE_SESSION_CHECK_REPORT_TYPE is lowercase snake_case", () => {
+    // DB dedup key must be lowercase to match the existing daily_report_runs
+    // constraint pattern used by pre/post report types.
+    expect(KITE_SESSION_CHECK_REPORT_TYPE).toBe("kite_session_check");
+  });
+
+  it("KITE_SESSION_CHECK_REPORT_TYPE contains no uppercase letters", () => {
+    expect(KITE_SESSION_CHECK_REPORT_TYPE).toEqual(KITE_SESSION_CHECK_REPORT_TYPE.toLowerCase());
+  });
+});
+
+describe("Kite session check — probeKiteTokenLive result dispatch", () => {
+  /** Mirrors the decision tree in maybeRunKiteSessionCheck. */
+  function dispatchProbeResult(probeResult: KiteTokenProbeResult): {
+    shouldAlert: boolean;
+    failOpen: boolean;
+  } {
+    if (probeResult === "PROBE_NETWORK_ERROR") {
+      return { shouldAlert: false, failOpen: true };
+    }
+    const sessionValid = probeResult === "VALID";
+    return { shouldAlert: !sessionValid, failOpen: false };
   }
 
-  it("DB_SESSION_OK with valid session → session is valid", () => {
-    expect(isSessionOk("DB_SESSION_OK", { userId: "ZZ1234" })).toBe(true);
+  it("VALID → no alert, not fail-open", () => {
+    const { shouldAlert, failOpen } = dispatchProbeResult("VALID");
+    expect(shouldAlert).toBe(false);
+    expect(failOpen).toBe(false);
   });
 
-  it("DB_SESSION_MISSING → session is invalid", () => {
-    expect(isSessionOk("DB_SESSION_MISSING", null)).toBe(false);
+  it("DB_MISSING → should alert, not fail-open", () => {
+    const { shouldAlert, failOpen } = dispatchProbeResult("DB_MISSING");
+    expect(shouldAlert).toBe(true);
+    expect(failOpen).toBe(false);
   });
 
-  it("DB_SESSION_EXPIRED → session is invalid", () => {
-    expect(isSessionOk("DB_SESSION_EXPIRED", null)).toBe(false);
+  it("DB_EXPIRED → should alert, not fail-open", () => {
+    const { shouldAlert, failOpen } = dispatchProbeResult("DB_EXPIRED");
+    expect(shouldAlert).toBe(true);
+    expect(failOpen).toBe(false);
   });
 
-  it("DB_SESSION_READ_FAILED → session is invalid", () => {
-    expect(isSessionOk("DB_SESSION_READ_FAILED", null)).toBe(false);
+  it("DB_READ_FAILED → should alert, not fail-open", () => {
+    const { shouldAlert, failOpen } = dispatchProbeResult("DB_READ_FAILED");
+    expect(shouldAlert).toBe(true);
+    expect(failOpen).toBe(false);
   });
 
-  it("DB_POOL_CONNECTION_TERMINATED → session is invalid", () => {
-    expect(isSessionOk("DB_POOL_CONNECTION_TERMINATED", null)).toBe(false);
+  it("BROKER_INVALID → should alert, not fail-open", () => {
+    // Token is in the DB but Kite revoked it (daily 06:00 IST expiry on broker side).
+    const { shouldAlert, failOpen } = dispatchProbeResult("BROKER_INVALID");
+    expect(shouldAlert).toBe(true);
+    expect(failOpen).toBe(false);
   });
 
-  it("DB_SESSION_OK with null session → invalid (defensive guard)", () => {
-    expect(isSessionOk("DB_SESSION_OK", null)).toBe(false);
+  it("PROBE_NETWORK_ERROR → no alert and fail-open (do not fire false alarms)", () => {
+    // Network timeout or unreachable → fail-open: don't alert, don't burn latch.
+    const { shouldAlert, failOpen } = dispatchProbeResult("PROBE_NETWORK_ERROR");
+    expect(shouldAlert).toBe(false);
+    expect(failOpen).toBe(true);
+  });
+});
+
+describe("Kite session check — latch burn semantics", () => {
+  /**
+   * Mirrors the latch-burn decision in maybeRunKiteSessionCheck.
+   * Returns whether the in-memory latch should be burned after this attempt.
+   */
+  function shouldBurnLatch(opts: {
+    probeResult: KiteTokenProbeResult;
+    telegramSendResult: string | null; // null = not attempted (VALID case)
+  }): boolean {
+    const { probeResult, telegramSendResult } = opts;
+    // Network error → never burn latch
+    if (probeResult === "PROBE_NETWORK_ERROR") return false;
+    // Valid → burn latch (logged success, day done)
+    if (probeResult === "VALID") return true;
+    // Invalid + alert attempted → burn only if Telegram actually succeeded
+    return telegramSendResult === "SENT";
+  }
+
+  it("VALID → latch burned (session OK, day complete)", () => {
+    expect(shouldBurnLatch({ probeResult: "VALID", telegramSendResult: null })).toBe(true);
   });
 
-  it("alert text contains expected fields when session is invalid", () => {
-    const date = "2026-07-14";
-    const code = "DB_SESSION_MISSING";
-    const text =
+  it("BROKER_INVALID + Telegram SENT → latch burned (alert delivered)", () => {
+    expect(shouldBurnLatch({ probeResult: "BROKER_INVALID", telegramSendResult: "SENT" })).toBe(true);
+  });
+
+  it("DB_MISSING + Telegram SENT → latch burned (alert delivered)", () => {
+    expect(shouldBurnLatch({ probeResult: "DB_MISSING", telegramSendResult: "SENT" })).toBe(true);
+  });
+
+  it("BROKER_INVALID + Telegram UNEXPECTED_ERROR → latch NOT burned (retry next tick)", () => {
+    // The 60s scheduler can retry inside the 20-min window.
+    expect(shouldBurnLatch({ probeResult: "BROKER_INVALID", telegramSendResult: "UNEXPECTED_ERROR" })).toBe(false);
+  });
+
+  it("DB_EXPIRED + Telegram PREPOST_TELEGRAM_DISABLED_MISSING_CONFIG → latch NOT burned", () => {
+    expect(shouldBurnLatch({ probeResult: "DB_EXPIRED", telegramSendResult: "PREPOST_TELEGRAM_DISABLED_MISSING_CONFIG" })).toBe(false);
+  });
+
+  it("DB_MISSING + Telegram PREPOST_TELEGRAM_DISABLED_MISSING_TOKEN → latch NOT burned", () => {
+    expect(shouldBurnLatch({ probeResult: "DB_MISSING", telegramSendResult: "PREPOST_TELEGRAM_DISABLED_MISSING_TOKEN" })).toBe(false);
+  });
+
+  it("PROBE_NETWORK_ERROR → latch NOT burned regardless of telegram result", () => {
+    // No DB slot is claimed, no alert is sent — just fail open and retry.
+    expect(shouldBurnLatch({ probeResult: "PROBE_NETWORK_ERROR", telegramSendResult: null })).toBe(false);
+    expect(shouldBurnLatch({ probeResult: "PROBE_NETWORK_ERROR", telegramSendResult: "SENT" })).toBe(false);
+  });
+});
+
+describe("Kite session check — DB status written per outcome", () => {
+  /**
+   * Mirrors the updateReportRunStatus call in maybeRunKiteSessionCheck.
+   * Returns which DB status is written.
+   */
+  function dbStatusForOutcome(opts: {
+    probeResult: KiteTokenProbeResult;
+    telegramSendResult: string;
+  }): "SENT" | "FAILED" {
+    const { probeResult, telegramSendResult } = opts;
+    if (probeResult === "VALID") return "SENT"; // logged OK (no alert, day done)
+    // Invalid — alert attempted
+    return telegramSendResult === "SENT" ? "SENT" : "FAILED";
+  }
+
+  it("VALID → DB status SENT (probe OK, no alert needed)", () => {
+    expect(dbStatusForOutcome({ probeResult: "VALID", telegramSendResult: "PROBE_OK_NO_ALERT" })).toBe("SENT");
+  });
+
+  it("BROKER_INVALID + Telegram SENT → DB status SENT", () => {
+    expect(dbStatusForOutcome({ probeResult: "BROKER_INVALID", telegramSendResult: "SENT" })).toBe("SENT");
+  });
+
+  it("DB_MISSING + Telegram UNEXPECTED_ERROR → DB status FAILED (enables retry via UPDATE WHERE FAILED)", () => {
+    // tryClaimScheduledReport second phase UPDATEs FAILED rows — this enables retry.
+    expect(dbStatusForOutcome({ probeResult: "DB_MISSING", telegramSendResult: "UNEXPECTED_ERROR" })).toBe("FAILED");
+  });
+
+  it("DB_EXPIRED + Telegram PREPOST_TELEGRAM_DISABLED_MISSING_CONFIG → DB status FAILED", () => {
+    expect(dbStatusForOutcome({ probeResult: "DB_EXPIRED", telegramSendResult: "PREPOST_TELEGRAM_DISABLED_MISSING_CONFIG" })).toBe("FAILED");
+  });
+});
+
+describe("Kite session check — alert text", () => {
+  function buildAlertText(date: string, probeResult: KiteTokenProbeResult): string {
+    return (
       `⚠️ KITE SESSION INVALID (${date})\n` +
-      `Code: ${code}\n` +
+      `Probe: ${probeResult}\n` +
       `Re-login required at marketscannerbydev.in → Admin before 09:15 IST.\n` +
-      `No live data, signals, or auto-trades until the session is refreshed.`;
+      `No live data, signals, or auto-trades until the session is refreshed.`
+    );
+  }
 
+  it("alert text contains date, probe result, and action URL", () => {
+    const text = buildAlertText("2026-07-14", "BROKER_INVALID");
     expect(text).toContain("⚠️ KITE SESSION INVALID");
-    expect(text).toContain(date);
-    expect(text).toContain(code);
+    expect(text).toContain("2026-07-14");
+    expect(text).toContain("Probe: BROKER_INVALID");
     expect(text).toContain("marketscannerbydev.in");
     expect(text).toContain("09:15 IST");
   });
 
+  it("alert text uses 'Probe:' not 'Code:' (reflects live broker validation)", () => {
+    const text = buildAlertText("2026-07-14", "DB_MISSING");
+    expect(text).toContain("Probe:");
+    expect(text).not.toContain("Code:");
+  });
+
+  it("alert text describes DB_MISSING correctly", () => {
+    const text = buildAlertText("2026-07-15", "DB_MISSING");
+    expect(text).toContain("Probe: DB_MISSING");
+  });
+});
+
+describe("Kite session check — window constants", () => {
   it("window is 08:50–09:10 IST (20 min)", () => {
     const START  = 8 * 60 + 50;  // 530
     const WINDOW = 20;

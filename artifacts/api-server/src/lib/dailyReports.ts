@@ -48,7 +48,7 @@ import { sql } from "drizzle-orm";
 import { getFiiDiiMonthly } from "./instFlows";
 import { db } from "@workspace/db";
 import { logger } from "./logger";
-import { getActiveSessionStatus } from "./kiteAuth";
+import { getActiveSessionStatus, probeKiteTokenLive } from "./kiteAuth";
 import { feedStatus } from "./kiteFeed";
 import { computeDailySummaryFo } from "./paperDailySummaryFo";
 import { getReportGradeIndexQuotes, REPORT_INDEX_KEYS } from "./marketData/reportGradeIndexQuotes";
@@ -1395,14 +1395,29 @@ export async function maybeRunPostMarketReport(): Promise<void> {
 // Kite access tokens expire at 06:00 IST each day. If the session is invalid
 // at the start of the trading day, ALL signals, quote fetches, and auto-trades
 // fail silently for the entire session. This check fires once in the 08:50 window
-// (same slot as the pre-market report) and sends a PREPOST bot alert if invalid.
+// and sends a PREPOST bot alert if invalid.
 //
-// Uses tryClaimScheduledReport("KITE_SESSION_CHECK", istDate) for DB dedup to
-// prevent duplicate alerts on multi-worker deployments.
+// Validation chain (probeKiteTokenLive):
+//   1. DB check — missing/expired/unreadable → alert immediately, no Kite API call.
+//   2. If DB OK → call `kc.getProfile()` to verify token against the broker API.
+//      A 401/403/TokenException means the token is revoked even though the DB row
+//      is not yet expired (daily 06:00 IST revocation happens server-side at Kite).
+//   3. Network error → PROBE_NETWORK_ERROR → fail-open (no alert, no latch burn).
+//
+// Latch semantics:
+//   - lastKiteSessionCheckDate is burned (set to today) ONLY on successful
+//     resolution (VALID → log OK, or invalid → alert SENT successfully).
+//   - If Telegram send FAILS (sendResult !== "SENT"), the latch is NOT burned
+//     and the DB row is set to FAILED so the check retries in the next tick.
+//   - PROBE_NETWORK_ERROR: latch not burned, no DB write — fail-open retry.
+//
+// DB dedup: tryClaimScheduledReport("kite_session_check", istDate) prevents
+// multi-worker duplicate alerts via UNIQUE(report_type, ist_date).
 
+export const KITE_SESSION_CHECK_REPORT_TYPE = "kite_session_check";
 let lastKiteSessionCheckDate: string | null = null;
-const KITE_SESSION_CHECK_START_MIN = 8 * 60 + 50;  // 08:50 IST
-const KITE_SESSION_CHECK_WINDOW_MIN = 20;            // fire any time in [08:50, 09:10)
+const KITE_SESSION_CHECK_START_MIN   = 8 * 60 + 50;  // 08:50 IST
+const KITE_SESSION_CHECK_WINDOW_MIN  = 20;            // fire any time in [08:50, 09:10)
 
 export async function maybeRunKiteSessionCheck(): Promise<void> {
   const { date, minOfDay, dayOfWeek } = istInfo();
@@ -1410,32 +1425,52 @@ export async function maybeRunKiteSessionCheck(): Promise<void> {
   if (minOfDay < KITE_SESSION_CHECK_START_MIN || minOfDay >= KITE_SESSION_CHECK_START_MIN + KITE_SESSION_CHECK_WINDOW_MIN) return;
   if (lastKiteSessionCheckDate === date) return; // fast in-memory dedup
   try {
-    const claimed = await tryClaimScheduledReport("KITE_SESSION_CHECK", date);
+    // Probe first (before claiming the DB slot) so a network error fails-open
+    // without burning the dedup row.
+    const probeResult = await probeKiteTokenLive();
+
+    // Network error — fail-open. Do NOT claim the slot, do NOT burn the latch.
+    // The 20-min window gives 20+ more ticks to retry.
+    if (probeResult === "PROBE_NETWORK_ERROR") {
+      logger.warn({ date }, "dailyReports: Kite token probe had network error — will retry next tick");
+      return;
+    }
+
+    const claimed = await tryClaimScheduledReport(KITE_SESSION_CHECK_REPORT_TYPE, date);
     if (!claimed) {
+      // Another worker already handled it — burn in-memory latch and exit.
       lastKiteSessionCheckDate = date;
       return;
     }
-    const { session, code } = await getActiveSessionStatus();
-    const sessionOk = code === "DB_SESSION_OK" && session !== null;
-    if (!sessionOk) {
-      // Session is invalid — fire a PREPOST bot alert.
+
+    const sessionValid = probeResult === "VALID";
+    if (!sessionValid) {
+      // Session is invalid (DB or broker) — fire a PREPOST bot alert.
       const text =
         `⚠️ KITE SESSION INVALID (${date})\n` +
-        `Code: ${code}\n` +
+        `Probe: ${probeResult}\n` +
         `Re-login required at marketscannerbydev.in → Admin before 09:15 IST.\n` +
         `No live data, signals, or auto-trades until the session is refreshed.`;
       const sendResult = await sendPrePostTelegramMessage(text);
+      const telegramSent = sendResult === "SENT";
       logger.warn(
-        { code, date, telegramResult: sendResult },
-        "dailyReports: Kite session invalid at 08:50 — PREPOST alert sent",
+        { probeResult, date, telegramSent, sendResult },
+        "dailyReports: Kite session invalid at 08:50 — PREPOST alert attempted",
       );
-      await updateReportRunStatus("KITE_SESSION_CHECK", date, "SENT", sendResult, null);
+      if (telegramSent) {
+        await updateReportRunStatus(KITE_SESSION_CHECK_REPORT_TYPE, date, "SENT", sendResult, null);
+        lastKiteSessionCheckDate = date; // burn latch only on successful alert delivery
+      } else {
+        // Telegram send failed — mark FAILED so the row stays claimable for retry.
+        await updateReportRunStatus(KITE_SESSION_CHECK_REPORT_TYPE, date, "FAILED", sendResult, "TELEGRAM_SEND_FAILED");
+        // Do NOT burn lastKiteSessionCheckDate — allow the 60s tick to retry.
+      }
     } else {
-      // Session is valid — log success, mark as done for the day.
+      // Session is valid — log success, mark done for the day.
       logger.info({ date }, "dailyReports: Kite session valid at 08:50 — no alert needed");
-      await updateReportRunStatus("KITE_SESSION_CHECK", date, "SENT", "PREPOST_NOT_NEEDED", null);
+      await updateReportRunStatus(KITE_SESSION_CHECK_REPORT_TYPE, date, "SENT", "PROBE_OK_NO_ALERT", null);
+      lastKiteSessionCheckDate = date;
     }
-    lastKiteSessionCheckDate = date; // burn latch after any resolution
   } catch (err) {
     logger.warn(
       { err: (err as Error).message, date },
