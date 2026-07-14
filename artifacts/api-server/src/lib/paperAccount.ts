@@ -875,6 +875,12 @@ export interface DrawdownReading {
   capPct: number;
   /** Window start (IST date YYYY-MM-DD). */
   windowStart: string;
+  /**
+   * True ONLY on the call where the DD latch first fires for this window.
+   * Subsequent calls (cap still reached, latch sticky) return false.
+   * Use this to fire a once-per-event alert without spamming on every tick.
+   */
+  firstTrigger: boolean;
 }
 
 // Sticky DD latches. Once a cap is reached during an IST day / week, it
@@ -897,6 +903,7 @@ export async function getDailyRealizedDrawdown(): Promise<DrawdownReading> {
   const lossPct = realisedPnl < 0 ? -realisedPnl / seed : 0;
   // Window-rollover invalidates a stale latch.
   if (dailyDdLatch && dailyDdLatch.windowStart !== start) dailyDdLatch = null;
+  const wasLatched = dailyDdLatch !== null;
   const liveHit = lossPct >= FNO_RISK.MAX_DAILY_LOSS_PCT;
   if (liveHit && !dailyDdLatch) {
     dailyDdLatch = { windowStart: start, reachedAt: new Date() };
@@ -908,6 +915,7 @@ export async function getDailyRealizedDrawdown(): Promise<DrawdownReading> {
     capReached,
     capPct: FNO_RISK.MAX_DAILY_LOSS_PCT,
     windowStart: start,
+    firstTrigger: capReached && !wasLatched,
   };
 }
 
@@ -918,6 +926,7 @@ export async function getWeeklyRealizedDrawdown(): Promise<DrawdownReading> {
   const seed = SEED_CAPITAL.FNO;
   const lossPct = realisedPnl < 0 ? -realisedPnl / seed : 0;
   if (weeklyDdLatch && weeklyDdLatch.windowStart !== start) weeklyDdLatch = null;
+  const wasLatched = weeklyDdLatch !== null;
   const liveHit = lossPct >= FNO_RISK.MAX_WEEKLY_LOSS_PCT;
   if (liveHit && !weeklyDdLatch) {
     weeklyDdLatch = { windowStart: start, reachedAt: new Date() };
@@ -929,6 +938,7 @@ export async function getWeeklyRealizedDrawdown(): Promise<DrawdownReading> {
     capReached,
     capPct: FNO_RISK.MAX_WEEKLY_LOSS_PCT,
     windowStart: start,
+    firstTrigger: capReached && !wasLatched,
   };
 }
 
@@ -969,16 +979,19 @@ export async function getEqDailyRealizedDrawdown(): Promise<DrawdownReading> {
   const seed = SEED_CAPITAL.EQUITY;
   const lossPct = realisedPnl < 0 ? -realisedPnl / seed : 0;
   if (eqDailyDdLatch && eqDailyDdLatch.windowStart !== start) eqDailyDdLatch = null;
+  const wasLatched = eqDailyDdLatch !== null;
   const liveHit = lossPct >= EQUITY_DD_CAPS.MAX_DAILY_LOSS_PCT;
   if (liveHit && !eqDailyDdLatch) {
     eqDailyDdLatch = { windowStart: start, reachedAt: new Date() };
   }
+  const capReached = liveHit || eqDailyDdLatch !== null;
   return {
     realisedPnl,
     drawdownPct: lossPct,
-    capReached: liveHit || eqDailyDdLatch !== null,
+    capReached,
     capPct: EQUITY_DD_CAPS.MAX_DAILY_LOSS_PCT,
     windowStart: start,
+    firstTrigger: capReached && !wasLatched,
   };
 }
 
@@ -989,16 +1002,19 @@ export async function getEqWeeklyRealizedDrawdown(): Promise<DrawdownReading> {
   const seed = SEED_CAPITAL.EQUITY;
   const lossPct = realisedPnl < 0 ? -realisedPnl / seed : 0;
   if (eqWeeklyDdLatch && eqWeeklyDdLatch.windowStart !== start) eqWeeklyDdLatch = null;
+  const wasLatched = eqWeeklyDdLatch !== null;
   const liveHit = lossPct >= EQUITY_DD_CAPS.MAX_WEEKLY_LOSS_PCT;
   if (liveHit && !eqWeeklyDdLatch) {
     eqWeeklyDdLatch = { windowStart: start, reachedAt: new Date() };
   }
+  const capReached = liveHit || eqWeeklyDdLatch !== null;
   return {
     realisedPnl,
     drawdownPct: lossPct,
-    capReached: liveHit || eqWeeklyDdLatch !== null,
+    capReached,
     capPct: EQUITY_DD_CAPS.MAX_WEEKLY_LOSS_PCT,
     windowStart: start,
+    firstTrigger: capReached && !wasLatched,
   };
 }
 
@@ -1009,16 +1025,19 @@ export async function getEqMonthlyRealizedDrawdown(): Promise<DrawdownReading> {
   const seed = SEED_CAPITAL.EQUITY;
   const lossPct = realisedPnl < 0 ? -realisedPnl / seed : 0;
   if (eqMonthlyDdLatch && eqMonthlyDdLatch.windowStart !== start) eqMonthlyDdLatch = null;
+  const wasLatched = eqMonthlyDdLatch !== null;
   const liveHit = lossPct >= EQUITY_DD_CAPS.MAX_MONTHLY_LOSS_PCT;
   if (liveHit && !eqMonthlyDdLatch) {
     eqMonthlyDdLatch = { windowStart: start, reachedAt: new Date() };
   }
+  const capReached = liveHit || eqMonthlyDdLatch !== null;
   return {
     realisedPnl,
     drawdownPct: lossPct,
-    capReached: liveHit || eqMonthlyDdLatch !== null,
+    capReached,
     capPct: EQUITY_DD_CAPS.MAX_MONTHLY_LOSS_PCT,
     windowStart: start,
+    firstTrigger: capReached && !wasLatched,
   };
 }
 

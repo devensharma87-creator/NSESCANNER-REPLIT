@@ -961,3 +961,82 @@ export function alertWarmupFailures(result: {
     );
   }
 }
+
+// ── Signal trigger alert ──────────────────────────────────────────────────────
+
+/**
+ * Input for the optional signal-trigger alert (env-gated, disabled by default).
+ * Fires when a PENDING signal hits its entry level — before pre-open risk gates.
+ */
+export interface FnoTriggerAlertInput {
+  indexSymbol: string;
+  direction: "BULLISH" | "BEARISH";
+  optionType: "CE" | "PE" | null;
+  confidence: number;
+  tier: string;
+  optionEntry: number | null;
+  signalDate: string;
+  setupKey: string;
+}
+
+/**
+ * Fire an optional "entry level hit" Telegram alert when a signal transitions
+ * from PENDING to TRIGGERED. Gated by TELEGRAM_SEND_TRIGGER_ALERTS=true (default off).
+ *
+ * Uses DB dedup via notification_delivery_log so a restart doesn't re-fire
+ * for the same signal. Never throws — safe to call from tryOpenPaperTrades.
+ */
+export async function alertFnoTrigger(input: FnoTriggerAlertInput): Promise<void> {
+  try {
+    if (process.env["TELEGRAM_SEND_TRIGGER_ALERTS"] !== "true") return;
+    if (isFnoTestSymbol(input.indexSymbol)) return;
+    if (getFnoEnvironment() !== "production") return;
+
+    const { indexSymbol, direction, optionType, confidence, tier, optionEntry, signalDate, setupKey } = input;
+    const signalId = `trigger_${indexSymbol}_${signalDate}_${setupKey}_${direction}`;
+
+    const isDuplicate = await hasAlreadyDelivered(
+      "FNO_INTRADAY",
+      "TRIGGER",
+      { id: signalId, orderId: null, paperTradeId: null, signalId },
+      "telegram_main",
+    );
+    if (isDuplicate) return;
+
+    const istNow = new Date(Date.now() + 5.5 * 3600 * 1000);
+    const istTime = `${String(istNow.getUTCHours()).padStart(2, "0")}:${String(istNow.getUTCMinutes()).padStart(2, "0")} IST`;
+    const ot = optionType ?? (direction === "BULLISH" ? "CE" : "PE");
+    const entryStr = optionEntry != null ? `₹${optionEntry.toFixed(0)}` : "—";
+
+    const text = [
+      `📡 TRIGGER — ${indexSymbol} ${ot} ${entryStr} [15-min bar]`,
+      `Confidence: ${confidence} | Tier: ${tier}`,
+      `Entry level hit at ${istTime}`,
+    ].join("\n");
+
+    void logNotificationDelivery({
+      eventId: signalId,
+      domain: "FNO_INTRADAY",
+      eventType: "TRIGGER",
+      signalId,
+      orderId: null,
+      paperTradeId: null,
+      symbol: indexSymbol,
+      exchange: "NFO",
+      destination: "telegram_main",
+      messageHash: hashMessage(text),
+      status: "SENT",
+      errorCode: null,
+      errorMessage: null,
+      sentAt: new Date().toISOString(),
+      environment: "production",
+    });
+
+    alertOwnerRaw(signalId, `Trigger alert: ${indexSymbol} ${direction} ${signalDate}`, text);
+  } catch (err) {
+    logger.warn(
+      { err: (err as Error)?.message, idx: input.indexSymbol },
+      "alertFnoTrigger: unexpected error (safe-fail)",
+    );
+  }
+}

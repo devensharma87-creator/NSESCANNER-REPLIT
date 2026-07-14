@@ -34,7 +34,8 @@ import type { PaperTradeFoRow } from "@workspace/db";
 import { and, eq, sql } from "drizzle-orm";
 import { isPaperAutoTradingEnabled } from "./paperAutoTradeFlag";
 import { isKiteLive } from "./kiteAuth";
-import { alertFnoTradeableSignal, alertFnoExitSignal } from "./fnoSignalAlerts";
+import { alertFnoTradeableSignal, alertFnoExitSignal, alertFnoTrigger } from "./fnoSignalAlerts";
+import { alertDdLatchFired, alertBaselineLaneLocked } from "./infraAlerts";
 import { isSignalHygieneV2Enabled } from "./signalHygieneFlag";
 import {
   isAutoTradeableSizingTier,
@@ -596,6 +597,10 @@ async function openPaperTrade(input: LifecycleHookInput): Promise<PaperTradeFoRo
     getWeeklyRealizedDrawdown(),
   ]);
   if (dailyDD.capReached) {
+    // Alert owner once per latch event (firstTrigger = true only when latch just fired).
+    if (dailyDD.firstTrigger) {
+      void alertDdLatchFired("DAILY", dailyDD).catch(() => undefined);
+    }
     if (recordSkip("DAILY_DD_CAP")) {
       logger.info(
         { indexSymbol, setupKey, drawdownPct: dailyDD.drawdownPct, capPct: dailyDD.capPct },
@@ -605,6 +610,10 @@ async function openPaperTrade(input: LifecycleHookInput): Promise<PaperTradeFoRo
     return null;
   }
   if (weeklyDD.capReached) {
+    // Alert owner once per latch event (firstTrigger = true only when latch just fired).
+    if (weeklyDD.firstTrigger) {
+      void alertDdLatchFired("WEEKLY", weeklyDD).catch(() => undefined);
+    }
     if (recordSkip("WEEKLY_DD_CAP")) {
       logger.info(
         { indexSymbol, setupKey, drawdownPct: weeklyDD.drawdownPct, capPct: weeklyDD.capPct },
@@ -937,6 +946,8 @@ async function openPaperTrade(input: LifecycleHookInput): Promise<PaperTradeFoRo
           return null;
         }
         if (baselineStats.consecutiveLosses >= FNO_BASELINE_GUARDRAILS.MAX_CONSECUTIVE_LOSSES) {
+          // Alert owner once per day (DB dedup prevents re-fire across restarts).
+          void alertBaselineLaneLocked(signalDate).catch(() => undefined);
           if (recordSkip("BASELINE_CONSECUTIVE_LOSSES")) {
             logger.info(
               { indexSymbol, setupKey, streak: baselineStats.consecutiveLosses,
@@ -3365,6 +3376,19 @@ export async function tryOpenPaperTrades(
     }
 
     try {
+      // Optional trigger alert (TELEGRAM_SEND_TRIGGER_ALERTS=true): fires when the
+      // entry level is hit, BEFORE pre-open risk gates. Safe-fail, gated by env var.
+      void alertFnoTrigger({
+        indexSymbol:  signal.index,
+        direction,
+        optionType:   (signal.leg?.type as "CE" | "PE" | null | undefined) ?? null,
+        confidence:   Math.round(signal.confidence ?? 0),
+        tier,
+        optionEntry:  signal.optionEntry ?? signal.optionLtp ?? null,
+        signalDate,
+        setupKey:     signal.setupKey ?? "",
+      }).catch(() => undefined);
+
       const opened = await openPaperTrade({
         prev: null,
         next: status,

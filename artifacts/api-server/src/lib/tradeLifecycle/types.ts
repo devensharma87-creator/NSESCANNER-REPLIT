@@ -60,7 +60,11 @@ export type TradeAlertEventType =
   | "EXIT_TARGET_1"
   | "EXIT_TARGET_2"
   | "EXIT_MANUAL"
-  | "EXIT_TIME";
+  | "EXIT_TIME"
+  | "TRIGGER"
+  | "DD_LATCH_DAILY"
+  | "DD_LATCH_WEEKLY"
+  | "BASELINE_LANE_LOCKED";
 
 // ── Canonical trade event ──────────────────────────────────────────────────────
 

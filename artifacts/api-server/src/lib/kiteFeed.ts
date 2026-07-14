@@ -14,6 +14,7 @@ import { logger } from "./logger";
 import { getActiveSession, getRestClient, autoMirrorSession, autoMirrorInstruments, _registerWsLivenessCheck, type ActiveSession } from "./kiteAuth";
 import { NIFTY50_SYMBOLS } from "./watchlistLists";
 import { KiteTicker } from "kiteconnect";
+import { alertWsNoreconnect } from "./infraAlerts";
 
 export interface LiveTick {
   symbol: string;
@@ -175,6 +176,8 @@ export async function startTicker(session?: ActiveSession): Promise<boolean> {
     ticker = null;
     subscribedTokens.clear();
     tokenToSymbol.clear();
+    // Alert owner (rate-limited to once per 10 min in-memory — no DB dedup for infra events).
+    alertWsNoreconnect();
     scheduleTickerRestart(60_000);
   });
 
