@@ -1,0 +1,542 @@
+/**
+ * Consolidating F&O diagnostics namespace `/api/fno/*` (READ-ONLY,
+ * additive — 2026-06-05).
+ *
+ * Owner-only operator views that DELEGATE to existing real data sources:
+ *   - `fno_signal_reasoning` audit analytics (fnoReasoningAnalytics.ts)
+ *   - Kite session / WebSocket feed health (kiteAuth, kiteFeed)
+ *   - live index quotes + option chain + option analytics
+ *   - the in-process missed-signal ring (paperTradingFO)
+ *   - reasoning-logger health counters
+ *
+ * Zero new analytics math (pure re-shaping lives in
+ * fnoDiagnosticsFacade.ts). Does NOT change signal generation, gates,
+ * sizing, execution, scheduler, Kite auth, scanner, swing, paper
+ * equity/F&O writes, schema, or auto-trading. Mirrors the existing
+ * `/paper/diagnostics/*` convention (raw res.json, not OpenAPI-typed).
+ */
+
+import { Router, type IRouter } from "express";
+import { eq, sql } from "drizzle-orm";
+import { db, paperTradeFoTable } from "@workspace/db";
+import { requireOwner } from "../lib/userAuth";
+import {
+  analyticsFiltersFromQuery,
+  fetchReasoningRows,
+  computeReasoningAnalytics,
+  buildBlockedSignalsReview,
+  resolveBlockedWindow,
+  BLOCKED_EVENTS_DEFAULT_CAP,
+} from "../lib/fnoReasoningAnalytics";
+import {
+  buildGateWaterfall,
+  buildSetupPerformance,
+  buildNoTradeReasons,
+  classifyFreshness,
+  atmSpreadPct,
+  deriveSignalReadiness,
+  computeAtmStraddle,
+  type HealthSeverity,
+} from "../lib/fnoDiagnosticsFacade";
+import { FNO_LIQUIDITY } from "../lib/paperAccount";
+import { getMissedSignals } from "../lib/paperTradingFO";
+import { getEnvironmentLabel } from "../lib/paperAutoTradeFlag";
+import { getReasoningLoggerHealth } from "../lib/fnoSignalReasoningLogger";
+import { feedStatus } from "../lib/kiteFeed";
+import { getActiveSessionStatus, getKiteCreds, type ActiveSessionStatus } from "../lib/kiteAuth";
+import { centralIndexQuotes } from "../lib/marketData/compat";
+import { fetchOptionChain } from "../lib/optionChain";
+import { computeAnalytics } from "../lib/optionAnalytics";
+import { OPTION_INDICES, getLastFnoCycleState } from "../lib/optionSignals";
+import { istDateOf } from "../lib/paperDailySummaryFo";
+import { alertOwner } from "../lib/alerting";
+import { countTradingDays } from "../lib/fnoTradingDays";
+
+const router: IRouter = Router();
+
+/* Freshness thresholds (ms). Spot ticks should be sub-15s during market
+ * hours; option-chain caches refresh on a 15-30s cadence so a 60s warn /
+ * 5min fail band is generous and avoids false alarms when the market is
+ * closed (stale-but-expected). */
+const SPOT_WARN_MS = 15_000;
+const SPOT_FAIL_MS = 60_000;
+const CHAIN_WARN_MS = 60_000;
+const CHAIN_FAIL_MS = 300_000;
+
+async function loadAnalytics(rawQuery: Record<string, unknown>) {
+  const filters = analyticsFiltersFromQuery(rawQuery);
+  const rows = await fetchReasoningRows(filters);
+  return { filters, analytics: computeReasoningAnalytics(rows) };
+}
+
+/**
+ * GET /fno/data-health — single F&O-scoped live health snapshot.
+ *
+ * Consolidates Kite session/feed status, per-index spot + option-chain
+ * freshness, ATM-leg liquidity, and market-context analytics (PCR, max
+ * pain, ATM IV, bias) that today require hitting several endpoints. Every
+ * section fails soft and explicitly labels unavailable/stale data.
+ *
+ * Optional `?index=NIFTY` scopes to one index.
+ */
+router.get("/fno/data-health", requireOwner, async (req, res, next) => {
+  try {
+    const now = Date.now();
+    const creds = getKiteCreds();
+    const sessionStatus = await getActiveSessionStatus().catch(
+      (): ActiveSessionStatus => ({ session: null, code: "DB_SESSION_READ_FAILED" }),
+    );
+    const session = sessionStatus.session;
+    const feed = feedStatus();
+
+    const kite = {
+      credsConfigured: !!creds,
+      session: session
+        ? {
+            present: true as const,
+            user: session.userName ?? session.userId ?? null,
+            loginTime: session.loginTime?.toISOString() ?? null,
+            expiresAt: session.expiresAt?.toISOString() ?? null,
+            minsToExpiry: session.expiresAt
+              ? Math.floor((new Date(session.expiresAt).getTime() - now) / 60000)
+              : null,
+            dbReadCode: sessionStatus.code,
+            recoveredByRetry: sessionStatus.recoveredByRetry ?? false,
+          }
+        : {
+            present: false as const,
+            dbReadCode: sessionStatus.code,
+            recoveredByRetry: sessionStatus.recoveredByRetry ?? false,
+          },
+      feed,
+    };
+
+    const wanted = typeof req.query["index"] === "string" ? req.query["index"].toUpperCase() : null;
+    const indices = OPTION_INDICES.filter((c) => !wanted || c.symbol === wanted);
+    const quotes = await centralIndexQuotes().catch(() => null);
+
+    const perIndex = await Promise.all(
+      indices.map(async (cfg) => {
+        const q = quotes?.get(cfg.yahoo) ?? null;
+        const spotAgeMs = q && q.asOf != null ? now - q.asOf : null;
+        const spotStatus: HealthSeverity = q
+          ? classifyFreshness(spotAgeMs, SPOT_WARN_MS, SPOT_FAIL_MS)
+          : "unavailable";
+
+        let chain:
+          | { status: HealthSeverity; reason: string }
+          | Record<string, unknown>;
+        // Captured for the read-only signal-readiness + straddle helpers.
+        let chainPresent = false;
+        let chainStatus: HealthSeverity = "unavailable";
+        let chainSource: string | null = null;
+        let chainAgeSec: number | null = null;
+        let atmCe: { ltp: number | null; oi: number | null; spreadPct: number | null } | null = null;
+        let atmPe: { ltp: number | null; oi: number | null; spreadPct: number | null } | null = null;
+        let atmPresent = false;
+        try {
+          const oc = await fetchOptionChain(cfg.symbol);
+          if (!oc) {
+            chain = { status: "unavailable" as HealthSeverity, reason: "option chain fetch returned null" };
+          } else {
+            const genMs = Date.parse(oc.generatedAt);
+            const chainAgeMs = Number.isFinite(genMs) ? now - genMs : null;
+            const atmRow = oc.rows.find((r) => r.strike === oc.atmStrike) ?? null;
+            let analytics: Record<string, unknown> | null = null;
+            try {
+              const an = computeAnalytics(oc);
+              analytics = {
+                pcrOi: an.pcrOi,
+                pcrVolume: an.pcrVolume,
+                maxPain: an.maxPain,
+                atmIv: an.atmIv,
+                bias: an.bias,
+                confidenceScore: an.confidenceScore,
+              };
+            } catch {
+              analytics = null;
+            }
+            chainPresent = true;
+            chainStatus = classifyFreshness(chainAgeMs, CHAIN_WARN_MS, CHAIN_FAIL_MS);
+            chainSource = oc.source;
+            chainAgeSec = chainAgeMs != null ? Math.round(chainAgeMs / 1000) : null;
+            if (atmRow) {
+              atmPresent = true;
+              atmCe = { oi: atmRow.ce?.oi ?? null, ltp: atmRow.ce?.ltp ?? null, spreadPct: atmSpreadPct(atmRow.ce) };
+              atmPe = { oi: atmRow.pe?.oi ?? null, ltp: atmRow.pe?.ltp ?? null, spreadPct: atmSpreadPct(atmRow.pe) };
+            }
+            chain = {
+              status: chainStatus,
+              source: oc.source,
+              generatedAt: oc.generatedAt,
+              ageSec: chainAgeSec,
+              expiry: oc.expiry,
+              atmStrike: oc.atmStrike,
+              rowCount: oc.rows.length,
+              atmLeg: atmPresent ? { ce: atmCe, pe: atmPe } : null,
+              analytics,
+            };
+          }
+        } catch (e) {
+          chain = {
+            status: "unavailable" as HealthSeverity,
+            reason: e instanceof Error ? e.message : "chain fetch failed",
+          };
+        }
+
+        // Read-only verdict + ATM straddle/expected-move (consumed by NO
+        // trading path — operator visibility only).
+        const readiness = deriveSignalReadiness(
+          {
+            sessionPresent: kite.session.present,
+            feedConnected: feed.connected,
+            spot: { present: !!q, ageMs: spotAgeMs, status: spotStatus },
+            chain: {
+              present: chainPresent,
+              status: chainStatus,
+              source: chainSource,
+              atm: atmPresent ? { ce: atmCe, pe: atmPe } : null,
+            },
+          },
+          {
+            minOptionLtp: FNO_LIQUIDITY.MIN_OPTION_LTP,
+            minOptionOi: FNO_LIQUIDITY.MIN_OPTION_OI,
+            maxSpreadPct: FNO_LIQUIDITY.MAX_BID_ASK_SPREAD_PCT * 100,
+          },
+        );
+        const expectedMove = computeAtmStraddle({
+          ceLtp: atmCe?.ltp ?? null,
+          peLtp: atmPe?.ltp ?? null,
+          spot: q?.price ?? null,
+          source: chainSource,
+          freshnessSec: chainAgeSec,
+        });
+
+        return {
+          indexSymbol: cfg.symbol,
+          display: cfg.display,
+          spot: q
+            ? {
+                status: spotStatus,
+                price: q.price,
+                asOf: q.asOf != null ? new Date(q.asOf).toISOString() : null,
+                ageSec: spotAgeMs != null ? Math.round(spotAgeMs / 1000) : null,
+              }
+            : { status: "unavailable" as HealthSeverity, reason: "no live index quote" },
+          chain,
+          // ── READ-ONLY signal-readiness verdict (additive) ──
+          signalAllowed: readiness.signalAllowed,
+          blockingReasons: readiness.blockingReasons,
+          blockingSeverity: readiness.blockingSeverity,
+          dataSourceVerdict: readiness.dataSourceVerdict,
+          spotProvider: readiness.spotProvider,
+          optionChainProvider: readiness.optionChainProvider,
+          freshEnoughForSignal: readiness.freshEnoughForSignal,
+          missingFields: readiness.missingFields,
+          expectedMove,
+        };
+      }),
+    );
+
+    // Expose the last completed F&O signal-cycle metadata so operators can
+    // see intraday bar readiness without triggering a new cycle.  This is
+    // the top-level diagnostic for the "no_live_kite_intraday" suppression
+    // pattern: indicesWithBars=0 + a suppressedSummary containing the reason
+    // is the definitive sign that the cycle ran but Kite bars were unavailable.
+    const lastCycle = getLastFnoCycleState();
+    const fnoSignalCycle = lastCycle
+      ? {
+          ranAt: new Date(lastCycle.ts).toISOString(),
+          ageMs: Date.now() - lastCycle.ts,
+          indicesWithBars: lastCycle.indicesWithBars,
+          indicesConfigured: OPTION_INDICES.length,
+          allBarsAvailable: lastCycle.indicesWithBars === OPTION_INDICES.length,
+          signalCount: lastCycle.signalCount,
+          highConvictionCount: lastCycle.highConvictionCount,
+          baselineCount: lastCycle.baselineCount,
+          suppressedSummary: lastCycle.suppressedSummary,
+          suppressed: lastCycle.suppressed,
+        }
+      : { ranAt: null, indicesWithBars: 0, indicesConfigured: OPTION_INDICES.length, allBarsAvailable: false, note: "no cycle has run yet since server start" };
+
+    return res.json({
+      generatedAt: new Date().toISOString(),
+      environment: getEnvironmentLabel(),
+      universe: OPTION_INDICES.map((c) => c.symbol),
+      kite,
+      fnoSignalCycle,
+      perIndex,
+      reasoningLogger: getReasoningLoggerHealth(),
+      note:
+        "Read-only F&O data-source health. ATM option-leg liquidity shown here " +
+        "is informational; the binding liquidity gate (FNO_LIQUIDITY: LTP>=20, " +
+        "spread<=1.5%, OI>=50k) is enforced at trade time, not from this view.",
+    });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+/**
+ * GET /fno/diagnostics/today — today's (IST) F&O operating snapshot:
+ * decisions funnel, demotions, no-trade reasons, open positions, and
+ * logger health, in one call.
+ */
+router.get("/fno/diagnostics/today", requireOwner, async (_req, res, next) => {
+  try {
+    const today = istDateOf();
+    const filters = analyticsFiltersFromQuery({ from: today, to: today, limit: 10000 });
+    const analytics = computeReasoningAnalytics(await fetchReasoningRows(filters));
+    const waterfall = buildGateWaterfall(analytics);
+    const noTrade = buildNoTradeReasons(analytics, getMissedSignals());
+    const openRows = await db
+      .select()
+      .from(paperTradeFoTable)
+      .where(eq(paperTradeFoTable.status, "OPEN"));
+
+    return res.json({
+      generatedAt: new Date().toISOString(),
+      signalDate: today,
+      environment: getEnvironmentLabel(),
+      decisions: analytics.byDecision,
+      funnel: waterfall.funnel,
+      conversion: waterfall.conversion,
+      demotionTags: analytics.byDemotionTag,
+      noTradeReasons: noTrade,
+      openPositions: {
+        count: openRows.length,
+        indices: openRows.map((r) => r.indexSymbol),
+      },
+      reasoningLogger: getReasoningLoggerHealth(),
+    });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+/**
+ * GET /fno/diagnostics/gate-waterfall — ordered decision funnel +
+ * demotion/rejection breakdown. Accepts the standard reasoning-analytics
+ * filters (index, setup, direction, tier, decision, reason, regime,
+ * from, to, latestN).
+ */
+router.get("/fno/diagnostics/gate-waterfall", requireOwner, async (req, res, next) => {
+  try {
+    const { filters, analytics } = await loadAnalytics(req.query as Record<string, unknown>);
+    return res.json({ filters, waterfall: buildGateWaterfall(analytics) });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+/**
+ * GET /fno/diagnostics/no-trade-reasons — durable (persisted) rejections
+ * and demotions merged with the ephemeral (process-local) missed-signal
+ * ring, each tagged with explicit provenance.
+ */
+router.get("/fno/diagnostics/no-trade-reasons", requireOwner, async (req, res, next) => {
+  try {
+    const { filters, analytics } = await loadAnalytics(req.query as Record<string, unknown>);
+    return res.json({ filters, noTradeReasons: buildNoTradeReasons(analytics, getMissedSignals()) });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+/**
+ * GET /fno/diagnostics/setup-performance — per-setup outcome view
+ * (emitted/opened/wins/stops/expiry + decisive win-rate + avg
+ * confidence/confluence). Realized P&L per setup is intentionally not
+ * here — see /paper/analytics/fo/shadow-costs.
+ */
+router.get("/fno/diagnostics/setup-performance", requireOwner, async (req, res, next) => {
+  try {
+    const { filters, analytics } = await loadAnalytics(req.query as Record<string, unknown>);
+    return res.json({ filters, setupPerformance: buildSetupPerformance(analytics) });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+/**
+ * GET /fno/diagnostics/blocked-signals — the BLOCKED / DEMOTED population
+ * (Task #117). Isolates signals demoted to INFO_ONLY and those carrying the
+ * 2026-06-09 hygiene vetoes (RECOVERY_MODE_VETO / CHASE_RISK_VETO) so the
+ * owner can judge across sessions whether the vetoes are correctly blocking
+ * bad trades or are too strict. Read-only / diagnostics-only.
+ *
+ * Defaults to the last `days` (7, ~5 sessions) ending today IST when no
+ * explicit `from`/`to` is supplied. Accepts the standard analytics filters
+ * plus `days` (≤60) and `cap` (event-list cap).
+ */
+router.get("/fno/diagnostics/blocked-signals", requireOwner, async (req, res, next) => {
+  try {
+    const raw = { ...(req.query as Record<string, unknown>) };
+    const window = resolveBlockedWindow(raw, istDateOf());
+    raw.from = window.from;
+    raw.to = window.to;
+    if (raw.latestN == null && raw.limit == null) raw.latestN = 10000;
+    const filters = analyticsFiltersFromQuery(raw);
+    const rows = await fetchReasoningRows(filters);
+    const capN = Number((req.query as Record<string, unknown>).cap);
+    const cap = Number.isFinite(capN) && capN > 0 ? Math.floor(capN) : BLOCKED_EVENTS_DEFAULT_CAP;
+    return res.json({ filters, blocked: buildBlockedSignalsReview(rows, cap) });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+/**
+ * GET /fno/no-signal-gap — last F&O signal dates + Mon-Fri trading-day gap
+ * + dominant suppression reason distribution (last 30 calendar days).
+ *
+ * Owner-only. Lets the owner distinguish between a data/infra issue and a
+ * normal market-conditions quiet period. Does not change any signal or trade.
+ *
+ * Trading-day count is Mon–Fri only — no NSE public holiday adjustment
+ * (honest: we do not maintain a server-side holiday list).
+ */
+router.get("/fno/no-signal-gap", requireOwner, async (_req, res, next) => {
+  try {
+    const now = new Date();
+
+    // Last signal dates per tier from option_signal_history
+    const lastSignalRows = await db.execute(sql`
+      SELECT
+        MAX(generated_at)                                                AS last_any,
+        MAX(CASE WHEN tier = 'HIGH_CONVICTION' THEN generated_at END)   AS last_hc,
+        MAX(CASE WHEN tier = 'BASELINE'        THEN generated_at END)   AS last_baseline
+      FROM option_signal_history
+    `);
+    const r0 = (lastSignalRows.rows[0] ?? {}) as Record<string, unknown>;
+    const lastAny      = r0["last_any"]      ? new Date(r0["last_any"]      as string) : null;
+    const lastHc       = r0["last_hc"]       ? new Date(r0["last_hc"]       as string) : null;
+    const lastBaseline = r0["last_baseline"] ? new Date(r0["last_baseline"] as string) : null;
+
+    // Last paper-trade open date
+    const lastTradeRows = await db.execute(sql`
+      SELECT MAX(opened_at) AS last_open FROM paper_trade_fo
+    `);
+    const t0 = (lastTradeRows.rows[0] ?? {}) as Record<string, unknown>;
+    const lastTradeOpen = t0["last_open"] ? new Date(t0["last_open"] as string) : null;
+
+    // Mon–Fri gap from last-signal date to today
+    const gapTradingDays = lastAny != null ? countTradingDays(lastAny, now) : null;
+
+    // Dominant suppression reason in the last 30 days
+    const reasonRows = await db.execute(sql`
+      SELECT reason_code, COUNT(*) AS cnt
+      FROM fno_signal_reasoning
+      WHERE decision = 'PRE_EMISSION_REJECTED'
+        AND captured_at >= NOW() - INTERVAL '30 days'
+      GROUP BY reason_code
+      ORDER BY cnt DESC
+      LIMIT 10
+    `);
+    const topReason = ((reasonRows.rows[0] ?? {}) as Record<string, unknown>)["reason_code"] as string ?? null;
+
+    // Map to a stable UI-facing gap reason code
+    let gapReason: string;
+    if (!lastAny) {
+      gapReason = "NO_SIGNALS_EVER";
+    } else if (topReason === "NO_LIVE_KITE_INTRADAY") {
+      gapReason = "NO_SIGNALS_KITE_SESSION_EXPIRED";
+    } else if (topReason === "DAILY_HISTORY_UNAVAILABLE" || topReason === "DAILY_HISTORY_WARMUP") {
+      gapReason = "NO_SIGNALS_DAILY_HISTORY_GAP";
+    } else if (topReason === "MARKET_CLOSED") {
+      gapReason = "NO_SIGNALS_MARKET_CLOSED";
+    } else if (gapTradingDays !== null && gapTradingDays <= 1) {
+      gapReason = "WITHIN_NORMAL_RANGE";
+    } else if (topReason) {
+      gapReason = "NO_SIGNALS_ENGINE_SUPPRESSED";
+    } else {
+      gapReason = "NO_SIGNALS_REASON_UNKNOWN";
+    }
+
+    const isDataRelatedGap = [
+      "NO_SIGNALS_KITE_SESSION_EXPIRED",
+      "NO_SIGNALS_DAILY_HISTORY_GAP",
+    ].includes(gapReason);
+
+    // Alert when gap is data-related and spans at least one trading day
+    if (isDataRelatedGap && gapTradingDays !== null && gapTradingDays > 0) {
+      alertOwner(
+        "FNO_DATA_GAP_DETECTED",
+        `F&O signal gap: ${gapTradingDays} trading day(s) without a signal. Reason: ${gapReason}.`,
+      );
+    }
+
+    // Part G: Read-only cycle diagnostics — notification delivery stats +
+    // recent signal counts. Additive, does NOT change signal generation logic.
+    let notificationStats: {
+      sentLast7d: number;
+      blockedLast7d: number;
+      duplicateLast7d: number;
+      failedLast7d: number;
+      lastSentAt: string | null;
+    } = { sentLast7d: 0, blockedLast7d: 0, duplicateLast7d: 0, failedLast7d: 0, lastSentAt: null };
+
+    try {
+      const notifRows = await db.execute(sql`
+        SELECT
+          COUNT(*) FILTER (WHERE status = 'SENT')      AS sent_count,
+          COUNT(*) FILTER (WHERE status = 'BLOCKED')   AS blocked_count,
+          COUNT(*) FILTER (WHERE status = 'DUPLICATE') AS dup_count,
+          COUNT(*) FILTER (WHERE status = 'FAILED')    AS fail_count,
+          MAX(sent_at)                                  AS last_sent_at
+        FROM notification_delivery_log
+        WHERE created_at >= NOW() - INTERVAL '7 days'
+      `);
+      const nr = (notifRows.rows[0] ?? {}) as Record<string, unknown>;
+      notificationStats = {
+        sentLast7d:      Number(nr["sent_count"]    ?? 0),
+        blockedLast7d:   Number(nr["blocked_count"] ?? 0),
+        duplicateLast7d: Number(nr["dup_count"]     ?? 0),
+        failedLast7d:    Number(nr["fail_count"]    ?? 0),
+        lastSentAt:      nr["last_sent_at"] ? new Date(nr["last_sent_at"] as string).toISOString() : null,
+      };
+    } catch {
+      // Non-fatal — table may not exist yet; stats remain at zero defaults
+    }
+
+    // Recent signal count for context (last 7 days)
+    let recentSignalCount = 0;
+    try {
+      const scRows = await db.execute(sql`
+        SELECT COUNT(*) AS cnt FROM option_signal_history
+        WHERE generated_at >= NOW() - INTERVAL '7 days'
+      `);
+      recentSignalCount = Number(((scRows.rows[0] ?? {}) as Record<string, unknown>)["cnt"] ?? 0);
+    } catch {
+      // Non-fatal
+    }
+
+    const environment = process.env["REPLIT_DEPLOYMENT"] === "1" ? "production" : "development";
+
+    return res.json({
+      generatedAt: now.toISOString(),
+      lastSignal: {
+        any:           lastAny?.toISOString()       ?? null,
+        highConviction: lastHc?.toISOString()       ?? null,
+        baseline:    lastBaseline?.toISOString()    ?? null,
+        paperTradeOpen: lastTradeOpen?.toISOString() ?? null,
+      },
+      gapTradingDays,
+      gapReason,
+      isDataRelatedGap,
+      suppressionReasonDistribution: (reasonRows.rows as Array<Record<string, unknown>>).map(r => ({
+        reasonCode: r["reason_code"] as string,
+        count:      Number(r["cnt"]),
+      })),
+      diagnostics: {
+        environment,
+        recentSignalCount,
+        notificationStats,
+      },
+    });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+export default router;

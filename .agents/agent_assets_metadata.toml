@@ -1,0 +1,224 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "cBgQLrasZ7QYiVjdoun2_"
+uri = "file://backups/marketscanner-source-20260427-083848.tar.gz"
+type = "unspecified"
+title = "Market Scanner — full source backup (Apr 27, 2026)"
+
+[[outputs]]
+id = "KXHIJXE_6zV_2K99QIE1X"
+uri = "file://exports/stock_scanner_pro_data_inventory.csv"
+type = "table"
+title = "Stock Scanner Pro — Full Data Inventory (Cross-Check)"
+
+[[outputs]]
+id = "q5r49PMDoSPoeCtPsJ_sP"
+uri = "file://exports/stock_scanner_pro_source.tar.gz"
+type = "unspecified"
+title = "Stock Scanner Pro — Full Source Code Bundle"
+
+[[outputs]]
+id = "4EzH67EPbgi5w_HDxQsyt"
+uri = "file://exports/stock_scanner_pro_project_data.md"
+type = "text"
+title = "Stock Scanner Pro — Complete Project Data File"
+
+[[outputs]]
+id = "O3oZA1bO2a4rbgL13lven"
+uri = "file://exports/stock_scanner_pro_project_data.txt"
+type = "text"
+title = "Stock Scanner Pro — Complete Project Data (Downloadable)"
+
+[[outputs]]
+id = "i3aDn2S1Ovcq87RcHWX6w"
+uri = "file://exports/stock_scanner_pro_full_backup_20260504_125308.tar.gz"
+type = "unspecified"
+title = "Stock Scanner Pro — Full Source Code Backup (991KB)"
+
+[[outputs]]
+id = "7MFmmAqONDdyGtOy9SNBw"
+uri = "file://project-codebase-summary.md"
+type = "text"
+title = "Stock Scanner Pro - Full Codebase Summary"
+
+[[outputs]]
+id = "5e3_9_C-iY9dbublZCq0R"
+uri = "file://exports/stock-scanner-pro-20260505-1227.tar.gz"
+type = "unspecified"
+title = "Stock Scanner Pro — full source backup (May 5, 2026)"
+
+[[outputs]]
+id = "um1XuPAQTSR8rAAp0Jslj"
+uri = "file://backups/db_backup_20260513_132619.tar.gz"
+type = "unspecified"
+title = "Full database backup — 2026-05-13 13:26 UTC"
+
+[[outputs]]
+id = "_iHL8akEq-sIINY6KU_dm"
+uri = "file://backups/website-backup-20260526-112102.tar.gz"
+type = "unspecified"
+title = "Website Backup — 2026-05-26 (full source, 332 MB)"
+
+[[outputs]]
+id = "T2gYBBEe1JBwOOhI5ERE-"
+uri = "file://backups/source-20260526-115036.tar.gz"
+type = "unspecified"
+title = "Website Source Backup — 2026-05-26 (1.6 MB)"
+
+[[outputs]]
+id = "SywwogBtDbiV5OpoaBRNn"
+uri = "file://dist/backup-20260527-132350.tar.gz"
+type = "unspecified"
+title = "Project Backup — Source + Safe DB Export (2026-05-27)"
+
+[[outputs]]
+id = "ZWidbw8Bnr2H42x8djE9O"
+uri = "file://FULL_WEBSITE_DEEP_AUDIT_REPORT.md"
+type = "text"
+title = "Full Website Deep Audit Report (Markdown)"
+
+[[outputs]]
+id = "tlXGbPcOfXpZSZ25HUXRX"
+uri = "file://FULL_WEBSITE_DEEP_AUDIT_REPORT.docx"
+type = "word_document"
+title = "Full Website Deep Audit Report (Word — open & export to PDF)"
+
+[[outputs]]
+id = "K-ZQ4NNeCQVKtBFIep15q"
+uri = "file://exports/indian-stock-scanner-source.zip"
+type = "unspecified"
+title = "Indian Stock Scanner — essential source (runnable)"
+
+[[outputs]]
+id = "5odtXLdPqJe7dNbx6yjjJ"
+uri = "file://.local/website-export/indian-stock-scanner-export-2026-06-29.zip"
+type = "unspecified"
+title = "Indian Stock Scanner — Full Website Export (screenshots + data)"
+
+[[outputs]]
+id = "DJMCX3ky9g4w8K8aDfCKD"
+uri = "file://LIVE_VS_PROD_DEEP_AUDIT_REPORT.md"
+type = "text"
+title = "Live vs Production Deep Audit Report"
+
+[[outputs]]
+id = "BOJ-pCplO16A5sYeid46O"
+uri = "file://FNO_EXIT_MONITORING_RELIABILITY_REPORT.md"
+type = "text"
+title = "F&O Exit Monitoring Reliability Report"
+
+[[outputs]]
+id = "TqcexNoIeOYeFaIaFZg0a"
+uri = "file://exports/project-source.tar.gz"
+type = "unspecified"
+title = "Indian Stock Market Scanner — Full Project Source"
+
+[[outputs]]
+id = "1ZNKnvQyedF7yuzxlwy_j"
+uri = "file://USER_FACING_CORE_TABS_DEEP_AUDIT_REPORT.md"
+type = "text"
+title = "User-Facing Core Tabs Deep Audit Report (incl. Phase 3A verification)"
+
+[[outputs]]
+id = "Od_Zd8HrDjj4z7wq3KNKA"
+uri = "file://WEBSITE_CANONICAL_DATA_INTEGRATION_REPORT.md"
+type = "text"
+title = "Canonical Data Integration Report"
+
+[[outputs]]
+id = "73cHgFEyqkuLBKkFMOqQt"
+uri = "file://project-source.zip"
+type = "unspecified"
+title = "Full Project Source Code (all TypeScript/React source, configs, docs — 12 MB)"
+
+[[outputs]]
+id = "3ugCkHZfhEzHxcaiYo20y"
+uri = "file://scanner-source.tar.gz"
+type = "unspecified"
+title = "NSE Scanner Frontend — source code (artifacts/scanner/src)"
+
+[[outputs]]
+id = "wZyu0gmBGfNjx0C5_cafT"
+uri = "file://api-server-source.tar.gz"
+type = "unspecified"
+title = "API Server — source code (artifacts/api-server/src)"
+
+[[outputs]]
+id = "fG0NzKcp-PbRMIxJxpN_Z"
+uri = "file://docs-and-reports.tar.gz"
+type = "unspecified"
+title = "Docs, OpenAPI spec & audit reports"
+
+[[outputs]]
+id = "-hhig6AK6E0CFl4bLXCvO"
+uri = "file://scanner-source.zip"
+type = "unspecified"
+title = "NSE Scanner Frontend source (960 KB)"
+
+[[outputs]]
+id = "kjQ0IdBZEzvaPUlNF5qFE"
+uri = "file://api-server-source.zip"
+type = "unspecified"
+title = "API Server source (1.6 MB)"
+
+[[outputs]]
+id = "iACLERxDQeibaX0ZgHBXP"
+uri = "file://docs-reports.zip"
+type = "unspecified"
+title = "Docs, OpenAPI spec & audit reports (431 KB)"
+
+[[outputs]]
+id = "YE798vvVYU0GI1zmgWxw6"
+uri = "file://replit.md"
+type = "text"
+title = "Project overview — replit.md"
+
+[[outputs]]
+id = "PJWP7ZI1zVT2BxXgbiI5s"
+uri = "file://lib/api-spec/openapi.yaml"
+type = "unspecified"
+title = "Full API spec — openapi.yaml"
+
+[[outputs]]
+id = "KJl92RYcFAtBX3V_UZEmV"
+uri = "file://FNO_TRIGGER_SEMANTICS_HONESTY_REPORT.md"
+type = "text"
+title = "P0-3 Trigger Semantics Audit Report"
+
+[[outputs]]
+id = "fyfKcfHaOim8c8AYwu2kn"
+uri = "file://docs/data-infrastructure.md"
+type = "text"
+title = "Data Infrastructure Notes"
+
+[[outputs]]
+id = "jd_z8XpDiws-YdVYzmHJs"
+uri = "file://docs/quant-grade-audit-2026-07-08.md"
+type = "text"
+title = "Quant-Grade Audit Report — 2026-07-08"
+
+[[outputs]]
+id = "r0rbShS1E4CPcSiUCDZmP"
+uri = "file://.export/db-exports.zip"
+type = "unspecified"
+title = "Database Exports (6.4 MB) — 37 tables as CSV"
+
+[[outputs]]
+id = "q8Lzrt_KBkEWYluRK-Oel"
+uri = "file://.export/reference-data.zip"
+type = "unspecified"
+title = "Reference Data (656 KB) — sector maps, candle CSVs, OpenAPI spec"
+
+[[outputs]]
+id = "py26ay5XZzRsDiQp6s2mT"
+uri = "file://.export/source-code.zip"
+type = "unspecified"
+title = "Source Code (12 MB) — all TypeScript/React src files"
+
+[[outputs]]
+id = "Q-7q_g1yERafx194G5BNX"
+uri = "file://.export/api-snapshots.zip"
+type = "unspecified"
+title = "API Snapshots (4 KB) — live API responses at export time"

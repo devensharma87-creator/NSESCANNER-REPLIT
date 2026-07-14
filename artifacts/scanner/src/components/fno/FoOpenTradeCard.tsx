@@ -1,0 +1,340 @@
+/**
+ * Mobile-friendly card for a single OPEN F&O paper position.
+ *
+ * Pure presentational. All risk/status badges and P&L% are computed upstream by
+ * accepted pure helpers (`deriveFoRiskBadges`, `deriveFoPnlPct`) and passed in.
+ * This component derives NO trading logic and recomputes NO strategy. The Close
+ * action is the pre-existing manual close (lifted into the container), passed in
+ * via `onClose`/`closing` — no new close semantics are introduced here.
+ */
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import type { FoBadge } from "@/lib/foCockpitView";
+import { deriveOpenPositionRisk } from "@/lib/foCockpitView";
+import {
+  deriveFoTargetStatus,
+  type SpotLifecycleLike,
+} from "@/lib/fno/targetStatus";
+import { FoRiskBadges } from "./FoRiskBadges";
+import { FoTargetStatusView } from "./FoTargetStatusView";
+
+export interface FoOpenPosition {
+  id: string;
+  signalDate: string;
+  indexSymbol: string;
+  indexName: string;
+  setupKey: string;
+  direction: "BULLISH" | "BEARISH";
+  optionType: "CALL" | "PUT";
+  strike: number;
+  lots: number;
+  lotSize: number;
+  entryPremium: number;
+  stopPremium: number;
+  target1Premium: number;
+  target2Premium: number;
+  capitalDeployed: number;
+  lastPremium: number;
+  unrealizedPnl: number;
+  maxRunup?: number | null;
+  maxDrawdown?: number | null;
+  openedAt: string;
+  lastEvaluatedAt: string;
+  spotLifecycle?: SpotLifecycleLike | null;
+  // F&O Exit Monitoring Reliability — read-only trust status of the most
+  // recent exit-monitor check for this open position. All optional so the
+  // component stays backward-compatible with older payloads.
+  exitMonitorStatus?: "MONITORED" | "BLOCKED" | null;
+  exitTradeGrade?: boolean | null;
+  exitQuoteSource?: string | null;
+  exitQuoteAsOf?: string | null;
+  exitQuoteFreshnessSec?: number | null;
+  lastExitCheckAt?: string | null;
+  lastExitCheckError?: string | null;
+}
+
+const DASH = "—";
+
+export function fmtPremium(n: number | null | undefined): string {
+  return Number.isFinite(n as number) ? (n as number).toFixed(2) : DASH;
+}
+export function fmtInt(n: number | null | undefined): string {
+  return Number.isFinite(n as number) ? String(Math.round(n as number)) : DASH;
+}
+export function fmtInr(n: number | null | undefined): string {
+  if (!Number.isFinite(n as number)) return DASH;
+  return new Intl.NumberFormat("en-IN", {
+    style: "currency",
+    currency: "INR",
+    maximumFractionDigits: 0,
+  }).format(n as number);
+}
+export function fmtInrDec(n: number | null | undefined): string {
+  if (!Number.isFinite(n as number)) return DASH;
+  return new Intl.NumberFormat("en-IN", {
+    style: "currency",
+    currency: "INR",
+    maximumFractionDigits: 2,
+  }).format(n as number);
+}
+export function fmtPct(frac: number | null | undefined): string {
+  if (frac == null || !Number.isFinite(frac)) return DASH;
+  const sign = frac > 0 ? "+" : "";
+  return `${sign}${(frac * 100).toFixed(2)}%`;
+}
+export function fmtDateTime(iso: string | null | undefined): string {
+  if (!iso) return DASH;
+  const ms = Date.parse(iso);
+  if (!Number.isFinite(ms)) return DASH;
+  return new Date(ms).toLocaleString("en-IN", {
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+}
+export function pnlTone(n: number | null | undefined): string {
+  if (!Number.isFinite(n as number) || (n as number) === 0) return "text-foreground";
+  return (n as number) > 0 ? "text-emerald-300" : "text-rose-300";
+}
+export function fmtAge(ms: number | null): string {
+  if (ms == null || !Number.isFinite(ms) || ms < 0) return DASH;
+  const totalMin = Math.floor(ms / 60_000);
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  return h > 0 ? `${h}h ${m}m` : `${m}m`;
+}
+export function fmtR(r: number | null): string {
+  if (r == null || !Number.isFinite(r)) return DASH;
+  return `${r > 0 ? "+" : ""}${r.toFixed(2)}R`;
+}
+/** Signed premium-point distance, with optional % of current premium. */
+export function fmtDelta(points: number | null, pct: number | null): string {
+  if (points == null || !Number.isFinite(points)) return DASH;
+  const sign = points > 0 ? "+" : "";
+  const base = `${sign}${points.toFixed(2)}`;
+  if (pct == null || !Number.isFinite(pct)) return base;
+  return `${base} (${sign}${pct.toFixed(1)}%)`;
+}
+
+function Field({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: string;
+  tone?: string;
+}) {
+  return (
+    <div className="flex flex-col">
+      <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
+        {label}
+      </span>
+      <span className={`tabular-nums ${tone ?? ""}`}>{value}</span>
+    </div>
+  );
+}
+
+/**
+ * F&O Exit Monitoring Reliability — read-only badge for the trust status of
+ * the most recent exit-monitor check on a single position/trade. Purely
+ * presentational over fields already returned by `/paper/positions/fo` and
+ * `/paper/trades/fo`; does not derive or recompute anything.
+ */
+export function ExitMonitorBadge({
+  status,
+  tradeGrade,
+  quoteSource,
+  freshnessSec,
+  lastCheckAt,
+  lastCheckError,
+}: {
+  status?: "MONITORED" | "BLOCKED" | null;
+  tradeGrade?: boolean | null;
+  quoteSource?: string | null;
+  freshnessSec?: number | null;
+  lastCheckAt?: string | null;
+  lastCheckError?: string | null;
+}) {
+  if (!status) return null;
+  const tone =
+    status === "BLOCKED"
+      ? "border-rose-500/30 bg-rose-500/10 text-rose-200"
+      : tradeGrade === false
+        ? "border-amber-500/30 bg-amber-500/10 text-amber-200"
+        : "border-emerald-500/30 bg-emerald-500/10 text-emerald-200";
+  const label =
+    status === "BLOCKED" ? "Exit: Blocked" : tradeGrade === false ? "Exit: Delayed" : "Exit: Live";
+  const title = [
+    `Exit monitor check: ${status}`,
+    quoteSource ? `source ${quoteSource}` : null,
+    freshnessSec != null && Number.isFinite(freshnessSec) ? `${freshnessSec}s old` : null,
+    lastCheckAt ? `checked ${fmtDateTime(lastCheckAt)}` : null,
+    lastCheckError ? `reason: ${lastCheckError}` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  return (
+    <span
+      title={title}
+      className={`inline-block rounded-full border px-2 py-0.5 text-[10px] font-medium leading-tight ${tone}`}
+    >
+      {label}
+    </span>
+  );
+}
+
+/**
+ * F&O Exit Monitoring Reliability — read-only badge for the canonical exit
+ * Telegram alert's delivery status on a closed trade, looked up from
+ * `notification_delivery_log`. `null` means no record was found yet (older
+ * trade, or send still pending) — rendered as nothing, never a false claim.
+ */
+export function TelegramStatusBadge({
+  status,
+}: {
+  status?: "SENT" | "FAILED" | "DUPLICATE" | null;
+}) {
+  if (!status) return null;
+  const tone =
+    status === "SENT"
+      ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-200"
+      : status === "DUPLICATE"
+        ? "border-sky-500/30 bg-sky-500/10 text-sky-200"
+        : "border-rose-500/30 bg-rose-500/10 text-rose-200";
+  const label =
+    status === "SENT" ? "Telegram: Sent" : status === "DUPLICATE" ? "Telegram: Duplicate" : "Telegram: Failed";
+  return (
+    <span
+      title={`Canonical exit alert delivery status: ${status}`}
+      className={`inline-block rounded-full border px-2 py-0.5 text-[10px] font-medium leading-tight ${tone}`}
+    >
+      {label}
+    </span>
+  );
+}
+
+export function FoOpenTradeCard({
+  p,
+  badges,
+  pnlPct,
+  stale,
+  now,
+  onClose,
+  closing,
+}: {
+  p: FoOpenPosition;
+  badges: FoBadge[];
+  pnlPct: number | null;
+  stale: boolean;
+  now?: number;
+  onClose: () => void;
+  closing: boolean;
+}) {
+  const totalQty = Number.isFinite(p.lots) && Number.isFinite(p.lotSize)
+    ? p.lots * p.lotSize
+    : NaN;
+  const hasMfe = Number.isFinite(p.maxRunup as number);
+  const hasMae = Number.isFinite(p.maxDrawdown as number);
+  const risk = deriveOpenPositionRisk(p, now);
+  const targetStatus = deriveFoTargetStatus({
+    direction: p.direction,
+    entryPremium: p.entryPremium,
+    lastPremium: p.lastPremium,
+    stopPremium: p.stopPremium,
+    target1Premium: p.target1Premium,
+    target2Premium: p.target2Premium,
+    maxRunup: p.maxRunup,
+    maxDrawdown: p.maxDrawdown,
+    lots: p.lots,
+    lotSize: p.lotSize,
+    spot: p.spotLifecycle,
+  });
+  return (
+    <div className="rounded-lg border border-border bg-card/40 p-3 space-y-3">
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <div className="font-medium">{p.indexSymbol || DASH}</div>
+          <div className="text-[11px] text-muted-foreground">
+            {p.optionType} {fmtInt(p.strike)} · {p.setupKey || DASH}
+          </div>
+        </div>
+        <Badge variant={p.direction === "BULLISH" ? "default" : "destructive"}>
+          {p.direction}
+        </Badge>
+      </div>
+
+      <FoRiskBadges badges={badges} />
+
+      <div className="grid grid-cols-3 gap-x-3 gap-y-2 text-sm">
+        <Field label="Entry" value={fmtPremium(p.entryPremium)} />
+        <Field label="Current" value={fmtPremium(p.lastPremium)} />
+        <Field label="Stop" value={fmtPremium(p.stopPremium)} tone="text-rose-300" />
+        <Field label="Target 1" value={fmtPremium(p.target1Premium)} tone="text-emerald-300" />
+        <Field label="Target 2" value={fmtPremium(p.target2Premium)} tone="text-emerald-300" />
+        <Field label="Qty" value={`${fmtInt(p.lots)}×${fmtInt(p.lotSize)} = ${fmtInt(totalQty)}`} />
+        <Field label="Capital" value={fmtInr(p.capitalDeployed)} />
+        <Field
+          label="U. P&L"
+          value={`${fmtInrDec(p.unrealizedPnl)}${pnlPct == null ? "" : ` (${fmtPct(pnlPct)})`}`}
+          tone={pnlTone(p.unrealizedPnl)}
+        />
+        <Field
+          label="MFE / MAE"
+          value={hasMfe || hasMae ? `${fmtInrDec(p.maxRunup)} / ${fmtInrDec(p.maxDrawdown)}` : DASH}
+        />
+        <Field label="Age" value={fmtAge(risk.ageMs)} />
+        <Field
+          label="R-multiple"
+          value={fmtR(risk.rMultiple)}
+          tone={pnlTone(risk.rMultiple)}
+        />
+        <Field
+          label="Δ to Stop"
+          value={fmtDelta(risk.distToStop, risk.distToStopPct)}
+          tone="text-rose-300"
+        />
+        <Field
+          label="Δ to T1"
+          value={fmtDelta(risk.distToT1, risk.distToT1Pct)}
+          tone="text-emerald-300"
+        />
+        <Field
+          label="Δ to T2"
+          value={fmtDelta(risk.distToT2, risk.distToT2Pct)}
+          tone="text-emerald-300"
+        />
+      </div>
+
+      <div className="border-t border-border/60 pt-2">
+        <FoTargetStatusView status={targetStatus} />
+      </div>
+
+      <div className="flex items-center justify-between gap-2 pt-1">
+        <div className="flex flex-col gap-1">
+          <span className="text-[11px] text-muted-foreground">
+            <span
+              className={`inline-block h-1.5 w-1.5 rounded-full mr-1.5 ${
+                stale ? "bg-amber-400" : "bg-emerald-400"
+              }`}
+            />
+            Last eval {fmtDateTime(p.lastEvaluatedAt)}
+          </span>
+          <ExitMonitorBadge
+            status={p.exitMonitorStatus}
+            tradeGrade={p.exitTradeGrade}
+            quoteSource={p.exitQuoteSource}
+            freshnessSec={p.exitQuoteFreshnessSec}
+            lastCheckAt={p.lastExitCheckAt}
+            lastCheckError={p.lastExitCheckError}
+          />
+        </div>
+        <Button size="sm" variant="outline" disabled={closing} onClick={onClose}>
+          {closing ? "Closing…" : "Close"}
+        </Button>
+      </div>
+    </div>
+  );
+}

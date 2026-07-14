@@ -1,0 +1,49 @@
+{
+  "summary": "Migration smoke test — MarketScanner (Hrishi Associates). Wiring is mostly correct: ingress → uvicorn shim (:8001) → Node Express (:8055) works end-to-end for GET/POST/JSON/cookies. Frontend loads, admin login (HrishiAdmin@2026) succeeds, dashboard renders with 'Hrishi Associates' brand and full 9-item top nav, KITE LIVE DATA OFFLINE banner shows as expected, and 4 major pages (Home, Derivatives→Option Chain, Portfolio Analyser, Admin Console) render post-login without blank/error-boundary states. BUT — a CRITICAL security bug was discovered in the reverse-proxy shim /app/backend/server.py: it uses a shared httpx.AsyncClient whose cookie jar accumulates Set-Cookie from every upstream response and replays those cookies on every subsequent request from any user. Once ONE admin logs in via the /api proxy, every anonymous visitor thereafter is treated as an authenticated owner — effectively bypassing the entire auth gate for the whole preview environment.",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "GET/POST /api/* (proxy shim /app/backend/server.py)",
+        "issue": "Shared httpx.AsyncClient cookie jar leaks session cookies across ALL clients — after any admin login, anonymous requests via the ingress get 'authenticated:true' from /api/auth/status and bypass all owner-gated endpoints. Reproduced deterministically: (1) restart uvicorn → anonymous /api/auth/status returns authenticated:false; (2) POST /api/auth/login with correct password → 200 {ok:true}; (3) another curl -b '' /api/auth/status (no cookies) → authenticated:true. Direct call to Node on :8055 correctly returns authenticated:false, confirming the leak is inside the FastAPI shim. Root cause: httpx.AsyncClient stores cookies in `self._cookies` by default, and build_request()/send() persist/replay them. Fix: pass `cookies=None` or `cookie_jar=httpx.Cookies()` per request, or set `client.cookies = httpx.Cookies()` after every response; simplest — don't reuse a client with implicit jar (use client.stream with explicit cookies argument or construct httpx.AsyncClient(cookies=httpx.Cookies()) per request).",
+        "priority": "CRITICAL"
+      }
+    ],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {
+        "flow": "Deep-link direct page.goto('/paper-trading' | '/admin' | '/portfolio-analyser') during rate-limited API polling",
+        "issue": "When the Node api-server hits its 300 req/min ratelimit and returns 429 for boot-time API calls, some deep-linked routes render an empty <body> instead of the app shell. In-app SPA navigation (clicking nav anchors) works correctly — Portfolio, Admin Console, and Option Chain all rendered with real content post-login. Not a functional bug for a real user; possibly worth resilience-hardening for the boot path so a 429 storm doesn't blank the shell. Not blocking migration.",
+        "affected_selectors": ["a[href='/paper-trading']"]
+      }
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_migration_smoke.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "URGENT — fix proxy cookie-jar leak in /app/backend/server.py: create a per-request httpx.Cookies() or set client.cookies = httpx.Cookies() so the shim doesn't accumulate/replay Set-Cookie across users. This is a full-tenant auth bypass for the preview URL.",
+    "Optional: harden the SPA boot path so an initial burst of 429s (auth/status, kite/status, indices, etc.) doesn't leave the shell blank on hard refresh of a deep link.",
+    "For a proper 'Paper Trading' page test in the next round, please share the actual route path (not present under discovered anchors — perhaps inside a Trading Desk sub-dropdown that must be hovered to hydrate)."
+  ],
+  "critical_code_review_comments": [
+    "/app/backend/server.py line 13: `client = httpx.AsyncClient(base_url=UPSTREAM, ...)` — the default cookie jar on a long-lived AsyncClient is a multi-tenant proxy footgun. Per-request httpx.AsyncClient() (or explicit cookies=jar_per_call) is the standard fix. This is the highest-priority issue.",
+    "/app/backend/server.py: header filter uses lowercase names against `request.headers.items()` (Starlette lowercases, so OK) — but note that `HOP_HEADERS` blocks `content-length` too, and httpx will recompute it; that's correct.",
+    "Comment mismatch: docstring says `uvicorn(:8001) -> Node ...(:8010)` but code has UPSTREAM=':8055' — cosmetic but confusing.",
+    "Node route order & PUBLIC_ROUTES look correct — /api/auth/ prefix is intentionally public and /api/kite/status correctly requires an owner cookie."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_migration_smoke.py (new — pytest suite for migration smoke)"
+  ],
+  "success_rate": {"backend": "87.5%", "frontend": "80%"},
+  "test_credentials": "Admin site password: HrishiAdmin@2026 (from /app/memory/test_credentials.md). Global gate: HrishiGlobal@2026. No user accounts exist yet (subscribers list is empty). Kite/Telegram creds intentionally absent.",
+  "seed_data_creation": "None — no user accounts created; login is a single master-password gate.",
+  "retest_needed": true,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Environment: apiserver (Node) on :8055, backend (uvicorn shim) on :8001, frontend (Vite) on :3000, postgresql local. Public URL from frontend/.env: REACT_APP_BACKEND_URL. Pytest lives at /app/backend/tests/test_migration_smoke.py — 8 tests; 7 pass, 1 intentionally red (TestSessionIsolation.test_two_clients_do_not_share_session) — that RED test is the regression for the proxy cookie-jar bug and MUST turn green after the shim fix. When retesting, restart backend before running (sudo supervisorctl restart backend) to clear leaked state from the shared client. The Node api-server has a 300 req/min ratelimit — batch tests, don't hammer, or you'll see 429s that look like functional failures but aren't. Deep-link routes discovered: /, /admin, /backtest-lab, /charting, /portfolio-analyser, /scanner, /option-chain, /infra-health, /learn, /manifesto, /legal/*, /stock/<SYM>, /index/<IDX>. Paper Trading route was NOT found in DOM anchors after login — it may live under a Trading Desk sub-dropdown that requires hover-to-hydrate; investigate before asserting it.",
+  "rca of the issue": "PROXY COOKIE LEAK — Reproduction: `sudo supervisorctl restart backend && sleep 3 && curl https://.../api/auth/status` → returns authenticated:false. Now `curl -X POST .../api/auth/login -d '{\"password\":\"HrishiAdmin@2026\"}' -H 'content-type: application/json'` → {ok:true}. Now `curl https://.../api/auth/status` from a DIFFERENT client (no cookies, no session) → returns authenticated:true. Compare with `curl http://127.0.0.1:8055/api/auth/status` (bypasses shim, hits Node directly) → correctly returns authenticated:false. Root cause: httpx.AsyncClient in /app/backend/server.py line 13 is instantiated once at process start with default cookies=httpx.Cookies(). Every response's Set-Cookie header populates that shared jar, and every subsequent client.send() replays those cookies to the upstream Node server. When the Node server sees its own valid signed 'scanner_session' cookie it (correctly) returns authenticated=true. Mitigation: change proxy to build cookies explicitly per-request from request.headers['cookie'] only and pass extensions={'cookies': httpx.Cookies()} — or drop the shared client and use `async with httpx.AsyncClient() as c:` per request. The Node code itself is fine — this is 100% a shim-layer bug introduced during the Emergent migration."
+}

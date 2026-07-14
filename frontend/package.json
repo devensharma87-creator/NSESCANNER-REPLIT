@@ -1,0 +1,8 @@
+{
+  "name": "frontend-launcher",
+  "private": true,
+  "version": "0.0.0",
+  "scripts": {
+    "start": "cd /app/artifacts/scanner && exec ./node_modules/.bin/vite --host 0.0.0.0"
+  }
+}

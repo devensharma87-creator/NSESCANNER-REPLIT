@@ -1,0 +1,127 @@
+/** Range / Mean-Reversion Reversal (RANGE_REVERSAL). Sideways, low-ADX days. */
+import {
+  CHOP_ADX_FLOOR,
+  clamp,
+  isBearRejection,
+  isBullRejection,
+  paramNum,
+  type StrategyContext,
+  type StrategyEntry,
+  type StrategyModule,
+  type StrategyParams,
+} from "./base";
+
+const OPTION_PREMIUM_NOTE =
+  "Option-premium confirmation unavailable (no historical option data) — evaluated on spot only.";
+
+function evaluate(ctx: StrategyContext, i: number, p: StrategyParams): StrategyEntry | null {
+  if (i < 2) return null;
+  const t1R = paramNum(p, "target1R", 1);
+  const t2R = paramNum(p, "target2R", 2);
+  const rsiOversold = paramNum(p, "rsiOversold", 35);
+  const rsiOverbought = paramNum(p, "rsiOverbought", 65);
+  const a = ctx.atr14[i];
+  const ax = ctx.adx14[i];
+  const rsiV = ctx.rsi14[i];
+  if (a == null || a <= 0 || ax == null || rsiV == null) return null;
+  // Only a ranging tape — low ADX. Trending tapes are not this strategy's job.
+  if (ax >= CHOP_ADX_FLOOR + 4) return null;
+
+  const o = ctx.opens[i]!;
+  const h = ctx.highs[i]!;
+  const l = ctx.lows[i]!;
+  const c = ctx.closes[i]!;
+  const tol = 0.25 * a;
+
+  // Support / resistance zones from prior-day + CPR.
+  const support = ctx.prevDayLow[i] != null && ctx.cprLow[i] != null
+    ? Math.min(ctx.prevDayLow[i]!, ctx.cprLow[i]!)
+    : ctx.prevDayLow[i] ?? ctx.cprLow[i];
+  const resistance = ctx.prevDayHigh[i] != null && ctx.cprHigh[i] != null
+    ? Math.max(ctx.prevDayHigh[i]!, ctx.cprHigh[i]!)
+    : ctx.prevDayHigh[i] ?? ctx.cprHigh[i];
+
+  // ---- CE: oversold rejection at the lower edge of the range ---------------
+  // NOTE: this is a counter-trend FADE. The complete reversal signal is the
+  // combination of (low-ADX tape + a touch of the support zone + an RSI extreme
+  // + a bullish rejection candle that closes back up). We deliberately do NOT
+  // gate on a momentum breakout of the prior bar's high — that is a trend
+  // confirmation, structurally incompatible with a mean-reversion play, and
+  // against the real 2y 15-min index history it starved the strategy to ~4
+  // trades total (an oversold dip almost never closes above the pre-dip bar's
+  // high in the same candle). See registry.candle-regression.test.ts.
+  if (support != null && l <= support + tol && rsiV <= rsiOversold && isBullRejection(o, h, l, c)) {
+    const stop = l - 0.1 * a;
+    const risk = c - stop;
+    if (risk <= 0) return null;
+    const conf = clamp(55 + (rsiV <= 28 ? 12 : 0) + (ax < CHOP_ADX_FLOOR ? 8 : 0), 50, 88);
+    return {
+      direction: "BULL",
+      optionType: "CALL",
+      entrySpot: c,
+      stop,
+      target1: c + t1R * risk,
+      target2: c + t2R * risk,
+      confidence: conf,
+      entryReason: "CE: oversold bullish rejection at range support in a low-ADX tape.",
+      passedConditions: [
+        "Ranging tape (low ADX)",
+        "Touched range support",
+        "RSI oversold",
+        "Bullish rejection candle",
+      ],
+      failedConditions: [],
+      warnings: [OPTION_PREMIUM_NOTE],
+    };
+  }
+
+  // ---- PE: overbought rejection at the upper edge of the range -------------
+  // Symmetric to the CE leg: no momentum-breakout (c < prior bar low) gate on a
+  // counter-trend fade — see the CE note above.
+  if (resistance != null && h >= resistance - tol && rsiV >= rsiOverbought && isBearRejection(o, h, l, c)) {
+    const stop = h + 0.1 * a;
+    const risk = stop - c;
+    if (risk <= 0) return null;
+    const conf = clamp(55 + (rsiV >= 72 ? 12 : 0) + (ax < CHOP_ADX_FLOOR ? 8 : 0), 50, 88);
+    return {
+      direction: "BEAR",
+      optionType: "PUT",
+      entrySpot: c,
+      stop,
+      target1: c - t1R * risk,
+      target2: c - t2R * risk,
+      confidence: conf,
+      entryReason: "PE: overbought bearish rejection at range resistance in a low-ADX tape.",
+      passedConditions: [
+        "Ranging tape (low ADX)",
+        "Touched range resistance",
+        "RSI overbought",
+        "Bearish rejection candle",
+      ],
+      failedConditions: [],
+      warnings: [OPTION_PREMIUM_NOTE],
+    };
+  }
+
+  return null;
+}
+
+export const rangeReversal: StrategyModule = {
+  meta: {
+    id: "RANGE_REVERSAL",
+    name: "Range / Mean-Reversion Reversal",
+    category: "Mean Reversion",
+    bestCondition: "Sideways, low-volatility, range-bound days",
+    suitableIndices: ["NIFTY", "BANKNIFTY", "SENSEX"],
+    recommendedTimeframes: ["5m", "15m"],
+    riskLevel: "Medium",
+    description:
+      "Fades the edges of an intraday range at support/resistance with an RSI extreme and rejection candle. Counter-trend by design.",
+    // A range play deliberately trades against VWAP/EMA-trend and inside chop.
+    ignoredFilters: ["vwapFilter", "emaTrendFilter", "avoidChopZone"],
+    ignoredFiltersRationale:
+      "Trades mean-reversion at range edges, not trend — VWAP/EMA-trend confirmation would veto valid counter-trend fades, and it deliberately operates inside a low-ADX (chop) tape.",
+    defaultParams: { rsiOversold: 35, rsiOverbought: 65, target1R: 1, target2R: 2 },
+  },
+  evaluate,
+};

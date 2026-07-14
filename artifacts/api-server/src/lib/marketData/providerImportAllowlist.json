@@ -1,0 +1,63 @@
+{
+  "lib/candleWarehouseIngestor.ts": [
+    "kiteFeed",
+    "kiteIntraday"
+  ],
+  "lib/dailyReports.ts": [
+    "kiteAuth",
+    "kiteFeed"
+  ],
+  "lib/dataProvider.ts": [
+    "kiteAuth",
+    "kiteFeed"
+  ],
+  "lib/indexFuturesVolume.ts": [
+    "kiteAuth",
+    "kiteFnoInstruments",
+    "kiteIntraday"
+  ],
+  "lib/kiteReadiness.ts": [
+    "kiteAuth",
+    "kiteFeed"
+  ],
+  "lib/marketDataHealth.ts": [
+    "kiteFeed"
+  ],
+  "lib/oiLab.ts": [
+    "kiteAuth",
+    "kiteFnoInstruments",
+    "kiteIntraday"
+  ],
+  "lib/optionChain.ts": [
+    "kiteFeed",
+    "kiteIndexQuotes",
+    "kiteOptionChain"
+  ],
+  "lib/optionSignals.ts": [
+    "kiteAuth"
+  ],
+  "lib/systemStatus.ts": [
+    "kiteAuth",
+    "kiteFeed"
+  ],
+  "routes/fno.ts": [
+    "kiteAuth",
+    "kiteFeed"
+  ],
+  "routes/index.ts": [
+    "kiteFeed"
+  ],
+  "routes/kite.ts": [
+    "kiteAuth",
+    "kiteFeed"
+  ],
+  "routes/oiLab.ts": [
+    "kiteAuth"
+  ],
+  "routes/optionChain.ts": [
+    "kiteAuth"
+  ],
+  "routes/optionStrategies.ts": [
+    "kiteAuth"
+  ]
+}

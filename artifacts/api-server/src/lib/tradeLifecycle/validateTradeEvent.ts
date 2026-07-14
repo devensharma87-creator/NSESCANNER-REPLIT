@@ -1,0 +1,261 @@
+/**
+ * validateTradeEventForNotification — canonical guard for Telegram trade alerts.
+ *
+ * Pure function — no I/O, no DB, no async. Accepts the canonical trade event
+ * and an optional context object. Returns { allowed, reason, message }.
+ *
+ * ABSOLUTE RULES:
+ *   - Does NOT change signal/scoring/threshold logic.
+ *   - Does NOT place orders or enable broker execution.
+ *   - Must be called BEFORE any alertOwnerRaw dispatch for canonical trade events.
+ *   - Blocks any event where canDriveTradeAlerts is false.
+ *   - Blocks test/sample/dummy symbols regardless of other fields.
+ *
+ * Block reason codes (all 12):
+ *   TEST_SYMBOL_BLOCKED        — symbol matches /^test/i or known test symbols
+ *   INSTRUMENT_NOT_FOUND       — symbol blank or explicitly flagged as missing
+ *   EXCHANGE_MISSING           — exchange field blank/invalid
+ *   TOKEN_MISSING              — instrumentToken required for F&O ENTRY events but absent
+ *                                (ENTRY_READY / ENTRY_OPENED only — an EXIT event reports an
+ *                                already-committed close, not a new instrument-identification
+ *                                decision, so it is exempt)
+ *   SOURCE_NOT_TRADE_GRADE     — sourceStatus !== TRADE_GRADE (ENTRY events only)
+ *   YAHOO_NOT_ALLOWED          — source is delayed/yahoo
+ *   STALE_DATA_NOT_ALLOWED     — sourceStatus is STALE (ENTRY events only)
+ *   DEV_ENV_BLOCKED            — dev/test event to production Telegram
+ *   SAMPLE_ALERT_BLOCKED       — event explicitly flagged as sample/test
+ *   MISSING_RISK_FIELDS        — entryPrice, stopLoss, or quantity is 0 / non-finite
+ *   DUPLICATE_EVENT            — same event already delivered (checked by caller)
+ *   BROKER_EXECUTION_MISMATCH  — brokerExecutionStatus is LIVE_ENABLED
+ *
+ * EXIT events (eventType starting with EXIT_, or MANUAL_OVERRIDE close reports) are
+ * informational reports of an already-committed close, not a new trade decision, so
+ * the source-trust checks (SOURCE_NOT_TRADE_GRADE, YAHOO_NOT_ALLOWED price-trust variant,
+ * STALE_DATA_NOT_ALLOWED, canDriveTradeAlerts) and TOKEN_MISSING are scoped to ENTRY
+ * events only (isEntryEvent = eventType is ENTRY_READY or ENTRY_OPENED).
+ */
+
+import type { CanonicalTradeEvent, ValidationBlockReason, ValidationResult } from "./types";
+
+// ── Test / sample symbol patterns ─────────────────────────────────────────────
+
+/**
+ * Exact-match blocklist for known test/dummy symbols.
+ * These must NEVER reach a real Telegram channel.
+ */
+const TEST_SYMBOL_EXACT: ReadonlySet<string> = new Set([
+  "TESTSTK",
+  "TEST",
+  "SAMPLE",
+  "DUMMY",
+  "PLACEHOLDER",
+  "FAKE",
+  "MOCK",
+]);
+
+/**
+ * Prefix pattern for test symbols. Case-insensitive.
+ * Covers TEST_*, TESTSTOCK, SAMPLE_, etc.
+ */
+const TEST_SYMBOL_PREFIX_RE = /^TEST/i;
+
+/**
+ * True if the symbol matches any known test/dummy pattern.
+ */
+function isTestSymbol(symbol: string): boolean {
+  const upper = symbol.trim().toUpperCase();
+  if (TEST_SYMBOL_EXACT.has(upper)) return true;
+  if (TEST_SYMBOL_PREFIX_RE.test(upper)) return true;
+  return false;
+}
+
+// ── Context ────────────────────────────────────────────────────────────────────
+
+export interface ValidationContext {
+  /**
+   * The destination Telegram channel. When "telegram_main", dev/test events
+   * are blocked. When "internal_only", environment check is relaxed.
+   */
+  destination?: "telegram_main" | "telegram_prepost" | "internal_only";
+
+  /**
+   * Set to true when the event was created by a test/sample endpoint
+   * (e.g. POST /alerts/test-fno-trade-signal). Always blocked unless
+   * destination is "internal_only".
+   */
+  isSampleAlert?: boolean;
+
+  /**
+   * When true, also checks that orderId/signalId/paperTradeId has not already
+   * been delivered to this destination. Caller must set this to true and also
+   * check `notification_delivery_log` externally (pure function cannot query DB).
+   */
+  isDuplicate?: boolean;
+}
+
+// ── Guard ──────────────────────────────────────────────────────────────────────
+
+function block(reason: ValidationBlockReason, message: string): ValidationResult {
+  return { allowed: false, reason, message };
+}
+
+const ALLOWED: ValidationResult = { allowed: true, reason: null, message: null };
+
+/**
+ * Validate a canonical trade event before dispatching a Telegram notification.
+ *
+ * Returns { allowed: true } when the event is safe to send.
+ * Returns { allowed: false, reason, message } when it must be blocked.
+ *
+ * Checks run in priority order — the FIRST failing check returns immediately.
+ */
+export function validateTradeEventForNotification(
+  event: CanonicalTradeEvent,
+  ctx: ValidationContext = {},
+): ValidationResult {
+  const dest = ctx.destination ?? "telegram_main";
+
+  // 1. Broker execution mismatch — hard block, always first
+  if (event.brokerExecutionStatus === "LIVE_ENABLED") {
+    return block(
+      "BROKER_EXECUTION_MISMATCH",
+      `brokerExecutionStatus is LIVE_ENABLED — live broker execution is forbidden in this system. Event ID: ${event.id}`,
+    );
+  }
+
+  // 2. Test symbol — blocks any symbol that looks like a test/dummy/sample
+  if (isTestSymbol(event.symbol)) {
+    return block(
+      "TEST_SYMBOL_BLOCKED",
+      `Symbol "${event.symbol}" matches a test/dummy pattern and must not reach Telegram. Event ID: ${event.id}`,
+    );
+  }
+
+  // 3. Sample/test alert endpoint
+  if (ctx.isSampleAlert && dest !== "internal_only") {
+    return block(
+      "SAMPLE_ALERT_BLOCKED",
+      `Event was generated by a test/sample endpoint and must not reach the ${dest} channel. Event ID: ${event.id}`,
+    );
+  }
+
+  // 4. Dev/test environment → production Telegram
+  if (event.environment !== "production" && dest === "telegram_main") {
+    return block(
+      "DEV_ENV_BLOCKED",
+      `Event environment is "${event.environment}" but destination is "${dest}". Dev/test events must not reach the main trade Telegram channel. Event ID: ${event.id}`,
+    );
+  }
+
+  // 5. Exchange missing
+  if (!event.exchange || event.exchange.trim() === "") {
+    return block(
+      "EXCHANGE_MISSING",
+      `Exchange is missing or blank for symbol "${event.symbol}". Event ID: ${event.id}`,
+    );
+  }
+
+  // 6. Instrument not found (symbol blank or explicitly "missing")
+  if (!event.symbol || event.symbol.trim() === "" || event.source === "missing") {
+    return block(
+      "INSTRUMENT_NOT_FOUND",
+      `Symbol is blank or source is "missing". Event ID: ${event.id}`,
+    );
+  }
+
+  // 7. Missing risk fields — entry, SL, or quantity must be positive and finite
+  if (
+    !Number.isFinite(event.entryPrice) || event.entryPrice <= 0 ||
+    !Number.isFinite(event.stopLoss)   || event.stopLoss <= 0 ||
+    !Number.isFinite(event.quantity)   || event.quantity <= 0
+  ) {
+    return block(
+      "MISSING_RISK_FIELDS",
+      `entryPrice (${event.entryPrice}), stopLoss (${event.stopLoss}), or quantity (${event.quantity}) is 0, negative, or non-finite. Event ID: ${event.id}`,
+    );
+  }
+
+  // 8-11. Price-trust checks — ENTRY events ONLY. An ENTRY event recommends
+  // a NEW action off a live quote, so untrustworthy sourcing is genuinely
+  // dangerous. An EXIT event reports a position that has ALREADY been
+  // closed against a locked/committed DB premium — the real trust
+  // enforcement for "should we exit" already happened upstream (F&O Exit
+  // Monitoring Reliability trust/freshness gate, before the DB commit).
+  // Retroactively blocking the *report* of an already-committed close on
+  // sourceStatus grounds would silently suppress legitimate owner-facing
+  // exit alerts (e.g. MANUAL_OVERRIDE, TIME_EXIT_1520) that never claim to
+  // be a live trade-grade quote in the first place. Does not affect ENTRY
+  // behavior — this only narrows the checks' applicability.
+  const isEntryEvent = event.eventType === "ENTRY_READY" || event.eventType === "ENTRY_OPENED";
+  if (isEntryEvent) {
+    // 8. Stale data — sourceStatus STALE must never drive trade alerts
+    if (event.sourceStatus === "STALE") {
+      return block(
+        "STALE_DATA_NOT_ALLOWED",
+        `Source data is marked STALE for "${event.symbol}". Stale data must not drive trade alerts. Event ID: ${event.id}`,
+      );
+    }
+
+    // 9. Yahoo / delayed source — not trade-grade, cannot drive alerts
+    if (event.sourceStatus === "DELAYED") {
+      return block(
+        "YAHOO_NOT_ALLOWED",
+        `Source status is DELAYED (Yahoo or similar) for "${event.symbol}". Only TRADE_GRADE (Kite) data is allowed for trade alerts. Event ID: ${event.id}`,
+      );
+    }
+
+    // 10. Source not trade grade — covers UNAVAILABLE, ERROR, INFO_ONLY
+    if (event.sourceStatus !== "TRADE_GRADE") {
+      return block(
+        "SOURCE_NOT_TRADE_GRADE",
+        `sourceStatus is "${event.sourceStatus}" for "${event.symbol}". Only TRADE_GRADE sources are allowed on the trade Telegram channel. Event ID: ${event.id}`,
+      );
+    }
+
+    // 11. canDriveTradeAlerts must be true — enforces the full trust chain
+    if (!event.canDriveTradeAlerts) {
+      return block(
+        "SOURCE_NOT_TRADE_GRADE",
+        `canDriveTradeAlerts is false for "${event.symbol}" (sourceStatus=${event.sourceStatus}, canDriveSignals=${event.canDriveSignals}). Event ID: ${event.id}`,
+      );
+    }
+
+    // 12. Token missing — required for F&O ENTRY events (options/futures).
+    // Instrument identification is an entry-time concern: the token was
+    // already resolved (or not) when the position was opened. An EXIT event
+    // reports an already-committed close, not a new instrument-identification
+    // decision, so a missing token here does not indicate a new safety issue.
+    if (
+      (event.assetType === "option" || event.assetType === "future") &&
+      (event.instrumentToken === null || event.instrumentToken <= 0)
+    ) {
+      return block(
+        "TOKEN_MISSING",
+        `instrumentToken is missing for F&O asset "${event.tradingSymbol}" (assetType=${event.assetType}). Event ID: ${event.id}`,
+      );
+    }
+  }
+
+  // 13. Duplicate event — checked by caller; flagged here for logging
+  if (ctx.isDuplicate) {
+    return block(
+      "DUPLICATE_EVENT",
+      `This event has already been delivered to "${dest}" (domain=${event.domain}, eventType=${event.eventType}, id=${event.id}).`,
+    );
+  }
+
+  return ALLOWED;
+}
+
+// ── Helper ────────────────────────────────────────────────────────────────────
+
+/**
+ * True when `validateTradeEventForNotification` would allow the event.
+ * Convenience wrapper for boolean checks.
+ */
+export function isTradeEventAllowed(
+  event: CanonicalTradeEvent,
+  ctx: ValidationContext = {},
+): boolean {
+  return validateTradeEventForNotification(event, ctx).allowed;
+}

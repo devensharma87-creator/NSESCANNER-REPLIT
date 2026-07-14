@@ -1,0 +1,81 @@
+# See https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files for more about ignoring files.
+
+# compiled output
+dist
+tmp
+out-tsc
+*.tsbuildinfo
+
+# warm-start disk caches (regenerated at runtime — not source)
+.cache/*.json
+.expo
+.expo-shared
+
+# dependencies
+node_modules
+
+# IDEs and editors
+/.idea
+.project
+.classpath
+.c9/
+*.launch
+.settings/
+*.sublime-workspace
+
+# IDE - VSCode
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+
+# misc
+/.sass-cache
+/connect.lock
+/coverage
+/libpeerconnection.log
+npm-debug.log
+yarn-error.log
+testem.log
+
+# secrets / env files (must NEVER be committed) ------------------------------
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+*_credentials.json
+secrets.json
+
+# database exports / backups (may contain Kite tokens, bcrypt hashes, etc.) --
+*.sql
+*.sql.gz
+*.dump
+*.backup
+safe-export-*.sql
+unsafe-export-*.sql
+
+# Replit DB tool local outputs
+.replit-db/
+/typings
+
+# System Files
+.DS_Store
+Thumbs.db
+
+.cursor/rules/nx-rules.mdc
+.github/instructions/nx.instructions.md
+
+# Replit
+.cache/
+.local/
+
+# F&O backtester generated data (regenerate via fetch:index-candles)
+tools/fno-backtester/data/*
+!tools/fno-backtester/data/NIFTY.csv
+!tools/fno-backtester/data/BANKNIFTY.csv
+!tools/fno-backtester/data/SENSEX.csv
+tools/fno-backtester/backtest_trades_*.csv
+/.pgdata/

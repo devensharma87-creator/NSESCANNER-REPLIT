@@ -1,0 +1,35 @@
+modules = ["nodejs-24", "python-3.11", "postgresql-16"]
+
+[deployment]
+router = "application"
+deploymentTarget = "autoscale"
+
+[deployment.postBuild]
+args = ["pnpm", "store", "prune"]
+env = { "CI" = "true" }
+
+[workflows]
+runButton = "Project"
+
+[agent]
+stack = "PNPM_WORKSPACE"
+expertMode = true
+
+[postMerge]
+path = "scripts/post-merge.sh"
+timeoutMs = 20000
+
+[userenv]
+
+[userenv.shared]
+
+[userenv.development]
+KITE_MIRROR_URL = "https://marketscannerbydev.in"
+PAPER_FO_SHADOW_EXITS_ENABLED = "1"
+
+[userenv.production]
+PAPER_TRADING_ENABLED = "true"
+
+[nix]
+channel = "stable-25_05"
+packages = ["glibcLocales"]

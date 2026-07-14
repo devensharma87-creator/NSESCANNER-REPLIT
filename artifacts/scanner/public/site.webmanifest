@@ -1,0 +1,19 @@
+{
+  "name": "Market Scanner by Dev",
+  "short_name": "Market Scanner",
+  "description": "Indian market analytics for NSE/BSE traders — equity scanners, F&O signals, option-chain analytics, strategy builder and paper trading. Educational use only.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0a0a0a",
+  "theme_color": "#0a0a0a",
+  "lang": "en-IN",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

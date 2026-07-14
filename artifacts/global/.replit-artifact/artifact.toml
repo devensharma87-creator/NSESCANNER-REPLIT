@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/global/"
+title = "Global Multi-Asset Scanner"
+version = "1.0.0"
+id = "artifacts/global"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/global/" ]
+localPort = 20474
+
+[services.development]
+run = "pnpm --filter @workspace/global run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/global", "run", "build" ]
+publicDir = "artifacts/global/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "20474"
+BASE_PATH = "/global/"

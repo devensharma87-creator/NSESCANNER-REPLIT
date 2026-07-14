@@ -1,0 +1,25 @@
+{
+  "name": "@workspace/scripts",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "hello": "tsx ./src/hello.ts",
+    "find-holdings": "tsx ./src/find_holdings.ts",
+    "refresh-nifty500-sectors": "tsx ./src/refreshNifty500SectorReference.ts",
+    "dedupe-fno-reasoning": "tsx ./src/dedupeFnoSignalReasoning.ts",
+    "fix-backtest-trade-times": "tsx ./src/fixBacktestTradeTimes.ts",
+    "index:llm": "tsx ./src/generateLlmIndex.ts",
+    "index:llm:check": "tsx ./src/checkLlmIndex.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "verify:release": "tsx ./src/verifyRelease.ts"
+  },
+  "dependencies": {
+    "@workspace/db": "workspace:*",
+    "drizzle-orm": "catalog:"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "tsx": "catalog:"
+  }
+}
