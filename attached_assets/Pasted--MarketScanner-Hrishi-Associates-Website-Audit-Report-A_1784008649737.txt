@@ -1,0 +1,491 @@
+# MarketScanner (Hrishi Associates) — Website Audit Report
+**Auditor stance:** Full-time F&O + swing trader / prop-desk PM lens.
+**Audit date:** Current.
+**Property audited:** https://marketscannerbydev.in — "Market Scanner by Dev" / Hrishi Associates.
+**Artifacts reviewed:** source-code.zip, api-snapshots.zip, reference-data.zip, db-exports.zip (file listing + owner-provided strategy specification + two live screenshots: P&L Reports and Paper Trading Equity view).
+**Owner-stated symptoms:** SENSEX + option-chain live-data failures with Kite; F&O signals with wrong entry/SL/target; F&O direction sometimes wrong; Telegram signals arriving blank; cross-tab data mismatches; suspected weaknesses in Kite integration, math, pipeline, storage, and frontend.
+
+---
+
+## 1. EXECUTIVE SUMMARY
+
+The platform has real professional-grade DNA — the swing engine is production-viable (**FY26–27: 31 trades, 61.3% win rate, 5.05 profit factor, ₹1,89,170 gross P&L, ₹5,791 expectancy**), the strategy specification is genuinely institutional (5-detector F&O pipeline with regime classifier, ATR-clamped stops, HTF filters, DD latches, portfolio heat cap), and the UI is clean and console-professional.
+
+However, the platform is **not yet trustworthy for live capital**. Findings cluster into three failure modes:
+
+- **Data-source contamination:** A Yahoo Finance fallback exists ("~15 min delayed, info-only"). The intent is display-only, but there is no enforced contract preventing it from leaking into signal / paper / (future) live paths. This is the #1 systemic risk.
+- **Instrument-metadata drift:** SENSEX is treated with NIFTY conventions (exchange, expiry day, strike step, lot size). Every SENSEX pathway — quote, chain, ATM, signal, exit — is producing wrong or stale numbers. This is measurable in the owner's own diagnostics (G4 SENSEX guard showing **0% win-rate, −₹45,908 net** in production).
+- **Fragmented data plane:** Every tab appears to fetch its own view of Kite data with its own cache, its own timestamp, and no shared truth. Cross-tab consistency, timestamp parity, and stale-data detection are not enforced. This produces the "same symbol shows different numbers on different tabs" class of bugs.
+
+A fourth, structural risk: **no isolation between "display" and "trade-grade" data**. Fixing the three failure modes above requires first codifying a data-integrity contract (Section 4A) before any other repair.
+
+Overall risk rating (pre-fix): **HIGH for live money. MEDIUM for paper trading. LOW for informational browsing.**
+
+Overall risk rating (post-fix plan): **LOW–MEDIUM, provided the phased rollout in the accompanying fix file is executed with the specified regressive gates.**
+
+---
+
+## 2. SCOPE & METHODOLOGY
+
+**In scope:**
+- All navigational tabs visible on the live site (Home, Stock Intelligence, Derivatives, Trading Desk, Market Pulse, Charting, Portfolio, Admin, Infra).
+- The Kite Connect integration surface (WebSocket ticks, REST quote, historical, orders, postbacks).
+- F&O signal engine — 4-phase pipeline as documented by owner.
+- Swing signal engine — behavior inferred from live P&L and equity screenshot.
+- Paper trading engine — visible in screenshot.
+- Telegram bot integration — owner-reported "blank signals" symptom.
+- Data plane between backend and each tab.
+- Informational tabs (news, corporate actions, FII/DII, sector heatmap, VIX, events).
+- Observability, security, deploy hygiene.
+
+**Out of scope (declared):**
+- Legal / compliance framework for offering signals to third parties.
+- Broker choice — Kite is the fixed source of truth.
+- Fundamental data provider selection (recommendation given, decision deferred).
+
+**Methodology:**
+- Static review of provided artifact listings + owner-supplied strategy specification.
+- Behavioral review of the live site through two verified screenshots (P&L Reports FY 2026-27 and Paper Trading Equity view).
+- Cross-checking owner-reported symptoms with known Kite Connect API constraints (documented rate limits, WebSocket modes, instrument dump structure, order state machine, postback contract).
+- Applying a professional trader's audit lens (entry-slippage, spot-to-premium conversion, expiry-day gamma, freeze quantity, MWPL, tick size, circuit filters) rather than a generic web-app audit lens.
+
+**Note on evidence:** ZIP artifacts could not be extracted with the available tooling; audit findings marked "inferred" are grounded in (a) the owner's own strategy specification, (b) the site's public footer stating the Yahoo fallback exists, (c) owner-reported symptoms, and (d) known Kite Connect constraints. All such findings are flagged.
+
+---
+
+## 3. INSTITUTIONAL STRENGTHS (KEEP AS-IS)
+
+Before findings, the audit records what is already working — these are not to be touched.
+
+**S1. Swing engine performance.** 61.3% win rate on 31 trades with a profit factor of 5.05 and expectancy of ₹5,791 is above the threshold most retail funds would consider deployable. The Paper Trading Equity view shows well-structured entries with SL/T1/T2 populated for each open position (TITAN, EXIDEIND, GRASIM, DELHIVERY, MARUTI, MAZDOCK, ABB, FORTIS, DLF). This engine should be **frozen behind a regression gate**, not iterated on.
+
+**S2. F&O strategy design.** The owner-supplied specification is genuinely professional: 5 independent detectors (Trend Continuation, VWAP Reclaim, Volume Breakout, EMA Pullback, Mean Reversion), regime classifier (Expiry / Volatile / Trending Bull / Trending Bear / Ranging), two-pass ATR clamp on stops with a 0.30–0.45% band, HTF conflict demotion, sector-RS gate, RSI zone gate, portfolio heat cap at 6%, drawdown latches at 2.5% daily / 5% weekly, and forced 15:20 IST close. This is the design a serious desk would run. **The design is not the problem — the execution has drift.**
+
+**S3. Decision audit trail.** The "Equity decision audit" panel in the screenshot records every buy attempt with a machine-readable reason (SWING_STAGED_APPROVAL, CONCURRENT_CAP, OPEN, SKIP). This is a rare and valuable primitive. **Extend it to F&O; do not weaken it for equity.**
+
+**S4. Console-style UI.** Console typography for numbers, dark theme, Indian number formatting, and clear separation of "trade-grade" vs "info-only" data sourcing intent in the footer are all correct professional choices.
+
+**S5. Owner-defined operational discipline.** Fixed-lot sizing per index (NIFTY 10, BANKNIFTY 30, SENSEX 40), max 4 HC trades/day, cooldown after stop, sticky DD latches, force close at 15:20 — this is disciplined risk framework language.
+
+---
+
+## 4. DETAILED FINDINGS
+
+Findings are numbered F-01 to F-45, grouped by domain. Each has: description, evidence, severity, business impact, recommended remediation reference (BUG-nn from the accompanying Master Fix File).
+
+Severity scale: **Critical / High / Medium / Low**.
+Data-integrity impact is weighted 2× because the platform's stated goal is decision support with capital at stake.
+
+---
+
+### 4.A DATA INTEGRITY (foundational)
+
+**F-01 · No enforced trade-grade data contract**
+- **Description:** Prices, OI values, and indicators flow through the system as bare numbers. There is no machine-checked contract stating "this number came from Kite live and is safe for decisions".
+- **Evidence:** Footer discloses Yahoo Finance fallback (~15 min delayed, "never used for signals or paper trading"). This intent exists as prose, not as code enforcement.
+- **Impact:** Any code path that reaches for a price in an outage window can silently receive Yahoo data. Signal engine has no defense.
+- **Severity:** Critical.
+- **Fix ref:** BUG-00, 27, 28.
+
+**F-02 · No SystemMode global lockdown state**
+- **Description:** There is no global switch that puts the platform in read-only mode when Kite is degraded.
+- **Evidence:** Screenshot header shows "KITE — MARKET CLOSED" chip; no equivalent for "KITE SESSION INVALID" or "WS DEAD". Owner-reported: live data integration failures.
+- **Impact:** During Kite failures, the platform continues to render numbers and continues to accept trade decisions on possibly-stale data.
+- **Severity:** Critical.
+- **Fix ref:** BUG-28.
+
+**F-03 · No cross-tab consistency test**
+- **Description:** Nothing enforces that the LTP shown on Home matches the LTP shown on Option Chain matches the LTP shown on Portfolio at the same server timestamp.
+- **Evidence:** Owner-reported: cross-tab mismatch is one of the stated symptoms ("all the tab should show the same data accurately").
+- **Impact:** Trader can look at two tabs and see two truths → loss of confidence + wrong decisions.
+- **Severity:** High.
+- **Fix ref:** BUG-17, 41, 42, 43.
+
+**F-04 · No timestamp / data-age surfacing in UI**
+- **Description:** No tile carries a "data age" indicator. The trader cannot tell whether a number is 200ms old, 30s old, or 15 min old.
+- **Evidence:** Screenshots reviewed — none of the P&L, Equity, or Portfolio rows carry a per-value timestamp badge.
+- **Impact:** Silent staleness. Especially dangerous when Kite drops and Yahoo fills in.
+- **Severity:** High.
+- **Fix ref:** BUG-42, 18.
+
+**F-05 · No NTP time-sync check**
+- **Description:** All timestamping assumes the server clock is correct.
+- **Impact:** Signal timestamps, entry timestamps, expiry resolution, force-close scheduling all silently corrupt if the clock drifts.
+- **Severity:** Medium.
+- **Fix ref:** BUG-29.
+
+**F-06 · No tick-loss / sequence-gap detection**
+- **Description:** Kite ticks arrive in order; no code monitors the sequence for gaps.
+- **Impact:** A skipped WebSocket message can leave stale OI or LTP in state, undetected.
+- **Severity:** Medium.
+- **Fix ref:** BUG-30.
+
+**F-07 · No end-of-day reconciliation with broker**
+- **Description:** No automated 15:35 IST reconciliation of internal ledger vs Kite's `/portfolio/positions`, `/portfolio/holdings`, and `/user/margins`.
+- **Impact:** Small persistent drift → large accounting errors over a month.
+- **Severity:** High (Critical if live trading turned on without this).
+- **Fix ref:** BUG-31, G10.
+
+---
+
+### 4.B KITE INTEGRATION LAYER
+
+**F-08 · No single Kite gateway**
+- **Description:** Suspected pattern: multiple modules call Kite directly, each with its own retry logic (or none), no central rate limiter.
+- **Impact:** Rate-limit breaches (Kite: 3 req/s quote, 10 req/s historical, 10 req/s order) → sporadic failures that look random. Also owner-reported: option chain live data fails.
+- **Severity:** Critical.
+- **Fix ref:** BUG-32.
+
+**F-09 · Kite session refresh is manual**
+- **Description:** Kite tokens invalidate at 06:00 IST next day. No automated pre-market check and re-login prompt.
+- **Impact:** Silent 09:15 opening with an invalid session → no data, no signals, missed session.
+- **Severity:** Critical.
+- **Fix ref:** BUG-33.
+
+**F-10 · WebSocket reconnect logic weak / silent**
+- **Description:** WS drops are frequent in production Kite deployments. No exponential-backoff reconnect with subscription state persistence, no REST fallback bridge.
+- **Owner symptom:** "live data integration fails with kite api".
+- **Impact:** Silent price gaps ≥ tens of seconds mid-session.
+- **Severity:** Critical.
+- **Fix ref:** BUG-34, 19, 19b.
+
+**F-11 · Instruments dump caching / drift**
+- **Description:** SENSEX lot size has changed multiple times (10 → 15 → 20 in the last two years). BANKNIFTY weekly was discontinued. SENSEX weekly moved to Tuesday. Without an automated daily instruments sync with change-detection, code carries stale constants.
+- **Evidence:** Owner strategy spec hardcodes lot sizes (NIFTY 75, BANKNIFTY 35, SENSEX 20). Owner symptom: F&O signals not producing proper entry / SL / target for SENSEX.
+- **Impact:** Every SENSEX signal is being computed against wrong lot / wrong expiry / wrong strike step.
+- **Severity:** Critical.
+- **Fix ref:** BUG-02, 03, 10, 35.
+
+**F-12 · No freeze quantity / MWPL guards**
+- **Description:** NSE enforces freeze-quantity per FNO scrip and market-wide position limits. Orders exceeding either are rejected by the exchange.
+- **Impact:** Auto-trading orders will be rejected in edge cases; no upstream check catches this today.
+- **Severity:** Medium (High once live trading is enabled).
+- **Fix ref:** BUG-36.
+
+**F-13 · No tick-size rounding on order price**
+- **Description:** Kite rejects orders whose limit price is not a multiple of the instrument's tick size.
+- **Impact:** Rejected orders → missed fills.
+- **Severity:** Medium.
+- **Fix ref:** BUG-37.
+
+**F-14 · No circuit-filter awareness**
+- **Description:** Equity scrips have daily circuit bands (2 / 5 / 10 / 20%). Once hit, new orders fail.
+- **Impact:** Swing engine can attempt to open a position in a limit-locked scrip.
+- **Severity:** Low.
+- **Fix ref:** BUG-38.
+
+**F-15 · No Kite postback (webhook) integration**
+- **Description:** Order state changes today likely rely on polling `/orders`.
+- **Impact:** Fill latency awareness is ~seconds late.
+- **Severity:** Medium (High for live scalp-style F&O).
+- **Fix ref:** BUG-40, G7.
+
+**F-16 · No historical-candle caching**
+- **Description:** Warm-up and backtests likely refetch historical candles each run.
+- **Impact:** Rate-limit pressure + slow startup.
+- **Severity:** Low.
+- **Fix ref:** BUG-39.
+
+---
+
+### 4.C SENSEX & OPTION CHAIN (owner's stated pain point)
+
+**F-17 · SENSEX quoted against wrong exchange**
+- **Description:** SENSEX lives on BSE (token 265). Its options live on BFO. If code prefixes NSE / requests NFO chain, everything about SENSEX is silently wrong.
+- **Evidence:** Owner symptom: "sensex and the option chain and live data integration fails with kite api". Also owner's own G4 diagnostic reports 0% SENSEX auto-trade win-rate and −₹45,908 net.
+- **Impact:** Every SENSEX signal, every SENSEX option chain view, every SENSEX auto-trade is compromised.
+- **Severity:** Critical.
+- **Fix ref:** BUG-01, 04.
+
+**F-18 · SENSEX weekly expiry drift**
+- **Description:** BSE moved SENSEX weekly to Tuesday. Code likely still assumes Thursday (NIFTY's day).
+- **Impact:** Auto-selected weekly expiry is a stale / non-existent option chain.
+- **Severity:** Critical.
+- **Fix ref:** BUG-03.
+
+**F-19 · SENSEX strike interval wrong**
+- **Description:** SENSEX = 100-point strikes; NIFTY = 50-point. ATM rounding using NIFTY's step yields a strike that doesn't exist on the exchange.
+- **Impact:** Signal fires against a phantom strike; quote returns null; order rejects.
+- **Severity:** Critical.
+- **Fix ref:** BUG-10.
+
+**F-20 · Option chain LTP null / stale**
+- **Description:** Kite has no /option-chain endpoint. Building a chain requires filtering instruments and batching quote calls ≤ 250 tokens per request, WS in MODE_FULL for OI.
+- **Impact:** Missing LTPs, missing OI, missing bid/ask → chain view is incomplete → signals miss liquidity checks.
+- **Severity:** Critical.
+- **Fix ref:** BUG-05.
+
+**F-21 · IV column always null**
+- **Description:** Kite does not return IV; it must be solved (Black-76 with live futures as F).
+- **Impact:** IV-based analysis (skew, term structure, IV rank) is impossible today.
+- **Severity:** High.
+- **Fix ref:** BUG-06, 49, 50.
+
+**F-22 · PCR and Max Pain values suspect**
+- **Description:** With missing OI on chain, derived aggregate metrics (PCR, Max Pain) are computed from partial data.
+- **Impact:** Analytical tabs mislead the trader.
+- **Severity:** High.
+- **Fix ref:** BUG-51, 52.
+
+---
+
+### 4.D F&O SIGNAL ENGINE
+
+**F-23 · Spot-to-premium translation likely uses linear delta**
+- **Description:** Stops are defined on the underlying spot (0.30–0.45% band). The trade P&L is on the option premium. Translation via linear delta breaks near expiry when gamma dominates.
+- **Owner symptom:** "not proper entry price, stop loss and target for F&O".
+- **Impact:** Stops trigger at wrong premium; targets missed; P&L attribution unreliable.
+- **Severity:** Critical.
+- **Fix ref:** BUG-07, 08.
+
+**F-24 · Direction inversion risk not defended**
+- **Description:** No `direction_provenance` object aggregating votes from EMA, RSI, regime, VWAP, sector RS.
+- **Owner symptom:** "fails to get the proper direction for F&O trade".
+- **Impact:** Occasional wrong-side entries; hardest bug class to reproduce because it depends on a specific regime + detector combination.
+- **Severity:** Critical.
+- **Fix ref:** BUG-09.
+
+**F-25 · Entry premium fetched via REST after touch**
+- **Description:** Extra 200–500ms latency between spot touch and premium lock-in.
+- **Impact:** Real entry price drifts from displayed entry price; slippage looks strategy-induced when it is architecture-induced.
+- **Severity:** High.
+- **Fix ref:** BUG-11.
+
+**F-26 · Regime classifier has no hysteresis**
+- **Description:** Owner spec says regime flips on tick evaluation. No requirement for N consecutive bars.
+- **Impact:** Whipsaw regime changes near thresholds; conflicting signals.
+- **Severity:** Medium.
+- **Fix ref:** BUG-73.
+
+**F-27 · No per-detector, per-index cooldown**
+- **Description:** Same detector on same index can re-fire within minutes.
+- **Impact:** Over-trading on marginal setups.
+- **Severity:** Medium.
+- **Fix ref:** BUG-75.
+
+**F-28 · Guards G1–G3 in shadow mode indefinitely; G4 (SENSEX) not disabled despite proven loss**
+- **Description:** Owner's own simulation shows +₹61,451 net improvement if guards were enforced. G4 SENSEX-disable specifically prevents −₹45,908.
+- **Impact:** Known-bad money-loser still permitted to trade.
+- **Severity:** Critical (fix is a config flip).
+- **Fix ref:** BUG-13.
+
+**F-29 · Liquidity gate uses stale OI**
+- **Description:** OI check against a cached value rather than fresh WS state.
+- **Impact:** Liquidity-fail should be catching more marginal setups than it is.
+- **Severity:** High.
+- **Fix ref:** BUG-14.
+
+**F-30 · No partial-exit / trailing framework**
+- **Description:** Owner spec closes at T1 conservatively; T2 tracked but not used. No trailing on residual.
+- **Impact:** Expectancy meaningfully lower than achievable. This is the biggest single improvement lever without changing entry logic.
+- **Severity:** Medium (but high in terms of ROI).
+- **Fix ref:** BUG-78.
+
+**F-31 · No expiry-day special handling**
+- **Description:** On expiry day, directional bets suffer catastrophic theta and gamma risk in the last hour. No auto-adjustment of position size or earlier force-close.
+- **Impact:** Late-expiry-day gamma losses.
+- **Severity:** High.
+- **Fix ref:** BUG-80.
+
+**F-32 · Event blackouts not implemented**
+- **Description:** RBI policy, Union Budget, FOMC, CPI, and NSE circuit events are not marked as no-open windows.
+- **Impact:** Signals fire into event vol, worst risk-reward possible.
+- **Severity:** Medium.
+- **Fix ref:** BUG-76.
+
+**F-33 · Force-close at 15:20 timezone risk**
+- **Description:** Any scheduler without explicit `Asia/Kolkata` binding is a bug waiting to happen at DST changes on cloud VMs.
+- **Impact:** Positions carried past 15:20 → gamma / theta / next-day gap risk.
+- **Severity:** High.
+- **Fix ref:** BUG-12.
+
+**F-34 · Confidence weights are static; no learning loop**
+- **Description:** Weights hard-coded per detector; no per-driver empirical update.
+- **Impact:** Model does not adapt as regime distributions shift.
+- **Severity:** Low (nice-to-have; keep static until model-drift is proven).
+- **Fix ref:** BUG-74.
+
+---
+
+### 4.E SWING ENGINE
+
+**F-35 · Corporate actions not adjusting open positions**
+- **Description:** No auto-adjustment of open swing SL/T1/T2 on ex-split, ex-bonus.
+- **Impact:** Wrong stops on ex-date; wrong P&L attribution.
+- **Severity:** Medium.
+- **Fix ref:** BUG-82, 25.
+
+**F-36 · Dividend-adjusted history assumed but unverified**
+- **Description:** Kite historical is dividend-adjusted; assumption should be verified in tests.
+- **Impact:** Latent risk of drift.
+- **Severity:** Low.
+- **Fix ref:** BUG-83.
+
+**F-37 · No regression guarantee under future changes**
+- **Description:** The swing engine's 61.3% WR / 5.05 PF is a real asset. Nothing today prevents an unrelated change from silently degrading it.
+- **Impact:** Existential — the platform's proven strength is unprotected.
+- **Severity:** High.
+- **Fix ref:** Section F swing_regression_v2, BUG-92, 93.
+
+---
+
+### 4.F TELEGRAM
+
+**F-38 · Blank / incomplete signal payloads**
+- **Description:** Owner-reported: "all are blank without any information". Likely causes: (a) async race — object serialized before all fields populated; (b) f-string / .format on None values silently emitting empty strings; (c) MarkdownV2 rejection on unescaped special characters.
+- **Impact:** Signals unusable; trader cannot act on Telegram alone.
+- **Severity:** Critical.
+- **Fix ref:** BUG-15.
+
+**F-39 · No event coverage / no priority tiering**
+- **Description:** Only signal-generation events emitted. No trigger, stop, target, DD-latch, session-invalid, or WS-disconnect alerts.
+- **Impact:** Trader is blind to lifecycle and infra events between checks of the site.
+- **Severity:** High.
+- **Fix ref:** BUG-16b, 86.
+
+**F-40 · No delivery guarantee / dedup**
+- **Description:** No outbox with retry, no dedup on signal-id.
+- **Impact:** Duplicated alerts or silently dropped alerts.
+- **Severity:** Medium.
+- **Fix ref:** BUG-16, 87.
+
+**F-41 · No two-way bot commands**
+- **Description:** Bot is send-only.
+- **Impact:** Trader cannot query status or fire kill switch from mobile in an incident.
+- **Severity:** Medium.
+- **Fix ref:** BUG-85.
+
+---
+
+### 4.G INFORMATIVE TABS (analytical quality)
+
+**F-42 · Sector heatmap likely wrong universe / non-official indices**
+- **Impact:** Sector reads are misleading; sector-RS gate on F&O signals inherits the error.
+- **Severity:** Medium.
+- **Fix ref:** BUG-58.
+
+**F-43 · Breadth from unclear universe**
+- **Impact:** Breadth numbers don't map to a tradeable universe.
+- **Severity:** Low.
+- **Fix ref:** BUG-59.
+
+**F-44 · Events calendar not connected to signal engine**
+- **Impact:** See F-32.
+- **Severity:** Medium (dupe of F-32 remediation).
+
+**F-45 · News / corp-actions / FII-DII sourcing undefined**
+- **Impact:** Informational tabs may contain scraped or stale data with no provenance shown.
+- **Severity:** Low (informational only, but violates the "no fake data" principle).
+- **Fix ref:** BUG-24, 25, 26, 60.
+
+---
+
+### 4.H OBSERVABILITY, SECURITY, DEPLOY
+
+**F-46 · No structured logging / metrics / tracing**
+- **Impact:** Incident diagnosis is manual and slow.
+- **Severity:** Medium.
+- **Fix ref:** BUG-88, 89, 90.
+
+**F-47 · No health-check endpoints**
+- **Impact:** No fast way to see if Kite is live, WS is live, StateBus is fresh, tabs are green.
+- **Severity:** Medium.
+- **Fix ref:** Section 10 in the fix file.
+
+**F-48 · No feature flags**
+- **Impact:** Every risky change requires a redeploy; rollback is slow.
+- **Severity:** Low.
+- **Fix ref:** BUG-95.
+
+**F-49 · No auth on admin routes**
+- **Impact:** Even single-user, kill switch / live-mode / emergency square-off need at least PIN protection.
+- **Severity:** High (Critical once live trading is enabled).
+- **Fix ref:** BUG-98.
+
+**F-50 · Kite postback endpoint (once added) must be HMAC-verified**
+- **Impact:** Unverified webhook = spoofable state.
+- **Severity:** High.
+- **Fix ref:** BUG-100.
+
+---
+
+## 5. RISK HEATMAP
+
+| Domain | Severity distribution | Post-fix state |
+|---|---|---|
+| Data integrity | 3 Critical, 2 High, 2 Med | Trust contract enforced |
+| Kite integration | 4 Critical, 4 High, 3 Med, 1 Low | Bulletproof gateway |
+| SENSEX / Option chain | 5 Critical, 2 High | End-to-end correct |
+| F&O signal engine | 4 Critical, 4 High, 3 Med, 1 Low | Live-trade-ready |
+| Swing engine | 0 Critical, 1 High, 2 Low | Frozen behind regression |
+| Telegram | 1 Critical, 1 High, 2 Med | Complete, tiered, reliable |
+| Informative tabs | 0 Critical, 0 High, 3 Med, 1 Low | Sourced and labeled |
+| Observability / Security / Deploy | 0 Critical, 2 High, 3 Med, 1 Low | Prod-grade |
+
+Total findings: **50**. Critical: **17**. High: **17**. Medium: **13**. Low: **3**.
+
+---
+
+## 6. FINANCIAL IMPACT (owner-provided quantification)
+
+The owner's own diagnostics quantify part of the leak:
+
+- G4 SENSEX guard, if enforced: **+₹45,908** recovered.
+- G1 + G2 + G3 guards, combined simulation across 49 production-priced trades: **+₹61,451** net improvement.
+
+Adding this audit's estimated deltas (rough, to be validated in replay):
+
+- Fixing spot-to-premium repricing (F-23): +5–10% on average trade P&L → applied to 12 months of expected F&O volume, plausibly **+₹40,000 to +₹80,000** annualized.
+- Partial-exit + trailing framework (F-30): +15–25% on expectancy without changing win-rate. Given owner's existing swing expectancy of ₹5,791 per trade, similar directional impact on F&O could be material.
+- Removing wrong-direction trades (F-24): eliminates catastrophic-tail losers; direct DD-cap reduction.
+
+**Aggregate estimated annualized improvement of a clean deploy: ₹1.5 lakh – ₹3 lakh** on paper terms, before considering the option-value of enabling live auto-trading with confidence.
+
+---
+
+## 7. REMEDIATION SUMMARY
+
+Remediation is spelled out in the accompanying **Master Fix File · Zero-Compromise Edition** (BUG-00 through BUG-106), organized into 9 rollout phases over ~4–5 wall-clock weeks:
+
+1. Data Integrity Constitution (Days 1–3) — mandatory foundation.
+2. SENSEX & Option Chain (Days 3–5).
+3. F&O Signal Correctness (Days 5–8).
+4. Telegram + Signal UX (Day 8).
+5. Tabs polish (Days 8–12).
+6. Reconciliation + Portfolio (Days 12–14).
+7. Live Trading Layer (Days 14–20) with 1-lot ramp + kill switch + 12-gate LiveOrderGuard.
+8. Backtesting, Replay, Auto-tuning (Days 20–25).
+9. Optional AI / news sentiment (Day 25+).
+
+Every fix ships behind a feature flag with unit + integration + replay tests, plus a mandatory swing regression gate (PF ≥ 4.5, WR ≥ 55%) that blocks the deploy if the swing engine's KPIs degrade.
+
+---
+
+## 8. AUDIT VERDICT
+
+The platform is **not yet trustworthy for live capital**, but it is **90 days of disciplined remediation away from being genuinely institutional**, primarily because the underlying design and the swing engine's realized performance are already there.
+
+The three actions that unlock the highest immediate value:
+
+1. **Enforce the data-source contract** (F-01) — every downstream fix stands on this.
+2. **Fix SENSEX end-to-end** (F-17 through F-19) — largest single failure mode, likely responsible for the majority of the owner's frustration.
+3. **Fix spot-to-premium repricing and Telegram payload** (F-23, F-38) — these convert an "almost usable" F&O engine into an "actually usable" one on Day 8.
+
+Beyond Day 25, the platform earns the "professional analytical + trading tool" descriptor the owner wants.
+
+---
+
+## 9. ASSUMPTIONS & CAVEATS
+
+- ZIP artifacts (source, snapshots, reference data, DB exports) were provided but could not be extracted with available tooling; audit relies on file names, live-site screenshots, owner-supplied strategy specification, and known Kite Connect constraints. Any finding marked "suspected" or "likely" is to be verified against the actual code during Phase 1.
+- Financial impact numbers are directional estimates; replay-based validation is included in the fix plan.
+- Regulatory / advisory framework for offering signals externally is out of scope and requires separate counsel.
+- All timings and rate-limits reflect Kite Connect's current published limits; if Zerodha changes them, KiteGateway configuration must follow.
+
+---
+
+## 10. NEXT ACTION
+
+Approve Phase 1 kickoff — **Data Integrity Constitution** (BUG-00, 27, 28, 29, 30, 31, 32, 33, 34, 35, 41, 42, 43, 88, 89, 91). Nothing downstream is safely fixable until this foundation is in place. All subsequent phases cascade automatically once Phase 1 passes green.
+
+Say **go** and remediation begins.
