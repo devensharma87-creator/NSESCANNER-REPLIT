@@ -21,6 +21,8 @@
 import { sql } from "drizzle-orm";
 import { db } from "@workspace/db";
 import { getKiteReadiness } from "./kiteReadiness";
+import { getStalenessSnapshot } from "./marketData/stalenessWatchdog";
+import { isInstrumentsRefreshFailedToday } from "./marketData/instrumentsIntegrity";
 import { getAppState, setAppState, deleteAppState } from "./appStateStore";
 import { alertOwner } from "./alerting";
 import { logger } from "./logger";
@@ -45,6 +47,8 @@ export interface SystemModeInputs {
   feedDisconnectedForMs: number;
   marketSession: "open" | "closed" | "pre_open";
   dbLatencyMs: number | null; // null = health check failed
+  tokenStalenessDegrade?: boolean; // BUG-30: >5% of subscribed tokens stale
+  instrumentsRefreshFailed?: boolean; // BUG-35: daily dump refresh failed today
 }
 
 export interface SystemModeSnapshot {
@@ -74,6 +78,12 @@ export function deriveSystemMode(i: SystemModeInputs): { mode: SystemMode; drive
     bump("DEGRADED", "DB_HEALTH_CHECK_FAILED");
   } else if (i.dbLatencyMs > DB_LATENCY_DEGRADE_MS) {
     bump("DEGRADED", `DB_LATENCY_${i.dbLatencyMs}MS`);
+  }
+  if (i.tokenStalenessDegrade) {
+    bump("DEGRADED", "TOKEN_STALENESS_OVER_5PCT");
+  }
+  if (i.instrumentsRefreshFailed) {
+    bump("DEGRADED", "INSTRUMENTS_REFRESH_FAILED");
   }
   return { mode, drivers };
 }
@@ -135,6 +145,8 @@ export async function runSystemModeTick(): Promise<SystemModeSnapshot> {
     feedDisconnectedForMs: now - lastFeedConnectedAt,
     marketSession: readiness.marketSession,
     dbLatencyMs,
+    tokenStalenessDegrade: getStalenessSnapshot().degrade,
+    instrumentsRefreshFailed: isInstrumentsRefreshFailedToday(),
   });
   if (override !== null) drivers.push(`MANUAL_OVERRIDE_${override}`);
   const effective = combineWithOverride(derived, override);

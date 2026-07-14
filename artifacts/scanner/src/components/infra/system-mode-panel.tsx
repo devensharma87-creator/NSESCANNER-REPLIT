@@ -25,6 +25,19 @@ interface DriftSnapshot {
 interface Resp {
   mode: ModeSnapshot;
   clockDrift: DriftSnapshot;
+  tokenStaleness?: {
+    active: boolean;
+    totalTracked: number;
+    staleCount: number;
+    stalePct: number;
+    checkedAt: string | null;
+  };
+  instrumentsIntegrity?: {
+    lastCheckedDate: string | null;
+    lastResult: string | null;
+    changesDetected: number;
+    failedToday: boolean;
+  };
 }
 
 const base = import.meta.env.BASE_URL;
@@ -149,6 +162,27 @@ export function SystemModePanel({ refreshTick }: { refreshTick: number }): React
             </span>
             {d.failureReason && <span className="text-xs text-rose-500">{d.failureReason}</span>}
             <span className="text-[11px] text-muted-foreground w-full">{d.note}</span>
+          </div>
+        )}
+        {data && (
+          <div className="grid grid-cols-2 gap-2 border-t pt-3 text-xs md:grid-cols-2" data-testid="watchdog-row">
+            <div>
+              <span className="text-muted-foreground">Token staleness (BUG-30): </span>
+              {data.tokenStaleness?.active ? (
+                <span className="font-mono">
+                  {data.tokenStaleness.staleCount}/{data.tokenStaleness.totalTracked} stale ({Math.round((data.tokenStaleness.stalePct ?? 0) * 100)}%)
+                </span>
+              ) : (
+                <span className="text-muted-foreground">inactive (market closed / feed down)</span>
+              )}
+            </div>
+            <div>
+              <span className="text-muted-foreground">Instruments check (BUG-35): </span>
+              <span className={`font-mono ${data.instrumentsIntegrity?.failedToday ? "text-rose-500" : ""}`}>
+                {data.instrumentsIntegrity?.lastResult ?? "not run yet"}
+                {data.instrumentsIntegrity?.lastCheckedDate ? ` (${data.instrumentsIntegrity.lastCheckedDate})` : ""}
+              </span>
+            </div>
           </div>
         )}
       </CardContent>

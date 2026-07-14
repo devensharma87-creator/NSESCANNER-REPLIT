@@ -17,6 +17,9 @@ import { scheduleBootJob, BOOT_STAGGER_MS, scheduleDbPoolStatsLog, POOL_STATS_LO
 import { runSystemAlertDedupSelfTest } from "./lib/systemAlertDedupSelfTest";
 import { startSystemModeMonitor } from "./lib/systemMode";
 import { startClockDriftMonitor } from "./lib/clockDrift";
+import { startStalenessWatchdog } from "./lib/marketData/stalenessWatchdog";
+import { startInstrumentsIntegrityScheduler } from "./lib/marketData/instrumentsIntegrity";
+import { startEodReconciliationScheduler } from "./lib/eodReconciliation";
 import { getDbPoolStats } from "@workspace/db";
 
 const app: Express = express();
@@ -262,6 +265,19 @@ scheduleBootJob("system-mode-monitor", 20_000, () => {
 });
 scheduleBootJob("clock-drift-monitor", 50_000, () => {
   startClockDriftMonitor();
+});
+
+// BUG-30/31/35 (fix-file Phase 1): token staleness watchdog (15s, market hours),
+// daily instruments-dump refresh + contract diff (08:00–09:20 IST window), and
+// EOD paper-ledger reconciliation (≥15:35 IST, persisted + Telegram).
+scheduleBootJob("staleness-watchdog", 30_000, () => {
+  startStalenessWatchdog();
+});
+scheduleBootJob("instruments-integrity", 70_000, () => {
+  startInstrumentsIntegrityScheduler();
+});
+scheduleBootJob("eod-reconciliation", 100_000, () => {
+  startEodReconciliationScheduler();
 });
 
 // W6-P4B5 observability only: read-only post-boot DB pool utilization snapshots

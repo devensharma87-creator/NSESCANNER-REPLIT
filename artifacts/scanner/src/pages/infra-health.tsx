@@ -72,6 +72,7 @@ import { FoEvidencePanel } from "@/components/infra/FoEvidencePanel";
 import { ShadowDiagnosticsPanel } from "@/components/infra/ShadowDiagnosticsPanel";
 import { SectorStrengthPanel } from "@/components/infra/SectorStrengthPanel";
 import { SystemModePanel } from "@/components/infra/system-mode-panel";
+import { ReconciliationPanel } from "@/components/infra/reconciliation-panel";
 
 const REFRESH_MS = 60_000;
 
@@ -3217,6 +3218,9 @@ export default function InfraHealthPage(): React.ReactElement {
       <div className="grid gap-4 md:grid-cols-2">
         <div className="md:col-span-2">
           <SystemModePanel refreshTick={tick} />
+        </div>
+        <div className="md:col-span-2">
+          <ReconciliationPanel refreshTick={tick} />
         </div>
         <GateStatusPanel nowMs={nowMs} refreshTick={tick} />
         <SwingFreshnessPanel nowMs={nowMs} refreshTick={tick} />

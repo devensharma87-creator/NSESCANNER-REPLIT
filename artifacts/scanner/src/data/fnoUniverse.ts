@@ -230,7 +230,9 @@ export const FNO_EQUITIES: FnoEntry[] = [
 export const FNO_ALL: FnoEntry[] = [...FNO_INDICES, ...FNO_EQUITIES];
 
 export const QUICK_PRESETS: FnoEntry[] = [
-  FNO_INDICES[0]!, FNO_INDICES[1]!, FNO_INDICES[2]!, FNO_INDICES[3]!,
+  FNO_INDICES[0]!, FNO_INDICES[1]!,
+  FNO_INDICES.find(e => e.sym === "SENSEX")!,
+  FNO_INDICES[2]!, FNO_INDICES[3]!,
   FNO_EQUITIES.find(e => e.sym === "RELIANCE")!,
   FNO_EQUITIES.find(e => e.sym === "HDFCBANK")!,
   FNO_EQUITIES.find(e => e.sym === "TCS")!,

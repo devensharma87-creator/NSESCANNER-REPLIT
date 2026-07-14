@@ -17,6 +17,9 @@ import {
   SYSTEM_MODES,
 } from "../lib/systemMode";
 import { getClockDriftSnapshot, runClockDriftCheck } from "../lib/clockDrift";
+import { getStalenessSnapshot } from "../lib/marketData/stalenessWatchdog";
+import { getInstrumentsIntegrityStatus } from "../lib/marketData/instrumentsIntegrity";
+import { listReconReports, runEodReconciliation } from "../lib/eodReconciliation";
 import { SYSTEM_MODE_RANK } from "../lib/systemModeCache";
 import { getKiteReadiness } from "../lib/kiteReadiness";
 import { buildGlobalDataHealth } from "../lib/globalDataHealth";
@@ -26,7 +29,22 @@ const router: IRouter = Router();
 
 router.get("/system/mode", requireOwner, async (_req, res) => {
   const snapshot = getSystemModeSnapshot() ?? (await runSystemModeTick());
-  res.json({ mode: snapshot, clockDrift: getClockDriftSnapshot() });
+  res.json({
+    mode: snapshot,
+    clockDrift: getClockDriftSnapshot(),
+    tokenStaleness: getStalenessSnapshot(),
+    instrumentsIntegrity: getInstrumentsIntegrityStatus(),
+  });
+});
+
+router.get("/system/reconciliation", requireOwner, async (req, res) => {
+  const limit = Math.min(Number(req.query["limit"] ?? 14) || 14, 60);
+  res.json({ reports: await listReconReports(limit) });
+});
+
+router.post("/system/reconciliation/run", requireOwnerStrict, async (_req, res) => {
+  const report = await runEodReconciliation(new Date(), true);
+  res.json({ ok: true, report });
 });
 
 router.post("/system/mode-override", requireOwnerStrict, async (req, res) => {
@@ -83,6 +101,12 @@ router.get("/metrics", metricsAuth, async (_req, res) => {
     "1 when the Kite ticker websocket is connected");
   g("marketscanner_kite_live_quotes", health.kite.liveQuotesCount, "Number of instruments with a live in-memory quote");
   g("marketscanner_market_session_open", readiness.marketSession === "open" ? 1 : 0, "1 during NSE market hours");
+  const stale = getStalenessSnapshot();
+  g("marketscanner_tokens_tracked", stale.totalTracked, "Symbols tracked by the staleness watchdog");
+  g("marketscanner_tokens_stale", stale.staleCount, "Symbols without a tick beyond the staleness threshold");
+  g("marketscanner_tokens_stale_pct", stale.stalePct, "Fraction of tracked symbols currently stale");
+  g("marketscanner_instruments_refresh_failed_today", getInstrumentsIntegrityStatus().failedToday ? 1 : 0,
+    "1 when today's instruments dump refresh failed (auto-opens blocked)");
   g("marketscanner_process_uptime_seconds", Math.round(process.uptime()), "Node process uptime");
   g("marketscanner_process_rss_bytes", mem.rss, "Resident set size");
   g("marketscanner_process_heap_used_bytes", mem.heapUsed, "V8 heap used");

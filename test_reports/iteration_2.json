@@ -1,0 +1,37 @@
+{
+  "summary": "Phase-1 continuation (BUG-30/31/35 + SENSEX preset) verified end-to-end against the live preview. All backend contract tests (9/9) pass via pytest against the public REACT_APP_BACKEND_URL; the frontend /infra-health and /option-chain UI both render the new panels/presets correctly with live Kite data. The proxy cookie-jar auth bypass reported in iteration_1 has been fixed — anonymous /api/system/mode, /api/system/reconciliation, and /api/metrics all correctly return 401, and a second anonymous client after an admin login is NOT treated as authenticated. Mode-override HALT→null cycle exercised exactly once as instructed (no Telegram spam).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET/POST /api/* (Node)", "issue": "Global 300 req/min ratelimit is aggressive for browser boot: a hard-refresh of /option-chain shortly after other pages fires >100 concurrent XHRs (option chain 15s poll + kite/status + indices + ticker + telemetry) which can push the whole tenant to 429 for ~30s. Under 429 the SPA sometimes shows Cloudflare's human-check page instead of a graceful stale/backoff UI. Manifests as broken-looking first-paint on retries; not a functional regression."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_phase1_system.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "Optional: add exponential backoff / request coalescing on the scanner boot path so a 429 storm doesn't cascade into Cloudflare's bot-challenge page for legitimate refreshes.",
+    "Optional: consider adding data-testid=\"quick-preset-SENSEX\" (and siblings) on QUICK_PRESETS buttons — currently they are located only by role+text which works but is brittle."
+  ],
+  "critical_code_review_comments": [
+    "/app/artifacts/api-server/src/routes/systemStatus.ts is clean: consistent requireOwner vs requireOwnerStrict split (GET = requireOwner, mutating POSTs = strict), correct 400 shape for invalid_mode with the exact allowed enum echoed back, metrics gated by Bearer-token OR owner cookie (no anonymous scrape path). No _id leak surface here.",
+    "runSystemModeTick() is invoked lazily inside GET /system/mode when snapshot is null — good; but it's also awaited inside /metrics under Promise.all which could re-trigger a DB ping every metrics scrape. Consider a short-TTL cache to avoid pathological scraper cadences.",
+    "/api/system/reconciliation/run returns 200 with the freshly persisted report; verified via subsequent GET (report for today's ist_date is present). No transaction/isolation issues surfaced."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_phase1_system.py (new — 9 pytest cases covering system-mode snapshot, mode-override HALT/clear/invalid, reconciliation list+run+persist, /metrics auth + Prometheus gauges)"
+  ],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "Admin site master password HrishiAdmin@2026 (from /app/memory/test_credentials.md). No per-user accounts.",
+  "seed_data_creation": "None. Reconciliation run persisted one row for ist_date=2026-07-14 (that IS the expected side effect of the tested feature). Mode-override left cleared (null) at end of run.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend endpoints under /api/system/* and /api/metrics require the admin cookie set by POST /api/auth/login {password:'HrishiAdmin@2026'}. requireOwnerStrict endpoints (mode-override, reconciliation/run, clock-drift/check, /metrics via cookie) each emit an owner Telegram alert when mode transitions — DO NOT loop these. Test file /app/backend/tests/test_phase1_system.py deliberately performs exactly one HALT-set + one clear (matches the review_request constraint). The Node api-server ratelimit is 300/min per tenant, so batch UI tests and add pauses. The prior iteration_1 red test (TestSessionIsolation) has been fixed at the shim level — no more shared cookie jar; new tests directly re-verify this behaviour via anonymous 401 assertions.",
+  "rca of the issue": "N/A for this iteration — no defects found. Iteration_1's proxy cookie leak has been confirmed fixed: (1) anon GET /api/auth/status returns authenticated:false BOTH before and after a separate client's admin login; (2) 3 owner-only endpoints uniformly return 401 for anonymous callers; (3) after login-cookie is set on client A, client B (no cookie) still receives 401 on /api/system/mode. The fix is holding under real traffic."
+}
