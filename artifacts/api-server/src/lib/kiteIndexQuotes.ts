@@ -17,6 +17,7 @@
 import { getRestClient } from "./kiteAuth";
 import { getLiveQuote } from "./kiteFeed";
 import { logger } from "./logger";
+import { reserveQuoteSlot } from "./kiteRateLimiter";
 
 export interface KiteIndexQuote {
   /** Yahoo-style key the rest of the app uses (e.g. "^NSEI"). */
@@ -113,6 +114,12 @@ export async function getKiteIndexQuotes(): Promise<Map<string, KiteIndexQuote> 
   const { kc } = client;
 
   const kiteKeys = INDEX_MAP.map(i => i.kite);
+  const slotOk = await reserveQuoteSlot();
+  if (!slotOk) {
+    logger.warn({ keyCount: kiteKeys.length }, "Kite index-quote: throttle queue full; using stale cache");
+    if (cache && Date.now() - cache.ts < TTL_MS * 10) return cache.data;
+    return null;
+  }
   let raw: Record<string, RawKiteQuote>;
   try {
     raw = (await kc.getQuote(kiteKeys)) as Record<string, RawKiteQuote>;

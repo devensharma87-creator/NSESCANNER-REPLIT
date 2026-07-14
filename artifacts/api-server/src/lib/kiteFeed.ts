@@ -11,7 +11,7 @@
  * - Pushes every tick to registered SSE listeners.
  */
 import { logger } from "./logger";
-import { getActiveSession, getRestClient, autoMirrorSession, autoMirrorInstruments, type ActiveSession } from "./kiteAuth";
+import { getActiveSession, getRestClient, autoMirrorSession, autoMirrorInstruments, _registerWsLivenessCheck, type ActiveSession } from "./kiteAuth";
 import { NIFTY50_SYMBOLS } from "./watchlistLists";
 import { KiteTicker } from "kiteconnect";
 
@@ -345,6 +345,14 @@ export function feedStatus(): {
     lastError,
   };
 }
+
+// Register the WS connectivity probe with kiteAuth so that isKiteLive() can
+// read real-time connection state without a circular import. kiteAuth cannot
+// import kiteFeed (kiteFeed already imports kiteAuth), so we inject a callback.
+_registerWsLivenessCheck(() => {
+  const f = feedStatus();
+  return f.running && f.connected;
+});
 
 export function addTickListener(fn: (tick: LiveTick) => void): () => void {
   sseListeners.add(fn);

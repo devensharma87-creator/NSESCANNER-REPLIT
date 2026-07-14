@@ -28,6 +28,7 @@ import { getOptionChain as getCentralOptionChain } from "./marketData/optionChai
 import { computeAnalytics, type OptionAnalytics } from "./optionAnalytics";
 import { enrichAnalyticsWithIv } from "./ivHistory";
 import { getRestClient, getActiveSession } from "./kiteAuth";
+import { reserveQuoteSlot } from "./kiteRateLimiter";
 import { loadBlob, saveBlob, istTradingDay } from "./diskCache";
 import { loadFnoInstruments, type FnoInstrument } from "./kiteFnoInstruments";
 import { fetchKiteOiHistoricalByToken } from "./kiteIntraday";
@@ -1680,6 +1681,10 @@ async function fetchOiHeatmapInner(): Promise<OiHeatmapResponse | null> {
   const BATCH = 400;
   for (let i = 0; i < symbols.length; i += BATCH) {
     try {
+      if (!await reserveQuoteSlot()) {
+        logger.warn({ batchStart: i }, "OI heatmap: getQuote throttle full; skipping batch");
+        continue;
+      }
       const q = (await kc.getQuote(symbols.slice(i, i + BATCH))) as Record<string, KiteQuoteLite>;
       for (const [k, v] of Object.entries(q)) quoteMap.set(k, v);
     } catch (err) {

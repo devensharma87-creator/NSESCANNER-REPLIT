@@ -720,6 +720,51 @@ export async function probeKiteTokenLive(): Promise<KiteTokenProbeResult> {
   }
 }
 
+// ── isKiteLive — sync liveness gate for signal suppression (F-02) ────────────
+//
+// `isKiteLive()` is the single synchronous gate that checks whether Kite is
+// currently usable for live data and auto-trading. It returns true ONLY when
+// the WebSocket ticker is both started and connected.
+//
+// WHY a callback instead of importing from kiteFeed directly:
+//   kiteFeed.ts already imports kiteAuth.ts (to obtain the session token), so
+//   kiteAuth.ts cannot import kiteFeed.ts without a circular dependency.
+//   kiteFeed.ts registers its connectivity probe at module-load time via
+//   `_registerWsLivenessCheck()`; until it does, `isKiteLive()` returns false
+//   (fail-closed), preventing any false-positive "live" readings at startup.
+//
+// If the WS ticker is running AND connected, the Kite session MUST be valid —
+// a connected WebSocket requires a valid access token. The reverse is not true:
+// a valid DB session does not guarantee a live WS (reconnection lag, startup).
+
+let _wsLivenessCheck: (() => boolean) | null = null;
+
+/**
+ * Called once by kiteFeed.ts at module load to register its connectivity probe.
+ * Must not be called by any other module.
+ */
+export function _registerWsLivenessCheck(fn: () => boolean): void {
+  _wsLivenessCheck = fn;
+}
+
+/**
+ * Synchronous check: is Kite both session-valid AND WebSocket-connected?
+ *
+ * Returns true only when the WS ticker is running AND connected. Fail-closed
+ * when the WS liveness provider has not yet been registered (startup window).
+ *
+ * Use this as the fast gate in `openPaperTrade` and the signal sweep tick to
+ * suppress auto-trading when Kite is degraded.
+ */
+export function isKiteLive(): boolean {
+  return _wsLivenessCheck?.() ?? false;
+}
+
+/** Reset liveness callback to null. Test use only. */
+export function _resetKiteLivenessForTest(): void {
+  _wsLivenessCheck = null;
+}
+
 /** Build a KiteConnect REST client from the active session, or return null. */
 export async function getRestClient(): Promise<{ kc: any; session: ActiveSession } | null> {
   const session = await getActiveSession();

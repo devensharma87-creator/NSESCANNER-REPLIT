@@ -2,7 +2,7 @@ import type { OptionSignal, SignalReason } from "@workspace/api-zod";
 import { resolveContractMaster } from "./contractMasterFact";
 import type { YahooChart } from "./yahoo";
 import { centralIndexCandles, centralHasIndexCoverage, centralIndexQuotes } from "./marketData/compat";
-import { getActiveSessionStatus } from "./kiteAuth";
+import { getActiveSessionStatus, isKiteLive } from "./kiteAuth";
 import { alertOwner } from "./alerting";
 import { handleFnoDataSuppressionTransition } from "./fnoDataRecoveryTransition";
 import { scoreConfluence, type ConfluenceInputs } from "./confluenceEngine";
@@ -2008,9 +2008,29 @@ let lastExpiryEarlyCloseDate: string | null = null;
 // Re-export test helper from the extracted pure module.
 export { resetRegimeHysteresisForTest };
 
+// F-02: log only on the state transition (dead → live or live → dead) to
+// avoid flooding the log when Kite is offline for an extended period.
+let _sweepKiteDeadLogged = false;
+
 setInterval(() => {
   if (triggerSweepRunning) return; // skip if previous tick still in flight
   if (computeMarketStatus(new Date()) !== "open") return;
+
+  // F-02: suppress the entire sweep when Kite is offline. Option premiums
+  // from a disconnected WS would be stale — signals and sizing would be
+  // unreliable and could open trades at wrong prices.
+  if (!isKiteLive()) {
+    if (!_sweepKiteDeadLogged) {
+      logger.warn({}, "optionSignals: Kite session dead — sweep suppressed until WS reconnects");
+      _sweepKiteDeadLogged = true;
+    }
+    return;
+  }
+  if (_sweepKiteDeadLogged) {
+    logger.info({}, "optionSignals: Kite session live — sweep resuming");
+    _sweepKiteDeadLogged = false;
+  }
+
   triggerSweepRunning = true;
 
   void (async () => {

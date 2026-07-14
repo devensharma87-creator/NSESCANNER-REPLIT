@@ -67,6 +67,7 @@ import {
   queryReasoning,
 } from "../lib/fnoSignalReasoningLogger";
 import { isPaperAutoTradingEnabled } from "../lib/paperAutoTradeFlag";
+import { isKiteLive } from "../lib/kiteAuth";
 import {
   analyticsFiltersFromQuery,
   computeReasoningAnalytics,
@@ -763,6 +764,7 @@ router.get("/paper/diagnostics/environment", (_req, res) => {
     env: info.env,
     autoTradingEnabled: info.autoTradingEnabled,
     reason: info.reason,
+    kiteSessionAlive: isKiteLive(),
   });
 });
 

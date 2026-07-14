@@ -21,6 +21,7 @@
 
 import { logger } from "./logger";
 import { getRestClient } from "./kiteAuth";
+import { reserveQuoteSlot } from "./kiteRateLimiter";
 
 export interface KiteScannerInstrument {
   tradingsymbol: string;
@@ -402,6 +403,10 @@ export async function loadKiteQuotes(symbols: string[]): Promise<Map<string, Kit
     const keys = slice.map(s => `NSE:${s}`);
     let raw: Record<string, KiteRawQuote>;
     try {
+      if (!await reserveQuoteSlot()) {
+        logger.warn({ batchStart: i, batchSize: slice.length }, "Kite scanner: getQuote throttle full; skipping batch");
+        continue;
+      }
       raw = (await ctx.kc.getQuote(keys)) as Record<string, KiteRawQuote>;
     } catch (err) {
       // A single batch failing shouldn't abort the whole scan — log and

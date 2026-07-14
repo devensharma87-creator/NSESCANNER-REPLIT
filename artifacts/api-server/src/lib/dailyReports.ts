@@ -1479,6 +1479,100 @@ export async function maybeRunKiteSessionCheck(): Promise<void> {
   }
 }
 
+// ── EOD Reconciliation at 15:35 IST (F-07) ───────────────────────────────────
+//
+// After the 15:20 force-close window, there should be ZERO OPEN paper_trade_fo
+// rows for today. This job fires at 15:35 IST, checks the DB, and fires a
+// PREPOST Telegram summary that the owner can review at end of day:
+//
+//   📊 EOD RECONCILE — YYYY-MM-DD
+//   Trades opened today: N
+//   Trades closed: N
+//   Realised P&L: +₹X
+//   ✅ No open rows remaining   ← or ⚠️ OPEN rows remaining: N (alert condition)
+//
+// Dedup: tryClaimScheduledReport("eod_reconcile", date) — same pattern as
+// every other scheduler in this file. Latch always burned on success.
+
+export const EOD_RECONCILE_REPORT_TYPE = "eod_reconcile";
+let lastEodReconcileDate: string | null = null;
+const EOD_RECONCILE_START_MIN  = 15 * 60 + 35; // 15:35 IST
+const EOD_RECONCILE_WINDOW_MIN = 20;            // fire any time in [15:35, 15:55)
+
+export async function maybeRunEodReconcile(): Promise<void> {
+  const { date, minOfDay, dayOfWeek } = istInfo();
+  if (dayOfWeek === 0 || dayOfWeek === 6) return;
+  if (minOfDay < EOD_RECONCILE_START_MIN || minOfDay >= EOD_RECONCILE_START_MIN + EOD_RECONCILE_WINDOW_MIN) return;
+  if (lastEodReconcileDate === date) return; // fast in-memory dedup
+
+  try {
+    const claimed = await tryClaimScheduledReport(EOD_RECONCILE_REPORT_TYPE, date);
+    if (!claimed) {
+      lastEodReconcileDate = date; // another worker handled it
+      return;
+    }
+
+    // Query today's paper_trade_fo snapshot
+    const [openRows, closedRows, openedRows] = await Promise.all([
+      db.execute(sql`
+        SELECT COUNT(*)::int AS n
+        FROM paper_trade_fo
+        WHERE status = 'OPEN' AND signal_date = ${date}
+      `),
+      db.execute(sql`
+        SELECT COUNT(*)::int AS n, COALESCE(SUM(realised_pnl), 0) AS total_pnl
+        FROM paper_trade_fo
+        WHERE status NOT IN ('OPEN', 'PENDING') AND signal_date = ${date}
+      `),
+      db.execute(sql`
+        SELECT COUNT(*)::int AS n
+        FROM paper_trade_fo
+        WHERE signal_date = ${date}
+      `),
+    ]);
+
+    const openCount   = Number((openRows.rows[0]   as any)?.n ?? 0);
+    const closedCount = Number((closedRows.rows[0]  as any)?.n ?? 0);
+    const totalOpened = Number((openedRows.rows[0]  as any)?.n ?? 0);
+    const realisedPnl = Number((closedRows.rows[0]  as any)?.total_pnl ?? 0);
+
+    if (openCount > 0) {
+      logger.warn(
+        { date, openCount },
+        "EOD reconcile: paper_trade_fo rows still OPEN at 15:35 IST — likely missed the 15:20 force-close",
+      );
+    }
+
+    const pnlFormatted = realisedPnl >= 0
+      ? `+₹${Math.round(Math.abs(realisedPnl)).toLocaleString("en-IN")}`
+      : `-₹${Math.round(Math.abs(realisedPnl)).toLocaleString("en-IN")}`;
+    const text =
+      `📊 EOD RECONCILE — ${date}\n` +
+      `Trades opened today : ${totalOpened}\n` +
+      `Trades closed       : ${closedCount}\n` +
+      `Realised P&L        : ${pnlFormatted}\n` +
+      (openCount > 0
+        ? `⚠️ OPEN rows remaining: ${openCount} (should be 0 — check 15:20 force-close log)`
+        : `✅ No open rows remaining`);
+
+    const sendResult  = await sendPrePostTelegramMessage(text);
+    const telegramSent = sendResult === "SENT";
+    logger.info(
+      { date, openCount, closedCount, totalOpened, realisedPnl, telegramSent, sendResult },
+      "EOD reconcile complete",
+    );
+    await updateReportRunStatus(
+      EOD_RECONCILE_REPORT_TYPE, date,
+      telegramSent ? "SENT" : "FAILED",
+      sendResult,
+      telegramSent ? null : "TELEGRAM_SEND_FAILED",
+    );
+    lastEodReconcileDate = date;
+  } catch (err) {
+    logger.warn({ err: (err as Error).message, date }, "dailyReports: EOD reconcile failed — will retry next tick");
+  }
+}
+
 // ── Module-load side-effect: ensure table + install 60s tick ─────────────────
 
 void ensureDailyReportRunsTable().catch(() => undefined);
@@ -1488,4 +1582,5 @@ setInterval(() => {
   void maybeRunPreMarketReport().catch(() => undefined);
   void maybeRunPostMarketReport().catch(() => undefined);
   void maybeRunKiteSessionCheck().catch(() => undefined);
+  void maybeRunEodReconcile().catch(() => undefined);
 }, REPORT_TICK_MS).unref?.();

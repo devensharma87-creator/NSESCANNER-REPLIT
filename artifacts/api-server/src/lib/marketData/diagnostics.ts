@@ -6,6 +6,8 @@
 
 import { getPolicy } from "./policy";
 import { kiteHealth, kiteSessionActive } from "./kiteProvider";
+import { getHistoricalThrottleStats } from "../kiteIntraday";
+import { getQuoteThrottleStats } from "../kiteRateLimiter";
 import {
   indstocksHealth,
   isIndstocksEnabled,
@@ -48,6 +50,11 @@ export interface DataDiagnostics {
     mapSync: MapSyncStats;
     validation: ValidationDayStats;
   };
+  /** Central Kite REST throttle counters — quote bucket (≤3/s) and historical bucket (≤2.5/s). */
+  kiteRateLimit: {
+    quoteBucket: ReturnType<typeof getQuoteThrottleStats>;
+    historicalBucket: ReturnType<typeof getHistoricalThrottleStats>;
+  };
 }
 
 export async function buildDataDiagnostics(): Promise<DataDiagnostics> {
@@ -82,6 +89,10 @@ export async function buildDataDiagnostics(): Promise<DataDiagnostics> {
       health: ih,
       mapSync: getMapSyncStats(),
       validation: getValidationStats(),
+    },
+    kiteRateLimit: {
+      quoteBucket: getQuoteThrottleStats(),
+      historicalBucket: getHistoricalThrottleStats(),
     },
     policy: {
       strictFreshness: policy.strictFreshness,

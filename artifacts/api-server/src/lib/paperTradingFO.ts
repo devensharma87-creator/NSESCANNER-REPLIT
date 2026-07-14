@@ -33,6 +33,7 @@ import {
 import type { PaperTradeFoRow } from "@workspace/db";
 import { and, eq, sql } from "drizzle-orm";
 import { isPaperAutoTradingEnabled } from "./paperAutoTradeFlag";
+import { isKiteLive } from "./kiteAuth";
 import { alertFnoTradeableSignal, alertFnoExitSignal } from "./fnoSignalAlerts";
 import { isSignalHygieneV2Enabled } from "./signalHygieneFlag";
 import {
@@ -422,6 +423,16 @@ async function openPaperTrade(input: LifecycleHookInput): Promise<PaperTradeFoRo
         direction, confidence, tier, skipReason,
       }),
     );
+
+  // F-02: Kite session liveness gate. When the WS is disconnected, live option
+  // premiums are unavailable — entering a trade at a stale price is unsafe.
+  // Checked here (after recordSkip is defined) so the skip is properly recorded.
+  if (!isKiteLive()) {
+    if (recordSkip("KITE_SESSION_DEAD")) {
+      logger.info({ indexSymbol, setupKey, tier, confidence }, "openPaperTrade: Kite session dead — skip recorded");
+    }
+    return null;
+  }
 
   // 2026-06-10 (P1): explicit fail-closed tradeability assertion — the single
   // authoritative FIRST gate, pure-evaluated and unit-tested in isolation
@@ -3093,7 +3104,9 @@ export type SkipReason =
   | "PREMIUM_UNTRUSTED"
   | "INSUFFICIENT_BALANCE"
   /** F&O risk guard blocked this open (DTE/theta, low premium, re-entry cooldown, or SENSEX disable). */
-  | "PAPER_RISK_GUARD_BLOCKED";
+  | "PAPER_RISK_GUARD_BLOCKED"
+  /** Kite WebSocket is disconnected — live premium data unavailable; skip auto-open to avoid entering at stale prices. */
+  | "KITE_SESSION_DEAD";
 
 export interface MissedSignal {
   signalDate: string;

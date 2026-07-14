@@ -14,6 +14,7 @@
 
 import { logger } from "./logger";
 import { getRestClient } from "./kiteAuth";
+import { reserveQuoteSlot } from "./kiteRateLimiter";
 import type { OcResponse, OcRow, OcSide } from "./optionChain";
 import { deriveSideMetrics, finalizeChain } from "./optionChain";
 import { priceAndGreeks, impliedVolatility, yearsToExpiry } from "./blackScholes";
@@ -161,6 +162,10 @@ export async function fetchKiteOptionChain(
   for (let i = 0; i < allSyms.length; i += BATCH) {
     const batch = allSyms.slice(i, i + BATCH);
     try {
+      if (!await reserveQuoteSlot()) {
+        logger.warn({ batchStart: i, batchSize: batch.length }, "Kite getQuote: throttle queue full; skipping batch");
+        continue;
+      }
       const q = (await kc.getQuote(batch)) as Record<string, KiteQuote>;
       for (const [k, v] of Object.entries(q)) quoteMap.set(k, v);
     } catch (err) {
@@ -377,8 +382,10 @@ export async function fetchKiteOptionChain(
         let futQ = quoteMap.get(futKey);
         if (!futQ) {
           try {
-            const q2 = (await kc.getQuote([futKey])) as Record<string, KiteQuote>;
-            futQ = q2[futKey];
+            if (await reserveQuoteSlot()) {
+              const q2 = (await kc.getQuote([futKey])) as Record<string, KiteQuote>;
+              futQ = q2[futKey];
+            }
           } catch { /* FUT quote unavailable — leave null */ }
         }
         if (futQ && Number.isFinite(futQ.last_price) && futQ.last_price > 0) {

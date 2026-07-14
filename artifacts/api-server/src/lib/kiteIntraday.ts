@@ -591,3 +591,20 @@ export async function fetchKiteOiHistoricalByToken(
   }
   return out;
 }
+
+/** Snapshot of the historical-data throttle counters for diagnostics. */
+export function getHistoricalThrottleStats(): {
+  pendingCount: number;
+  backfillPendingCount: number;
+  maxQueue: number;
+  backfillMaxQueue: number;
+  minIntervalMs: number;
+} {
+  return {
+    pendingCount,
+    backfillPendingCount,
+    maxQueue: HISTORICAL_MAX_QUEUE,
+    backfillMaxQueue: BACKFILL_MAX_QUEUE,
+    minIntervalMs: HISTORICAL_MIN_INTERVAL_MS,
+  };
+}
