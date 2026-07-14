@@ -983,6 +983,36 @@ export default function OptionsPage() {
         <SignalGateBanner gates={data.diagnostics.gates} />
       )}
 
+      {/* BUG-80 / F.2 — Expiry-day banner. Shown when at least one index
+          on the current session is in EXPIRY_DAY regime. Explains the
+          three mode changes (MEAN_REVERSION only, ½ size, 14:30 IST
+          auto-close) so the owner never wonders why setups look thinner.
+          Sourced from the same signal.regime data the RegimeChip uses —
+          no new API surface. */}
+      {(() => {
+        const expiringIdx = Array.from(
+          new Set(
+            (data?.signals ?? [])
+              .filter((s) => (s as { regime?: string }).regime === "EXPIRY_DAY")
+              .map((s) => s.indexName ?? s.index),
+          ),
+        );
+        if (expiringIdx.length === 0) return null;
+        return (
+          <div
+            className="rounded border border-violet-500/40 bg-violet-500/10 px-4 py-2 text-[12px] font-mono text-violet-200 flex items-start gap-2"
+            data-testid="expiry-day-banner"
+          >
+            <span className="uppercase tracking-wider text-violet-300">Expiry Day</span>
+            <span className="text-violet-200/80">·</span>
+            <span>
+              {expiringIdx.join(", ")} — MEAN_REVERSION only, position size × 0.5, auto-close 14:30 IST.
+              Trend detectors are gated to avoid pin/unwind dynamics.
+            </span>
+          </div>
+        );
+      })()}
+
       {/* Tab toggle: live setups vs report */}
       <div className="inline-flex rounded-md border border-border bg-secondary/30 p-0.5 text-xs font-mono">
         <button

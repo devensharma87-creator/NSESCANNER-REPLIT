@@ -60,6 +60,25 @@ export interface ReconciliationResult {
   reconciled: boolean;
   /** Owner-facing notes — populated on any deviation. Empty when reconciled=true. */
   notes: string[];
+  /** B.6/B.7 — Gross vs Net P&L. Charges is a READ-ONLY estimate computed on
+   *  the fly from a static schedule (see estimateChargesFor); the paper
+   *  ledger currently records GROSS P&L only. When durable charges
+   *  columns land in paper_trade_fo/eq, this field switches to summed
+   *  DB values and the reconciliation identity updates accordingly. */
+  chargesEstimate: {
+    /** ₹ — estimated total charges (brokerage + STT + exchange + GST + SEBI + stamp). */
+    estimatedTotal: number;
+    /** Same, but ONLY for trades closed today (lifetime is separate). */
+    estimatedToday: number;
+    /** True until a durable charges column is written on every close. */
+    estimated: true;
+    /** Free-text schedule fingerprint so callers see which model was used. */
+    schedule: string;
+  };
+  /** Gross realized P&L across all CLOSED rows for the segment (lifetime). */
+  grossRealizedPnl: number;
+  /** Estimated Net = Gross − chargesEstimate.estimatedTotal (lifetime). */
+  estimatedNetRealizedPnl: number;
 }
 
 /**
@@ -71,6 +90,53 @@ export interface ReconciliationResult {
 function istDay(now: Date = new Date()): string {
   const ist = new Date(now.getTime() + 5.5 * 60 * 60 * 1000);
   return ist.toISOString().slice(0, 10);
+}
+
+/**
+ * Static charges schedule for a paper F&O options round-trip. Numbers below
+ * mirror the Zerodha/BSE/NSE fee card for equity/index options at
+ * publication time; charges are computed on premium notional (not lot
+ * notional) as per SEBI. If Zerodha revises the plate, update ONE number.
+ *
+ * Fields (rate × base):
+ *   • brokerage — ₹20 flat per executed order, so ₹40 per round-trip
+ *   • STT       — 0.10% on SELL premium notional (options, delivery)
+ *   • exchange  — 0.053% on premium turnover (NSE/BSE similar)
+ *   • sebi      — ₹10 per crore of premium turnover
+ *   • gst       — 18% on brokerage + exchange + sebi
+ *   • stampDuty — 0.003% on BUY premium notional
+ *
+ * For paper EQUITY (CNC/delivery): brokerage=0 (Zerodha equity delivery),
+ * STT=0.1% on both legs, stampDuty=0.015% on BUY, exchange≈0.00297%,
+ * gst=18% on exchange+sebi.
+ */
+const CHARGES_SCHEDULE_FNO_V1 = "FNO_V1_2026Q1";
+const CHARGES_SCHEDULE_EQ_V1 = "EQ_CNC_V1_2026Q1";
+
+function estimateChargesForFno(
+  buyPremiumNotional: number,
+  sellPremiumNotional: number,
+): number {
+  const brokerage = 40; // ₹20 × 2 legs
+  const stt = 0.001 * sellPremiumNotional;
+  const exchange = 0.00053 * (buyPremiumNotional + sellPremiumNotional);
+  const sebi = (buyPremiumNotional + sellPremiumNotional) * (10 / 1e7);
+  const stamp = 0.00003 * buyPremiumNotional;
+  const gst = 0.18 * (brokerage + exchange + sebi);
+  return Number((brokerage + stt + exchange + sebi + stamp + gst).toFixed(2));
+}
+
+function estimateChargesForEq(
+  buyNotional: number,
+  sellNotional: number,
+): number {
+  const brokerage = 0;
+  const stt = 0.001 * (buyNotional + sellNotional);
+  const exchange = 0.0000297 * (buyNotional + sellNotional);
+  const sebi = (buyNotional + sellNotional) * (10 / 1e7);
+  const stamp = 0.00015 * buyNotional;
+  const gst = 0.18 * (exchange + sebi);
+  return Number((brokerage + stt + exchange + sebi + stamp + gst).toFixed(2));
 }
 
 /** Boundaries of the IST calendar day as UTC ISO strings. Rows are
@@ -136,6 +202,15 @@ export async function reconcilePaperAccount(
         driftAmount: 0,
         reconciled: false,
         notes: [`paper_account row missing for segment=${segment}`],
+        chargesEstimate: {
+          estimatedTotal: 0,
+          estimatedToday: 0,
+          estimated: true,
+          schedule:
+            segment === "FNO" ? CHARGES_SCHEDULE_FNO_V1 : CHARGES_SCHEDULE_EQ_V1,
+        },
+        grossRealizedPnl: 0,
+        estimatedNetRealizedPnl: 0,
       };
     }
 
@@ -271,6 +346,84 @@ export async function reconcilePaperAccount(
       );
     }
 
+    // B.6/B.7 — charges estimate (read-only). Sum lifetime buy+sell notional
+    // across CLOSED trades and apply the static schedule. For F&O the
+    // notional is `entry_premium × lots × lot_size` on the buy side and
+    // `exit_premium × lots × lot_size` on the sell side. For equity we
+    // use `entry_price × quantity` / `exit_price × quantity`. Best-effort
+    // — a query-column mismatch returns 0 with a note (never throws).
+    let chargesTotal = 0;
+    let chargesToday = 0;
+    let grossRealizedPnl = Number(lifetimeRow.pnl_lifetime);
+    try {
+      if (segment === "FNO") {
+        const notionalRes = await db.execute(sql`
+          SELECT COALESCE(SUM(entry_premium * lots * lot_size), 0)::float AS buy_notional,
+                 COALESCE(SUM(exit_premium  * lots * lot_size), 0)::float AS sell_notional
+            FROM paper_trade_fo
+           WHERE status = 'CLOSED'
+        `);
+        const n = (notionalRes as unknown as {
+          rows: Array<{ buy_notional: number; sell_notional: number }>;
+        }).rows[0] ?? { buy_notional: 0, sell_notional: 0 };
+        chargesTotal = estimateChargesForFno(
+          Number(n.buy_notional),
+          Number(n.sell_notional),
+        );
+        const todayNotionalRes = await db.execute(sql.raw(`
+          SELECT COALESCE(SUM(entry_premium * lots * lot_size), 0)::float AS buy_notional,
+                 COALESCE(SUM(exit_premium  * lots * lot_size), 0)::float AS sell_notional
+            FROM paper_trade_fo
+           WHERE status = 'CLOSED'
+             AND exited_at >= '${startUtc}'
+             AND exited_at <  '${endUtc}'
+        `));
+        const t = (todayNotionalRes as unknown as {
+          rows: Array<{ buy_notional: number; sell_notional: number }>;
+        }).rows[0] ?? { buy_notional: 0, sell_notional: 0 };
+        chargesToday = estimateChargesForFno(
+          Number(t.buy_notional),
+          Number(t.sell_notional),
+        );
+      } else {
+        // EQUITY paper — best-effort. Column mismatch returns 0.
+        try {
+          const notionalRes = await db.execute(sql`
+            SELECT COALESCE(SUM(entry_price * quantity), 0)::float AS buy_notional,
+                   COALESCE(SUM(exit_price  * quantity), 0)::float AS sell_notional
+              FROM paper_trade_eq
+             WHERE status = 'CLOSED'
+          `);
+          const n = (notionalRes as unknown as {
+            rows: Array<{ buy_notional: number; sell_notional: number }>;
+          }).rows[0] ?? { buy_notional: 0, sell_notional: 0 };
+          chargesTotal = estimateChargesForEq(
+            Number(n.buy_notional),
+            Number(n.sell_notional),
+          );
+          const todayNotionalRes = await db.execute(sql.raw(`
+            SELECT COALESCE(SUM(entry_price * quantity), 0)::float AS buy_notional,
+                   COALESCE(SUM(exit_price  * quantity), 0)::float AS sell_notional
+              FROM paper_trade_eq
+             WHERE status = 'CLOSED'
+               AND exited_at >= '${startUtc}'
+               AND exited_at <  '${endUtc}'
+          `));
+          const t = (todayNotionalRes as unknown as {
+            rows: Array<{ buy_notional: number; sell_notional: number }>;
+          }).rows[0] ?? { buy_notional: 0, sell_notional: 0 };
+          chargesToday = estimateChargesForEq(
+            Number(t.buy_notional),
+            Number(t.sell_notional),
+          );
+        } catch {
+          notes.push("EQUITY charges estimate unavailable (column mapping differs) — showing 0");
+        }
+      }
+    } catch (err) {
+      notes.push(`charges estimate query failed: ${(err as Error).message}`);
+    }
+
     return {
       segment,
       istDate: targetDay,
@@ -290,6 +443,15 @@ export async function reconcilePaperAccount(
       driftAmount,
       reconciled,
       notes,
+      chargesEstimate: {
+        estimatedTotal: chargesTotal,
+        estimatedToday: chargesToday,
+        estimated: true,
+        schedule:
+          segment === "FNO" ? CHARGES_SCHEDULE_FNO_V1 : CHARGES_SCHEDULE_EQ_V1,
+      },
+      grossRealizedPnl,
+      estimatedNetRealizedPnl: Number((grossRealizedPnl - chargesTotal).toFixed(2)),
     };
   } catch (err) {
     logger.warn(
@@ -314,6 +476,15 @@ export async function reconcilePaperAccount(
       driftAmount: 0,
       reconciled: false,
       notes: [`reconciliation query failed: ${(err as Error).message}`],
+      chargesEstimate: {
+        estimatedTotal: 0,
+        estimatedToday: 0,
+        estimated: true,
+        schedule:
+          segment === "FNO" ? CHARGES_SCHEDULE_FNO_V1 : CHARGES_SCHEDULE_EQ_V1,
+      },
+      grossRealizedPnl: 0,
+      estimatedNetRealizedPnl: 0,
     };
   }
 }

@@ -47,6 +47,31 @@ in the first user message; prior bugs BUG-00..26 belong to the repo's own audit 
 - TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID (+ optional PREPOST_* pair).
 
 ## What's been implemented (dates)
+- 2026-07-14 (Sections F.2 + B.6/B.7 + G/D/E audit): Zero-compromise iteration 2.
+  * **F.2 (expiry-day banner)**: `options.tsx` renders a violet "EXPIRY DAY"
+    banner listing indices where `signal.regime === "EXPIRY_DAY"` plus the
+    three mode changes (MEAN_REVERSION only, size × 0.5, auto-close 14:30 IST).
+    Hidden on normal sessions. `data-testid="expiry-day-banner"`.
+  * **F.3 (regime chip hysteresis)**: BUG-73 backend already surfaces
+    hysteresis pending state in `regime.reason`; existing RegimeChip tooltip
+    renders it verbatim. No code change needed.
+  * **F.4 (T1/T2 indicators)**: Verified `statusChip` in options.tsx already
+    handles TARGET1_HIT / TARGET2_HIT / STOPPED / EXPIRED with distinct
+    icons + tones.
+  * **B.6/B.7 (gross vs net P&L + charges)**: `paperAccountReconciliation.ts`
+    now includes `chargesEstimate` (static SEBI schedule — brokerage/STT/
+    exchange/GST/SEBI/stamp), `grossRealizedPnl`, `estimatedNetRealizedPnl`.
+    Schedule fingerprint (`FNO_V1_2026Q1` / `EQ_CNC_V1_2026Q1`) surfaced.
+    `estimated: true` hard-flagged — ledger stays gross until a durable
+    `charges` column write path lands.
+  * **B.3 (top-up path)**: `/paper/account/topup` + `/withdraw` verified —
+    already implemented with ₹10cr cap and audit note. B.3 is operational,
+    not a code gap; new reconciliation snapshot tells owner when to top up.
+  * **G / D / E**: audit-only this round. Existing implementations already
+    honest — no new fake data anywhere; label vocabulary unification is
+    left for the next iteration.
+  * **Testing**: 3382/3385 (up from 3380). Typecheck clean api-server +
+    scanner. Reconciliation smoke-tested end-to-end.
 - 2026-07-14 (Sections A + B.5 + B.1/B.2 + C audit): Zero-compromise fixes.
   * **A.6 (post-market wording)**: `dailyReports.ts buildPostMarketReport` — F&O section
     lines are now scoped as `F&O paper trades:` / `F&O realized P&L:`, and Equity block

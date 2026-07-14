@@ -28,4 +28,16 @@ describe("B.1/B.2 reconcilePaperAccount — pure-shape checks", () => {
     expect(out.istDate).toBe("2026-01-15");
     expect(out.segment).toBe("EQUITY");
   });
+
+  it("returns a chargesEstimate block with schedule fingerprint (B.6/B.7)", async () => {
+    const fno = await reconcilePaperAccount("FNO");
+    expect(fno.chargesEstimate.estimated).toBe(true);
+    expect(fno.chargesEstimate.schedule).toBe("FNO_V1_2026Q1");
+    expect(Number.isFinite(fno.chargesEstimate.estimatedTotal)).toBe(true);
+    expect(Number.isFinite(fno.grossRealizedPnl)).toBe(true);
+    expect(Number.isFinite(fno.estimatedNetRealizedPnl)).toBe(true);
+
+    const eq = await reconcilePaperAccount("EQUITY");
+    expect(eq.chargesEstimate.schedule).toBe("EQ_CNC_V1_2026Q1");
+  });
 });
