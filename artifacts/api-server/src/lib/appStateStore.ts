@@ -49,3 +49,15 @@ export async function deleteAppState(key: string): Promise<void> {
     logger.warn({ err: (err as Error).message, key }, "app_state delete failed (fail-open)");
   }
 }
+
+/** Upsert a key→value pair (last-writer-wins). Fail-open like the rest. */
+export async function setAppState(key: string, value: string): Promise<void> {
+  try {
+    await db
+      .insert(appStateTable)
+      .values({ key, value })
+      .onConflictDoUpdate({ target: appStateTable.key, set: { value, updatedAt: new Date() } });
+  } catch (err) {
+    logger.warn({ err: (err as Error).message, key }, "app_state upsert failed (fail-open)");
+  }
+}

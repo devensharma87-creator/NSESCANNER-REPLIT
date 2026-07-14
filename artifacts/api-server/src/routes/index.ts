@@ -29,6 +29,7 @@ import alertsRouter from "./alerts";
 import dailyAnalysisRouter from "./dailyAnalysis";
 import dataHealthRouter from "./dataHealth";
 import secretsVaultRouter from "./secretsVault";
+import systemStatusRouter from "./systemStatus";
 import parityRouter from "./parity";
 import dataParityRouter from "./dataParity";
 import buildInfoRouter from "./buildInfo";
@@ -73,6 +74,7 @@ router.use(alertsRouter);               // /alerts/* — owner-only alert diagno
 router.use(dailyAnalysisRouter);        // /daily-analysis/* — owner-only pre/post market daily analysis report management (PREPOST bot, DB dedup, history)
 router.use(dataHealthRouter);           // /data-health/market — PUBLIC canonical market data health (session+feed+market-session, no secrets)
 router.use(secretsVaultRouter);         // /secrets-vault/* — owner-only (strict) credential intake, masked status only
+router.use(systemStatusRouter);         // /system/mode, /system/mode-override, /metrics — BUG-28/29/89
 router.use(parityRouter);               // /parity/* — owner-only Deterministic Parity Verification Harness (dry_run, replay, status — no Telegram to real channel)
 router.use(dataParityRouter);           // /data-parity/* — owner-only Checkpoint 3 Data Parity API (requireOwnerStrict; cross-module symbol/index observation diff, read-only)
 router.use(buildInfoRouter);            // /build-info   — PUBLIC read-only build/deploy identity (no secrets; registered in PUBLIC_ROUTES)

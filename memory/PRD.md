@@ -54,6 +54,24 @@ in the first user message; prior bugs BUG-00..26 belong to the repo's own audit 
   routes /api/secrets-vault/status|set. Writes env file, restarts apiserver via clean
   process.exit → supervisor autorestart. Verified full cycle incl. masking, chmod 600,
   clearing keys, anonymous 401.
+- 2026-07-14: Kite connected (user MRV421), Telegram both bots verified (test message SENT).
+- 2026-07-14: Fix-file Phase 1 increment (BUG-28/29/89):
+  * SystemMode state machine — lib/systemMode.ts (pure derive: session invalid→READ_ONLY,
+    WS down>30s @open→DEGRADED, DB>500ms/failed→DEGRADED; worst-of with manual override
+    persisted in app_state `system_mode_override`; 10s monitor; Telegram on transitions).
+    Enforcement: paperAutoTradeFlag.isPaperAutoTradingEnabled() false unless NORMAL
+    (via dependency-free systemModeCache, default NORMAL — boot/test safe). Override
+    can NEVER downgrade a derived problem.
+  * Clock-drift DETECTION — lib/clockDrift.ts (hourly; worldtimeapi → google Date-header
+    fallback; OK≤500ms WARN≤1000ms ALERT>1000ms→Telegram; explicitly NOT NTP sync).
+  * routes/systemStatus.ts: GET /api/system/mode, POST /api/system/mode-override
+    (ownerStrict), POST /api/system/clock-drift/check, GET /api/metrics (Prometheus;
+    Bearer METRICS_TOKEN or owner cookie; anonymous 401).
+  * SystemModePanel on /infra-health (badge, drivers, override buttons, drift chip);
+    testids: section-system-mode, system-mode-badge, mode-override-*.
+  * Fixed 2 PRE-EXISTING repo test failures: missing CHECK constraint on
+    option_signal_plan_audit (fresh DB lacked raw-SQL constraint) + options.tsx pre-open
+    copy. ALL 3359 api-server + 779 scanner tests green; typecheck green.
 
 ## Prioritized backlog (fix-file phases)
 - P0 Phase 1: Data Integrity Constitution (BUG-27..35, 41..43, 88, 89, 91) —

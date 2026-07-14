@@ -71,6 +71,7 @@ import { SwingFreshnessPanel } from "@/components/infra/SwingFreshnessPanel";
 import { FoEvidencePanel } from "@/components/infra/FoEvidencePanel";
 import { ShadowDiagnosticsPanel } from "@/components/infra/ShadowDiagnosticsPanel";
 import { SectorStrengthPanel } from "@/components/infra/SectorStrengthPanel";
+import { SystemModePanel } from "@/components/infra/system-mode-panel";
 
 const REFRESH_MS = 60_000;
 
@@ -3214,6 +3215,9 @@ export default function InfraHealthPage(): React.ReactElement {
 
       {/* W1A: Pro Operations Console — owner-only, read-only panels */}
       <div className="grid gap-4 md:grid-cols-2">
+        <div className="md:col-span-2">
+          <SystemModePanel refreshTick={tick} />
+        </div>
         <GateStatusPanel nowMs={nowMs} refreshTick={tick} />
         <SwingFreshnessPanel nowMs={nowMs} refreshTick={tick} />
         <FoEvidencePanel nowMs={nowMs} refreshTick={tick} />

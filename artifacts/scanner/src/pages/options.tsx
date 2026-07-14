@@ -1022,7 +1022,7 @@ export default function OptionsPage() {
             <div className="text-muted-foreground font-mono text-sm">
               {/* Gate guarantees marketStatus is non-null here */}
               {data?.marketStatus?.reason === "PRE_OPEN"
-                ? "Pre-open session (09:00 – 09:15 IST)"
+                ? "Market is in pre-open session (09:00 – 09:15 IST)"
                 : data?.marketStatus?.reason === "BEFORE_OPEN"
                   ? "Market opens at 09:15 IST"
                   : data?.marketStatus?.reason === "AFTER_CLOSE"

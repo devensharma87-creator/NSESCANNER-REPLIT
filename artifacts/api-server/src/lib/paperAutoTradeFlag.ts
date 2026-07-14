@@ -23,7 +23,13 @@
 const TRUTHY = new Set(["1", "true", "yes", "on"]);
 const FALSY = new Set(["0", "false", "no", "off"]);
 
+import { getCachedSystemMode } from "./systemModeCache";
+
 export function isPaperAutoTradingEnabled(): boolean {
+  // BUG-28 SystemMode gate: new auto-opens require NORMAL. The cache defaults
+  // to NORMAL until the monitor produces a verdict, so boot/test behavior is
+  // unchanged. Manual user-driven actions are NOT routed through this flag.
+  if (getCachedSystemMode() !== "NORMAL") return false;
   const raw = process.env.PAPER_TRADING_ENABLED;
   if (raw != null && raw.length > 0) {
     const v = raw.trim().toLowerCase();
@@ -50,8 +56,11 @@ export function getEnvironmentLabel(): {
   const flagSet = process.env.PAPER_TRADING_ENABLED != null
     && process.env.PAPER_TRADING_ENABLED.length > 0;
   const env: "production" | "development" = isDeployment ? "production" : "development";
+  const mode = getCachedSystemMode();
   let reason: string;
-  if (flagSet) {
+  if (mode !== "NORMAL") {
+    reason = `SystemMode=${mode} — auto-opens suspended until NORMAL (BUG-28 gate)`;
+  } else if (flagSet) {
     reason = enabled
       ? "PAPER_TRADING_ENABLED override is set to a truthy value"
       : "PAPER_TRADING_ENABLED override is set to a falsy value";

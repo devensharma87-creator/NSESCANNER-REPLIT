@@ -15,6 +15,8 @@ import { startScreenerPresetScheduler } from "./lib/global/presetScheduler";
 import { startSwingTtlSweepScheduler } from "./lib/swingTtlSweep";
 import { scheduleBootJob, BOOT_STAGGER_MS, scheduleDbPoolStatsLog, POOL_STATS_LOG_DELAYS_MS } from "./lib/bootScheduler";
 import { runSystemAlertDedupSelfTest } from "./lib/systemAlertDedupSelfTest";
+import { startSystemModeMonitor } from "./lib/systemMode";
+import { startClockDriftMonitor } from "./lib/clockDrift";
 import { getDbPoolStats } from "@workspace/db";
 
 const app: Express = express();
@@ -249,6 +251,17 @@ scheduleBootJob("swing-ttl-sweep", 90_000, startSwingTtlSweepScheduler);
 // for the full safety contract. Fail-open inside scheduleBootJob.
 scheduleBootJob("system-alert-dedup-selftest", 5_000, async () => {
   await runSystemAlertDedupSelfTest();
+});
+
+// BUG-28 + BUG-29 (fix-file Phase 1): SystemMode monitor (10s ticks — derives
+// NORMAL/DEGRADED/READ_ONLY/HALT from Kite session, WS uptime, and DB latency,
+// gates paper auto-opens, alerts on transitions) and hourly clock-drift
+// DETECTION vs an external UTC source (host NTP remains the actual sync).
+scheduleBootJob("system-mode-monitor", 20_000, () => {
+  startSystemModeMonitor();
+});
+scheduleBootJob("clock-drift-monitor", 50_000, () => {
+  startClockDriftMonitor();
 });
 
 // W6-P4B5 observability only: read-only post-boot DB pool utilization snapshots
