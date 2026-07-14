@@ -45,6 +45,7 @@ import {
 import type { OptionSignal } from "@workspace/api-zod";
 import {
   ensureDailyReset,
+  isEventBlackoutDay,
   FNO_RISK,
   FNO_BASELINE_RISK,
   FNO_BASELINE_GUARDRAILS,
@@ -431,6 +432,21 @@ async function openPaperTrade(input: LifecycleHookInput): Promise<PaperTradeFoRo
   if (!isKiteLive()) {
     if (recordSkip("KITE_SESSION_DEAD")) {
       logger.info({ indexSymbol, setupKey, tier, confidence }, "openPaperTrade: Kite session dead — skip recorded");
+    }
+    return null;
+  }
+
+  // F-32: Event blackout gate. On high-vol macro event days (RBI policy,
+  // Union Budget) the risk/reward for directional option buying collapses.
+  // Auto-trade opens are blocked; signal display is unaffected. The blackout
+  // check uses signalDate (IST day) so it is testable without live clock.
+  const blackout = isEventBlackoutDay(signalDate);
+  if (blackout.blocked) {
+    if (recordSkip("EVENT_BLACKOUT")) {
+      logger.info(
+        { indexSymbol, setupKey, tier, confidence, event: blackout.label },
+        "openPaperTrade: event blackout day — skip recorded",
+      );
     }
     return null;
   }
@@ -3117,7 +3133,9 @@ export type SkipReason =
   /** F&O risk guard blocked this open (DTE/theta, low premium, re-entry cooldown, or SENSEX disable). */
   | "PAPER_RISK_GUARD_BLOCKED"
   /** Kite WebSocket is disconnected — live premium data unavailable; skip auto-open to avoid entering at stale prices. */
-  | "KITE_SESSION_DEAD";
+  | "KITE_SESSION_DEAD"
+  /** High-vol macro event day (RBI policy, Union Budget, etc.) — risk/reward for directional option buying collapses. */
+  | "EVENT_BLACKOUT";
 
 export interface MissedSignal {
   signalDate: string;

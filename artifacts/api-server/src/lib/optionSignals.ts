@@ -16,6 +16,7 @@ import {
 import { recordAtmIv, computeIvMetrics } from "./ivHistory";
 import { logger } from "./logger";
 import { logUpstreamReasoningBatch } from "./fnoSignalReasoningLogger";
+import { isEventBlackoutDay } from "./paperAccount";
 import { fetchOptionChain, type OcRow, type OcSide } from "./optionChain";
 import {
   recordOrUpdate as recordLifecycle,
@@ -570,6 +571,24 @@ const MIN_RR_FOR_HC = 1.4;
 // MEAN_REVERSION is exempt by construction (its targets ARE the mean).
 const MIN_STOP_PCT_OF_SPOT = 0.0030;
 const MIN_STOP_ATR_MULT = 1.0;
+
+// F-27: Per-detector, per-index cooldown.
+// The same detector on the same index cannot re-fire within 30 minutes of the
+// previous emission — prevents multiple back-to-back signals when price
+// oscillates near a key level. In-memory only (acceptable: the 30-min window
+// survives normal restarts; a cold restart produces at most one re-fire).
+const DETECTOR_COOLDOWN_MS = 30 * 60 * 1000; // 30 minutes
+/** key = `"${indexSymbol}::${detectorName}"`, value = last-emit timestamp (ms). */
+const detectorCooldownMap = new Map<string, number>();
+
+/** Test helper — clear the cooldown map without restarting the process. */
+export function _resetDetectorCooldownForTest(): void {
+  detectorCooldownMap.clear();
+}
+/** Test helper — read the configured cooldown window (ms). */
+export function _getDetectorCooldownMs(): number {
+  return DETECTOR_COOLDOWN_MS;
+}
 
 // PHASE-2 HC EMISSION FLOOR. Detectors return signals at any conf ≥ 50
 // (their internal floor) but the paper-trading auto-trade floor is 70.
@@ -1523,6 +1542,16 @@ function buildSignalsForIndex(
         suppressed.push(`${det.name}: late-session VWAP-reclaim gate (after 13:30 IST — reclaim setup needs 2+ hours of runway)`);
         continue;
       }
+      // F-27: Per-detector, per-index 30-minute cooldown. Prevents the same
+      // detector from re-firing on the same index within half an hour when
+      // price oscillates near a key level. In-memory; resets on restart.
+      const cooldownKey = `${cfg.symbol}::${det.name}`;
+      const lastEmitMs = detectorCooldownMap.get(cooldownKey);
+      if (lastEmitMs !== undefined && Date.now() - lastEmitMs < DETECTOR_COOLDOWN_MS) {
+        const remainSec = Math.ceil((DETECTOR_COOLDOWN_MS - (Date.now() - lastEmitMs)) / 1000);
+        suppressed.push(`${det.name}: cooldown (${remainSec}s remaining — same detector re-emit blocked for 30 min)`);
+        continue;
+      }
       try {
         const r = det.fn(ctx);
         if (!r) {
@@ -1624,6 +1653,10 @@ function buildSignalsForIndex(
           continue;
         }
         highConviction.push(clamped);
+        // Stamp the cooldown so this detector cannot re-fire on this index
+        // within DETECTOR_COOLDOWN_MS (30 min). Stamped at actual HC push
+        // (after all gates pass) so a suppressed emit doesn't eat the window.
+        detectorCooldownMap.set(cooldownKey, Date.now());
       } catch (err) {
         const msg = (err as Error).message;
         logger.warn({ err: msg, idx: cfg.symbol, det: det.name }, "Setup detector failed");
@@ -2486,8 +2519,26 @@ async function applyOiConfirmation(
   return vetoed;
 }
 
+// F-32: Once-per-day blackout warning latch. Prevents the same warning
+// from flooding logs on every 30s signal cycle throughout a blackout day.
+let _blackoutWarnedDate = "";
+
 export async function getOptionSignals(): Promise<OptionSignalsResult> {
   if (cache && Date.now() - cache.ts < TTL) return cache.data;
+
+  // F-32: Log a once-per-day warning if today is an event blackout day.
+  // Signals are still displayed (display is NOT suppressed) — only
+  // auto-trade opens are blocked (inside openPaperTrade). The latch
+  // prevents a new log line on every 30s poll cycle.
+  const todayIst = new Date(Date.now() + 5.5 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  if (_blackoutWarnedDate !== todayIst) {
+    const blackout = isEventBlackoutDay(todayIst);
+    if (blackout.blocked) {
+      logger.warn({ date: todayIst, event: blackout.label }, "Signal sweep: event blackout day — auto-trade opens will be blocked but signals are displayed normally");
+      _blackoutWarnedDate = todayIst;
+    }
+  }
+
   // F&O Exit Monitoring Reliability scheduler summary (T004, 2026-07-02):
   // one explicit accumulator PER `getOptionSignals()` invocation, never a
   // module-level singleton — this function is also invoked on-demand (no

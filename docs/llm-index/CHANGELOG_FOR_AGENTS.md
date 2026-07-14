@@ -6,6 +6,17 @@ Format: `## YYYY-MM-DD — <short title>` then bullet points with: what changed,
 
 ---
 
+## 2026-07-14 — Signal Quality & Risk Framework (F-27, F-32, F-37)
+
+- **F-32 Event blackout**: `EVENT_BLACKOUT_DATES` (14 entries: Union Budget 2026/2027, RBI MPC 2026/2027 ×6) + `isEventBlackoutDay()` pure fn in `paperAccount.ts`; `"EVENT_BLACKOUT"` SkipReason wired in `openPaperTrade` immediately after `KITE_SESSION_DEAD` check; once-per-day warning latch (`_blackoutWarnedDate`) in `getOptionSignals()` — signals still display, only auto-opens blocked
+- **F-27 Detector cooldown**: `detectorCooldownMap` (module-level `Map<string, number>`) + `DETECTOR_COOLDOWN_MS = 30min` in `optionSignals.ts`; gate inserted in `buildSignalsForIndex` before `det.fn(ctx)` — stamps on HC push only (not on prior-gate suppression); exported `_resetDetectorCooldownForTest()` + `_getDetectorCooldownMs()` helpers
+- **F-37 Swing regression gate**: new `swingRegressionGate.ts` — queries last 90d autonomous `paper_trade_eq` (non-MANUAL_BUY, CLOSED); thresholds WR≥45% + PF≥2.0 when tradeCount≥10; fail-open on DB error; `GET /api/paper/swing-regression` (owner-only) in `paper.ts`; `SwingRegressionSection` card in `infra-health.tsx`
+- Tests: `swingRegressionGate.test.ts` (11 tests), `signalQualityRisk.test.ts` (13 tests); 25 new + all existing pass; full typecheck green
+- **Re-read if**: adding new blackout dates (extend `EVENT_BLACKOUT_DATES` in `paperAccount.ts`); enabling guard blocking (change `FNO_GUARD_CONFIG.mode`); adding detector-level suppression logic (see `buildSignalsForIndex` loop in `optionSignals.ts`)
+- **Files**: `artifacts/api-server/src/lib/paperAccount.ts`, `artifacts/api-server/src/lib/paperTradingFO.ts`, `artifacts/api-server/src/lib/optionSignals.ts`, `artifacts/api-server/src/lib/swingRegressionGate.ts` (NEW), `artifacts/api-server/src/routes/paper.ts`, `artifacts/scanner/src/pages/infra-health.tsx`
+
+---
+
 ## 2026-07-02 — Swing TTL Staged Order Lifecycle (P1)
 
 - Background scheduler (`swingTtlSweep.ts`) auto-expires stale staged swing orders every 10 min (all owners); `applySwingTtlSchemaColumns()` runs BEFORE the first tick (migration-before-tick ordering fix prevents "column does not exist" on fresh deployments)

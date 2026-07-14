@@ -388,6 +388,42 @@ export const EQUITY_RISK = {
   MAX_HOLD_TRADING_DAYS: 30,
 } as const;
 
+/**
+ * Macro event blackout dates — no new auto-trade opens on these days.
+ * High-vol events (RBI policy, Union Budget) produce worst-possible
+ * risk/reward for directional option buying. Owner-managed; FOMC left
+ * as manual add when relevant. Dates in IST (YYYY-MM-DD).
+ */
+export const EVENT_BLACKOUT_DATES: { date: string; label: string }[] = [
+  // ── Union Budget ────────────────────────────────────────────────────────
+  { date: "2026-02-01", label: "Union Budget 2026-27" },
+  { date: "2027-02-01", label: "Union Budget 2027-28" },
+  // ── RBI MPC Policy Announcements 2026 ──────────────────────────────────
+  { date: "2026-02-07", label: "RBI MPC Policy Feb 2026" },
+  { date: "2026-04-09", label: "RBI MPC Policy Apr 2026" },
+  { date: "2026-06-06", label: "RBI MPC Policy Jun 2026" },
+  { date: "2026-08-07", label: "RBI MPC Policy Aug 2026" },
+  { date: "2026-10-08", label: "RBI MPC Policy Oct 2026" },
+  { date: "2026-12-05", label: "RBI MPC Policy Dec 2026" },
+  // ── RBI MPC Policy Announcements 2027 ──────────────────────────────────
+  { date: "2027-02-05", label: "RBI MPC Policy Feb 2027" },
+  { date: "2027-04-08", label: "RBI MPC Policy Apr 2027" },
+  { date: "2027-06-05", label: "RBI MPC Policy Jun 2027" },
+  { date: "2027-08-06", label: "RBI MPC Policy Aug 2027" },
+  { date: "2027-10-07", label: "RBI MPC Policy Oct 2027" },
+  { date: "2027-12-04", label: "RBI MPC Policy Dec 2027" },
+];
+
+/**
+ * Returns `blocked: true` if the given IST date (YYYY-MM-DD) is in the
+ * EVENT_BLACKOUT_DATES list. Pure function — no I/O.
+ * Exported for the signal-sweep log and the paper-trader skip gate.
+ */
+export function isEventBlackoutDay(istDate: string): { blocked: boolean; label?: string } {
+  const hit = EVENT_BLACKOUT_DATES.find((e) => e.date === istDate);
+  return hit ? { blocked: true, label: hit.label } : { blocked: false };
+}
+
 function istDateKey(d: Date = new Date()): string {
   const ist = new Date(d.getTime() + 5.5 * 60 * 60 * 1000);
   return ist.toISOString().slice(0, 10);

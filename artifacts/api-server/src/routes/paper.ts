@@ -57,6 +57,7 @@ import {
   getOrphanExitSweepHealth,
   getTimeExit1520Health,
 } from "../lib/paperTradingFO";
+import { checkSwingRegressionBaseline } from "../lib/swingRegressionGate";
 import { getPremiumOverlayHealth } from "../lib/fnoPremiumExitOverlay";
 import { getFnoExitMonitorHealth, recordFnoExitCheck } from "../lib/fnoExitMonitorHealth";
 import { buildGlobalDataHealth } from "../lib/globalDataHealth";
@@ -1983,6 +1984,24 @@ router.get("/paper/lifecycle/:symbol", requireOwner, async (req, res, next) => {
       summary,
       generatedAt: new Date().toISOString(),
     });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// ── Swing Regression Gate (F-37) ────────────────────────────────────────────
+
+/**
+ * GET /api/paper/swing-regression
+ *
+ * Informational-only: computes win rate and profit factor for autonomous
+ * (non-MANUAL_BUY) closed equity trades in the last 90 days.
+ * Does NOT block any trade. Owner-only.
+ */
+router.get("/paper/swing-regression", requireOwner, async (_req, res, next) => {
+  try {
+    const result = await checkSwingRegressionBaseline();
+    return res.json(result);
   } catch (err) {
     return next(err);
   }

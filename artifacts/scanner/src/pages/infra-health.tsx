@@ -3106,6 +3106,71 @@ function SystemAlertHealthSection({ data, error, loading }: FetchState<SystemAle
   );
 }
 
+// ── Swing Regression Gate (F-37) ───────────────────────────────────────────
+
+interface SwingRegressionResp {
+  ok: boolean;
+  winRate: number;
+  profitFactor: number;
+  tradeCount: number;
+  reason?: string;
+  windowDays: number;
+  generatedAt: string;
+}
+
+function SwingRegressionSection({ data, error, loading }: FetchState<SwingRegressionResp>): React.ReactElement {
+  const sev: Severity = data
+    ? data.tradeCount < 10
+      ? "warn"
+      : data.ok
+        ? "ok"
+        : "fail"
+    : error
+      ? "fail"
+      : "ok";
+
+  const pfLabel = (pf: number) =>
+    !Number.isFinite(pf) || pf === 0 ? "—" : pf >= 1e6 ? "∞" : pf.toFixed(2);
+
+  return (
+    <SectionShell
+      title="Swing Regression Gate"
+      icon={TrendingUp}
+      severity={sev}
+      description={`Autonomous closed equity trades in the last ${data?.windowDays ?? 90} days. Informational only — does NOT block auto-trades. Flags silent WR / PF degradation for owner review.`}
+      testId="section-swing-regression"
+    >
+      {loading && !data && <div className="text-sm text-muted-foreground">Loading…</div>}
+      {error && <div className="text-sm text-rose-500">Failed: {error}</div>}
+      {data && (
+        <div className="space-y-3">
+          {!data.ok && data.tradeCount >= 10 && data.reason && (
+            <div className="flex items-start gap-2 rounded border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-400">
+              <XCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+              <span>{data.reason}</span>
+            </div>
+          )}
+          {data.tradeCount < 10 && (
+            <div className="flex items-start gap-2 rounded border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-400">
+              <Info className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+              <span>Insufficient data ({data.tradeCount} autonomous closed trades in {data.windowDays}d window — need ≥10 to apply floor)</span>
+            </div>
+          )}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+            <Kv label="Win rate" value={data.tradeCount > 0 ? `${(data.winRate * 100).toFixed(1)}%` : "—"} tone={data.tradeCount >= 10 ? (data.winRate >= 0.45 ? "ok" : "fail") : undefined} />
+            <Kv label="Profit factor" value={pfLabel(data.profitFactor)} tone={data.tradeCount >= 10 ? (data.profitFactor >= 2.0 ? "ok" : "fail") : undefined} />
+            <Kv label="Trades (90d auto)" value={num(data.tradeCount)} />
+            <Kv label="Floor WR / PF" value="45% / 2.0" />
+          </div>
+          <div className="text-[10px] font-mono text-muted-foreground">
+            Generated {new Date(data.generatedAt).toLocaleString()}
+          </div>
+        </div>
+      )}
+    </SectionShell>
+  );
+}
+
 export default function InfraHealthPage(): React.ReactElement {
   const [auto, setAuto] = useState(true);
   const [tick, setTick] = useState(0);
@@ -3139,6 +3204,7 @@ export default function InfraHealthPage(): React.ReactElement {
   const globalHealth = useEndpoint<GlobalDataHealthResp>("api/data-health/global", auto, tick);
   const exitMonitor = useEndpoint<ExitMonitorStatusResp>("api/paper/diagnostics/fo/exit-monitor/status", auto, tick);
   const systemAlertHealth = useEndpoint<SystemAlertHealthDiag>("api/alerts/system-health", auto, tick);
+  const swingRegression = useEndpoint<SwingRegressionResp>("api/paper/swing-regression", auto, tick);
 
   // P16: failure-diagnosis endpoint with an exact-only toggle. The URL changes
   // when the toggle flips, which invalidates the SWR/useEndpoint cache key.
@@ -3276,6 +3342,9 @@ export default function InfraHealthPage(): React.ReactElement {
         </div>
         <div className="md:col-span-2">
           <SystemAlertHealthSection {...systemAlertHealth} />
+        </div>
+        <div className="md:col-span-2">
+          <SwingRegressionSection {...swingRegression} />
         </div>
       </div>
     </div>
