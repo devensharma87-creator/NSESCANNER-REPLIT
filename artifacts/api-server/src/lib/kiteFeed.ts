@@ -14,6 +14,7 @@ import { logger } from "./logger";
 import { getActiveSession, getRestClient, autoMirrorSession, autoMirrorInstruments, type ActiveSession } from "./kiteAuth";
 import { NIFTY50_SYMBOLS } from "./watchlistLists";
 import { KiteTicker } from "kiteconnect";
+import { tapPushTick } from "./liveTapRing";
 
 export interface LiveTick {
   symbol: string;
@@ -110,6 +111,22 @@ function handleTicks(ticks: any[]): void {
       ts: now,
     };
     liveQuotes.set(sym, tick);
+    // R1-tail — replay recorder read-only tap. Wrapped in try/catch so
+    // a buffer failure NEVER touches the trading path (spec §12.2). The
+    // recorder endpoint /api/replay/record drains this into a fixture
+    // on owner demand.
+    try {
+      tapPushTick({
+        receivedAtMs: now,
+        instrumentToken: tok,
+        symbol: sym,
+        ltp,
+        ltq: (t.last_traded_quantity ?? null) as number | null,
+        volume: (t.volume_traded ?? t.volume ?? null) as number | null,
+        oi: (t.oi ?? null) as number | null,
+        raw: { ohlc, change_percent: tick.changePercent },
+      });
+    } catch { /* fail-open — recorder is read-only */ }
     for (const fn of sseListeners) {
       try { fn(tick); } catch { /* swallow */ }
     }

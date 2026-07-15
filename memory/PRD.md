@@ -47,6 +47,60 @@ in the first user message; prior bugs BUG-00..26 belong to the repo's own audit 
 - TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID (+ optional PREPOST_* pair).
 
 ## What's been implemented (dates)
+- 2026-07-15 (iteration 12 · R1-tail recorder endpoint + charges-drag alert):
+  * **R1-tail recorder LIVE** — `POST /api/replay/record` and
+    `GET /api/replay/record/stats`. Owner-only (session-gated via
+    ambient auth middleware).
+      - `lib/liveTapRing.ts` — in-memory circular buffer (4h age cap,
+        400k ticks + 2k chain snapshots + 2k board snapshots + 5k
+        system events count caps). Fail-open push API.
+      - `routes/replayRecorder.ts` — dumps `drainSince(now − Nmin)`
+        into replay-driver-compatible JSONL bundle + manifest with
+        `provider: "kite"` and cryptographic `sha256(ticks + chain +
+        boards + events)` sourceHash. Baseline-slot mutex enforced
+        (only one `baseline_*` fixture may live in the repo at a
+        time — 409 on collision).
+      - Refuses invalid body (400), empty window (422 with hint),
+        write failures (500 with detail).
+      - Env override `REPLAY_RECORDER_STAGING_ROOT` for non-baseline
+        fixtures; committed baseline slot lives under
+        `src/__tests__/replay_fixtures/`.
+  * **Live tap wired into two production paths**:
+      - `kiteFeed.handleTicks` — every processed tick pushed to the
+        ring buffer AFTER `liveQuotes.set` (fail-open, wrapped in
+        try/catch — buffer failure NEVER touches the trading path).
+      - `optionChainSnapshotIngestor.runIngestionTick` — every
+        successful per-expiry snapshot pushed to the ring buffer
+        after `upsertRows` (also fail-open, dynamic import to
+        avoid module load-order issues).
+    Verified LIVE end-to-end: after api-server restart, a probe
+    `POST /api/replay/record` returned 8 real Kite ticks
+    (`CNXFIN @ 26693.35`) written to disk with a valid sha256 hash.
+  * **Charges-drag alert (pure math library)** — `lib/chargesDragAlert.ts`:
+      - `computeDragPct` — signed handling, null on zero-gross.
+      - `evaluateDragAlert` — 7-day rolling window, population σ,
+        median + 2σ threshold. Refuses to alert with `TOO_FEW_SAMPLES`
+        (< 5 valid samples), `TODAY_NULL` (zero-gross today), or
+        `SIGMA_ZERO` (perfectly stable history — no meaningful
+        threshold). BREACH when today's drag exceeds threshold.
+      - `renderDragAlertMessage` — Telegram-ready message with
+        gross, drag %, baseline, threshold, and likely causes.
+    Pure library — not yet plugged into the post-market cadence
+    (that hookup happens next iteration alongside window-history
+    persistence).
+  * **Test totals** — Backend: **3460/3460** pass (up from 3442 —
+    18 new: 7 tap ring + 4 recorder route + 7 drag alert).
+    Frontend: **799/799**. Typecheck clean.
+  * **What is NOT yet done** (deliberate, gated on real events):
+      - R2 engine wiring — waits on the baseline fixture, which
+        needs to be recorded on a real market Monday.
+      - Charges-drag alert hookup to post-market pipeline —
+        needs a place to persist the rolling window; will fold
+        into next iteration.
+      - Bucket S3 upload of non-baseline fixtures —
+        `bucketFetcher` scaffold exists; the actual upload path
+        is deferred until we have a real fixture to ship.
+
 - 2026-07-15 (iteration 11 · R1 replay harness scaffold + post-market observability line):
   * **R1 replay-harness scaffold committed** in
     `src/__tests__/replayHarness/` — six modules, each independently

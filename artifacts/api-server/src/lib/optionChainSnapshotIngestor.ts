@@ -329,6 +329,20 @@ export async function runIngestionTick(opts?: { force?: boolean }): Promise<RunR
         totalRows += n;
         expiryCount += 1;
         underlyingOk = true;
+        // R1-tail: replay recorder read-only tap. Push a full-chain
+        // snapshot into the live-tap ring so `POST /api/replay/record`
+        // can drain it as fixture data. Wrapped fail-open — buffer
+        // failures MUST NOT affect the ingestor.
+        try {
+          const { tapPushChainSnapshot } = await import("./liveTapRing");
+          tapPushChainSnapshot({
+            capturedAtMs: capturedAt.getTime(),
+            underlying,
+            expiry: exp,
+            source: chain.source ?? "unknown",
+            snapshot: { rows: chain.rows, spot: chain.spot ?? null },
+          });
+        } catch { /* fail-open — recorder is read-only */ }
       } catch (err) {
         errors.push({ underlying, expiry: exp, message: (err as Error).message });
       }
