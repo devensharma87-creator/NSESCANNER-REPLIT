@@ -620,6 +620,16 @@ export interface PostMarketReportData {
   /** True once the exit-monitor trust-gate has recorded at least one EXIT
    *  this process lifetime (`getFnoExitMonitorHealth().exitedTotal > 0`). */
   exitMonitorVerified: boolean;
+  /** Ops observability rollup — chip-downgrade counts observed on client
+   *  today (IST-day window). Null if the summariser threw. Zero fields
+   *  when nothing was observed (common on healthy days). */
+  observabilityToday: {
+    totalDegradations: number;
+    totalRecoveries: number;
+    /** Top-1 chipId by degradation count in today's window — null if
+     *  no degradations. */
+    topChip: { chipId: string; degradations: number } | null;
+  } | null;
 }
 
 // ── Post-market builder (pure) ────────────────────────────────────────────────
@@ -829,6 +839,22 @@ export function buildPostMarketReport(data: PostMarketReportData): string {
     }
   } else {
     lines.push("Unavailable — canonical readiness check failed this run");
+  }
+
+  // Ops observability — client-side chip-downgrade rollup for the IST
+  // day. Silent when zero degradations AND zero recoveries — no phantom
+  // "0 things happened" noise on healthy days. On days with any
+  // activity, one compact line names the counts + the loudest chip.
+  if (data.observabilityToday != null) {
+    const obs = data.observabilityToday;
+    if (obs.totalDegradations > 0 || obs.totalRecoveries > 0) {
+      const topStr = obs.topChip != null
+        ? ` (top: ${obs.topChip.chipId} ×${obs.topChip.degradations})`
+        : "";
+      lines.push(
+        `Chip downgrades today: ${obs.totalDegradations} degradation${obs.totalDegradations === 1 ? "" : "s"} · ${obs.totalRecoveries} recover${obs.totalRecoveries === 1 ? "y" : "ies"}${topStr}`,
+      );
+    }
   }
 
   lines.push("");
@@ -1414,6 +1440,35 @@ export async function gatherPostMarketData(
     logger.warn({ err: (err as Error).message }, "dailyReports: gatherPostMarketData equity paper section failed");
   }
 
+  // Ops observability rollup — pulled from the in-process client-event
+  // ring buffer (see lib/clientEventBuffer.ts). Fail-open: any throw
+  // → null, report proceeds with a "unavailable" line rather than
+  // dropping the whole post-market run.
+  //
+  // NOTE (SCALE-OUT): the ring buffer is process-local. In a
+  // multi-pod future this section would either read from a shared
+  // Redis (see BACKTEST_REPLAY_HARNESS_SPEC.md / observability
+  // roadmap) or aggregate cross-pod via a dedicated collector. For
+  // single-pod today, in-memory is the honest source of truth.
+  let observabilityToday:
+    | { totalDegradations: number; totalRecoveries: number; topChip: { chipId: string; degradations: number } | null }
+    | null = null;
+  try {
+    const { summariseClientEvents } = await import("./clientEventBuffer");
+    const istDayStartMs = new Date(`${date}T00:00:00+05:30`).getTime();
+    const s = summariseClientEvents(new Date(istDayStartMs).toISOString());
+    observabilityToday = {
+      totalDegradations: s.totalDegradations,
+      totalRecoveries: s.totalRecoveries,
+      topChip: s.topDegradingChips[0] ?? null,
+    };
+  } catch (err) {
+    logger.warn(
+      { err: (err as Error).message },
+      "dailyReports: gatherPostMarketData observability section failed",
+    );
+  }
+
   return {
     isManualTest,
     istDate: date,
@@ -1426,6 +1481,7 @@ export async function gatherPostMarketData(
     indexPerformance,
     optionChainEod,
     exitMonitorVerified,
+    observabilityToday,
   };
 }
 

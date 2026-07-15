@@ -53,6 +53,7 @@ function makeData(overrides: Partial<PostMarketReportData> = {}): PostMarketRepo
     indexPerformance: null,
     optionChainEod: null,
     exitMonitorVerified: true,
+    observabilityToday: null,
     ...overrides,
   };
 }

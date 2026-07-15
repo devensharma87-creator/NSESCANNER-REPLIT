@@ -47,6 +47,68 @@ in the first user message; prior bugs BUG-00..26 belong to the repo's own audit 
 - TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID (+ optional PREPOST_* pair).
 
 ## What's been implemented (dates)
+- 2026-07-15 (iteration 11 · R1 replay harness scaffold + post-market observability line):
+  * **R1 replay-harness scaffold committed** in
+    `src/__tests__/replayHarness/` — six modules, each independently
+    testable:
+      - `deterministicClock.ts` — wraps `Date.now`, `performance.now`,
+        `setTimeout`, `setInterval`, `clearTimeout`, `clearInterval`.
+        Time advances ONLY via `advanceClock(deltaMs)`. Scheduling is
+        trap-thrown unless `allowScheduling: true`. Refuses backwards
+        moves.
+      - `seededPRNG.ts` — xoshiro128** with splitmix32 seed expansion.
+        Deterministic across runs. Wraps `Math.random` post-arm.
+      - `mockKiteClient.ts` — `RecordedKiteClient`, plays back
+        `ticks.jsonl` in monotonic order, refuses out-of-order fixtures
+        at load time, strict/non-strict subscription modes.
+      - `mockTelegramClient.ts` — `RecordingTelegramClient`, captures
+        every send + injected error in sequence for golden compare.
+      - `bucketFetcher.ts` — hash-verified fixture loader. Refuses
+        `provider !== "kite"`. Recomputes `sha256(ticks + chain +
+        boards + events)` and refuses mismatch. Bucket path stubbed;
+        baseline (committed) path works today. Env override for the
+        cache root (dynamic, per-call).
+      - `replayDriver.ts` — orchestrates boot: verify provenance, arm
+        clock + PRNG, wire mock clients. Exports `assertRecordModeSafe`
+        which HARD-FAILS `RECORD` mode when `CI=true`. R1 result path
+        returns `pass=true` with metrics only (engine wire-up is R2 —
+        clearly annotated in code).
+  * **Replay-fixtures directory + README** committed at
+    `src/__tests__/replay_fixtures/README.md`. Locks in the
+    provenance rules (kite-only, sha256, one committed baseline).
+    No fixture bytes yet — that's R1-tail, blocked on the recorder
+    endpoint.
+  * **19 harness tests** in `replayHarness.test.ts`. Cover:
+    deterministic clock monotonicity + scheduling gate + backwards
+    refusal + trap; PRNG determinism + seed divergence + bounds;
+    Kite client tick ordering + monotonic-load guard + strict
+    subscription refusal; Telegram sequencing + injected errors;
+    bucket-fetcher `REFUSED_NON_KITE_PROVIDER` +
+    `SOURCE_HASH_MISMATCH` + `BUCKET_FETCH_NOT_IMPLEMENTED`; driver
+    `CI + RECORD` hard-fail + `CI + ASSERT` OK + missing-fixture
+    pass-through.
+  * **Post-market observability line** — `buildPostMarketReport`
+    now emits (silent-when-zero) `Chip downgrades today: N
+    degradation(s) · N recover(y|ies) (top: chipId ×N)`. Fed by
+    `summariseClientEvents(startOfIstDay)` in `gatherPostMarketData`;
+    fail-open on error (line silently omitted).
+  * **PostMarketReportData extended** with required
+    `observabilityToday: { totalDegradations, totalRecoveries, topChip }
+    | null`. Test factories in `dailyReports.test.ts`,
+    `dailyAnalysisDryRun.test.ts`, `dailyReportsChargesDrag.test.ts`
+    updated to default `null`.
+  * **Redis note** — the ring buffer is process-local. Multi-pod
+    horizontal-scale would require a shared Redis/collector. Code
+    comment in `dailyReports.ts` documents this decision; no
+    implementation until the pod count grows past 1 (per owner
+    guidance "not urgent — single-pod today").
+  * **Live smoke** — api-server restarted. Phase B reconciled=true.
+    `/api/observability/summary` returns clean IST-bucketed shell.
+    Report-line silent on healthy day (matches test invariant).
+  * **Test totals** — Backend: **3442/3442** pass (up from 3418 —
+    24 new: 19 harness + 5 observability line). Frontend:
+    **799/799**. Typecheck clean.
+
 - 2026-07-15 (iteration 10 · P2 spec locked + ops dashboard + charges drag report):
   * **P2 spec rewritten with owner decisions locked as CONSTRAINTS** →
     `/app/memory/BACKTEST_REPLAY_HARNESS_SPEC.md`. Key corrections from

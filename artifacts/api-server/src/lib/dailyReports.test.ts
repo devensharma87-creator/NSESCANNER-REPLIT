@@ -509,6 +509,7 @@ function makePostMarket(overrides: Partial<PostMarketReportData> = {}): PostMark
     indexPerformance: null,
     optionChainEod: null,
     exitMonitorVerified: false,
+    observabilityToday: null,
     ...overrides,
   };
 }

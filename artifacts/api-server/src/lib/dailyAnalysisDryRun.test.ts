@@ -243,6 +243,7 @@ describe("GAP-1 Telegram dry-run: post-market report payload", () => {
       },
       optionChainEod: null,
       exitMonitorVerified: true,
+      observabilityToday: null,
     };
 
     const text = buildPostMarketReport(data);
@@ -283,6 +284,7 @@ describe("GAP-1 Telegram dry-run: post-market report payload", () => {
       indexPerformance: null,
       optionChainEod: null,
       exitMonitorVerified: false,
+      observabilityToday: null,
     };
 
     const text = buildPostMarketReport(data);
@@ -304,6 +306,7 @@ describe("GAP-1 Telegram dry-run: post-market report payload", () => {
       indexPerformance: null,
       optionChainEod: null,
       exitMonitorVerified: false,
+      observabilityToday: null,
     };
 
     const text = buildPostMarketReport(data);
