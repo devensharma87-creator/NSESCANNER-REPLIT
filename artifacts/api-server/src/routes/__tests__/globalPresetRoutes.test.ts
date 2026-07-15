@@ -83,8 +83,18 @@ function sessionKeyFor(cookieValue: string): string {
 
 let server: http.Server;
 let baseUrl: string;
+let originalGlobalPassword: string | undefined;
 
 beforeAll(async () => {
+  // requireGlobalAuth (mounted inside globalRouter as `router.use("/global",
+  // requireGlobalAuth)`) short-circuits with 503 when GLOBAL_APP_ACCESS_PASSWORD
+  // is unset. In the test harness we don't hit the login path — we forge signed
+  // cookies directly — so we just need the env var set to *something* so the
+  // "configured?" gate passes. The signed cookie we mint below still supplies
+  // the identity requireGlobalAuth needs.
+  originalGlobalPassword = process.env["GLOBAL_APP_ACCESS_PASSWORD"];
+  process.env["GLOBAL_APP_ACCESS_PASSWORD"] = "test-global-password";
+
   const app: Express = express();
   app.use(cookieParser(TEST_SECRET));
   app.use(express.json({ limit: "5mb" }));
@@ -110,6 +120,11 @@ afterAll(async () => {
   await new Promise<void>((resolve, reject) =>
     server.close((err) => (err ? reject(err) : resolve())),
   );
+  if (originalGlobalPassword === undefined) {
+    delete process.env["GLOBAL_APP_ACCESS_PASSWORD"];
+  } else {
+    process.env["GLOBAL_APP_ACCESS_PASSWORD"] = originalGlobalPassword;
+  }
 });
 
 type Json = Record<string, unknown>;

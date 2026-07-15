@@ -8,7 +8,7 @@ import os
 import pytest
 import requests
 
-BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "https://zero-compromise-v1.preview.emergentagent.com").rstrip("/")
+BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "https://kite-analytics-lab.preview.emergentagent.com").rstrip("/")
 ADMIN_PASSWORD = "HrishiAdmin@2026"
 
 

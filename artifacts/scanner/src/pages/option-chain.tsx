@@ -24,6 +24,7 @@ import {
 } from "@/data/fnoUniverse";
 
 import { applyStrikeFilter, type StrikeFilter } from "@/lib/optionChainFilters";
+import { UnifiedGradeChip } from "@/components/ui/unified-grade-chip";
 
 function fmt(n: number | null | undefined, dp = 2): string {
   if (n == null || !Number.isFinite(n)) return "—";
@@ -587,6 +588,40 @@ export default function OptionChainPage() {
         ))}
       </div>
 
+      {/* Analytics data-source chip — P1 unified vocabulary. Applies to
+          all 6 cards below (Spot / PCR / Max Pain / ATM IV / Total OI /
+          Bias). Live Kite chain → KITE_TRADE_GRADE; NSE archive fallback
+          → INFO_ONLY (never trade-grade); stale/missing → UNAVAILABLE. */}
+      <div className="flex items-center gap-2 flex-wrap -mb-1">
+        <span className="text-[10px] uppercase text-muted-foreground font-mono tracking-wider">
+          Analytics source:
+        </span>
+        <UnifiedGradeChip
+          chipId="option-chain-analytics"
+          source={
+            chain?.source === "kite"
+              ? "kite"
+              : chain?.provenance?.sourceProvider === "nse"
+                ? "nse_archive"
+                : "missing"
+          }
+          runtime={{
+            hasData: Boolean(chain && analytics),
+            asOf: analytics?.generatedAt ?? chain?.generatedAt ?? null,
+            isStale: chain?.provenance?.isStale ?? null,
+            fallbackUsed: chain?.provenance?.fallbackUsed ?? false,
+          }}
+          note="PCR / Max Pain / ATM IV / Total OI / Bias are all derived from the same live option chain. Kite live is the only trade-grade path; NSE archive is display-only fallback."
+          warning={
+            chain?.provenance?.fallbackUsed
+              ? "Kite unavailable — showing NSE archive fallback. Not trade-grade."
+              : chain?.provenance?.isStale
+                ? "Chain is past its freshness budget."
+                : undefined
+          }
+        />
+      </div>
+
       {/* Spot + Analytics summary */}
       <div className="grid grid-cols-2 lg:grid-cols-6 gap-3">
         <Card className="bg-card border-border">
@@ -1049,6 +1084,18 @@ export default function OptionChainPage() {
               <span className="text-muted-foreground">
                 Black-Scholes · r=6.75% · {chain?.source === "kite" ? "IV solved per leg from market price" : "IV from exchange feed"}
               </span>
+              {/* Greeks are DERIVED — Black-Scholes on top of the live chain.
+                  Even when the chain is Kite trade-grade the Greeks themselves
+                  are info-only computed values, not decisioning quotes. */}
+              <UnifiedGradeChip
+                chipId="option-chain-greeks"
+                source="computed"
+                runtime={{
+                  hasData: Boolean(chain),
+                  asOf: chain?.generatedAt ?? null,
+                }}
+                note="Greeks (Δ Γ Θ V) are Black-Scholes derivations, r=6.75%. Informational — never a direct trade-decisioning input."
+              />
               {/* Download — credentialed by cookie. Includes the active expiry
                   so the file matches what's currently on screen. */}
               <a

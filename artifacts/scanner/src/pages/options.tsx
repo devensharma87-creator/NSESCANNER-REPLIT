@@ -13,6 +13,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { DataSourceBadge } from "@/components/ui/data-source-badge";
+import { StatusChip, type StatusChipVariant } from "@/components/ui/status-chip";
 import { TradingViewAlerts } from "@/components/tradingview-alerts";
 import { SignalGateBanner } from "@/components/signal-gate-banner";
 import { FnoReasonCategoriesStrip } from "@/components/fno-reason-categories-strip";
@@ -146,25 +147,31 @@ function ConfidencePill({ confidence }: { confidence: number }) {
 type LifecycleStatus =
   | "PENDING" | "TRIGGERED" | "TARGET1_HIT" | "TARGET2_HIT" | "STOPPED" | "EXPIRED";
 
-function statusMeta(status: LifecycleStatus | string | undefined) {
+function statusMeta(status: LifecycleStatus | string | undefined): {
+  label: string;
+  variant: StatusChipVariant;
+  icon: React.ReactNode;
+} {
   switch (status) {
-    case "TRIGGERED":   return { label: "Triggered",   tone: "bg-cyan-500/20 text-cyan-300 border-cyan-500/40",                icon: <Zap className="w-3 h-3" /> };
-    case "TARGET1_HIT": return { label: "Target 1 hit", tone: "bg-signal-strong-buy/20 text-signal-strong-buy border-signal-strong-buy/40", icon: <Target className="w-3 h-3" /> };
-    case "TARGET2_HIT": return { label: "Target 2 hit", tone: "bg-signal-strong-buy/30 text-signal-strong-buy border-signal-strong-buy/60", icon: <CheckCircle2 className="w-3 h-3" /> };
-    case "STOPPED":     return { label: "Stopped out",  tone: "bg-signal-strong-sell/20 text-signal-strong-sell border-signal-strong-sell/40", icon: <XCircle className="w-3 h-3" /> };
-    case "EXPIRED":     return { label: "Expired",      tone: "bg-secondary/40 text-muted-foreground border-border/40",         icon: <Clock className="w-3 h-3" /> };
+    case "TRIGGERED":   return { label: "Triggered",    variant: "active",  icon: <Zap className="w-3 h-3" /> };
+    case "TARGET1_HIT": return { label: "Target 1 hit", variant: "ok",      icon: <Target className="w-3 h-3" /> };
+    case "TARGET2_HIT": return { label: "Target 2 hit", variant: "ok",      icon: <CheckCircle2 className="w-3 h-3" /> };
+    case "STOPPED":     return { label: "Stopped out",  variant: "err",     icon: <XCircle className="w-3 h-3" /> };
+    case "EXPIRED":     return { label: "Expired",      variant: "info",    icon: <Clock className="w-3 h-3" /> };
     case "PENDING":
-    default:            return { label: "Waiting trigger", tone: "bg-amber-500/15 text-amber-300 border-amber-500/40",          icon: <Hourglass className="w-3 h-3" /> };
+    default:            return { label: "Waiting trigger", variant: "pending", icon: <Hourglass className="w-3 h-3" /> };
   }
 }
 
 function StatusPill({ status }: { status?: LifecycleStatus | string }) {
   const m = statusMeta(status);
   return (
-    <span className={`px-2 py-0.5 rounded border text-[10px] font-mono font-bold inline-flex items-center gap-1 ${m.tone}`}>
-      {m.icon}
-      {m.label}
-    </span>
+    <StatusChip
+      variant={m.variant}
+      icon={m.icon}
+      label={m.label}
+      testId={`signal-status-${String(status ?? "PENDING").toLowerCase()}`}
+    />
   );
 }
 

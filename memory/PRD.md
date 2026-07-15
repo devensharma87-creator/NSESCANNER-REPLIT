@@ -47,6 +47,42 @@ in the first user message; prior bugs BUG-00..26 belong to the repo's own audit 
 - TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID (+ optional PREPOST_* pair).
 
 ## What's been implemented (dates)
+- 2026-07-15 (iteration 7 · P1 unified chip vocabulary + preset test fix):
+  * **P0 Phase A verified end-to-end** — `durableChargesIdentity.test.ts` 4/4 pass;
+    `GET /api/paper/account?segment=FNO&reconcile=1` returns the durable
+    `chargesEstimate.schedule=FNO_V1_2026Q1`, `grossRealizedPnl`,
+    `estimatedNetRealizedPnl`. Reconciliation identity holding.
+  * **P1 (c) — Option Chain unified vocabulary**: new reusable
+    `UnifiedGradeChip` atom (`components/ui/unified-grade-chip.tsx`) that reuses
+    the pure `deriveHomeUnifiedGrade` derivation but accepts an *inline*
+    descriptor — decoupled from `HOME_MARKET_PULSE_SECTIONS`. Wired into
+    `option-chain.tsx` in two places:
+      - Above the 6-card analytics grid (Spot / PCR / Max Pain / ATM IV /
+        Total OI / Bias). Emits KITE_TRADE_GRADE when `chain.source === "kite"`
+        and no fallback/staleness; downgrades to INFO_ONLY on NSE fallback or
+        past-freshness data; UNAVAILABLE when the chain never arrived.
+      - Above the Greeks toolbar row — always INFO_ONLY since Greeks are
+        derived (Black-Scholes, r=6.75%), never a trade-decisioning quote.
+    Tests: `unified-grade-chip.test.ts` — 8 tests locking in every
+    `(source, runtime) → HomeUnifiedGrade` transition.
+  * **P1 (d) — Chip vocab unified across Portfolio + Signals**: new
+    `StatusChip` atom (`components/ui/status-chip.tsx`) with six intent
+    variants (ok / pending / active / warn / err / info). Same border+bg-tint
+    grammar in both `LedgerHealthCard` and the F&O `StatusPill` in
+    `options.tsx`. Colour tokens harmonised (emerald / amber / cyan / rose /
+    secondary); typography, iconography and dimensions now identical across
+    both call sites. `data-testid="status-chip-*"` hooks added for testing.
+  * **BUG-53/54 confirmed dropped**: verified against
+    `FULL_PLATFORM_BUG_REGISTER.csv` + `MASTER_QUANT_BUG_REGISTER_2026_07_09.csv`
+    — no entries exist for those IDs. Backlog line cleaned up.
+  * **Flaky test fixed** — `globalPresetRoutes.test.ts` 3/3 pass. Root cause:
+    the router mounts `router.use("/global", requireGlobalAuth)`, and
+    `requireGlobalAuth` returns 503 when `GLOBAL_APP_ACCESS_PASSWORD` is
+    unset. Fix: set the env var in `beforeAll` (harness forges signed cookies
+    directly so login flow is bypassed). Restored on teardown.
+  * **Test totals** — Backend: 3389/3389 pass (up from 3382 flaky). Frontend:
+    799/799 pass (up from 791). Typecheck clean on both api-server and scanner.
+
 - 2026-07-14 (iteration 6 · P0 Phase A): Durable charges column path COMPLETE.
   * **Schema (additive nullable, zero destructive migration)**: 7 new columns on
     `paper_trade_fo`, `paper_trade_eq`, `paper_trade_combo` — `gross_pnl`,
@@ -341,7 +377,9 @@ in the first user message; prior bugs BUG-00..26 belong to the repo's own audit 
   provider import guard, DataMeta). Audit-first, then close gaps.
 - P0: Kite credentials + session → live data verification.
 - P1 Phase 2: SENSEX & option chain (BUG-36,37,44,46-52).
-- P1 Phase 3: F&O signal correctness (BUG-53,54,72-80).
+- P1 Phase 3: F&O signal correctness (BUG-72-80 all DONE; BUG-53/54 dropped —
+  see iteration 3 note: raw fix-file text never landed in the repo and no
+  spec exists in either bug register).
 - P1 Phase 4: Telegram bot commands + priority tiers (BUG-85-87).
 - P2 Phase 5-6: tab polish, reconciliation, portfolio.
 - P2 Phase 7: Live auto-trading (Section G) — needs Kite + prolonged observation.

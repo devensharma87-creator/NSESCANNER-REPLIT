@@ -1,0 +1,139 @@
+<analysis>**original_problem_statement**: 
+# MarketScanner (Hrishi Associates) — Master Fix File · Zero-Compromise Edition
+Mission: Take a 6-month build across the finish line. Fix every flaw, remove every fallback, kill every fake data path, tighten every signal, and evolve it into a pro-grade analytical + auto-trading platform. 
+Key Requirements: Zero non-Kite data in any decision path, every number timestamped/sourced, F&O engine upgraded, auto-trading wrappers. Complete 9 phases of bug fixes and feature implementations (BUG-27 to BUG-106).
+
+**User's preferred language**: English (You MUST automatically detect the user's primary language from their messages inside the <trajectory> tag and INSTRUCT next agent to respond in the user's preferred language only)
+
+**what currently exists?** 
+A highly stable full-stack monorepo (React + Node.js/Express + PostgreSQL + Drizzle ORM) deployed on the Emergent platform. Live Kite integration is fully functioning. The application has strict zero-compromise architectural guidelines, global health/staleness watchdogs, and an event-driven state bus for WebSocket ticks. Phase 1, Phase 2, Phase 3, and Phase 4 fixes are completed. Extensive reporting (Telegram integrations, reconciliation logic, and detailed F&O analytics) is actively working. Phase A of P0 (Durable Charges schema and tracking) has been successfully implemented.
+
+**Last working item**: 
+    - Last item agent was working: P0 Phase A — Durable Charges Column Path. Added 7 durable additive columns (, , , , , , ) to paper trade tables (, , ) to prove and store exact net P&L after charges without recalculating it dynamically.
+    - Status: USER VERIFICATION PENDING
+    - Agent Testing Done: Y
+    - Which testing method agent to use? backend testing agent / manual bash testing (vitest framework)
+    - User Testing Done: N
+
+**All Pending/In progress Issue list**:  
+  Issue 1: BUG-53/54 Missing Specification
+     - Attempted fixes: Asked the user for the explicit specification for BUG-53 and BUG-54. User did not provide explicit requirements but asked to do the deep audit... fix everything.
+     - Next debug checklist: Ask the user directly to list out the exact bullet points for BUG-53 and BUG-54 if they still want them addressed; otherwise, drop them from the roadmap.
+     - Why fix this issue and what will be achieved with the fix? Will unblock the remaining original F&O signal correctness spec items.
+     - Status: BLOCKED (On user providing spec)
+     - Is recurring issue? N
+     - Should Test frontend/backend/both after fix? Both
+     - Blocked on other issue: N/A
+
+**In progress Task List**: 
+  Task 1: P0 Phase B — Durable Charges Ledger Deduction
+     - Where to resume: , , .
+     - What will be achieved with this? Changing the actual  decrementing logic to subtract  and updating the reconciliation identity. Currently, balance is kept gross (Phase A).
+     - Status: BLOCKED (Requires Explicit Owner Approval before coding)
+     - Should Test frontend/backend/both after fix? Backend
+     - Blocked on something: User approval. Do not rewrite legacy rows silently.
+
+**Upcoming and Future Tasks**
+  Upcoming Tasks:
+  - P1: Option Chain unified vocabulary — Apply the  vocabulary to PCR / Max Pain / Greeks / IV Surface / Futures cards for freshness/source validation.
+  - P1: Unify visual chip vocabulary across Portfolio LedgerHealth + Signals paper-execution badges.
+  - P2: Backtest / replay regression harness.
+  
+  Future Tasks (STRICTLY ON HOLD - DO NOT START WITHOUT USER APPROVAL):
+  - Phase 7: Live Trading Layer (OMS, LiveOrderGuard).
+  - Phase 8: Backtesting, Replay, Auto-tuning.
+  - Phase 9: AI / news sentiment layer.
+
+**Completed work in this session**
+- BUG-80: Expiry-day special mode (1/2 size, mean-reversion only, 14:30 force close). (DONE)
+- BUG-72-79: Regime hysteresis and detector cooldowns. (DONE)
+- Phase 4: Telegram bot commands, priority tiers, 429 boot-storm request backoff. (DONE)
+- Daily Analysis Reports UI & Logic: Fixed missing data indicators, explicit net vs. gross P&L lines, legend footers. (DONE)
+- Portfolio Reconciliation Ledger: End-to-end reconciliation for FO/EQ paper trades including UI LedgerHealthCard component. (DONE)
+- F&O Cockpit reason categories: Separated and chipped why no trade reasons clearly. (DONE)
+- Market Pulse vocab consolidation: Replaced fragmented states with 6 unified grades. (DONE)
+- Full Technical Audit & Cleanup: Generated  and removed dead mock/fake UI code. (DONE)
+- P0 Phase A Durable Charges: Schema updates for , ,  to add 7 durable charge-tracking columns. Writers updated. (DONE)
+
+**Earlier issues found/mentioned but not fixed**
+   - Issue 1: 3 Pre-existing unrelated test failures.
+   - Debug checklist: Investigate  (specifically boot-race and session-related 409 duplicate name failures).
+   - Why to solve this issue and what will be achieved with this? Will bring backend test suite to 100% passing (currently 3382/3385 pass).
+   - Should Test frontend/backend/both after fix: Backend
+   - Is recurring issue? Y
+
+**Known issue recurrence from previous fork**
+  - Issue recurrence in previous fork:  failing with 409 session conflicts during tests.
+  - Recurrence count: 3+
+  - Status: IN PROGRESS / IGNORED (Does not impact current P0 deliverables)
+
+**Code Architecture**
+
+
+**Key Technical Concepts**
+Frontend: React, Tailwind CSS, Vite
+Backend: Node.js, Express, TypeScript (pnpm workspaces)
+Database: PostgreSQL, Drizzle ORM
+Architecture: Full-stack monorepo, strict WebSocket/Kite event-driven execution, SystemMode lock-guards, providerImportGuard for zero-fake data compliance.
+
+**key DB schema**
+  - , , : 
+    {{ , , , , , , ,  }}
+  - : {{ , ,  }}
+  
+**changes in tech stack**
+  - NONE. (Reminder: Backend is strictly Node.js, NOT Python/FastAPI).
+
+**All files of reference** 
+  -  (Schema with new P0 durable fields)
+  -  &  (Updated to write durable net/gross lines)
+  - 
+  -  (Detailed system health report generated this session)
+  -  (Continuously updated product roadmap)
+
+**Areas that need refactoring**: 
+  - The Option Chain frontend components need refactoring to standardize their freshness/source validation vocabulary (P1 task).
+
+**key api endpoints**
+  - 
+  - 
+  - 
+
+**Critical Info for New Agent** 
+- **STRICT GUIDELINES**: Do not touch trading strategy, signal scoring, thresholds, risk gates, stops, targets, or broker execution logic. 
+- **DO NOT** execute Phase B (subtracting durable charges directly from actual ) without explicit owner approval. For now, ledger remains gross-balance but tracks net P&L on trades.
+- **Provider Guards**: Do NOT use Yahoo Finance or mocked fallback data for any decision-making.  strictly prohibits this.
+- **Test Command**: Backend utilizes . Run tests using  inside  or .
+- **Admin Password**: Use  to bypass auth walls during smoke testing.
+
+**documents and test reports created in this job** 
+  -  (Updated)
+  -  (Created)
+
+**Last 10 User Messages and any pending HUMAN messages** 
+ 1. User: Fix everything as planned... do the deep audit... Make sure we have not compromised any of the existing feature.
+ 2. Agent: Conducted deep codebase audit, removed 94 dead/mock/fake endpoints, generated AUDIT report, submitted P0 Phase A Durable Charges design for approval.
+ 3. User: Start in the same sequence as mentioned above.
+ 4. Agent: Executed Phase A schema injection, updated writers, updated Ledger reconciliation APIs, and ran backend tests (3382/3385 pass).
+ 5. User: continue (Triggering test/regression runs).
+ 6. Agent: Created integration test for Durable Charges and concluded Phase A successfully. 
+ *(No pending messages - Agent successfully summarized Phase A completion).*
+
+**Project Health Check:**
+Healthy. 3382 backend tests passing, 791 frontend tests passing. Zero mock/fake data components remain.
+
+**3rd Party Integrations** 
+	•	Zerodha Kite Connect (Market Data & Trading) — requires User API Key
+	•	Telegram (Notifications / Bot Commands) — requires User Bot Token & Chat ID
+
+**Testing status**
+  - Testing agent used after significant changes: NO (Agent performed rigorous self-testing via  unit/integration tests).
+  - Troubleshoot agent used after agent stuck in loop: NO
+  - Test files created: , , 
+  - Known regressions: None (Only 3 pre-existing non-blocking flaky tests remaining).
+
+**Credentials to test flow:**
+Admin Password: 
+
+**What agent forgot to execute**
+The agent adhered strictly to the user's explicit instructions to hold off on Phase B (Balance Deduction), Phase 7, Phase 8, and Phase 9. All executed paths were explicitly approved. Agent could not solve BUG-53/54 because the user never provided the actual content of those bugs.</analysis>

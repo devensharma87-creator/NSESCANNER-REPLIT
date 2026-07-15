@@ -16,6 +16,7 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { CheckCircle2, AlertTriangle, Loader2, XCircle, ChevronDown } from "lucide-react";
+import { StatusChip } from "@/components/ui/status-chip";
 
 const BASE = import.meta.env.BASE_URL;
 
@@ -111,33 +112,45 @@ export function LedgerHealthCard({ segment }: { segment: "FNO" | "EQUITY" }) {
         data-testid={`ledger-health-toggle-${segment}`}
       >
         {state.kind === "loading" && (
-          <>
-            <Loader2 className="w-3.5 h-3.5 animate-spin text-muted-foreground" />
-            <span className="text-muted-foreground">Ledger health: checking…</span>
-          </>
+          <StatusChip
+            variant="info"
+            testId={`ledger-health-${segment}-loading`}
+            icon={<Loader2 className="w-3 h-3 animate-spin" />}
+            label="Ledger health: checking…"
+          />
         )}
         {state.kind === "error" && (
           <>
-            <XCircle className="w-3.5 h-3.5 text-rose-400" />
-            <span className="text-rose-300">Ledger health: reconciliation query failed</span>
+            <StatusChip
+              variant="err"
+              testId={`ledger-health-${segment}-error`}
+              icon={<XCircle className="w-3 h-3" />}
+              label="Reconciliation query failed"
+            />
             <span className="text-muted-foreground truncate">— {state.msg}</span>
           </>
         )}
         {state.kind === "reconciled" && (
           <>
-            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-            <span className="text-emerald-300">Ledger reconciled</span>
+            <StatusChip
+              variant="ok"
+              testId={`ledger-health-${segment}-reconciled`}
+              icon={<CheckCircle2 className="w-3 h-3" />}
+              label="Ledger reconciled"
+            />
             <span className="text-muted-foreground">
-              · balance {fmtInr(state.snap.actualBalance)} · seed {fmtInr(state.snap.seedCapital)}
+              balance {fmtInr(state.snap.actualBalance)} · seed {fmtInr(state.snap.seedCapital)}
             </span>
           </>
         )}
         {state.kind === "drift" && (
           <>
-            <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
-            <span className="text-amber-300">
-              Ledger drift {fmtInr(state.snap.driftAmount, { sign: true })}
-            </span>
+            <StatusChip
+              variant="warn"
+              testId={`ledger-health-${segment}-drift`}
+              icon={<AlertTriangle className="w-3 h-3" />}
+              label={`Ledger drift ${fmtInr(state.snap.driftAmount, { sign: true })}`}
+            />
             <span className="text-muted-foreground truncate">
               — click for detail
             </span>
