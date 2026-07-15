@@ -18,6 +18,7 @@
 import { Router } from "express";
 import { z } from "zod";
 import { logger } from "../lib/logger";
+import { recordClientEvent, summariseClientEvents } from "../lib/clientEventBuffer";
 
 const router: Router = Router();
 
@@ -98,7 +99,36 @@ router.post("/observability/client-event", (req, res) => {
     );
   }
 
+  // Bucketed ring-buffer store for the ops dashboard. Fed synchronously
+  // so `/observability/summary` sees the event immediately after 204.
+  recordClientEvent({
+    kind: ev.kind,
+    chipId: ev.chipId,
+    fromGrade: ev.fromGrade,
+    toGrade: ev.toGrade,
+    source: ev.source,
+    sessionId: ev.sessionId,
+    page: ev.page,
+    wasDegradation: isDegradation,
+  });
+
   return res.status(204).end();
+});
+
+/**
+ * Ops-side summary of client-event volume. Public because the drain
+ * itself is public — the summary reveals no user identity, only
+ * chipIds + grade transitions + minute-bucketed counts.
+ *
+ * Query param `since` is ISO datetime; defaults to now − 60 min; hard-
+ * capped at 240 min by the buffer to bound response size.
+ */
+router.get("/observability/summary", (req, res) => {
+  const rawSince =
+    typeof req.query["since"] === "string" ? req.query["since"] : undefined;
+  const defaultSince = new Date(Date.now() - 60 * 60_000).toISOString();
+  const summary = summariseClientEvents(rawSince ?? defaultSince);
+  return res.json(summary);
 });
 
 export default router;

@@ -562,6 +562,16 @@ export interface PostMarketEquityPaper {
   openedToday: number;
   closedToday: number;
   openCount: number;
+  /** P0 Phase B — realized gross/net + durable charges for today's
+   *  CLOSED equity paper rows. All three are null when no CURRENT-tagged
+   *  row closed today. Legacy pre-P0 rows do NOT contribute. */
+  grossPnlToday: number | null;
+  chargesTotalToday: number | null;
+  netPnlToday: number | null;
+  chargesCoverage: {
+    current: number;
+    legacy: number;
+  };
 }
 
 export interface PostMarketIndexRow {
@@ -689,6 +699,28 @@ export function buildPostMarketReport(data: PostMarketReportData): string {
           const sign = data.fno.totalNetPnl >= 0 ? "+" : "";
           lines.push(`F&O net realized P&L: ₹${sign}${data.fno.totalNetPnl.toLocaleString("en-IN")}`);
         }
+        // Charges Drag — how much of the gross was eaten by friction.
+        // Only meaningful when gross is non-zero AND the same trades
+        // that produced it were CURRENT-tagged (so their charges are
+        // durable). Two derived views:
+        //   • Drag %  = |charges| / |gross|  ×100      (readable ratio)
+        //   • Drag bps = charges / |gross|   ×10000    (fine-grained)
+        // Zero-gross case: report abs charges only.
+        if (data.fno.totalCharges != null && data.fno.totalPnl != null) {
+          const gross = data.fno.totalPnl;
+          const chg = data.fno.totalCharges;
+          if (Math.abs(gross) > 0.005) {
+            const dragPct = (chg / Math.abs(gross)) * 100;
+            const dragBps = (chg / Math.abs(gross)) * 10_000;
+            lines.push(
+              `F&O charges drag: ${dragPct.toFixed(2)}% of |gross| (${dragBps.toFixed(0)} bps)`,
+            );
+          } else if (chg > 0) {
+            lines.push(
+              `F&O charges drag: gross ≈ ₹0 today — friction ₹-${chg.toLocaleString("en-IN")} is the entire result`,
+            );
+          }
+        }
         if (data.fno.chargesCoverage.legacy > 0) {
           lines.push(
             `  (${data.fno.chargesCoverage.legacy} legacy trade${data.fno.chargesCoverage.legacy === 1 ? "" : "s"} closed today NOT included in net — pre-P0 rows carry no durable charges)`,
@@ -739,6 +771,49 @@ export function buildPostMarketReport(data: PostMarketReportData): string {
     lines.push(
       `Opened ${data.equityPaper.openedToday} | Closed ${data.equityPaper.closedToday} | Live ${data.equityPaper.openCount}`,
     );
+    // P0 Phase B — same charges-drag summary as F&O when at least one
+    // CURRENT-tagged row closed today. Silent when nothing durable is
+    // available (report continuity — no phantom lines).
+    if (data.equityPaper.chargesCoverage.current > 0) {
+      const eq = data.equityPaper;
+      if (eq.grossPnlToday != null) {
+        const s = eq.grossPnlToday >= 0 ? "+" : "";
+        lines.push(`Equity gross realized P&L: ₹${s}${eq.grossPnlToday.toLocaleString("en-IN")}`);
+      }
+      if (eq.chargesTotalToday != null) {
+        lines.push(
+          `Equity charges (durable, ${eq.chargesCoverage.current} trade${eq.chargesCoverage.current === 1 ? "" : "s"}): ₹-${eq.chargesTotalToday.toLocaleString("en-IN")}`,
+        );
+      }
+      if (eq.netPnlToday != null) {
+        const s = eq.netPnlToday >= 0 ? "+" : "";
+        lines.push(`Equity net realized P&L: ₹${s}${eq.netPnlToday.toLocaleString("en-IN")}`);
+      }
+      if (eq.grossPnlToday != null && eq.chargesTotalToday != null) {
+        const gross = eq.grossPnlToday;
+        const chg = eq.chargesTotalToday;
+        if (Math.abs(gross) > 0.005) {
+          const dragPct = (chg / Math.abs(gross)) * 100;
+          const dragBps = (chg / Math.abs(gross)) * 10_000;
+          lines.push(
+            `Equity charges drag: ${dragPct.toFixed(2)}% of |gross| (${dragBps.toFixed(0)} bps)`,
+          );
+        } else if (chg > 0) {
+          lines.push(
+            `Equity charges drag: gross ≈ ₹0 today — friction ₹-${chg.toLocaleString("en-IN")} is the entire result`,
+          );
+        }
+      }
+      if (eq.chargesCoverage.legacy > 0) {
+        lines.push(
+          `  (${eq.chargesCoverage.legacy} legacy pre-P0 trade${eq.chargesCoverage.legacy === 1 ? "" : "s"} closed today NOT included in equity net)`,
+        );
+      }
+    } else if (data.equityPaper.chargesCoverage.legacy > 0) {
+      lines.push(
+        `Equity charges: not stored (${data.equityPaper.chargesCoverage.legacy} legacy pre-P0 trade${data.equityPaper.chargesCoverage.legacy === 1 ? "" : "s"} closed today)`,
+      );
+    }
   } else {
     lines.push("Unavailable — query failed this run");
   }
@@ -1291,10 +1366,49 @@ export async function gatherPostMarketData(
       WHERE status = 'OPEN'
     `)) as unknown as { rows: Array<{ n: number | string }> };
 
+    // P0 Phase B — durable charges + net P&L on today's closed EQ rows.
+    // Same predicate as F&O; separate SUM per column so nulls don't
+    // poison the aggregate.
+    const eqChargesRes = (await db.execute(sql`
+      SELECT
+        SUM(realized_pnl) FILTER (WHERE charges_status = 'CURRENT') AS gross,
+        SUM(charges_total) FILTER (WHERE charges_status = 'CURRENT') AS charges,
+        SUM(net_pnl)       FILTER (WHERE charges_status = 'CURRENT') AS net,
+        COUNT(*) FILTER (WHERE charges_status = 'CURRENT')::int AS n_current,
+        COUNT(*) FILTER (WHERE charges_status IS DISTINCT FROM 'CURRENT')::int AS n_legacy
+        FROM paper_trade_eq
+       WHERE status = 'CLOSED'
+         AND exited_at IS NOT NULL
+         AND exited_at >= ${eqIstDayStart.toISOString()}
+         AND exited_at <  ${eqIstDayEnd.toISOString()}
+    `)) as unknown as {
+      rows: Array<{
+        gross: string | number | null;
+        charges: string | number | null;
+        net: string | number | null;
+        n_current: number;
+        n_legacy: number;
+      }>;
+    };
+    const eqC = eqChargesRes.rows[0] ?? {
+      gross: null,
+      charges: null,
+      net: null,
+      n_current: 0,
+      n_legacy: 0,
+    };
+
     equityPaper = {
       openedToday: Number(eqOpenedRows.rows[0]?.n ?? 0),
       closedToday: Number(eqClosedRows.rows[0]?.n ?? 0),
       openCount: Number(eqLiveRows.rows[0]?.n ?? 0),
+      grossPnlToday: eqC.gross == null ? null : Number(eqC.gross),
+      chargesTotalToday: eqC.charges == null ? null : Number(eqC.charges),
+      netPnlToday: eqC.net == null ? null : Number(eqC.net),
+      chargesCoverage: {
+        current: Number(eqC.n_current ?? 0),
+        legacy: Number(eqC.n_legacy ?? 0),
+      },
     };
   } catch (err) {
     logger.warn({ err: (err as Error).message }, "dailyReports: gatherPostMarketData equity paper section failed");

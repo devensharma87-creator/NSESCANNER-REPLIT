@@ -47,6 +47,74 @@ in the first user message; prior bugs BUG-00..26 belong to the repo's own audit 
 - TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID (+ optional PREPOST_* pair).
 
 ## What's been implemented (dates)
+- 2026-07-15 (iteration 10 · P2 spec locked + ops dashboard + charges drag report):
+  * **P2 spec rewritten with owner decisions locked as CONSTRAINTS** →
+    `/app/memory/BACKTEST_REPLAY_HARNESS_SPEC.md`. Key corrections from
+    v1:
+      - v1's fabricated capture dates removed. Table now honest about
+        recordable-today vs wait-for-occurrence per fixture.
+      - v1 §7/§10 numbering mismatch fixed; chain-snapshot-width Q now
+        explicit and decided (full chain).
+      - PDF summary removed from scope (owner cut it).
+      - Non-goals extended: NO cron recorder, NO session reconstruction
+        from bars/snapshots, NO golden hand-edits.
+      - Priority order reordered by risk × capturability:
+        #4 → #1 → #7 → #6 → #2/#3/#5 (opportunistic).
+      - Fixture #7 constructibility note added: market-data half is any
+        fresh Kite capture, ledger-mix half is DB pre-state — NOT
+        fabricated market data.
+      - R2 iteration bright line locked: **no engine edits, no golden
+        hand-edits** during "iterate until byte-exact golden".
+      - CI hard-fail when `CI=true && goldenMode !== "ASSERT"`.
+    Status: **APPROVED FOR R1** (all §10 acceptance criteria signed).
+  * **Ops observability dashboard live**:
+      - New endpoint `GET /api/observability/summary?since=<iso>` in
+        `routes/observability.ts` reads a shared in-memory ring buffer
+        (`lib/clientEventBuffer.ts`, max 5000 events, IST-minute
+        bucketed).
+      - Response schema: `{ windowStart, windowEnd, bucketCount,
+        totalEvents, totalDegradations, totalRecoveries, buckets[],
+        topDegradingChips[] }`. Bucket ISO strings carry `+05:30` so
+        the render layer never has to translate.
+      - `POST /api/observability/client-event` now writes to the same
+        ring buffer synchronously, so a `GET /summary` right after a
+        `POST` sees the event.
+      - Frontend: `ObservabilitySummaryCard` component
+        (`components/observability-summary-card.tsx`) mounted at the
+        top of `/audit`. 30s refetch, stacked minute-bucketed
+        columns (red = degradations, green = recoveries), top-5
+        degrading chip list.
+      - Payload discipline: summary DOES NOT leak `sessionId`, `page`,
+        or `observedAt` — only counts + `chipId` rankings.
+  * **Charges Drag daily report live**:
+      - `buildPostMarketReport` now emits an F&O "charges drag" line
+        computed from the existing `totalCharges`/`totalPnl`:
+        `${dragPct}% of |gross| (${dragBps} bps)`. Special-case: when
+        `|gross| ≈ 0` with non-zero charges, prints "friction is the
+        entire result" instead of dividing by zero.
+      - `PostMarketEquityPaper` extended with `grossPnlToday`,
+        `chargesTotalToday`, `netPnlToday`, and `chargesCoverage` —
+        same durable-columns query pattern used for F&O in
+        `gatherPostMarketData`. Equity section now renders the same
+        drag line + gross/net breakdown.
+      - Silent when zero CURRENT-tagged rows closed (no phantom lines);
+        explicit "not stored (N legacy pre-P0 trades)" when only legacy
+        rows contributed.
+      - 8 new tests in `dailyReportsChargesDrag.test.ts`: positive
+        gross, negative gross, zero-gross-with-friction path, legacy-
+        only silence, zero-trades silence, equity happy path, equity
+        no-CURRENT silence, equity legacy-only.
+  * **Live smoke** (api-server restarted):
+      - `GET /api/observability/summary` → 200 with `+05:30` bucket
+        ISO, zero counts on empty buffer.
+      - `POST` degrade + recovery → both 204 → `GET /summary`
+        immediately reflects `totalDegradations=1`, `totalRecoveries=1`,
+        `topDegradingChips=[scanner-boot]`.
+      - Phase B endpoints still reconciled (no regression).
+  * **Test totals** — Backend: **3418/3418** pass (up from 3401 — 17
+    new tests: 8 charges-drag + 5 ring buffer + 4 summary route).
+    Frontend: **799/799**. Both typechecks clean.
+
 - 2026-07-15 (iteration 9 · Client-event telemetry + full UnifiedGradeChip rollout + P2 spec):
   * **P2 Backtest / Replay Regression Harness spec drafted** →
     `/app/memory/BACKTEST_REPLAY_HARNESS_SPEC.md`. Covers fixture format

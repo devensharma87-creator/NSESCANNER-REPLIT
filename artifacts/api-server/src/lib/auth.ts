@@ -82,6 +82,7 @@ const PUBLIC_ROUTES: PublicRoute[] = [
   { path: "/api/data-health/market", methods: ["GET"] },           // PUBLIC: canonical market-data health (session+feed+market-session, no secrets)
   { path: "/api/data-health/global", methods: ["GET"] },           // PUBLIC: unified global data health (safe by construction — no secrets in contract)
   { path: "/api/observability/client-event", methods: ["POST"] },  // PUBLIC: lean client-event drain (chip downgrades etc.) — zod-clamped payload, no free-form strings, no secrets
+  { path: "/api/observability/summary", methods: ["GET"] },       // PUBLIC: bucketed summary of client events (no user identity — chipIds + counts only)
 ];
 
 function isPublicRoute(url: string, method: string): boolean {

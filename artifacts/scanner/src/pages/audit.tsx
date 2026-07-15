@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Shield, ShieldAlert, ShieldCheck, RefreshCw, AlertTriangle, CheckCircle2, XCircle } from "lucide-react";
 import { Seo } from "@/components/seo";
+import { ObservabilitySummaryCard } from "@/components/observability-summary-card";
 
 type Severity = "ok" | "warn" | "fail";
 interface AuditCheck {
@@ -125,6 +126,11 @@ export default function AuditPage() {
           <CardContent className="pt-6 text-sm text-rose-500">Failed to load audit: {err}</CardContent>
         </Card>
       )}
+
+      {/* Ops-side observability dashboard — 1-min bucketed chip-downgrade
+          volume from `/api/observability/summary`. Small, high-signal,
+          hides itself when nothing has been observed in the window. */}
+      <ObservabilitySummaryCard windowMinutes={60} />
 
       {report && (
         <>

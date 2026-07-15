@@ -225,7 +225,15 @@ describe("GAP-1 Telegram dry-run: post-market report payload", () => {
         blockedToday: 0,
         equityOpenCount: 3,
       },
-      equityPaper: { openedToday: 4, closedToday: 2, openCount: 5 },
+      equityPaper: {
+        openedToday: 4,
+        closedToday: 2,
+        openCount: 5,
+        grossPnlToday: null,
+        chargesTotalToday: null,
+        netPnlToday: null,
+        chargesCoverage: { current: 0, legacy: 0 },
+      },
       indexPerformance: {
         rows: [
           { name: "NIFTY 50", close: 24500, changePct: 0.85, high: 24600, low: 24350 },
