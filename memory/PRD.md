@@ -47,6 +47,46 @@ in the first user message; prior bugs BUG-00..26 belong to the repo's own audit 
 - TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID (+ optional PREPOST_* pair).
 
 ## What's been implemented (dates)
+- 2026-07-15 (iteration 13 · Charges-drag alert wired + system-event taps):
+  * **Charges-drag alert wired into post-market cadence**:
+      - New `lib/chargesDragAlertRunner.ts` reads today's + last 7 IST
+        days' F&O drag observations directly from durable
+        `paper_trade_fo` columns (`realized_pnl`, `charges_total`
+        where `status='CLOSED' AND charges_status='CURRENT'`,
+        grouped by `(exited_at AT TIME ZONE 'Asia/Kolkata')::date`).
+        No new history table needed — the durable columns are
+        already the source of truth.
+      - Calls `evaluateDragAlert(today, history)`; on `BREACH` sends
+        the rendered message via `sendPrePostTelegramMessage` as a
+        DISTINCT follow-up (not appended to the main report — so it
+        can be routed independently by Telegram tier config later).
+      - Hooked into `sendPostMarketReport` AFTER the main report send
+        + DB status stamp, so a drag-query failure never rewrites
+        the main result. Fail-open at every seam.
+      - Outcome codes: `SENT_BREACH` | `OK` | `TOO_FEW_SAMPLES` |
+        `TODAY_NULL` | `SIGMA_ZERO` | `QUERY_FAILED` | `SEND_FAILED`.
+  * **System-event taps LIVE**:
+      - `systemMode.runSystemModeTick` — pushes a
+        `SYSTEM_MODE_TRANSITION` event on every prev→effective change
+        (drivers preserved in `detail`).
+      - `kiteFeed` ticker `connect` + `disconnect` edges — pushes
+        `KITE_SESSION_EDGE` events with edge kind + error detail.
+      - Both wrapped fail-open — tap failure NEVER blocks the mode
+        transition or ticker path (spec §12.2).
+      - Live-verified after api-server restart: `eventCount: 1` in
+        `/api/replay/record/stats` — the ticker `connect` edge from
+        bootup was captured.
+  * **Regime-change tap NOT wired** — the current `regimeClassifier`
+    doesn't expose a "regime just changed" callback (only computes
+    on demand via `classifyRegime`). Adding an explicit change-emit
+    would require a callback registry we don't have yet. Deferred
+    to a follow-up when someone actually needs regime edges in a
+    fixture.
+  * **Test totals** — Backend: **3460/3460** pass (no new tests
+    added this iteration — hookup code is a thin composition of
+    existing tested primitives). Frontend: **799/799**. Typecheck
+    clean on both apps.
+
 - 2026-07-15 (iteration 12 · R1-tail recorder endpoint + charges-drag alert):
   * **R1-tail recorder LIVE** — `POST /api/replay/record` and
     `GET /api/replay/record/stats`. Owner-only (session-gated via

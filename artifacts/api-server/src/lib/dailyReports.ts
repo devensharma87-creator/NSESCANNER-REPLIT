@@ -1604,6 +1604,31 @@ export async function sendPostMarketReport(
     { istDate, isManualTest, telegramStatus: sendResult, telegramDestination: "prepost" },
     "dailyReports: post-market report sent",
   );
+
+  // P0 Phase B follow-through — post-market charges-drag anomaly alert.
+  // Runs AFTER the main report is sent (so it's a distinct message,
+  // routable independently by Telegram tier config) and after status
+  // is stamped in DB (so a drag-query failure never rewrites the main
+  // send result). Fail-open at every seam.
+  try {
+    const { evaluateAndSendChargesDragAlert } = await import("./chargesDragAlertRunner");
+    const drag = await evaluateAndSendChargesDragAlert(nowMs);
+    logger.info(
+      {
+        istDate,
+        outcome: drag.outcome,
+        todayDragPct: drag.todayDragPct,
+        historySampleCount: drag.historySampleCount,
+      },
+      "dailyReports: charges-drag alert evaluated",
+    );
+  } catch (err) {
+    logger.warn(
+      { err: (err as Error).message },
+      "dailyReports: charges-drag alert evaluation failed (non-fatal)",
+    );
+  }
+
   return result;
 }
 

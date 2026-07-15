@@ -167,6 +167,16 @@ export async function runSystemModeTick(): Promise<SystemModeSnapshot> {
   if (prev !== null && prev !== effective) {
     const msg = `SystemMode ${prev} → ${effective} (drivers: ${drivers.join(", ") || "none"})`;
     logger.warn({ prev, effective, drivers }, "system mode transition");
+    // R1-tail: replay recorder read-only tap. Fail-open, wrapped so a
+    // buffer failure NEVER touches the mode transition path.
+    try {
+      const { tapPushSystemEvent } = await import("./liveTapRing");
+      tapPushSystemEvent({
+        emittedAtMs: Date.now(),
+        kind: "SYSTEM_MODE_TRANSITION",
+        detail: { from: prev, to: effective, drivers },
+      });
+    } catch { /* fail-open */ }
     alertOwner(
       "SYSTEM_MODE_CHANGED",
       msg,

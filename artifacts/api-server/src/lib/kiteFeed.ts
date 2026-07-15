@@ -14,7 +14,7 @@ import { logger } from "./logger";
 import { getActiveSession, getRestClient, autoMirrorSession, autoMirrorInstruments, type ActiveSession } from "./kiteAuth";
 import { NIFTY50_SYMBOLS } from "./watchlistLists";
 import { KiteTicker } from "kiteconnect";
-import { tapPushTick } from "./liveTapRing";
+import { tapPushTick, tapPushSystemEvent } from "./liveTapRing";
 
 export interface LiveTick {
   symbol: string;
@@ -153,6 +153,16 @@ export async function startTicker(session?: ActiveSession): Promise<boolean> {
     lastConnect = Date.now();
     lastError = null;
     logger.info("Kite ticker connected");
+    // R1-tail: replay recorder read-only tap. Session edges are gold
+    // for replay determinism — the engine's Kite-offline path is
+    // regime-critical. Fail-open.
+    try {
+      tapPushSystemEvent({
+        emittedAtMs: lastConnect,
+        kind: "KITE_SESSION_EDGE",
+        detail: { edge: "connect" },
+      });
+    } catch { /* fail-open */ }
     // Subscribe to NIFTY 50 by default. F&O / sector lists can call subscribe() too.
     await subscribe(NIFTY50_SYMBOLS);
     // Phase-4 (2026-05-06): also subscribe to every Indian index spot
@@ -172,6 +182,13 @@ export async function startTicker(session?: ActiveSession): Promise<boolean> {
     lastDisconnect = Date.now();
     lastError = describeWsError(err);
     logger.warn({ err: lastError }, "Kite ticker disconnected");
+    try {
+      tapPushSystemEvent({
+        emittedAtMs: lastDisconnect,
+        kind: "KITE_SESSION_EDGE",
+        detail: { edge: "disconnect", err: lastError },
+      });
+    } catch { /* fail-open */ }
   });
 
   ticker.on("error", (err: any) => {
