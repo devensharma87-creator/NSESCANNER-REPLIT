@@ -224,6 +224,25 @@ export function classifyRegimeWithHysteresis(
 
   // EXPIRY_DAY is a hard calendar fact — never damp it.
   if (raw.regime === "EXPIRY_DAY") {
+    if (prev.stable !== "EXPIRY_DAY") {
+      try {
+        void import("./liveTapRing").then(({ tapPushSystemEvent }) => {
+          try {
+            tapPushSystemEvent({
+              emittedAtMs: Date.now(),
+              kind: "REGIME_CHANGE",
+              detail: {
+                indexSymbol,
+                from: prev.stable,
+                to: "EXPIRY_DAY",
+                reason: raw.reason,
+                bypassedHysteresis: true,
+              },
+            });
+          } catch { /* fail-open */ }
+        });
+      } catch { /* fail-open */ }
+    }
     regimeHistoryByIndex.set(indexSymbol, {
       stable: "EXPIRY_DAY",
       pendingRaw: "EXPIRY_DAY",
@@ -254,6 +273,30 @@ export function classifyRegimeWithHysteresis(
       pendingRun: nextRun,
       lastResult: raw,
     });
+    // Regime edge for replay recorder — this is the ONLY place where
+    // a stable regime changes after the first observation. Fail-open;
+    // buffer failure NEVER touches classification.
+    if (prev.stable !== raw.regime) {
+      try {
+        // Fire-and-forget dynamic import to avoid module load-order
+        // coupling in the classifier (regimeClassifier is pure and
+        // pulled by many other modules).
+        void import("./liveTapRing").then(({ tapPushSystemEvent }) => {
+          try {
+            tapPushSystemEvent({
+              emittedAtMs: Date.now(),
+              kind: "REGIME_CHANGE",
+              detail: {
+                indexSymbol,
+                from: prev.stable,
+                to: raw.regime,
+                reason: raw.reason,
+              },
+            });
+          } catch { /* fail-open */ }
+        });
+      } catch { /* fail-open */ }
+    }
     return raw;
   }
 

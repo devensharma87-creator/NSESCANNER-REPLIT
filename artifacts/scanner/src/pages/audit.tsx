@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Shield, ShieldAlert, ShieldCheck, RefreshCw, AlertTriangle, CheckCircle2, XCircle } from "lucide-react";
 import { Seo } from "@/components/seo";
 import { ObservabilitySummaryCard } from "@/components/observability-summary-card";
+import { ReplayBufferHealthCard } from "@/components/replay-buffer-health-card";
 
 type Severity = "ok" | "warn" | "fail";
 interface AuditCheck {
@@ -130,7 +131,10 @@ export default function AuditPage() {
       {/* Ops-side observability dashboard — 1-min bucketed chip-downgrade
           volume from `/api/observability/summary`. Small, high-signal,
           hides itself when nothing has been observed in the window. */}
-      <ObservabilitySummaryCard windowMinutes={60} />
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <ObservabilitySummaryCard windowMinutes={60} />
+        <ReplayBufferHealthCard />
+      </div>
 
       {report && (
         <>

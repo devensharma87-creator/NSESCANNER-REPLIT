@@ -47,6 +47,43 @@ in the first user message; prior bugs BUG-00..26 belong to the repo's own audit 
 - TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID (+ optional PREPOST_* pair).
 
 ## What's been implemented (dates)
+- 2026-07-15 (iteration 14 · Regime-change tap + audit buffer-health widget):
+  * **Regime-change tap wired into `regimeClassifier`**:
+      - `classifyRegimeWithHysteresis` now emits a `REGIME_CHANGE`
+        event to `liveTapRing` on EVERY stable regime edge — both the
+        post-hysteresis branch (label wins after N consecutive
+        confirmations) AND the EXPIRY_DAY bypass branch (marked
+        `bypassedHysteresis: true` in the detail).
+      - No event on first-observation calls (no prior label to
+        transition from) or during pending accumulation (below
+        hysteresis N).
+      - Fire-and-forget dynamic import so the classifier stays pure
+        (no module-load coupling with `liveTapRing`). Fail-open at
+        every seam.
+      - `detail` carries `{indexSymbol, from, to, reason,
+        bypassedHysteresis?}` — R2 replay of fixture #2 (VIX spike)
+        will read exact edges rather than re-deriving them from
+        tick-level replay.
+      - 4 new tests in `regimeClassifierTap.test.ts` covering the
+        first-observation, EXPIRY_DAY-bypass, EXPIRY→EXPIRY (no
+        edge), and pending-accumulation (no event) cases.
+  * **Buffer-health widget on `/audit`**:
+      - New `ReplayBufferHealthCard` component reads
+        `GET /api/replay/record/stats` on a 15s cadence. Renders
+        tick / chain / board / event counts + wall-clock age of the
+        oldest + newest tick. Status pill flips
+        FLOWING ↔ IDLE based on newest-tick freshness (< 5 min).
+      - Mounted next to `ObservabilitySummaryCard` in a 2-col grid
+        at the top of `/audit`.
+      - data-testids: `replay-buffer-health-card`,
+        `replay-buffer-health-status`, `replay-buffer-stat-*`.
+  * **Live smoke** — api-server restarted; buffer already showing
+    `tickCount: 8, eventCount: 1` (Kite `connect` bootup edge).
+    Phase B reconciled=true.
+  * **Test totals** — Backend: **3464/3464** pass (up from 3460 — 4
+    new regime-tap tests). Frontend: **799/799**. Both typechecks
+    clean.
+
 - 2026-07-15 (iteration 13 · Charges-drag alert wired + system-event taps):
   * **Charges-drag alert wired into post-market cadence**:
       - New `lib/chargesDragAlertRunner.ts` reads today's + last 7 IST
