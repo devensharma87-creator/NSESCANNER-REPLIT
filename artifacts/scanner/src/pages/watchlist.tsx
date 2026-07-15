@@ -2,6 +2,7 @@ import { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useGetWatchlistBasket, getGetWatchlistBasketQueryKey, useListStocks, getListStocksQueryKey, type DataProviderName } from "@workspace/api-client-react";
 import { DataSourceBadge, type DataSource } from "@/components/ui/data-source-badge";
+import { UnifiedGradeChip } from "@/components/ui/unified-grade-chip";
 import { Link } from "wouter";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -229,6 +230,22 @@ export default function Watchlist() {
                   lastUpdated={data.meta.fetchedAt}
                   refreshMs={60_000}
                   compact
+                />
+              )}
+              {data?.meta && (
+                <UnifiedGradeChip
+                  chipId="watchlist-basket"
+                  // Watchlist basket rows come from the trusted-layer
+                  // multi-provider pipeline. Kite → KITE_TRADE_GRADE;
+                  // anything else lands at INFO_ONLY.
+                  source={data.meta.source === "kite" ? "kite" : data.meta.source === "yahoo" ? "yahoo" : "scanner_cache"}
+                  runtime={{
+                    hasData: true,
+                    asOf: data.meta.fetchedAt ?? null,
+                    isStale: Boolean(data.meta.isStale),
+                    fallbackUsed: data.meta.source !== "kite",
+                  }}
+                  note="Watchlist basket via central data layer (Kite-first, Yahoo/INDstocks fallback per symbol)."
                 />
               )}
             </div>

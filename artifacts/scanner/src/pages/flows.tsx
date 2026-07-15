@@ -9,6 +9,7 @@ import {
 } from "@/components/ui/table";
 import { ChevronDown, ChevronRight, TrendingUp, TrendingDown, Layers, Users, Building2, RefreshCw, Minus, Info } from "lucide-react";
 import { DataSourceBadge } from "@/components/ui/data-source-badge";
+import { UnifiedGradeChip } from "@/components/ui/unified-grade-chip";
 import {
   computeSegmentNet,
   SEGMENT_FORMULAS,
@@ -1077,7 +1078,17 @@ export default function FlowsPage() {
             FII / DII cash market activity (₹ Cr) and participant-wise derivative open interest. Sourced from NSE archives + niftytrader history; refreshed every 15 minutes.
           </p>
         </div>
-        <DataSourceBadge source="mixed" status="delayed" refreshMs={15 * 60 * 1000} note="EOD bhavcopy · NSE + niftytrader" />
+        <div className="flex items-center gap-2 flex-wrap">
+          <DataSourceBadge source="mixed" status="delayed" refreshMs={15 * 60 * 1000} note="EOD bhavcopy · NSE + niftytrader" />
+          {/* P1 unified vocabulary. FII/DII + participant OI are NSE EOD
+              archive data — canonical INFO_ONLY, never trade-grade. */}
+          <UnifiedGradeChip
+            chipId="flows-nse-archive"
+            source="nse_archive"
+            runtime={{ hasData: true }}
+            note="FII/DII cash market + participant OI — NSE EOD archives (T+1 semantics on newest bar). Informational, never a live decisioning quote."
+          />
+        </div>
       </div>
 
       <FiiDiiSection />

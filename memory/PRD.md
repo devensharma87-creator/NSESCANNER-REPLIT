@@ -47,6 +47,54 @@ in the first user message; prior bugs BUG-00..26 belong to the repo's own audit 
 - TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID (+ optional PREPOST_* pair).
 
 ## What's been implemented (dates)
+- 2026-07-15 (iteration 9 · Client-event telemetry + full UnifiedGradeChip rollout + P2 spec):
+  * **P2 Backtest / Replay Regression Harness spec drafted** →
+    `/app/memory/BACKTEST_REPLAY_HARNESS_SPEC.md`. Covers fixture format
+    (recorded Kite session with cryptographic sourceHash guard),
+    deterministic replay driver (simulated clock, seeded PRNG, isolated
+    Postgres, refused fallback providers), coverage targets (expiry-day
+    special mode, regime hysteresis, Kite outage, boot-storm backoff,
+    Phase-A→Phase-B rollout boundary), rollout in 4 phases (R1–R4, ~7
+    dev-days), and 5 acceptance-criteria questions for owner sign-off.
+    **Not implemented yet** — deliberately gated behind owner review of
+    the spec.
+  * **UnifiedGradeChip rolled out to all remaining data-source surfaces**:
+      - `flows.tsx` — FII/DII cash + participant OI (NSE archive → INFO_ONLY).
+      - `deep-scan.tsx` — mixed Kite LTP + Yahoo daily indicators (INFO_ONLY).
+      - `watchlist.tsx` — trusted-layer basket (Kite → KITE_TRADE_GRADE;
+        Yahoo/INDstocks → INFO_ONLY).
+      - `premarket.tsx` — pre-open signal breakdown (INFO_ONLY).
+      - `stocks-to-watch.tsx` — swing candidate daily bars (Kite live →
+        KITE_TRADE_GRADE; Yahoo/cache → INFO_ONLY).
+    Every chip placed side-by-side with the existing `DataSourceBadge`
+    for continuity — visual grammar spreads without removing anything
+    that already worked.
+  * **Client-event telemetry drain live**:
+      - New route `POST /api/observability/client-event`
+        (`src/routes/observability.ts`) — public, zod-clamped
+        discriminated union (kind = "unified_grade_downgrade"), 400 on
+        any deviation, 204 on accept. Kite-live → INFO_ONLY/UNAVAILABLE
+        /DELAYED_T_PLUS_1 transitions land as `logger.warn`; all other
+        transitions land as `logger.info` (full recovery timeline).
+      - Registered in `PUBLIC_ROUTES` (session-optional; the drain is
+        strictly not-secret and public tabs need it).
+      - New hook `useUnifiedGradeTelemetry` fires on any grade change
+        with 60s dedup per (chipId, from→to) transition. Uses
+        `navigator.sendBeacon` when available, `fetch keepalive: true`
+        as fallback. Fire-and-forget — never breaks the UI.
+      - Wired into `UnifiedGradeChip` — every chip in the app now
+        auto-reports downgrades without additional touches.
+  * **Live smoke** —
+      - Good payload: `POST /api/observability/client-event` → **204**;
+        WARN line pushed to pino: `chipId="scanner-boot"`,
+        `fromGrade="KITE_TRADE_GRADE"`, `toGrade="INFO_ONLY"`.
+      - Bad payload: **400** with structured Zod error.
+      - `GET /api/paper/account?segment=FNO&reconcile=1` still returns
+        `reconciled=true`, `driftAmount=0` — no Phase B regression.
+  * **Test totals** — Backend: **3401/3401** pass (up from 3394 — 7 new
+    observability contract tests). Frontend: **799/799**. Typecheck
+    clean on both apps.
+
 - 2026-07-15 (iteration 8 · P0 Phase B + UnifiedGradeChip extension):
   * **P0 Phase B — Durable charges deducted from ledger (owner-approved)**.
     Writer path now subtracts `chargesTotal` from `paper_account.balance`

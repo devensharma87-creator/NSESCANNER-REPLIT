@@ -33,6 +33,7 @@ import systemStatusRouter from "./systemStatus";
 import parityRouter from "./parity";
 import dataParityRouter from "./dataParity";
 import buildInfoRouter from "./buildInfo";
+import observabilityRouter from "./observability";
 import { startInstFlowsRefresher } from "../lib/instFlows";
 import { triggerKiteWarmup } from "../lib/kiteWarmup";
 import { scheduleBootJob, BOOT_STAGGER_MS } from "../lib/bootScheduler";
@@ -78,6 +79,7 @@ router.use(systemStatusRouter);         // /system/mode, /system/mode-override, 
 router.use(parityRouter);               // /parity/* — owner-only Deterministic Parity Verification Harness (dry_run, replay, status — no Telegram to real channel)
 router.use(dataParityRouter);           // /data-parity/* — owner-only Checkpoint 3 Data Parity API (requireOwnerStrict; cross-module symbol/index observation diff, read-only)
 router.use(buildInfoRouter);            // /build-info   — PUBLIC read-only build/deploy identity (no secrets; registered in PUBLIC_ROUTES)
+router.use(observabilityRouter);        // /observability/client-event — PUBLIC lean client-event drain (chip downgrades etc.); pino warn on Kite→INFO_ONLY transitions
 
 // Kick off background fetcher (FII/DII + participant OI) on first router import.
 // W6-P4A: staggered to the back of the cold-start window (heaviest boot job —

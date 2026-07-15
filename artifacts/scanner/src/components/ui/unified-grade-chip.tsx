@@ -21,6 +21,7 @@ import {
   type HomeSourceStatus,
   type HomeUnifiedGrade,
 } from "@/lib/homeMarketPulseSourceMap";
+import { useUnifiedGradeTelemetry } from "@/lib/useUnifiedGradeTelemetry";
 
 // Kept in sync with section-source-label.tsx.
 const UNIFIED_META: Record<HomeUnifiedGrade, { label: string; cls: string }> = {
@@ -167,6 +168,16 @@ export function UnifiedGradeChip({
       ? `${note} — ${warning}`
       : warning
     : note ?? "";
+
+  // Post a client-event to /api/observability/client-event whenever the
+  // derived grade transitions. Server treats KITE_TRADE_GRADE →
+  // INFO_ONLY/UNAVAILABLE/DELAYED_T_PLUS_1 as warn-tier so ops notices
+  // provider degradation without having to eyeball every chip.
+  useUnifiedGradeTelemetry({
+    chipId,
+    grade: resolved.grade,
+    source,
+  });
 
   return (
     <span

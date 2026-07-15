@@ -1,5 +1,6 @@
 import { useGetPreMarket, getGetPreMarketQueryKey } from "@workspace/api-client-react";
 import { DataSourceBadge } from "@/components/ui/data-source-badge";
+import { UnifiedGradeChip } from "@/components/ui/unified-grade-chip";
 import type { PreMarketReport } from "@workspace/api-client-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -293,7 +294,19 @@ function CompositeBiasHero({
           <div>
             <div className="flex items-center justify-between mb-2">
               <div className="text-[11px] font-mono uppercase tracking-wider text-muted-foreground">Signal Breakdown</div>
-              <DataSourceBadge source="mixed" status="delayed" lastUpdated={dataUpdatedAt} refreshMs={60_000} compact />
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <DataSourceBadge source="mixed" status="delayed" lastUpdated={dataUpdatedAt} refreshMs={60_000} compact />
+                {/* P1 unified vocabulary — pre-market analysis blends
+                    overnight GIFT-NIFTY / SGX cues, US closes, Asia opens,
+                    prior-session Kite closes. Always INFO_ONLY (no live
+                    quote to be trade-grade against). */}
+                <UnifiedGradeChip
+                  chipId="premarket-signal-breakdown"
+                  source="scanner_cache"
+                  runtime={{ hasData: true, asOf: dataUpdatedAt ?? null }}
+                  note="Pre-market breakdown blends overnight cues, US/Asia opens, prior-session Kite closes. Informational only — pre-open has no live tradeable quote."
+                />
+              </div>
             </div>
             {cb && cb.breakdown.length > 0 ? (
               <div className="space-y-1.5">

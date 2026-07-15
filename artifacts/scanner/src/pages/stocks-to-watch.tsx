@@ -6,6 +6,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { ExternalLink, TrendingUp, TrendingDown, RefreshCw, Calendar, Newspaper, BarChart3, ChevronDown, ChevronRight, Info } from "lucide-react";
 import { DataSourceBadge } from "@/components/ui/data-source-badge";
+import { UnifiedGradeChip } from "@/components/ui/unified-grade-chip";
 import { format, formatDistanceToNow, parseISO } from "date-fns";
 import { formatAge } from "@/lib/infraHealth";
 import {
@@ -192,15 +193,31 @@ function TechScanSection({ data, isLoading, error }: {
         const b = candleSourceBadge(data?.candleProvenance);
         if (b) {
           return (
-            <DataSourceBadge
-              source={b.source}
-              status={b.status}
-              lastUpdated={b.asOf}
-              fallbackActive={b.fallbackActive}
-              note={b.note}
-              autoStaleAfterMs={b.autoStaleAfterMs}
-              compact
-            />
+            <div className="flex items-center gap-2 flex-wrap">
+              <DataSourceBadge
+                source={b.source}
+                status={b.status}
+                lastUpdated={b.asOf}
+                fallbackActive={b.fallbackActive}
+                note={b.note}
+                autoStaleAfterMs={b.autoStaleAfterMs}
+                compact
+              />
+              {/* P1 unified vocabulary — same axis as Full Scanner boot.
+                  Kite live daily bars → KITE_TRADE_GRADE (rare on this page —
+                  Kite daily is only served for the current session);
+                  otherwise INFO_ONLY (Yahoo-daily or scanner-cache). */}
+              <UnifiedGradeChip
+                chipId="stocks-to-watch-daily-bars"
+                source={b.source === "kite" ? "kite" : b.source === "yahoo" ? "yahoo" : "scanner_cache"}
+                runtime={{
+                  hasData: true,
+                  asOf: b.asOf ?? null,
+                  fallbackUsed: Boolean(b.fallbackActive),
+                }}
+                note="Swing candidate daily bars. Kite live is trade-grade; Yahoo daily is INFO_ONLY."
+              />
+            </div>
           );
         }
         // Scan exists but THIS process didn't produce it (e.g. restarted) —

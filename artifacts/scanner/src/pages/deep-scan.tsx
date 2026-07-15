@@ -10,6 +10,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { SignalBadge } from "@/components/ui/signal-badge";
 import { ScoreBar } from "@/components/ui/score-bar";
 import { DataSourceBadge } from "@/components/ui/data-source-badge";
+import { UnifiedGradeChip } from "@/components/ui/unified-grade-chip";
 import { TrendlyneInsights } from "@/components/trendlyne-widget";
 import { QuickBuyEqDialog } from "@/components/quick-buy-eq-dialog";
 import {
@@ -229,8 +230,18 @@ export default function DeepScan() {
         <div className="text-center">
           <h1 className="text-2xl font-bold font-mono tracking-tight">DEEP SCAN</h1>
           <p className="text-xs text-muted-foreground font-mono">Search any NSE stock or Indian index — full chart, EMAs, VWAP, returns, fundamentals.</p>
-          <div className="mt-2 flex justify-center">
+          <div className="mt-2 flex justify-center items-center gap-2 flex-wrap">
             <DataSourceBadge source="mixed" status="delayed" refreshMs={30_000} note="Live Kite price quote · Yahoo daily history for indicators (delayed ~15 min) · server-computed signals" />
+            {/* P1 unified vocabulary. Deep-scan blends live Kite LTP with
+                Yahoo daily history for indicators — the combined result is
+                always INFO_ONLY (Kite live is only trade-grade in isolation,
+                and indicators derived from Yahoo lag). */}
+            <UnifiedGradeChip
+              chipId="deep-scan-mixed"
+              source="scanner_cache"
+              runtime={{ hasData: Boolean(snap) }}
+              note="Kite live LTP + Yahoo daily history for indicators. Combined view is INFO_ONLY — do not use raw indicator readings as trade-grade quotes."
+            />
           </div>
         </div>
 

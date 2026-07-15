@@ -79,3 +79,6 @@ tools/fno-backtester/data/*
 !tools/fno-backtester/data/SENSEX.csv
 tools/fno-backtester/backtest_trades_*.csv
 /.pgdata/
+*.env
+credentials.json
+.credentials
