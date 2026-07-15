@@ -35,8 +35,18 @@ import { logger } from "./logger";
  *   v1.0.0 — 2026-07-14: B.8 tagging introduced. Reconciliation identity
  *            + chargesEstimate readable but not persisted; no durable
  *            charges column yet.
+ *   v1.1.0-charges — 2026-07-14: P0 Phase A. Durable charges columns
+ *            stamped on close (gross/charges/net + status='CURRENT').
+ *            Balance still gross — chargesTotal was NOT subtracted from
+ *            paper_account.balance.
+ *   v1.2.0-ledger-net — 2026-07-15: P0 Phase B (owner-approved). Balance
+ *            writer path now subtracts chargesTotal on every close. The
+ *            reconciliation identity keys on charges_status: rows tagged
+ *            'CURRENT' contribute NET pnl (gross − charges) to the
+ *            identity; LEGACY_NOT_STORED rows contribute gross (their
+ *            historical balance write did not deduct charges).
  */
-export const CURRENT_WRITER_VERSION = "paper-writer-v1.1.0-charges";
+export const CURRENT_WRITER_VERSION = "paper-writer-v1.2.0-ledger-net";
 
 // ── P0 durable charges (Phase A) ────────────────────────────────────────
 

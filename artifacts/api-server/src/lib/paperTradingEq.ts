@@ -631,8 +631,10 @@ async function closePaperEquityTradeRow(
   const realizedPnl = (exitPrice - num(row.entryPrice)) * row.qty;
 
   // P0 Phase A — durable charges for equity delivery. Compute once at
-  // close and freeze into the row. Balance-side writer path is
-  // UNCHANGED in Phase A — reconciliation identity stays gross.
+  // close and freeze into the row. Phase B (2026-07-15, owner-approved):
+  // balance writer path ALSO subtracts _chargesTotal. Reconciliation
+  // identity keys on charges_status so LEGACY rows (which had no such
+  // deduction historically) don't produce false drift.
   const _buyTurnover = num(row.entryPrice) * row.qty;
   const _sellTurnover = exitPrice * row.qty;
   const _chargesBreakdown = computeEquityCharges(_buyTurnover, _sellTurnover, 1);
@@ -666,7 +668,11 @@ async function closePaperEquityTradeRow(
     await tx
       .update(paperAccountTable)
       .set({
-        balance: sql`${paperAccountTable.balance} + ${toDbNumeric(proceeds, 2)}::numeric`,
+        // P0 Phase B — net credit: proceeds − chargesTotal. Balance now
+        // reflects cash after brokerage(0 for CNC delivery), STT, exchange,
+        // SEBI, GST, stamp, DP charges. dayRealizedPnl stays GROSS for
+        // report continuity; per-row net_pnl carries the charges-adjusted P&L.
+        balance: sql`${paperAccountTable.balance} + ${toDbNumeric(proceeds - _chargesTotal, 2)}::numeric`,
         dayRealizedPnl: sql`${paperAccountTable.dayRealizedPnl} + ${toDbNumeric(realizedPnl, 2)}::numeric`,
         dayOpenCount: sql`GREATEST(${paperAccountTable.dayOpenCount} - 1, 0)`,
         updatedAt: now,

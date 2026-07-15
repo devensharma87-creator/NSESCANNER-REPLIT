@@ -20,10 +20,18 @@
  * it does not enter the reconciliation identity — an open trade's P&L
  * hasn't been realised.
  *
- * Charges are NOT yet subtracted from `paper_account.balance` in the
- * current writer path (see paperTradingFO.ts closePaperTradeForSignal),
- * so the identity above assumes gross settlement. When the charge model
- * (B.6/B.7) is wired end-to-end, a `chargesToday` term will land here.
+ * Charges: on 2026-07-15 (P0 Phase B, owner-approved), the writer path
+ * now subtracts `charges_total` from `paper_account.balance` on every
+ * close. The reconciliation identity keys on `charges_status`:
+ *
+ *   • CURRENT rows            → contribute NET pnl (realized_pnl − charges_total)
+ *   • LEGACY_NOT_STORED rows  → contribute GROSS pnl (historical balance
+ *                               write did not deduct charges; identity
+ *                               must not double-subtract them)
+ *
+ * Mixed ledgers therefore reconcile exactly. `chargesEstimate` still
+ * exposes the estimated schedule fingerprint for context, but the new
+ * `chargesActuallyDeducted` field is the authoritative sum from the DB.
  */
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
@@ -79,6 +87,17 @@ export interface ReconciliationResult {
   grossRealizedPnl: number;
   /** Estimated Net = Gross − chargesEstimate.estimatedTotal (lifetime). */
   estimatedNetRealizedPnl: number;
+  /** P0 Phase B — sum of `charges_total` across CLOSED rows tagged
+   *  `charges_status = 'CURRENT'`. This is the AUTHORITATIVE amount
+   *  the writer has actually deducted from `paper_account.balance`.
+   *  Distinct from `chargesEstimate` (which is a schedule-based
+   *  projection over ALL closed rows including legacy). */
+  chargesActuallyDeducted: number;
+  /** Net realized P&L computed from durable per-row `net_pnl` (CURRENT rows
+   *  only). LEGACY rows contribute their gross `realized_pnl` — because
+   *  their balance write never had charges applied. This is the exact
+   *  number used inside the identity. */
+  ledgerNetRealizedPnl: number;
 }
 
 /**
@@ -211,6 +230,8 @@ export async function reconcilePaperAccount(
         },
         grossRealizedPnl: 0,
         estimatedNetRealizedPnl: 0,
+        chargesActuallyDeducted: 0,
+        ledgerNetRealizedPnl: 0,
       };
     }
 
@@ -296,40 +317,50 @@ export async function reconcilePaperAccount(
       notes.push(`mark-to-market query failed: ${(err as Error).message}`);
     }
 
-    // Identity:
+    // Identity (P0 Phase B):
     // expected_balance = seed_capital
-    //   - deployed_today_still_open
-    //   + closed_today_returned  (capital_deployed + realized_pnl of closed rows today)
-    //   - carryover_still_open   (their capital is deployed and gone from cash)
+    //   - Σ(capital_deployed on all OPEN rows)
+    //   + Σ(realized_pnl on LEGACY closed rows — no charge deducted historically)
+    //   + Σ(realized_pnl − charges_total on CURRENT closed rows — writer deducted charges)
     //
-    // NOTE: on IST-day boundaries, the writer refills day counters — but
-    // NOT balance/seed. Balance is a rolling ledger. So the identity is:
-    // actual = seed - Σ(deployed on all OPEN rows) + Σ(realized_pnl on all CLOSED rows).
-    //
-    // Rewriting in terms of the queries above:
-    // expected = seed - (deployedTodayOpen + carryDeployed) + realized_lifetime
-    //
-    // We don't have realized_lifetime in one query — but for a fresh IST
-    // day where the writer resets nothing on balance, realized-today
-    // stands in for realised-since-seed IF seed itself was set at the
-    // start of the ledger. If the seed has been refilled at any point,
-    // the identity here surfaces the drift instead of hiding it.
-    //
-    // To make this bullet-proof, we sum realized_pnl across ALL closed
-    // rows for the segment (whole ledger, not just today):
+    // Concretely: `ledgerNetRealizedPnl` below == the second+third sums.
+    // Legacy rows keep their gross contribution (their historical balance
+    // write did NOT subtract charges), so the identity is exact even on
+    // a mixed ledger straddling the Phase-B rollout boundary.
     const lifetimeRes = await db.execute(sql.raw(`
-      SELECT COALESCE(SUM(realized_pnl), 0)::float AS pnl_lifetime,
-             COALESCE(SUM(capital_deployed), 0)::float AS deployed_lifetime_closed
+      SELECT
+        COALESCE(SUM(realized_pnl), 0)::float AS pnl_lifetime_gross,
+        COALESCE(SUM(
+          CASE WHEN charges_status = 'CURRENT' THEN COALESCE(charges_total, 0) ELSE 0 END
+        ), 0)::float AS charges_deducted_current,
+        COALESCE(SUM(
+          CASE
+            WHEN charges_status = 'CURRENT'
+              THEN realized_pnl - COALESCE(charges_total, 0)
+            ELSE realized_pnl
+          END
+        ), 0)::float AS pnl_lifetime_ledger_net,
+        COALESCE(SUM(capital_deployed), 0)::float AS deployed_lifetime_closed
         FROM ${table}
        WHERE status = 'CLOSED'
     `));
     const lifetimeRow = (lifetimeRes as unknown as {
-      rows: Array<{ pnl_lifetime: number; deployed_lifetime_closed: number }>;
-    }).rows[0] ?? { pnl_lifetime: 0, deployed_lifetime_closed: 0 };
+      rows: Array<{
+        pnl_lifetime_gross: number;
+        charges_deducted_current: number;
+        pnl_lifetime_ledger_net: number;
+        deployed_lifetime_closed: number;
+      }>;
+    }).rows[0] ?? {
+      pnl_lifetime_gross: 0,
+      charges_deducted_current: 0,
+      pnl_lifetime_ledger_net: 0,
+      deployed_lifetime_closed: 0,
+    };
 
     const totalOpenDeployed = Number(openedTodayRow.deployed) + Number(carryRow.deployed);
     const expectedBalance =
-      seedCapital - totalOpenDeployed + Number(lifetimeRow.pnl_lifetime);
+      seedCapital - totalOpenDeployed + Number(lifetimeRow.pnl_lifetime_ledger_net);
     const driftAmount = Number((actualBalance - expectedBalance).toFixed(2));
 
     // Tolerance: 1 paisa per row involved. Grows with row count to absorb
@@ -354,7 +385,7 @@ export async function reconcilePaperAccount(
     // — a query-column mismatch returns 0 with a note (never throws).
     let chargesTotal = 0;
     let chargesToday = 0;
-    let grossRealizedPnl = Number(lifetimeRow.pnl_lifetime);
+    let grossRealizedPnl = Number(lifetimeRow.pnl_lifetime_gross);
     try {
       if (segment === "FNO") {
         const notionalRes = await db.execute(sql`
@@ -452,6 +483,8 @@ export async function reconcilePaperAccount(
       },
       grossRealizedPnl,
       estimatedNetRealizedPnl: Number((grossRealizedPnl - chargesTotal).toFixed(2)),
+      chargesActuallyDeducted: Number(Number(lifetimeRow.charges_deducted_current).toFixed(2)),
+      ledgerNetRealizedPnl: Number(Number(lifetimeRow.pnl_lifetime_ledger_net).toFixed(2)),
     };
   } catch (err) {
     logger.warn(
@@ -485,6 +518,8 @@ export async function reconcilePaperAccount(
       },
       grossRealizedPnl: 0,
       estimatedNetRealizedPnl: 0,
+      chargesActuallyDeducted: 0,
+      ledgerNetRealizedPnl: 0,
     };
   }
 }

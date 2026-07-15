@@ -62,6 +62,8 @@ export interface ReconciliationSnapshot {
   };
   grossRealizedPnl: number;
   estimatedNetRealizedPnl: number;
+  chargesActuallyDeducted: number;
+  ledgerNetRealizedPnl: number;
 }
 
 function fmtInr(n: number | null | undefined, opts?: { sign?: boolean }): string {
@@ -192,7 +194,17 @@ export function LedgerHealthCard({ segment }: { segment: "FNO" | "EQUITY" }) {
             {fmtInr(state.snap.grossRealizedPnl, { sign: true })}
           </span>
 
-          <span className="text-muted-foreground">Est. charges (lifetime)</span>
+          <span className="text-muted-foreground">Charges deducted (P0 Phase B)</span>
+          <span className="text-right text-rose-300">
+            −{fmtInr(state.snap.chargesActuallyDeducted)}
+          </span>
+
+          <span className="text-muted-foreground font-bold">Ledger NET realized P&amp;L</span>
+          <span className="text-right font-bold">
+            {fmtInr(state.snap.ledgerNetRealizedPnl, { sign: true })}
+          </span>
+
+          <span className="text-muted-foreground">Est. charges (all closed rows)</span>
           <span className="text-right">
             −{fmtInr(state.snap.chargesEstimate.estimatedTotal)}
           </span>
@@ -203,7 +215,10 @@ export function LedgerHealthCard({ segment }: { segment: "FNO" | "EQUITY" }) {
           </span>
 
           <span className="col-span-2 text-[10px] text-muted-foreground/70 pt-1">
-            Charges are an estimate (schedule {state.snap.chargesEstimate.schedule}) — ledger records gross P&amp;L only.
+            P0 Phase B live — writer subtracts charges on close. Ledger NET is the
+            authoritative figure (schedule {state.snap.chargesEstimate.schedule}); the
+            estimate is retained as a schedule-based projection over all closed rows
+            including any pre-Phase-B legacy trades.
           </span>
 
           {state.snap.notes.length > 0 && (

@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { TrendingUp, TrendingDown, Activity } from "lucide-react";
 import { SignalBadge } from "@/components/ui/signal-badge";
 import { DataSourceBadge } from "@/components/ui/data-source-badge";
+import { UnifiedGradeChip } from "@/components/ui/unified-grade-chip";
 
 export default function Sectors() {
   const { data, isLoading } = useListSectors({
@@ -29,6 +30,20 @@ export default function Sectors() {
             SECTOR ROTATION
           </h1>
           <DataSourceBadge source="mixed" status="live" refreshMs={60_000} note="constituent quotes + sectoral indices" />
+        </div>
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* P1 unified vocabulary. Sector rollups blend Kite quotes with
+              scanner cache — they are informational rankings, not tradeable
+              quotes, so this always resolves to INFO_ONLY. */}
+          <span className="text-[10px] uppercase text-muted-foreground font-mono tracking-wider">
+            Rollup grade:
+          </span>
+          <UnifiedGradeChip
+            chipId="sectors-rollup"
+            source="scanner_cache"
+            runtime={{ hasData: Boolean(sectors && sectors.length > 0) }}
+            note="Sector rollups computed from scanner universe (Kite-first, Yahoo fallback per row). Ranking is contextual — never a decisioning quote."
+          />
         </div>
         <p className="text-muted-foreground text-sm max-w-2xl">
           Analyze money flow across industry groups. Sectors with higher average scores exhibit stronger collective technical momentum.

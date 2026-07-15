@@ -2510,9 +2510,11 @@ export async function closePaperTradeForSignal(
   const now = new Date();
 
   // P0 Phase A — durable charges. Compute once at close, freeze into
-  // the row. Balance-side writer path is UNCHANGED in Phase A (owner
-  // approval Q4=b) — reconciliation identity still gross. LEGACY rows
-  // pre-P0 keep NULL and charges_status = LEGACY_NOT_STORED.
+  // the row. Phase B (2026-07-15, owner-approved): balance writer path
+  // ALSO subtracts _chargesTotal so `paper_account.balance` reflects
+  // net-of-charges reality. Legacy rows (charges_status IS NULL) had
+  // no such deduction — the reconciliation identity keys on that flag
+  // so the mixed-ledger case is still exact.
   const _fnoCost = computeFnoTradeCost({
     entryPremium: num(r.entryPremium),
     exitPremium,
@@ -2555,7 +2557,12 @@ export async function closePaperTradeForSignal(
     await tx
       .update(paperAccountTable)
       .set({
-        balance: sql`${paperAccountTable.balance} + ${toDbNumeric(proceeds, 2)}::numeric`,
+        // P0 Phase B — net credit: proceeds − chargesTotal. Balance now
+        // reflects cash after all round-trip charges (brokerage, STT,
+        // exchange, SEBI, GST, stamp). dayRealizedPnl remains GROSS so
+        // report semantics don't shift; the charges-adjusted view is
+        // available via the durable per-row net_pnl column.
+        balance: sql`${paperAccountTable.balance} + ${toDbNumeric(proceeds - _chargesTotal, 2)}::numeric`,
         dayRealizedPnl: sql`${paperAccountTable.dayRealizedPnl} + ${toDbNumeric(realizedPnl, 2)}::numeric`,
         dayOpenCount: sql`GREATEST(${paperAccountTable.dayOpenCount} - 1, 0)`,
         updatedAt: now,

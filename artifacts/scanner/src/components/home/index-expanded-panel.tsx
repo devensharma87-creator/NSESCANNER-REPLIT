@@ -1,5 +1,6 @@
 import type { IndexBoardItem, HomeIndexEnrichment, IndexAnalyticsProvenance } from "@workspace/api-client-react";
 import { Sparkline, computeBiasScore } from "./index-tabs";
+import { UnifiedGradeChip } from "@/components/ui/unified-grade-chip";
 
 function fmt(n: number | null | undefined, digits = 2): string {
   if (n == null || !Number.isFinite(n)) return "—";
@@ -465,23 +466,46 @@ export default function IndexExpandedPanel({
 function AnalyticsProvenanceNote({ analytics }: { analytics: IndexAnalyticsProvenance }) {
   const { trustTier, sourceProvider, delayed, missingReason, isStale, warnings } = analytics;
 
+  // P1 unified vocabulary. The tier badge below is now driven by the
+  // canonical HomeUnifiedGrade axis: Kite live authoritative →
+  // KITE_TRADE_GRADE; Yahoo/delayed → INFO_ONLY; unavailable →
+  // UNAVAILABLE. Rest of the footer (missing reason, warnings) is
+  // preserved verbatim for continuity.
+  const source: "kite" | "yahoo" | "missing" =
+    trustTier === "unavailable"
+      ? "missing"
+      : sourceProvider === "kite"
+        ? "kite"
+        : "yahoo";
+  const chip = (
+    <UnifiedGradeChip
+      chipId="index-analytics-provenance"
+      source={source}
+      runtime={{
+        hasData: trustTier !== "unavailable",
+        fallbackUsed: sourceProvider !== "kite",
+        isStale: Boolean(isStale),
+      }}
+      note="Chart-derived analytics: 52W range, EMAs, pivots, VWAP. Kite live is trade-grade; anything else is informational."
+      warning={missingReason ?? undefined}
+    />
+  );
+
   if (trustTier === "unavailable") {
     return (
-      <div className="px-4 py-2 border-t border-border/70 bg-muted/30 text-[11px] text-muted-foreground leading-snug">
-        Analytics (52W · EMAs · pivots · VWAP): {missingReason ?? "unavailable"}.
-        {warnings.length > 0 && <> {warnings.join(" · ")}</>}
+      <div className="px-4 py-2 border-t border-border/70 bg-muted/30 text-[11px] text-muted-foreground leading-snug flex flex-wrap items-center gap-x-2 gap-y-0.5">
+        {chip}
+        <span>Analytics (52W · EMAs · pivots · VWAP): {missingReason ?? "unavailable"}.</span>
+        {warnings.length > 0 && <span>{warnings.join(" · ")}</span>}
       </div>
     );
   }
 
   const providerLabel = sourceProvider === "kite" ? "Zerodha (live)" : sourceProvider === "yahoo" ? "Yahoo (delayed)" : "secondary source";
-  const tierLabel = trustTier === "authoritative" ? "Trusted" : "Reference only — not for signals/trade decisions";
 
   return (
     <div className="px-4 py-2 border-t border-border/70 bg-muted/30 text-[11px] text-muted-foreground leading-snug flex flex-wrap items-center gap-x-2 gap-y-0.5">
-      <span className={`font-semibold px-1.5 py-0.5 rounded border ${trustTier === "authoritative" ? "text-emerald-500 border-emerald-500/30 bg-emerald-500/10" : "text-amber-500 border-amber-500/30 bg-amber-500/10"}`}>
-        {tierLabel}
-      </span>
+      {chip}
       <span>Analytics source: {providerLabel}{delayed && sourceProvider !== "yahoo" ? " · delayed" : ""}.</span>
       {isStale && <span className="text-amber-500">Stale — last bar is several days old.</span>}
       {warnings.length > 0 && <span>{warnings.join(" · ")}</span>}

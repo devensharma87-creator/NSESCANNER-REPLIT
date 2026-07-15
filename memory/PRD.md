@@ -47,6 +47,54 @@ in the first user message; prior bugs BUG-00..26 belong to the repo's own audit 
 - TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID (+ optional PREPOST_* pair).
 
 ## What's been implemented (dates)
+- 2026-07-15 (iteration 8 · P0 Phase B + UnifiedGradeChip extension):
+  * **P0 Phase B — Durable charges deducted from ledger (owner-approved)**.
+    Writer path now subtracts `chargesTotal` from `paper_account.balance`
+    on every close in the SAME txn that credits `proceeds`. Applies to
+    `paperTradingFO.closePaperTradeForSignal` and
+    `paperTradingEq.closePaperEquityTradeRow`. `dayRealizedPnl` stays
+    GROSS to preserve report continuity — the charges-adjusted view is
+    carried by the durable per-row `net_pnl` column stamped in Phase A.
+  * **Reconciliation identity updated** — `paperAccountReconciliation.ts`
+    now keys on `charges_status`:
+      - `CURRENT` rows → contribute NET pnl (`realized_pnl − charges_total`)
+      - `LEGACY_NOT_STORED` rows → contribute GROSS pnl (their historical
+        balance write never had charges applied)
+    Mixed ledgers straddling the Phase-B rollout boundary reconcile
+    exactly. New fields on the API: `chargesActuallyDeducted` (authoritative
+    sum from DB) and `ledgerNetRealizedPnl` (the exact number in the
+    identity). `chargesEstimate` retained for context.
+  * **Writer version bumped** — `paper-writer-v1.1.0-charges` →
+    `paper-writer-v1.2.0-ledger-net`. Every Phase-B write is
+    forensically identifiable.
+  * **Test coverage** — `durableChargesPhaseB.test.ts` (5 tests): pure-
+    CURRENT ledger, pure-LEGACY ledger, MIXED ledger straddling rollout,
+    CURRENT-row-with-null-charges (defensive), empty ledger. Identity
+    holds to ≤ 0.01 in all cases.
+  * **LedgerHealthCard UI** updated to surface the new authoritative
+    fields ("Ledger NET realized P&L", "Charges deducted (Phase B)") next
+    to the schedule-based estimate; footer copy updated to reflect Phase B
+    is live.
+  * **UnifiedGradeChip extended to three more surfaces**:
+      - `pages/scanner.tsx` (Full Scanner boot) — `source="kite"` with
+        `fallbackUsed = fullMeta.kiteOffline`, chipId=`scanner-boot`.
+      - `pages/sectors.tsx` (Sectoral heatmap index) — `source="scanner_cache"`
+        (always INFO_ONLY — sector aggregates are contextual), chipId=`sectors-rollup`.
+      - `pages/sector-detail.tsx` — same INFO_ONLY axis, chipId
+        derived per sector name.
+      - `components/home/index-expanded-panel.tsx` `AnalyticsProvenanceNote`
+        — the custom trust-tier badge is replaced by the canonical
+        `UnifiedGradeChip` (Kite live → KITE_TRADE_GRADE; Yahoo/delayed →
+        INFO_ONLY; unavailable → UNAVAILABLE). Missing-reason + warnings
+        copy preserved verbatim.
+  * **Live smoke** — api-server restarted, `/api/paper/account?segment=FNO`
+    returns `chargesActuallyDeducted=0`, `ledgerNetRealizedPnl=0`,
+    `reconciled=true`, `driftAmount=0` (fresh ledger). EQUITY segment
+    also reconciled=true.
+  * **Test totals** — Backend: **3394/3394** pass (up from 3389 — 5 new
+    Phase B identity tests). Frontend: **799/799** pass. Typecheck clean
+    on both api-server and scanner.
+
 - 2026-07-15 (iteration 7 · P1 unified chip vocabulary + preset test fix):
   * **P0 Phase A verified end-to-end** — `durableChargesIdentity.test.ts` 4/4 pass;
     `GET /api/paper/account?segment=FNO&reconcile=1` returns the durable

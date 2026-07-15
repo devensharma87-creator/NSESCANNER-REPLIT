@@ -5,6 +5,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Skeleton } from "@/components/ui/skeleton";
 import { SignalBadge } from "@/components/ui/signal-badge";
 import { ScoreBar } from "@/components/ui/score-bar";
+import { UnifiedGradeChip } from "@/components/ui/unified-grade-chip";
 import { ArrowLeft, TrendingUp, TrendingDown } from "lucide-react";
 
 export default function SectorDetail() {
@@ -22,7 +23,18 @@ export default function SectorDetail() {
         <Link href="/sectors" className="inline-flex items-center gap-1.5 text-xs font-mono text-muted-foreground hover:text-foreground transition-colors">
           <ArrowLeft className="w-3.5 h-3.5" /> ALL SECTORS
         </Link>
-        <h1 className="text-2xl font-bold font-mono tracking-tight mt-2">{sectorName.toUpperCase()}</h1>
+        <div className="flex items-center gap-3 flex-wrap mt-2">
+          <h1 className="text-2xl font-bold font-mono tracking-tight">{sectorName.toUpperCase()}</h1>
+          {/* P1 unified vocabulary — sector detail rolls up scanner-universe
+              constituents (Kite-first, Yahoo fallback per row). Aggregate is
+              contextual (INFO_ONLY), never a decisioning quote. */}
+          <UnifiedGradeChip
+            chipId={`sector-detail-${sectorName.toLowerCase().replace(/\s+/g, "-")}`}
+            source="scanner_cache"
+            runtime={{ hasData: Boolean(data) }}
+            note="Sector aggregate computed from scanner-universe constituents (Kite-first, Yahoo fallback). Context only — never a trade-decisioning quote."
+          />
+        </div>
       </div>
 
       {isLoading || !data ? (

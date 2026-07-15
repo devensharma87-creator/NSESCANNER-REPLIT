@@ -13,6 +13,7 @@ import { useState, useMemo, useEffect, useDeferredValue, useRef, memo } from "re
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { DataSourceBadge } from "@/components/ui/data-source-badge";
+import { UnifiedGradeChip } from "@/components/ui/unified-grade-chip";
 import type { StockRow } from "@workspace/api-client-react";
 import { useQuery } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
@@ -603,6 +604,20 @@ export default function ScannerPage() {
               autoStaleAfterMs={120_000}
               note={fullMeta?.kiteOffline ? "Kite session offline — Yahoo backup active" : undefined}
               compact
+            />
+            {/* P1 unified vocabulary — same axis as Home Market Pulse.
+                Kite live → KITE_TRADE_GRADE; Kite offline (Yahoo fallback)
+                → INFO_ONLY; scan never landed → UNAVAILABLE. */}
+            <UnifiedGradeChip
+              chipId="scanner-boot"
+              source="kite"
+              runtime={{
+                hasData: Boolean(fullMeta),
+                asOf: fullMeta?.lastUpdated ?? null,
+                fallbackUsed: !!fullMeta?.kiteOffline,
+              }}
+              note="Full-scanner LTP + indicators. Kite live is trade-grade; Yahoo backup path degrades the chip to INFO_ONLY."
+              warning={fullMeta?.kiteOffline ? "Kite offline — Yahoo backup active. Not trade-grade." : undefined}
             />
           </div>
           <p className="text-sm text-muted-foreground">
