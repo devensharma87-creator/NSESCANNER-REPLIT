@@ -531,6 +531,16 @@ export interface PostMarketFno {
   tradesClosed: number;
   openCount: number;
   totalPnl: number | null;
+  /** P0 Phase A — total charges (canonical model) across trades closed today.
+   *  Null when no closed trades today. */
+  totalCharges: number | null;
+  /** P0 Phase A — total net P&L (gross − charges) across trades closed today. */
+  totalNetPnl: number | null;
+  /** Count of today's closed rows whose charges are DB-durable (CURRENT vs LEGACY). */
+  chargesCoverage: {
+    current: number;
+    legacy: number;
+  };
 }
 
 export interface PostMarketSwing {
@@ -664,6 +674,30 @@ export function buildPostMarketReport(data: PostMarketReportData): string {
         lines.push(`F&O realized P&L: ₹${sign}${data.fno.totalPnl.toLocaleString("en-IN")}`);
       } else {
         lines.push("F&O realized P&L: Unavailable");
+      }
+      // P0 Phase A — net P&L + charges. Only surfaced when at least one
+      // CURRENT (durable-charges) row was closed today; if ALL closed rows
+      // are LEGACY (pre-P0), we honestly say so and skip the net line
+      // rather than mixing a partial net with unlabelled charges.
+      if (data.fno.chargesCoverage.current > 0) {
+        if (data.fno.totalCharges != null) {
+          lines.push(
+            `F&O charges (durable, ${data.fno.chargesCoverage.current} trade${data.fno.chargesCoverage.current === 1 ? "" : "s"}): ₹-${data.fno.totalCharges.toLocaleString("en-IN")}`,
+          );
+        }
+        if (data.fno.totalNetPnl != null) {
+          const sign = data.fno.totalNetPnl >= 0 ? "+" : "";
+          lines.push(`F&O net realized P&L: ₹${sign}${data.fno.totalNetPnl.toLocaleString("en-IN")}`);
+        }
+        if (data.fno.chargesCoverage.legacy > 0) {
+          lines.push(
+            `  (${data.fno.chargesCoverage.legacy} legacy trade${data.fno.chargesCoverage.legacy === 1 ? "" : "s"} closed today NOT included in net — pre-P0 rows carry no durable charges)`,
+          );
+        }
+      } else if (data.fno.chargesCoverage.legacy > 0) {
+        lines.push(
+          `F&O charges: not stored (${data.fno.chargesCoverage.legacy} legacy pre-P0 trade${data.fno.chargesCoverage.legacy === 1 ? "" : "s"} closed today)`,
+        );
       }
     }
   } else {
@@ -986,11 +1020,54 @@ export async function gatherPostMarketData(
     const openRows = (await db.execute(sql`
       SELECT COUNT(*)::int AS n FROM paper_trade_fo WHERE status = 'OPEN'
     `)) as unknown as { rows: Array<{ n: number | string }> };
+
+    // P0 Phase A — today's charges + net P&L, sourced strictly from
+    // durable DB columns. `charges_total` and `net_pnl` are NULL for
+    // pre-P0 (LEGACY_NOT_STORED) rows; SUM(NULL) → NULL, and we count
+    // CURRENT vs LEGACY separately so the recipient can see coverage.
+    const istDayIso = date; // "YYYY-MM-DD" IST
+    const dayStartUtc = new Date(`${istDayIso}T00:00:00+05:30`).toISOString();
+    const [y, m, d] = istDayIso.split("-").map(Number) as [number, number, number];
+    const nextIst = new Date(Date.UTC(y, m - 1, d + 1));
+    const dayEndUtc = new Date(nextIst.getTime() - 5.5 * 60 * 60 * 1000).toISOString();
+    const chargesRes = (await db.execute(sql`
+      SELECT
+        SUM(charges_total) FILTER (WHERE charges_status = 'CURRENT') AS total_charges,
+        SUM(net_pnl)       FILTER (WHERE charges_status = 'CURRENT') AS total_net_pnl,
+        COUNT(*) FILTER (WHERE charges_status = 'CURRENT')::int AS n_current,
+        COUNT(*) FILTER (WHERE charges_status IS DISTINCT FROM 'CURRENT')::int AS n_legacy
+        FROM paper_trade_fo
+       WHERE status = 'CLOSED'
+         AND exited_at >= ${dayStartUtc}
+         AND exited_at <  ${dayEndUtc}
+    `)) as unknown as {
+      rows: Array<{
+        total_charges: string | number | null;
+        total_net_pnl: string | number | null;
+        n_current: number;
+        n_legacy: number;
+      }>;
+    };
+    const cRow = chargesRes.rows[0] ?? {
+      total_charges: null,
+      total_net_pnl: null,
+      n_current: 0,
+      n_legacy: 0,
+    };
+    const totalCharges = cRow.total_charges == null ? null : Number(cRow.total_charges);
+    const totalNetPnl = cRow.total_net_pnl == null ? null : Number(cRow.total_net_pnl);
+
     fno = {
       tradesOpened: summary.tradesOpened,
       tradesClosed: summary.tradesClosed,
       openCount: Number(openRows.rows[0]?.n ?? 0),
       totalPnl: summary.pnl.total,
+      totalCharges,
+      totalNetPnl,
+      chargesCoverage: {
+        current: Number(cRow.n_current ?? 0),
+        legacy: Number(cRow.n_legacy ?? 0),
+      },
     };
   } catch (err) {
     logger.warn({ err: (err as Error).message }, "dailyReports: gatherPostMarketData fno section failed");

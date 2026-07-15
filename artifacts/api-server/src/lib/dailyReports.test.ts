@@ -434,6 +434,9 @@ const healthyPostFno: PostMarketFno = {
   tradesClosed: 2,
   openCount: 1,
   totalPnl: 4200,
+  totalCharges: null,
+  totalNetPnl: null,
+  chargesCoverage: { current: 0, legacy: 0 },
 };
 
 const zeroTradesFno: PostMarketFno = {
@@ -441,6 +444,9 @@ const zeroTradesFno: PostMarketFno = {
   tradesClosed: 0,
   openCount: 0,
   totalPnl: 0,
+  totalCharges: null,
+  totalNetPnl: null,
+  chargesCoverage: { current: 0, legacy: 0 },
 };
 
 const zeroPnlWithTradesFno: PostMarketFno = {
@@ -448,6 +454,9 @@ const zeroPnlWithTradesFno: PostMarketFno = {
   tradesClosed: 2,
   openCount: 0,
   totalPnl: 0,
+  totalCharges: null,
+  totalNetPnl: null,
+  chargesCoverage: { current: 0, legacy: 0 },
 };
 
 const nullPnlFno: PostMarketFno = {
@@ -455,6 +464,9 @@ const nullPnlFno: PostMarketFno = {
   tradesClosed: 0,
   openCount: 2,
   totalPnl: null,
+  totalCharges: null,
+  totalNetPnl: null,
+  chargesCoverage: { current: 0, legacy: 0 },
 };
 
 const healthyPostSwing: PostMarketSwing = {
@@ -647,7 +659,11 @@ describe("buildPostMarketReport — F&O paper unavailable", () => {
 
 describe("buildPostMarketReport — negative P&L", () => {
   it("shows negative P&L with minus sign", () => {
-    const data = makePostMarket({ fno: { ...healthyPostFno, totalPnl: -1500 } });
+    const data = makePostMarket({ fno: { ...healthyPostFno, totalPnl: -1500,
+        totalCharges: null,
+        totalNetPnl: null,
+        chargesCoverage: { current: 0, legacy: 0 },
+      } });
     const text = buildPostMarketReport(data);
     expect(text).toContain("F&O realized P&L: ₹-1,500");
   });

@@ -107,6 +107,11 @@ export interface EquityTradeDetailRow {
   realizedPnl: number;
   charges: number;
   netPnl: number;
+  /** P0 durable-charges tag. `CURRENT` = row was stamped at close; charges +
+   *  netPnl are authoritative. `LEGACY_NOT_STORED` = pre-P0 row; recomputed
+   *  on read via the current canonical model. `RECONSTRUCTED_FROM_CURRENT_MODEL`
+   *  reserved for a future owner-approved back-fill. */
+  chargesStatus: "CURRENT" | "LEGACY_NOT_STORED" | "RECONSTRUCTED_FROM_CURRENT_MODEL";
   /** Planned R = (entry - stop) per share, always positive for a long. */
   plannedRiskPerShare: number;
   /** Achieved (exit - entry) per share. */
@@ -130,7 +135,7 @@ function istDateOf(d: Date): string {
   return new Date(d.getTime() + 5.5 * 60 * 60 * 1000).toISOString().slice(0, 10);
 }
 
-function rowToDetail(r: PaperTradeEqRow): EquityTradeDetailRow {
+export function rowToDetail(r: PaperTradeEqRow): EquityTradeDetailRow {
   if (r.status !== "CLOSED") {
     throw new Error(`paper_trade_eq ${r.id}: report row must have status=CLOSED, got ${r.status}`);
   }
@@ -146,7 +151,24 @@ function rowToDetail(r: PaperTradeEqRow): EquityTradeDetailRow {
   const realized = requireNum(r.realizedPnl, "realizedPnl", r.id);
   const buyTurnover = entry * r.qty;
   const sellTurnover = exit * r.qty;
-  const charges = computeEquityCharges(buyTurnover, sellTurnover, 1).total;
+  // P0 Phase A — prefer DB-stored charges when CURRENT; recompute for LEGACY.
+  const chargesStatusRaw = ((r as unknown as { chargesStatus?: string | null }).chargesStatus ?? null);
+  const storedChargesTotal = (r as unknown as { chargesTotal?: string | number | null }).chargesTotal;
+  const storedNetPnl = (r as unknown as { netPnl?: string | number | null }).netPnl;
+  const charges =
+    chargesStatusRaw === "CURRENT" && storedChargesTotal != null
+      ? Number(storedChargesTotal)
+      : computeEquityCharges(buyTurnover, sellTurnover, 1).total;
+  const netPnl =
+    chargesStatusRaw === "CURRENT" && storedNetPnl != null
+      ? Number(storedNetPnl)
+      : realized - charges;
+  const chargesStatus: "CURRENT" | "LEGACY_NOT_STORED" | "RECONSTRUCTED_FROM_CURRENT_MODEL" =
+    chargesStatusRaw === "CURRENT"
+      ? "CURRENT"
+      : chargesStatusRaw === "RECONSTRUCTED_FROM_CURRENT_MODEL"
+      ? "RECONSTRUCTED_FROM_CURRENT_MODEL"
+      : "LEGACY_NOT_STORED";
   const plannedRiskPerShare = Math.abs(entry - stop);
   const achievedPerShare = exit - entry;
   const rMultiple = plannedRiskPerShare > 0 ? achievedPerShare / plannedRiskPerShare : 0;
@@ -181,7 +203,8 @@ function rowToDetail(r: PaperTradeEqRow): EquityTradeDetailRow {
     capitalDeployed: requireNum(r.capitalDeployed, "capitalDeployed", r.id),
     realizedPnl: realized,
     charges,
-    netPnl: realized - charges,
+    netPnl,
+    chargesStatus,
     plannedRiskPerShare,
     achievedPerShare,
     rMultiple,

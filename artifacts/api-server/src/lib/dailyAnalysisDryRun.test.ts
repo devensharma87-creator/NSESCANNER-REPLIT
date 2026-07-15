@@ -211,7 +211,11 @@ describe("GAP-1 Telegram dry-run: post-market report payload", () => {
       datetimeStr: "10 Jul 2026 15:45",
       isWeekend: false,
       canonicalFno: READY_CANONICAL_FNO,
-      fno: { tradesOpened: 3, tradesClosed: 2, openCount: 1, totalPnl: 4250.0 },
+      fno: { tradesOpened: 3, tradesClosed: 2, openCount: 1, totalPnl: 4250.0,
+        totalCharges: null,
+        totalNetPnl: null,
+        chargesCoverage: { current: 0, legacy: 0 },
+      },
       swing: {
         pending: 1,
         approved: 2,

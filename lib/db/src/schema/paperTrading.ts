@@ -227,6 +227,30 @@ export const paperTradeFoTable = pgTable(
      * (paperTradeWriterVersion.ts).
      */
     writerVersion: text("writer_version"),
+
+    // ── P0 durable charges (2026-07-14 Phase A) ───────────────────────
+    // Every column below is additive, nullable, applied via idempotent
+    // `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` (see
+    // ensurePaperTradeChargesColumns). LEGACY rows carry NULL for the
+    // whole group + charges_status='LEGACY_NOT_STORED' and are NEVER
+    // back-filled without explicit owner approval (approved policy Q3=a).
+    // Semantics stamped at close time:
+    //   gross_pnl              — copy of realized_pnl at close (gross).
+    //   charges_total          — canonical model output at close time.
+    //   charges_breakdown_json — full itemised detail (brokerage/STT/gst/...).
+    //   charges_model_version  — e.g. FNO_V1_2026Q1 / EQ_CNC_V1_2026Q1.
+    //   charges_calculated_at  — when the writer stamped the columns.
+    //   net_pnl                — gross_pnl − charges_total, frozen.
+    //   charges_status         — CURRENT | LEGACY_NOT_STORED | RECONSTRUCTED_FROM_CURRENT_MODEL
+    // The paper_account.balance writer path is NOT changed in Phase A;
+    // reconciliation identity is unchanged (approved policy Q4=b).
+    grossPnl: numeric("gross_pnl", { precision: 18, scale: 2 }),
+    chargesTotal: numeric("charges_total", { precision: 18, scale: 2 }),
+    chargesBreakdownJson: jsonb("charges_breakdown_json"),
+    chargesModelVersion: text("charges_model_version"),
+    chargesCalculatedAt: timestamp("charges_calculated_at", { withTimezone: true }),
+    netPnl: numeric("net_pnl", { precision: 18, scale: 2 }),
+    chargesStatus: text("charges_status"),
   },
   (t) => ({
     // 1:1 with the underlying signal — prevents the lifecycle hook from
@@ -358,6 +382,15 @@ export const paperTradeEqTable = pgTable(
      * IF NOT EXISTS` in `ensurePaperTradeWriterVersionColumn()`.
      */
     writerVersion: text("writer_version"),
+
+    // ── P0 durable charges (see paperTradeFoTable for full doc) ────────
+    grossPnl: numeric("gross_pnl", { precision: 18, scale: 2 }),
+    chargesTotal: numeric("charges_total", { precision: 18, scale: 2 }),
+    chargesBreakdownJson: jsonb("charges_breakdown_json"),
+    chargesModelVersion: text("charges_model_version"),
+    chargesCalculatedAt: timestamp("charges_calculated_at", { withTimezone: true }),
+    netPnl: numeric("net_pnl", { precision: 18, scale: 2 }),
+    chargesStatus: text("charges_status"),
   },
   (t) => ({
     // One open trade per symbol per IST day.

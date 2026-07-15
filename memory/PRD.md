@@ -47,6 +47,39 @@ in the first user message; prior bugs BUG-00..26 belong to the repo's own audit 
 - TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID (+ optional PREPOST_* pair).
 
 ## What's been implemented (dates)
+- 2026-07-14 (iteration 6 · P0 Phase A): Durable charges column path COMPLETE.
+  * **Schema (additive nullable, zero destructive migration)**: 7 new columns on
+    `paper_trade_fo`, `paper_trade_eq`, `paper_trade_combo` — `gross_pnl`,
+    `charges_total`, `charges_breakdown_json`, `charges_model_version`,
+    `charges_calculated_at`, `net_pnl`, `charges_status`. `writer_version` also
+    added to `paper_trade_combo` for parity. All applied via idempotent
+    `ALTER TABLE ADD COLUMN IF NOT EXISTS` in `ensurePaperTradeChargesColumns()`,
+    hooked into boot at 16 s via `scheduleBootJob`.
+  * **Writer path** (`paperTradingFO.closePaperTradeForSignal`,
+    `paperTradingEq.close*`): every close now stamps all seven columns.
+    Charges computed once at close via canonical model (`computeFnoTradeCost` +
+    `mapCostToChargesBreakdown` for FO; `computeEquityCharges` for equity).
+    `chargesStatus = "CURRENT"` on all new writes. Balance-side path UNCHANGED
+    per owner approval Q4=b — reconciliation identity remains gross in Phase A.
+  * **CURRENT_WRITER_VERSION** bumped to `paper-writer-v1.1.0-charges` so
+    consumers can key the durable-charges era off the writer_version tag.
+  * **Report layer** (`paperReportsFO`, `paperReportsEq`): prefers DB-stored
+    charges + net when `chargesStatus === "CURRENT"`; recomputes via canonical
+    model when LEGACY. New `chargesStatus` field surfaced on every trade
+    detail row so the UI can flag legacy rows visibly.
+  * **Post-market Telegram**: F&O block now adds `F&O charges (durable, N trades):
+    ₹-X` + `F&O net realized P&L: ₹±Y` lines when at least one CURRENT row
+    closed today. LEGACY rows counted separately with explicit "NOT included in
+    net" footnote.
+  * **Legacy row policy**: pre-P0 rows carry `chargesStatus = "LEGACY_NOT_STORED"`
+    and are NEVER back-filled without owner approval.
+  * **Reconciliation identity**: UNCHANGED in Phase A per owner approval — Phase B
+    (balance-side decrement + seed refill migration) requires separate approval.
+  * **Tests**: new `durableChargesIdentity.test.ts` (4 tests — FO CURRENT, FO
+    LEGACY, EQ CURRENT, EQ LEGACY, all prove `realizedPnl − charges = netPnl`).
+    All pass. `dailyReports.test.ts` updated for new PostMarketFno shape
+    (117/117). Typecheck clean api-server + scanner + lib/db. Migration verified
+    in DB — 21 columns present (3 tables × 7 charges columns).
 - 2026-07-14 (iteration 5): Full technical audit + dead-code cleanup.
   * **Audit doc**: new `/app/memory/AUDIT_2026_07_14.md` capturing the
     zero-compromise verification — every trade-grade path stays on Kite,

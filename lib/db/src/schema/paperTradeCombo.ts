@@ -90,6 +90,20 @@ export const paperTradeComboTable = pgTable(
     journal: text("journal"),
     /** Full server-computed `CustomStrategyResponse` at open time. */
     buildSnapshot: jsonb("build_snapshot").notNull(),
+
+    // ── B.8 writer_version + P0 durable charges (Phase A) ─────────────
+    // Same additive-nullable pattern as paper_trade_fo/eq. Applied via
+    // ensurePaperTradeChargesColumns (idempotent ALTER TABLE ADD COLUMN
+    // IF NOT EXISTS). LEGACY combo rows carry NULL for this whole group
+    // + charges_status = "LEGACY_NOT_STORED" and are NEVER back-filled.
+    writerVersion: text("writer_version"),
+    grossPnl: numeric("gross_pnl", { precision: 18, scale: 2 }),
+    chargesTotal: numeric("charges_total", { precision: 18, scale: 2 }),
+    chargesBreakdownJson: jsonb("charges_breakdown_json"),
+    chargesModelVersion: text("charges_model_version"),
+    chargesCalculatedAt: timestamp("charges_calculated_at", { withTimezone: true }),
+    netPnl: numeric("net_pnl", { precision: 18, scale: 2 }),
+    chargesStatus: text("charges_status"),
   },
   (t) => ({
     statusIdx: index("paper_trade_combo_status_idx").on(t.status),

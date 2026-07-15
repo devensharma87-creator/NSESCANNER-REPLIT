@@ -310,6 +310,19 @@ scheduleBootJob("paper-trade-writer-version-column", 15_000, async () => {
   await ensurePaperTradeWriterVersionColumn();
 });
 
+// P0 Phase A — durable charges columns (gross_pnl, charges_total,
+// charges_breakdown_json, charges_model_version, charges_calculated_at,
+// net_pnl, charges_status) on paper_trade_fo/eq/combo. Idempotent
+// ALTER TABLE ... ADD COLUMN IF NOT EXISTS. Runs immediately after the
+// writer_version migration so the writer never inserts into a missing
+// column on a fresh deploy.
+scheduleBootJob("paper-trade-charges-columns", 16_000, async () => {
+  const { ensurePaperTradeChargesColumns } = await import(
+    "./lib/paperTradeWriterVersion"
+  );
+  await ensurePaperTradeChargesColumns();
+});
+
 // W6-P4B5 observability only: read-only post-boot DB pool utilization snapshots
 // that bracket the W6-P4A stagger window. These ONLY read the pg pool's
 // in-memory counters — they never run a query, never acquire a connection, and

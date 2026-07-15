@@ -37,6 +37,7 @@ import type { PaperTradeEqRow, PaperTradeEqSource } from "@workspace/db";
 import type { SwingOrderStagingRow } from "@workspace/db/schema";
 import { and, eq, ne, sql } from "drizzle-orm";
 import { CURRENT_WRITER_VERSION } from "./paperTradeWriterVersion";
+import { computeEquityCharges } from "./paperReportsEq";
 import {
   ensureDailyReset,
   EQUITY_DD_CAPS,
@@ -629,6 +630,16 @@ async function closePaperEquityTradeRow(
   const proceeds = exitPrice * row.qty;
   const realizedPnl = (exitPrice - num(row.entryPrice)) * row.qty;
 
+  // P0 Phase A — durable charges for equity delivery. Compute once at
+  // close and freeze into the row. Balance-side writer path is
+  // UNCHANGED in Phase A — reconciliation identity stays gross.
+  const _buyTurnover = num(row.entryPrice) * row.qty;
+  const _sellTurnover = exitPrice * row.qty;
+  const _chargesBreakdown = computeEquityCharges(_buyTurnover, _sellTurnover, 1);
+  const _chargesTotal = _chargesBreakdown.total;
+  const _grossPnl = realizedPnl;
+  const _netPnl = _grossPnl - _chargesTotal;
+
   return await db.transaction(async (tx) => {
     const updated = await tx
       .update(paperTradeEqTable)
@@ -640,6 +651,14 @@ async function closePaperEquityTradeRow(
         realizedPnl: toDbNumeric(realizedPnl, 2),
         lastPrice: toDbNumeric(exitPrice, 4),
         lastEvaluatedAt: now,
+        // P0 Phase A — durable charges columns.
+        grossPnl: toDbNumeric(_grossPnl, 2),
+        chargesTotal: toDbNumeric(_chargesTotal, 2),
+        chargesBreakdownJson: _chargesBreakdown as unknown as Record<string, unknown>,
+        chargesModelVersion: "EQ_CNC_V1_2026Q1",
+        chargesCalculatedAt: now,
+        netPnl: toDbNumeric(_netPnl, 2),
+        chargesStatus: "CURRENT",
       })
       .where(and(eq(paperTradeEqTable.id, row.id), eq(paperTradeEqTable.status, "OPEN")))
       .returning();

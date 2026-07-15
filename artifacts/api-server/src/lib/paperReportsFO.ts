@@ -80,7 +80,7 @@ export interface ChargesBreakdown {
 }
 
 /** Map the canonical FnoTradeCostBreakdown to the ChargesBreakdown shape. */
-function mapCostToChargesBreakdown(bd: FnoTradeCostBreakdown): ChargesBreakdown {
+export function mapCostToChargesBreakdown(bd: FnoTradeCostBreakdown): ChargesBreakdown {
   return {
     brokerage: bd.brokerage,
     stt: bd.stt,
@@ -146,6 +146,12 @@ export interface TradeDetailRow {
   netPnl: number;
   /** Full canonical charges breakdown for display / audit. */
   chargesBreakdown: ChargesBreakdown;
+  /** P0 durable-charges tag. `CURRENT` = row was stamped at close by a
+   *  writer that persisted all seven charges columns. `LEGACY_NOT_STORED`
+   *  = pre-P0 row; charges/net_pnl above were recomputed on read using
+   *  the current canonical model. `RECONSTRUCTED_FROM_CURRENT_MODEL`
+   *  reserved for a future owner-approved back-fill. */
+  chargesStatus: "CURRENT" | "LEGACY_NOT_STORED" | "RECONSTRUCTED_FROM_CURRENT_MODEL";
   /** Planned R = (entry - stop) per share. */
   plannedRiskPerShare: number;
   /** Achieved (exit - entry) per share, signed in trade direction. */
@@ -200,11 +206,24 @@ export function rowToDetail(
   const realized = requireNum(r.realizedPnl, "realizedPnl", r.id);
   const lots = r.lots;
   const lotSize = r.lotSize;
-  // Use the canonical model directly with premium + qty for maximum precision.
-  // Costs recomputed on fetch using canonical F&O cost model (fnoCostModel.ts).
+  // P0 Phase A — prefer the DB-stored durable charges when the row was
+  // stamped by a CURRENT writer. Falls back to compute-on-read for
+  // LEGACY_NOT_STORED rows (pre-P0). This preserves audit invariant:
+  // once stamped, charges never drift; unstamped rows are computed via
+  // the canonical model exactly as before P0.
+  const chargesStatus = ((r as unknown as { chargesStatus?: string }).chargesStatus ?? null);
+  const storedChargesTotal = (r as unknown as { chargesTotal?: string | number | null }).chargesTotal;
+  const storedNetPnl = (r as unknown as { netPnl?: string | number | null }).netPnl;
+  const storedBreakdown = (r as unknown as { chargesBreakdownJson?: ChargesBreakdown | null }).chargesBreakdownJson;
   const costResult = computeFnoTradeCost({ entryPremium: entry, exitPremium: exit, lots, lotSize });
-  const chargesDetail = mapCostToChargesBreakdown(costResult);
-  const charges = costResult.totalCost;
+  const chargesDetail =
+    chargesStatus === "CURRENT" && storedBreakdown != null
+      ? storedBreakdown
+      : mapCostToChargesBreakdown(costResult);
+  const charges =
+    chargesStatus === "CURRENT" && storedChargesTotal != null
+      ? Number(storedChargesTotal)
+      : costResult.totalCost;
   const plannedRiskPerShare = Math.abs(entry - stop);
   // Option buying P&L is (exit - entry) per share regardless of CALL/PUT
   // because direction is already encoded in the choice of CALL vs PUT.
@@ -233,8 +252,17 @@ export function rowToDetail(
     capitalDeployed: requireNum(r.capitalDeployed, "capitalDeployed", r.id),
     realizedPnl: realized,
     charges,
-    netPnl: realized - charges,
+    netPnl:
+      chargesStatus === "CURRENT" && storedNetPnl != null
+        ? Number(storedNetPnl)
+        : realized - charges,
     chargesBreakdown: chargesDetail,
+    chargesStatus:
+      chargesStatus === "CURRENT"
+        ? "CURRENT"
+        : chargesStatus === "RECONSTRUCTED_FROM_CURRENT_MODEL"
+        ? "RECONSTRUCTED_FROM_CURRENT_MODEL"
+        : "LEGACY_NOT_STORED",
     plannedRiskPerShare,
     achievedPerShare,
     rMultiple,

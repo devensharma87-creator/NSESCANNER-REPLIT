@@ -63,6 +63,8 @@ import { fetchOptionChain, LOT_SIZES, type OcResponse } from "./optionChain";
 import { centralCachedLotSizeForIndex as getCachedLotSizeForIndex } from "./marketData/compat";
 import { ensureContractMasterSchemaColumns } from "./ensureContractMasterColumns";
 import { CURRENT_WRITER_VERSION } from "./paperTradeWriterVersion";
+import { computeFnoTradeCost } from "./fnoCostModel";
+import { mapCostToChargesBreakdown } from "./paperReportsFO";
 // Type-only: does not create a runtime import of fnoExitDecision.ts at
 // module load time (the runtime import is dynamic, inside
 // evaluateOrphanedOpenTrades, to match this file's existing lazy-import
@@ -2507,6 +2509,21 @@ export async function closePaperTradeForSignal(
   const realizedPnl = proceeds - num(r.capitalDeployed);
   const now = new Date();
 
+  // P0 Phase A — durable charges. Compute once at close, freeze into
+  // the row. Balance-side writer path is UNCHANGED in Phase A (owner
+  // approval Q4=b) — reconciliation identity still gross. LEGACY rows
+  // pre-P0 keep NULL and charges_status = LEGACY_NOT_STORED.
+  const _fnoCost = computeFnoTradeCost({
+    entryPremium: num(r.entryPremium),
+    exitPremium,
+    lots: r.lots,
+    lotSize: r.lotSize,
+  });
+  const _chargesBreakdown = mapCostToChargesBreakdown(_fnoCost);
+  const _chargesTotal = _fnoCost.totalCost;
+  const _grossPnl = realizedPnl;
+  const _netPnl = _grossPnl - _chargesTotal;
+
   const txResult = await db.transaction(async (tx) => {
     const updated = await tx
       .update(paperTradeFoTable)
@@ -2518,6 +2535,14 @@ export async function closePaperTradeForSignal(
         realizedPnl: toDbNumeric(realizedPnl, 2),
         lastPremium: toDbNumeric(exitPremium, 4),
         lastEvaluatedAt: now,
+        // P0 Phase A — durable charges columns.
+        grossPnl: toDbNumeric(_grossPnl, 2),
+        chargesTotal: toDbNumeric(_chargesTotal, 2),
+        chargesBreakdownJson: _chargesBreakdown as unknown as Record<string, unknown>,
+        chargesModelVersion: "FNO_V1_2026Q1",
+        chargesCalculatedAt: now,
+        netPnl: toDbNumeric(_netPnl, 2),
+        chargesStatus: "CURRENT",
       })
       .where(and(eq(paperTradeFoTable.id, r.id), eq(paperTradeFoTable.status, "OPEN")))
       .returning();
