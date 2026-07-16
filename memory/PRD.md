@@ -853,13 +853,35 @@ Owner-signed rulings encoded as tests:
 4. Sites A/B/C acceptance is OPEN — closes with P1.2's first real paper trade; not
    "instrumentation verified" until then.
 
-### Open items after this slice
-- Friday 17-Jul evening: run acceptance query, verify assertions 1-6.
-- After 2-3 sessions of clean data: begin `/audit` panel query design (P0.4 Step 3).
-- Owner-side: rotate `nse` DB password; consider making PRD/test_credentials carry a
-  test-DB URL instead of prod post-rotation.
-- P1.2: build real TREND_CONTINUATION emitter and paper-writer connection.
-- P1.2: fix trigger-geometry displacement in RANGING/EXPIRY_DAY regimes.
-- P1.3: VIX-corruption fix (negative on RANGING, ~3.2 on EXPIRY_DAY vs real 13-16).
-- BUG-53/54: dropped from roadmap; no spec was ever provided.
+### Open items after this slice (corrected queue · 2026-07-16 owner directive)
+1. **Friday 17-Jul evening**: run acceptance query at
+   `/app/memory/forensics/p0_4_step2_friday_acceptance_query.sql`, verify assertions 1-6.
+   Preamble sanity query runs first; if emission volume is too thin to exercise all
+   gate types on Friday alone, extend the sample through Monday rows rather than closing
+   Step 2 on a sparse day.
+2. **P0.1 + P0.2 iteration** slots into the 2-3 session soak window — starts Monday, checkpoints
+   before soak completes. Depends on NONE of the new instrumentation, so no idle time. Content:
+   false "Market is closed" + signals schema drift (agreed first fix PR).
+3. **`/audit` panel design (P0.4 Step 3)**: begins once P0.1+P0.2 checkpoints AND the soak
+   window has real data (both conditions).
+4. **P1.2**: comes AFTER P0 closes. Deliverable when P1.2 starts is an **options memo** with
+   the trigger-geometry evidence attached — NOT a unilateral coder fix. Correct entry model
+   in RANGING regimes (pullback-to-value vs tighter trigger distance vs regime-conditional
+   per setup) is a trading strategy decision only the owner can make. Coder's job is to
+   present the evidence and options; owner picks the model.
+5. **P1.2 · real TREND_CONTINUATION emitter and paper-writer connection**: highest-value line
+   on the board — the expectancy clock starts here.
+6. **P1.3**: VIX-corruption fix (negative on RANGING, ~3.2 on EXPIRY_DAY vs real 13-16).
+   Blocks P1.3 volatility-aware targets + P2 IV-bucket reports.
+
+### Owner-side items (not on coder's list)
+- Rotate `nse` DB password across `run_apiserver.sh`, `run_postgres.sh`, `backend/.env`,
+  `/app/memory/PRD.md`, `/app/memory/test_credentials.md`.
+- After rotation, consider whether PRD/test_credentials should carry a test-DB URL instead
+  of prod (folds into the ENV-ISOLATION remediation ticket).
+- Provision `nsescanner_test` DB + `.env.test` (deprecates the `!includes("dummy")` idiom
+  across 17 test files).
+
+### Dropped
+- BUG-53/54: no spec was ever provided; removed from roadmap.
 
