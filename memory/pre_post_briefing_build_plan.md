@@ -6,11 +6,14 @@
 
 ## Owner rulings absorbed (2026-07-16 evening)
 
-### Q1 · Phase 0 timing → EXECUTE FRIDAY MORNING (read-only)
+### Q1 · Phase 0 timing → EXECUTE THURSDAY EVENING (tonight, 2026-07-16 post 17:35 IST)
+- All rows probed tonight EXCEPT row K.
 - Row F/G (NSE bhavcopy): **plain fetch from current env only**, capture failure verbatim.
   NO proxies, NO header games, NO retry-from-elsewhere — failure IS the deliverable.
-- Row K (NIFTY 500 rate-limit sweep): tonight or **post-15:30 Friday ONLY**, never during
+- Row K (NIFTY 500 rate-limit sweep): **post-15:30 Friday ONLY**, never during
   live session — shares Kite session with signal generation on acceptance day.
+- Fallback if tonight isn't feasible: Friday **post-close** alongside row K — NOT Friday morning against the open. The forbidden state is an ambiguous "Friday morning" deadline that turns evidence-gathering into a crunch.
+- Friday stays a two-deliverable day: 12:00 canary + evening acceptance query. Matrix already done by then.
 
 ### Q2 · Branch → `feature/pre-post-briefing`
 
@@ -60,6 +63,7 @@ For each matrix row, produce raw evidence:
 | I | Document current Yahoo provider state; note US-10Y unit-parsing defect (0.45 vs 4.5%) | Friday morning |
 | J | Confirm no trusted news source exists | Friday morning |
 | K | NIFTY 500 quote sweep for rate-limit feasibility | Post-15:30 Friday ONLY |
+| **M** | **Existing `optionChainSnapshotIngestor.ts` discovery** — what it captures (full chain vs partial), its schedule (open/close-adjacent captures or ad hoc?), backing table (name + Drizzle-declared vs sits in the 8-item drift inventory). If it covers PRE-6/POST-5 needs, Phase 1's schema proposal shrinks from 3 new tables to 2 + an extension. If its backing table is one of the undeclared runtime tables, that's a drift-inventory cross-reference the reconciliation slice needs. | Tonight |
 
 Deliver as `/app/memory/forensics/phase0_data_availability_matrix.md` with pasted raw
 evidence per row. Then owner signs off v1 ACTIVE/PARTIAL/GATED classification.
