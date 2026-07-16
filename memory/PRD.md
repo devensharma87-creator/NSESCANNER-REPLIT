@@ -956,3 +956,52 @@ Owner-signed rulings encoded as tests:
 ### Dropped
 - BUG-53/54: no spec was ever provided; removed from roadmap.
 
+
+---
+
+## 2026-07-16 (Thu evening) — Phase 0 Data Availability Matrix (read-only)
+
+**Docket:** rows A/B/C/D/E/G/H/I/J/L probed with pasted evidence. Rows F and G marked
+OPEN, retest rolled to Friday post-close docket (one batch, one methodology). Row K
+also Fri post-close.
+
+**Positive flips:** Row G reconfirmed ACTIVE (bhavcopy + FII/DII populated to today
+18:33 IST via `instFlows.ts` 15-min refresher). PRE-1 Overnight cues ACTIVE at
+analytics tier. Row D expiries ACTIVE via on-demand Kite dump.
+
+**Negative flips:**
+1. **Row C · India VIX defect fully diagnosed (Option 4 read-only pass).** Single
+   writer at `optionSignals.ts:3191` passes `gateCtx.vix.intradayPct` (a change-%)
+   into a level-typed field. Root cause: `VixSnapshot` (`optionSignalGates.ts:80–89`)
+   has only percent fields, no `.level`. Fix ≤3 behaviour lines + tests, queued as a
+   **rider on PAPER_WRITER-DISCIPLINE** (post-drift, pre-P1.2). Historical rows stay
+   dirty with documented cutover date at fix time.
+2. **Row J News → HOLD (PROMOTABLE-infra / GATED-as-section).** RSS plumbing exists
+   (20 feeds — all aggregators, no official-source) but section trustworthiness is a
+   curation problem, not a fetch problem. **v1 ships PRE-8/POST-8 as MANUAL ✍️ only.**
+   Promotion path defined; owner audit of the 20-feed list pending.
+3. **Row J' Events Calendar (NEW LINE) — GATED.** Split out of Row J. Requires a
+   structured source / owner-maintained table, not RSS parsing. Own slice.
+
+**Rules registered this session:**
+- Re-observing a known defect doesn't re-prioritize it. New exposure does.
+  (Applied to VIX-Corruption; stays P1, rider on PAPER_WRITER-DISCIPLINE.)
+- Discovering plumbing is Phase 0's job; deciding what deserves the platform's
+  honesty stamp is the owner's. (Applied to Row J.)
+- Match probe methodology to the operational window. (Row F pushed to Fri post-close.)
+- Historical rows stay dirty with documented cutover date at fix time.
+
+**Friday post-close docket (2026-07-17):**
+1. 12:00 IST canary — P0.4 Step 2 midday spot-check.
+2. ≥15:30 IST · Row K NIFTY 500 rate-limit sweep.
+3. ≥15:30 IST · Row G same-code-path re-run (`refreshFiiDii` + `getDeliveryMap`).
+4. ≥20:00 IST · Row F retest against Friday's published participant OI file.
+5. Evening · 9-section acceptance query for P0.4 Step 2 closure.
+
+**Priority queue (strict sequence, unchanged):**
+Friday acceptance → P0.1+P0.2 (Mon soak) → Drift Reconciliation → PAPER_WRITER-DISCIPLINE
+(+ VIX-level rider) → /audit panel (P0.4 Step 3) → P1.2 (options memo + real
+TREND_CONTINUATION emitter) → P1.3 (exit-price provenance) → Briefing Phases 1–4.
+
+**Matrix file:** `/app/memory/forensics/phase0_data_availability_matrix.md`
+(finalized with per-row raw evidence, rulings, Friday docket, sign-off checklist).

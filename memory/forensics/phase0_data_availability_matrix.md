@@ -10,9 +10,10 @@ retest after 20:00 IST tonight (participant files publish late).
 that depends on a live Kite pull is currently probed with the pipe cold; the code path
 and DB state are used as evidence in place of a live REST reply.
 
-**Status:** Rows A/B/C/D/E/G/H/I/J/L probed with pasted evidence. Rows F (retest
-post-20:00 tonight) and K (post-15:30 IST Friday) remain scheduled. Signable
-reclassification below is provisional until F and K land.
+**Status:** Rows A/B/C/D/E/G/H/I/J/L probed with pasted evidence tonight (Thu 16 Jul).
+**Rows F and G are OPEN — RETEST FRIDAY POST-CLOSE** (one batch, one methodology; see
+Friday post-close docket below). Row K also Fri post-close. Signable reclassification
+below is provisional until F, G re-run, and K land.
 
 ---
 
@@ -79,12 +80,13 @@ adjacencies.
 
 ---
 
-## 🔴 ROW C · India VIX via direct Kite quote — **CRITICAL · SESSION DOWN + VIX DATA CORRUPT**
+## 🔴 ROW C · India VIX via direct Kite quote — **CRITICAL · SESSION DOWN + VIX WRITER MIS-TYPED**
 
 **Method:** three-layer probe:
 1. Direct hit on `/api/kite/quote/^INDIAVIX` and `/api/kite/quote/NSE:INDIA VIX`.
 2. `kite_session` DB row.
-3. Historical VIX values recorded in `fno_signal_reasoning.vix` over last 48h.
+3. Historical VIX values recorded in `fno_signal_reasoning.vix` — full-table scan +
+   diagnostic call-site grep.
 
 **Raw evidence:**
 
@@ -102,33 +104,120 @@ GET /api/kite/quotes                   → 0 keys
 GET /api/kite/status.readiness.state   → KITE_EXPIRED (offline since 06:35 UTC)
 ```
 
-C3. Historical VIX values written to `fno_signal_reasoning.vix` last 48h:
+C3. Full-table `fno_signal_reasoning` — 141 rows total, by bucket:
 ```
-total=36  null=30  negatives=6  impl_low=0  sane(8–35)=0  above_35=0
-min_vix=-4.80  max_vix=-4.51  avg_vix=-4.702
+NULL  = 109  → PRE_EMISSION_REJECTED / SKIPPED paths never set vix
+NEG   =   6  → −4.80 to −4.51    (all EMITTED rows, Jul 15)
+POS   =  26  →  0..+3.24         (16 DEMOTED + 10 EMITTED, Jul 14)
 ```
-**Every single non-NULL VIX value in the last 48h is NEGATIVE.** This is the
-`VIX-Corruption` P1 issue (previously anecdotal) now proven with numeric evidence.
+**Range −4.80 to +3.24 is not a VIX level** — it is an intraday change-percent.
+Numeric sanity check: real INDIA VIX Jul 15 fell ~5% intraday (~14 → ~13.3); Jul 14
+rose ~3%. Both match the recorded rows tightly.
 
 C4. Backup source in `global_live_prices`:
 ```
 symbol='VIX', price=16.31, source='yahoo-index', updated_at=2026-07-16 18:42 IST
 ```
-This is **CBOE ^VIX (US equity vol), NOT India VIX.** No `^INDIAVIX` row exists.
-No `global_candles` row for any VIX-labeled symbol.
+CBOE ^VIX (US equity vol), NOT India VIX. No `^INDIAVIX` row exists. No
+`global_candles` row for any VIX-labeled symbol.
+
+### C · VIX-CORRUPTION DIAGNOSTIC (Option 4, read-only) — ROOT CAUSE FOUND
+
+**(i) Every write path into `fno_signal_reasoning.vix`:**
+
+| # | File | Line | Direction |
+|---|---|---|---|
+| 1 | `fnoSignalReasoningLogger.ts` | 360 | Final `INSERT` — writes `numOrNull(p.vix, 2)` to the column |
+| 2 | `optionSignals.ts` | 3191 | **Feeds writer #1 for EMITTED / DEMOTED paths** — passes `gateCtx.vix.intradayPct` |
+| — | `preMarket.ts` | 715, 1614 | Local `buildScenarios(vix)` — parameter name only, does NOT write to `fno_signal_reasoning` |
+| — | `optionSignalGates.ts` | 122 | Type declaration only |
+| — | `compositeBias.ts` | 95 | Local weight constant, not a write path |
+| — | `routes/paper.ts` | 828 | READ (deserialisation) — pulls the column back for the ledger API |
+
+**One and only writer: `optionSignals.ts:3191` for EMITTED-side rows.** Non-emitted
+rows call `logFnoReasoning` from other sites that never populate `vix`, producing the
+109 NULLs.
+
+**(ii) What value is actually passed:**
+
+```ts
+// optionSignals.ts:3191
+vix: typeof gateCtx.vix.intradayPct === "number" ? gateCtx.vix.intradayPct : null,
+```
+
+`intradayPct` per `optionSignalGates.ts:80–89`:
+```ts
+export interface VixSnapshot {
+  /** % change vs first bar of the current session (intraday move). */
+  intradayPct: number | null;
+  /** % change vs prior daily close (cross-session move). */
+  dayPct: number | null;
+  spike: boolean;
+  reason: string | null;
+}
+```
+`VixSnapshot` has **only percent fields** (`intradayPct`, `dayPct`, `spike`, `reason`).
+**There is no `.level` / `.value` field on the struct.** The writer literally has no
+correctly-typed value to hand off — the bug is architectural at the type level, not a
+typo at the call site.
+
+Hypothesis test against real INDIA VIX Jul 14 / Jul 15: the recorded values in the DB
+match published intraday-change-% for those sessions. **Confirmed: the column carries
+change-%, not level.**
+
+**(iii) 109-NULL vs 32-non-NULL split explained:**
+
+| Row bucket | Writer path | Fix scope |
+|---|---|---|
+| 109 NULLs | `logFnoReasoning` from `PRE_EMISSION_REJECTED` / `SKIPPED` sites that never populate `vix` | Separate integrity slice (rejected rows deserve context too, but not this one) |
+| 6 NEG + 26 POS = 32 non-NULLs | `optionSignals.ts:3191` on EMITTED / DEMOTED paths | **This slice** — Type + one write line |
+
+### Fix shape (queued as rider on PAPER_WRITER-DISCIPLINE — NOT landing tonight)
+
+Two-part change, target ≤3 lines of behaviour change plus tests:
+
+```
+1. optionSignalGates.ts:80   VixSnapshot: add `level: number | null` (docstring: "Raw
+                              INDIA VIX last-traded level from Kite live quote; null
+                              when session is down or sanity band fails.")
+
+2. optionSignalGates.ts:374  loadVixSnapshot(): populate .level from the same Kite
+                              quote already fetched for intradayPct — no new fetch,
+                              no new dependency.
+
+3. optionSignals.ts:3191     Change gateCtx.vix.intradayPct → gateCtx.vix.level.
+
+4. Write-side sanity gate:   Reject writes outside 5..80 (widened band; hard reject
+                              logs a warn but writes NULL rather than a garbage level).
+
+5. Tests:                    Unit — pass a VixSnapshot with level=14.2/intradayPct=−4.8;
+                              assert 14.2 is written, not −4.8. Property — reject any
+                              write < 5 or > 80.
+```
+
+**Historical rows: leave dirty with a documented cutover date at fix time** (owner
+ruling, consistent with the no-retro-mapping ruling on taxonomy). Cutover date will be
+inserted here at fix land.
+
+**Priority preserved:** the fix stays in strict sequence, scheduled as a rider on
+**PAPER_WRITER-DISCIPLINE** (post-drift, pre-P1.2 — P1.3's volatility-aware targets
+need trustworthy VIX before the first real trade). Not P0; sequence unchanged.
+
+**Trigger for P0 escalation (registered rule):** any consumer of `fno_signal_reasoning.
+vix` going live before the fix lands. Sequence already prevents this by ordering the
+fix before P1.3.
 
 **Verdict:** the Kite `NSE:INDIA VIX` mapping is correct, the wrapper exists, and the
 sanity-band test **cannot be run tonight** because Kite is expired and market is
-closed. Beyond the session-outage: **the last 6 non-NULL VIX writes to
-`fno_signal_reasoning` are all negatives (–4.80 to –4.51)** — a numeric-scale defect
-that must be fixed before this column is trusted anywhere. Root-cause investigation
-is a separate slice (issue #4 VIX-Corruption).
+closed. Beyond the session outage: the persisted column carries change-% not level, a
+type-level architectural bug now fully diagnosed. Briefing must NOT read from
+`fno_signal_reasoning.vix` (per standing rule); it must consume the live Kite quote
+directly at generate-time and hard-NULL the section if the quote fails the sanity
+band (8 ≤ vix ≤ 35).
 
-**PRE-5 India VIX:** classify **PARTIAL** — architecturally ACTIVE via Kite, but the
-observed historical column carries a sign/scale defect and current session is expired.
-Briefing must NOT read from `fno_signal_reasoning.vix` (per standing rule); it must
-consume the live Kite quote directly at generate-time and hard-NULL the section if the
-quote fails the sanity band (8 ≤ vix ≤ 35).
+**PRE-5 India VIX:** classify **PARTIAL** — Briefing consumes live Kite directly; the
+persisted-column defect is contained (no live consumer before the fix lands, per
+sequence).
 
 ---
 
@@ -169,35 +258,41 @@ storage needed; derived per-generate.
 
 ---
 
-## 🔴 ROW F · Participant-wise OI file — **RETEST DEFERRED TO POST-20:00 IST TONIGHT**
+## 🟠 ROW F · Participant-wise OI file — **OPEN · RETEST FRI POST-CLOSE**
 
-**Today's probe:**
+**Tonight's partial evidence (2026-07-16 ~18:45 IST, PRE-PUBLISH WINDOW):**
 ```
 GET https://archives.nseindia.com/content/nsccl/fao_participant_oi_16JUL2026.csv
-→ HTTP/2 503  (Akamai bot page, 282 bytes)
+→ HTTP/2 503  (Akamai bot page, 282 bytes)   Timestamp: 2026-07-16 13:14:38 UTC
+Yesterday's same-URL probe (per prior matrix): HTTP/2 404
 ```
-Note: **yesterday's Phase 0 evidence** captured this same URL as 404. Today it is 503.
-Both are Akamai edge gates — the *file itself* has not published for today's session
-(participant OI publishes late in the evening, typically 19:30–20:00 IST).
+Both responses were captured **before the file's normal publish window** (participant
+OI typically publishes ~19:30–20:00 IST). Pre-publish 503/404 does NOT distinguish
+"file not yet published" from "IP permanently blocked" — the *only* honest test is a
+post-publish probe in the same code path a real scheduler would use.
 
-**DB state confirms:** `participant_oi_daily` latest = **2026-07-15** (yesterday), 4
-client_types × 32 days = 128 rows. Yesterday's data landed successfully.
+**DB state (unchanged tonight):** `participant_oi_daily` latest = **2026-07-15**
+(yesterday), rows = 128 (32 days × 4 client_types). Yesterday's file landed
+successfully via the same code path (`instFlows.ts:246`), so the wrapper is proven —
+what's unproven is same-day capture reliability.
 
-**Retest at ~20:15 IST tonight** to determine if:
-- Today's file publishes at ≥20:00 IST → HTTP 200 → Row F flips to ACTIVE via same
-  Akamai path.
-- File never publishes / 503 persists → Row F stays GATED, and the interpretation-per-
-  participant differentiator is unlockable via a later slice.
+**Retest deferred to Friday post-close docket** (see "Friday post-close docket" at
+bottom). Friday's file — freshly published for a full trading day — tested in the
+15:30+ IST window the scheduler actually uses, produces better evidence than tonight's
+pre-publish 503 could have.
 
-**PRE-4 / POST-4 Participant OI:** classify **GATED pending post-20:00 retest**. Same-
-day capture is not required for v1; T-1 is already persisted (participant_oi_daily
-has yesterday's row set).
+**PRE-4 / POST-4 Participant OI:** classify **GATED pending Friday post-close retest**.
+Same-day capture is not required for v1; T-1 is already persisted (participant_oi_daily
+has yesterday's rows).
 
 ---
 
-## 🟢 ROW G · Cash bhavcopy + FII/DII — **ACTIVE (WHY-INVESTIGATION COMPLETED)**
+## 🟢 ROW G · Cash bhavcopy + FII/DII — **ACTIVE · SAME-CODE-PATH RE-RUN SCHEDULED FRI POST-CLOSE**
 
-Per standing directive: investigate *why* Row G works before classifying it.
+Per standing directive: investigate *why* Row G works before classifying it. Also per
+Fri docket ruling: re-run in Friday's post-close window using the same wrapper the
+scheduler uses — tonight's evidence is stamped as partial but sufficient to classify
+the *infrastructure* as ACTIVE.
 
 **G1 · Endpoint / host split (proof):**
 ```
@@ -298,30 +393,90 @@ Not part of the decision path — display + macro-overlay score only.
 
 ---
 
-## 🟢 ROW J · News source — **ACTIVE (previous "no trusted source" ruling was inaccurate)**
+## 🟠 ROW J · News source — **PROMOTABLE-INFRASTRUCTURE / GATED-AS-SECTION**
 
-**Method:** grep news providers.
+**Owner ruling (2026-07-16 evening):** RSS plumbing existing ≠ the PRE-8 / POST-8
+sections being trustworthy. Row J is a **curation problem, not a fetch problem**.
+Every other briefing section renders verified numbers with provenance; a headline
+dump would render unverified editorial judgment with the same visual authority. That
+inconsistency requires slowness.
 
-**Raw evidence:**
+**Infrastructure evidence (fetch layer works):**
 ```
 newsRss.ts registers 20 RSS feeds:
   Moneycontrol × 5   Mint × 3   ET Markets × 2   Economic Times   ET Earnings
   ET Policy   CNBC TV18 × 2   Business Standard × 2   Investing.com × 2
   Yahoo Finance
-Symbol-scoped news via getNewsForSymbol(symbol) → hits getMarketNewsLive(80).
-Consumed by scanner.ts:486, :742 for per-symbol news blocks.
+Symbol-scoped via getNewsForSymbol(symbol) → hits getMarketNewsLive(80).
+Consumed today by scanner.ts:486, :742 for per-symbol news blocks.
 ```
 
-**Consequence:** PRE-8 / POST-8 news sections can use `getMarketNewsLive()` as a real
-data source, not a MANUAL placeholder. **The MANUAL ✍️ primitive stays** (per Q4
-ruling) for owner-authored morning notes and evening journal — text field UX unchanged.
-The **News section itself upgrades from GATED → ACTIVE (RSS-fed).**
+**Full URL list (for owner audit):**
 
-Freshness contract: each `NewsItem` carries `pubDate` from RSS; freshness gate = drop
-items older than 12h in the pre-market strip and older than 24h in the wrap-up
-strip. Never blended into computed lines.
+| # | Source | URL |
+|---|---|---|
+| 1 | Moneycontrol | https://www.moneycontrol.com/rss/MCtopnews.xml |
+| 2 | Moneycontrol | https://www.moneycontrol.com/rss/business.xml |
+| 3 | Moneycontrol | https://www.moneycontrol.com/rss/buzzingstocks.xml |
+| 4 | Moneycontrol | https://www.moneycontrol.com/rss/results.xml |
+| 5 | Moneycontrol | https://www.moneycontrol.com/rss/marketreports.xml |
+| 6 | Mint | https://www.livemint.com/rss/markets |
+| 7 | Mint | https://www.livemint.com/rss/companies |
+| 8 | Mint | https://www.livemint.com/rss/economy |
+| 9 | ET Markets | https://economictimes.indiatimes.com/markets/rssfeeds/1977021501.cms |
+| 10 | ET Markets | https://economictimes.indiatimes.com/markets/stocks/rssfeeds/2146842.cms |
+| 11 | Economic Times | https://economictimes.indiatimes.com/rssfeedstopstories.cms |
+| 12 | ET Earnings | https://economictimes.indiatimes.com/markets/stocks/earnings/rssfeeds/13357270.cms |
+| 13 | ET Policy | https://economictimes.indiatimes.com/markets/stocks/policy/rssfeeds/13357270.cms |
+| 14 | CNBC TV18 | https://www.cnbctv18.com/commonfeeds/v1/cne/rss/market.xml |
+| 15 | CNBC TV18 | https://www.cnbctv18.com/commonfeeds/v1/cne/rss/business.xml |
+| 16 | Business Standard | https://www.business-standard.com/rss/markets-106.rss |
+| 17 | Business Standard | https://www.business-standard.com/rss/companies-101.rss |
+| 18 | Investing.com | https://www.investing.com/rss/news_25.rss |
+| 19 | Investing.com | https://www.investing.com/rss/news_301.rss |
+| 20 | Yahoo Finance | https://finance.yahoo.com/news/rssindex |
 
-**PRE-8 / POST-8:** classify **ACTIVE (RSS)** with MANUAL ✍️ still mounted alongside.
+**All 20 are aggregators, none are official-source (exchange / RBI / PIB / SEBI).**
+Owner audit target: which sources you'd trust levels from; probable outcome is
+whitelist a small subset (Moneycontrol/Mint/ET tier vs Yahoo/Investing tier).
+
+**Promotion path (in order):**
+1. Owner audit of the 20-feed list above — 10-minute pasted review.
+2. Curation design decision — owner's default preference: dumb-but-honest v1.x
+   (whitelisted official-tier feeds only, latest-N timestamped headlines, explicitly
+   labeled "unranked headlines, not analysis").
+3. **Events Calendar split** — see new Row J' below.
+
+**PRE-8 / POST-8 News in v1:** **MANUAL ✍️ only** (per existing Q4 ruling). No news
+code in Phases 1–4. Three lines of "what I'm watching" from a professional trader
+beats twenty algorithmic headlines anyway.
+
+---
+
+## 🔴 ROW J' · Events Calendar (SPLIT OUT OF ROW J) — **NEW LINE · GATED**
+
+**Owner ruling:** the one genuinely load-bearing sub-item of PRE-8 is the events
+calendar (RBI meeting dates, CPI/IIP releases, expiry-adjacent macro, results
+calendar). This is **not an RSS problem** — scheduled-events data wants a structured
+source or an owner-maintained table.
+
+**Current state in code (grep evidence):**
+```
+marketEvents.ts:75  "Curated 2026 global market holidays (key half/full closures)"
+canonicalFnoReadiness.ts:117,129,250  IST-wall-clock holiday-aware market session
+```
+Market holidays are curated in code; expiry logic is holiday-aware. **But there is
+NO structured store for**:
+- RBI MPC dates, CPI/IIP/WPI/PMI release dates
+- Corporate results calendar (per symbol × date)
+- Global macro (FOMC, NFP, ECB) release calendar
+
+**Verdict:** **GATED**. Requires a design decision on source (owner-maintained table
+in DB / one structured feed like TradingEconomics or NSE's own events endpoints /
+Google Calendar sync) before it can promote. This is the **higher-value half of
+PRE-8** and belongs to a dedicated slice, not to newsRss.
+
+**PRE-8 / POST-8 events line:** classify **GATED**. Not covered in v1 briefing.
 
 ---
 
@@ -375,70 +530,111 @@ verify ingestor's schedule guarantees OPEN (~09:20 IST) + CLOSE (~15:25 IST) cap
 |---|---|---|---|
 | PRE-1 Overnight global cues | GATED | **ACTIVE (analytics-tier Yahoo)** | display + macro-overlay only, never signals |
 | PRE-2 GIFT Nifty | CONFIRMED GATED | CONFIRMED GATED | external provider slice |
-| PRE-3 FII/DII prev session | GATED | **ACTIVE (cash) · PARTIAL (F&O pending row F retest)** | today's row already in DB |
-| PRE-4 Participant OI | CONFIRMED GATED | GATED pending 20:00 IST retest | T-1 data already in DB |
-| PRE-5 India VIX | ACTIVE via Kite | **PARTIAL · DEFECT** | direct-Kite pipe correct; historical column corrupt (negatives) |
+| PRE-3 FII/DII prev session | GATED | **ACTIVE (cash) · PARTIAL (F&O pending Fri retest)** | today's row already in DB |
+| PRE-4 Participant OI | CONFIRMED GATED | **GATED pending Fri post-close retest** | T-1 data already in DB |
+| PRE-5 India VIX | ACTIVE via Kite | **PARTIAL · DEFECT DIAGNOSED** | writer at optionSignals.ts:3191 mis-typed; fix queued as rider on PAPER_WRITER-DISCIPLINE |
 | PRE-6 Key Levels | pending A/B | **ACTIVE via generate-time Kite fetch** | no persisted candles |
 | PRE-7 Expected Range | pending B/C | **ACTIVE (chain via kiteOptionChain, VIX PARTIAL)** | |
-| PRE-8 News | GATED + MANUAL | **ACTIVE (RSS) + MANUAL ✍️** | 20 Indian feeds registered |
+| PRE-8 News (headlines) | GATED + MANUAL | **MANUAL ✍️ only in v1 · plumbing PROMOTABLE · pending owner audit** | 20-feed list attached; all aggregators, no official-source |
+| PRE-8 Events Calendar (SPLIT) | — | **GATED (new line Row J')** | requires structured source design, not RSS |
 | PRE-9 Expiry check | pending D | **ACTIVE via on-demand Kite dump** | |
 | PRE-10 Bias & plan | pending A/B/C | **ACTIVE (aggregate of above ACTIVE rows)** | |
 | POST-1 Index performance | pending A/L | **ACTIVE via generate-time Kite batch** | |
 | POST-2 Breadth | PARTIAL | **ACTIVE via bhavcopy delivery map** | |
 | POST-3 FII/DII today | GATED | **ACTIVE** | today's row already in DB @ 18:33 IST |
-| POST-4 Participant OI EOD | CONFIRMED GATED | GATED pending 20:00 IST retest | |
+| POST-4 Participant OI EOD | CONFIRMED GATED | **GATED pending Fri post-close retest** | |
 | POST-5 Chain EOD change | ACTIVE (reinforced by row M) | **ACTIVE (requires ingestor ~09:20 IST open capture)** | Phase 1 deliverable |
 | POST-6 Level validation | pending A | **ACTIVE via generate-time Kite** | |
 | POST-7 Sector + stock | pending L + K | **ACTIVE (sectors) · PARTIAL until K sweep sizes stock scope** | |
-| POST-8 News recap | GATED + MANUAL | **ACTIVE (RSS) + MANUAL ✍️** | |
+| POST-8 News recap | GATED + MANUAL | **MANUAL ✍️ only in v1** (same as PRE-8) | |
 | POST-9 Global live | GATED | GATED (analytics tier only) | Yahoo not for decisions |
 | POST-10 Tomorrow setup | pending A/B/C/D | **ACTIVE (aggregate of above ACTIVE rows)** | |
 | POST-11 Journal | ACTIVE + MANUAL | ACTIVE + MANUAL ✍️ | primitive shared with PRE-8 |
 
 ## What flipped positive since the previous matrix draft
 
-1. **PRE-8 / POST-8 News**: GATED → **ACTIVE via `newsRss.ts` (20 Indian RSS feeds)**.
-   Previously assumed "no trusted news source" — that ruling was based on incomplete
-   grep. `getMarketNewsLive(count)` is live and consumed by scanner.
-2. **PRE-1 Overnight global cues**: previously pending → **ACTIVE at analytics tier**
-   (Yahoo global feeds are live; the ×10 US-10Y bug is not reproducible in current tree).
-3. **Row G reconfirmed ACTIVE**: cash bhavcopy + FII/DII both wired through
-   `nseBhavcopy.ts` + `instFlows.ts` with a 15-min refresher and populated to today's
-   date @ 18:33 IST. The `nsearchives.*` vs `archives.*` Akamai split is the exact
-   reason cash works and F&O 503s.
-4. **Row D expiries**: pending → **ACTIVE via on-demand `kc.getInstruments()` dump**;
+1. **Row G · Bhavcopy + FII/DII reconfirmed ACTIVE**: `nseBhavcopy.ts` + `instFlows.ts`
+   with 15-min refresher; populated to today's date @ 18:33 IST. Two-Akamai-edge
+   split (`nsearchives.*` allow / `archives.*` block) explains why cash succeeds and
+   F&O 503s from the same code base.
+2. **PRE-1 Overnight global cues**: pending → **ACTIVE at analytics tier**. Yahoo
+   global feeds live; the ×10 US-10Y bug is not reproducible in current tree.
+3. **Row D expiries**: pending → **ACTIVE via on-demand `kc.getInstruments()` dump**;
    no `instrument_map` persistence required.
 
 ## What flipped negative
 
-1. **Row C India VIX**: architecturally ACTIVE → **PARTIAL / DEFECT** — the historical
-   `fno_signal_reasoning.vix` column contains only NULLs and negatives (–4.80 to –4.51)
-   over the last 48h. Kite mapping is correct; live pull deferred to session restore
-   with a hard 8–35 sanity band as the honesty gate. **`VIX-Corruption` upgraded from
-   anecdotal P1 to numerically-proven P1.**
+1. **Row C India VIX — DEFECT NOW FULLY DIAGNOSED**: single writer site
+   (`optionSignals.ts:3191`) passes intraday change-% into a level-typed field. Root
+   cause is `VixSnapshot` struct having no `.level` field. Fix is ≤3 behaviour lines +
+   tests, queued as a rider on PAPER_WRITER-DISCIPLINE (post-drift, pre-P1.2). Historical
+   rows: leave dirty; document cutover date at fix time.
+2. **Row J News**: previous draft flipped it to ACTIVE — owner ruling reverses that.
+   RSS plumbing existing ≠ section trustworthy. **v1 ships PRE-8/POST-8 as MANUAL ✍️
+   only.** Promotion path defined; owner audit of the 20-feed list pending.
+3. **Row J' Events Calendar (NEW)**: split out of Row J. GATED. The higher-value half
+   of PRE-8 is scheduled events, and that wants a structured source, not RSS parsing.
+
+## Owner rulings absorbed this session (2026-07-16 evening)
+
+**RULE-1 — Re-observing a known defect doesn't re-prioritize it. New exposure does.**
+Applied to VIX-Corruption: re-confirmed with numeric evidence but priority stays at P1
+(rider on PAPER_WRITER-DISCIPLINE), NOT P0. Escalation trigger: any consumer of
+`fno_signal_reasoning.vix` going live before the fix lands. Sequence already prevents
+this by ordering the fix before P1.3.
+
+**RULE-2 — Discovering plumbing is Phase 0's job; deciding what deserves the platform's
+honesty stamp is the owner's.** Applied to Row J: fetch layer works ≠ section
+promotable.
+
+**RULE-3 — Match probe methodology to the operational window.** Row F retest deferred
+to Friday post-close because a pre-publish 503/404 doesn't distinguish "not yet
+published" from "IP blocked"; the fetch-window that a real scheduler uses gives better
+evidence anyway.
+
+**RULE-4 — Historical rows stay dirty with a documented cutover date at fix time.**
+Consistent with the no-retro-mapping ruling on taxonomy.
 
 ## Preview-pod caveats (do NOT block scope-lock; DO flag for owner)
 
 - Kite session on this pod expired at 06:00 UTC / 11:30 IST today. Every Kite-dependent
-  row shows a dormant DB (candles=0, snapshot=0, instrument_map=0). This is an ENV
-  issue for the preview pod (see backlog ENV-ISOLATION), not a spec issue. The
-  architecture is honest — every dependent path already gates itself with
-  `NO_LIVE_KITE_INTRADAY / PRE_EMISSION_REJECTED`.
-- The instrument-refresh job has failed 2 days in a row (`instruments_check_2026-07-15`
+  row shows a dormant DB (candles=0, snapshot=0, instrument_map=0). ENV issue for the
+  preview pod (see backlog ENV-ISOLATION), not a spec issue. Architecture is honest —
+  every dependent path self-gates with `NO_LIVE_KITE_INTRADAY / PRE_EMISSION_REJECTED`.
+- Instrument-refresh job has failed 2 days in a row (`instruments_check_2026-07-15`
   and `-16` both `failed_no_session`). Once Kite is re-authenticated, these will run.
 
-## Remaining tonight
+## Friday post-close docket (2026-07-17 · one batch, one methodology, one actor)
 
-- **~20:15 IST** — Row F retest against `archives.nseindia.com/content/nsccl/
-  fao_participant_oi_16JUL2026.csv`. If 200, participant OI flips to ACTIVE for
-  same-day; if still 503/404, Row F stays GATED and PRE-4/POST-4 remain gated in v1.
+Ordered execution, all read-only or codebase-only, all freeze-compatible until the
+acceptance query fires:
+
+1. **12:00 IST canary** — P0.4 Step 2 mid-session sanity peek at
+   `fno_signal_reasoning` writes (config_version, canonical_decision, gate_name,
+   verdict, stage stamped correctly against live signal traffic).
+2. **≥15:30 IST · Row K** — NIFTY 500 rate-limit sweep (small sample, per-symbol
+   latency + any 429s).
+3. **≥15:30 IST · Row G re-run** — same code path (`refreshFiiDii()`, `getDeliveryMap()`)
+   through `instFlows.ts` and `nseBhavcopy.ts`, capture HTTP status + duration +
+   rows_written per attempt.
+4. **≥20:00 IST · Row F retest** — `GET archives.nseindia.com/content/nsccl/
+   fao_participant_oi_17JUL2026.csv` (Friday's file, post-publish window).
+5. **Evening · 9-section acceptance query** — run
+   `/app/memory/forensics/p0_4_step2_friday_acceptance_query.sql`, paste output, seek
+   sign-off on P0.4 Step 2 closure.
+
+Weekend: Checkpoint 0 sign-off on this matrix; Monday: P0.1+P0.2 kickoff.
 
 ## Owner sign-off checklist (before Phase 1)
 
 - [ ] Verdicts above accepted (or rejected per-row).
-- [ ] Row F retest result recorded post-20:15 IST tonight.
+- [ ] Row F retest result recorded post-20:15 IST Friday.
+- [ ] Row G Friday re-run result recorded.
 - [ ] Row K sweep result recorded post-15:30 IST Friday.
-- [ ] `VIX-Corruption` scheduled as its own P1 slice (blocks PRE-5/POST-6 hard trust).
+- [ ] **VIX-Corruption diagnostic accepted** as read; fix queued as rider on
+      PAPER_WRITER-DISCIPLINE.
+- [ ] **Row J audit** — 20-feed list reviewed; whitelist decided or promotion held.
+- [ ] **Row J' Events Calendar** — structured-source design proposed in its own slice.
 - [ ] Phase 1 schema proposal shrinks to **2 new tables** (`daily_briefings`,
   `owner_journal_entries`) + optional ingestor schedule extension.
 - [ ] Standing rule reconfirmed: MANUAL ✍️ text renders under ✍️ chip only, never
