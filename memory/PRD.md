@@ -1027,3 +1027,10 @@ TREND_CONTINUATION emitter) → P1.3 (exit-price provenance) → Briefing Phases
   contract.
 
 **Session closed.** Next contact: Friday 12:00 IST canary.
+
+**Denominator reconciliation (recorded before rider opens):** 30 NULLs = last-48h
+window (initial escalation probe); 109 NULLs = full-table scan (later diagnostic).
+Both true, different populations. Rider acceptance MUST state its population — ruled
+denominator is **post-cutover rows only** (writer_version stamped by the fix onward),
+not a fixed 48h window and not the full historical table. Historical rows stay dirty
+per prior ruling.

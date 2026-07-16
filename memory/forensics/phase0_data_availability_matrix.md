@@ -201,12 +201,27 @@ The fix must cover **BOTH halves of the 48h pattern**, not just the 6 negatives:
 
 - **Unit bug (6 negatives + 26 wrongly-typed positives)** — resolved by items 1–3
   above (pass `.level`, not `.intradayPct`).
-- **VIX-unavailable case (109 NULLs)** — the fix must define writer behaviour when
+- **VIX-unavailable case** — the fix must define writer behaviour when
   no VIX is available. Presumed shape: **explicit NULL with a data-quality note**
   (e.g., `data_quality = 'VIX_UNAVAILABLE'` or equivalent on the row), so consumers
   can tell "we didn't have VIX at write-time" apart from "we had it and it was 14.2".
   Ambiguous NULLs on rejected/skipped paths are the same honesty defect as the unit
   bug wearing a quieter costume.
+
+### Denominator reconciliation (recorded before rider opens)
+
+Two NULL counts appear in tonight's evidence, both true, different populations:
+- **30 NULLs** — last-48h window (`captured_at >= NOW() - INTERVAL '48 hours'`,
+  the initial escalation probe).
+- **109 NULLs** — full-table scan (all 141 rows in `fno_signal_reasoning`,
+  the later diagnostic).
+
+**Rider acceptance query MUST state its population explicitly** before asserting
+"NULLs handled". Suggested contract: acceptance runs against **all rows written
+under the fixed writer_version onward** (i.e., a moving window opened at fix land),
+NOT against a fixed 48h window or the full historical table. Historical rows are
+already ruled to stay dirty with a documented cutover date; the acceptance
+denominator is the post-cutover population.
 
 Both halves ship in the same ≤3-line-plus-tests slice; acceptance criteria for the
 rider must include the NULL-annotation contract, not only the unit correction.
