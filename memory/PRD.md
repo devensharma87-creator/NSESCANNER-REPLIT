@@ -885,17 +885,65 @@ Owner-signed rulings encoded as tests:
    `REASONING_WRITER_V2_ENABLED` in Emergent's deployment-scoped config, then Publish.
    Checkpoint before applying TS declarations. UNBLOCKS: Publish, merges to `main`,
    any future post-merge push.
-4. **`/audit` panel design (P0.4 Step 3)**: begins once P0.1+P0.2 checkpoints AND the soak
-   window has real data (both conditions).
-4. **P1.2**: comes AFTER P0 closes. Deliverable when P1.2 starts is an **options memo** with
-   the trigger-geometry evidence attached — NOT a unilateral coder fix. Correct entry model
-   in RANGING regimes (pullback-to-value vs tighter trigger distance vs regime-conditional
-   per setup) is a trading strategy decision only the owner can make. Coder's job is to
-   present the evidence and options; owner picks the model.
-5. **P1.2 · real TREND_CONTINUATION emitter and paper-writer connection**: highest-value line
-   on the board — the expectancy clock starts here.
-6. **P1.3**: VIX-corruption fix (negative on RANGING, ~3.2 on EXPIRY_DAY vs real 13-16).
-   Blocks P1.3 volatility-aware targets + P2 IV-bucket reports.
+4. **PAPER_WRITER-DISCIPLINE slice (NEW P0 · Code Review 2026-07-16 evening · queued
+   AFTER Drizzle-drift, HARD prerequisite BEFORE P1.2 opens any real paper trade)**:
+   fixes 3 Code Review findings via one SQL-level primitive.
+   - Defect #1 (HIGH · race): post-open history stamp fired async outside txn can be
+     overtaken by lifecycle sweep → sweep writes TRIGGERED_EXPIRED_UNEXECUTED → stamp
+     overwrites to TRIGGERED_OPEN on an already-closed trade → B8 class reintroduced.
+   - Defect #2 (MED · missing close stamp): paper close path never UPDATEs
+     `option_signal_history.execution_status='TRIGGERED_CLOSED'`.
+   - Defect #3 (MED · enum widening): DB read of `execution_status` type-asserted to
+     closed union without runtime validation. Fail-closed by accident.
+   Root cause: app-level read-then-write on execution_status. Fix primitive:
+   `transitionExecutionStatus(fingerprint, from[], to, writerId)` helper enforcing
+   BOTH permission matrix AND legal-transition table AT THE SQL LEVEL — every UPDATE
+   carries `WHERE execution_status IS NOT DISTINCT FROM <expected prior states>`
+   (compare-and-set). A stale writer's UPDATE simply matches zero rows instead of
+   overwriting terminal state. All 4 writer sites use it. #3 rides along: helper
+   validates DB reads against the closed union and warn-logs anomalies (fingerprint
+   + raw value + writerId), refuses the transition — turns invisible NULL-writes
+   into visible breadcrumbs. Pre-approved additive column for this slice: widen
+   `signal_fingerprint` storage to varchar(64) with full-SHA-256 writes for new rows
+   (fixes CR #4 collision math; schema comment also corrected).
+5. **`/audit` panel design (P0.4 Step 3)**: begins once P0.1+P0.2 checkpoints AND the soak
+   window has real data (both conditions). Panel mounts `getReasoningLoggerHealth()`
+   owner-only surface + surfaces `REASONING_WRITER_V2_ENABLED` flag state (addresses
+   Code Review #5).
+6. **P1.2**: comes AFTER PAPER_WRITER-DISCIPLINE closes. Deliverable when P1.2 starts is
+   an **options memo** with the trigger-geometry evidence attached — NOT a unilateral
+   coder fix. Correct entry model in RANGING regimes (pullback-to-value vs tighter
+   trigger distance vs regime-conditional per setup) is a trading strategy decision
+   only the owner can make. Coder's job is to present the evidence and options; owner
+   picks the model.
+7. **P1.2 · real TREND_CONTINUATION emitter and paper-writer connection**: highest-value
+   line on the board — the expectancy clock starts here.
+8. **P1.3 · Exit-price provenance defect** (retitled 2026-07-16 evening after Code
+   Review Observation #2): the earlier characterization "spot leaked into option-premium
+   column" was imprecise. The lifecycle sweep writes spot-based values (stop/target2)
+   into `option_signal_history.exit_price` **by design** — the lifecycle FSM is
+   spot-based. The paper-close path writes the actual option premium into the SAME
+   column via `pickExitPremium`. The real defect is **one column, two unit semantics,
+   zero provenance** — a consumer reading `exit_price=57448.50` cannot tell whether
+   it's spot-points or option-premium without inferring from the closing path (which
+   is exactly how B8 got misread). Fix shape: either split into `spot_exit_level` vs
+   `option_exit_premium` columns (additive, dual-populate for soak window, deprecate
+   ambiguous column) OR add an `exit_price_unit` enum label ('SPOT'/'OPTION_PREMIUM').
+   Acceptance test survives: replaying B8 must yield either a labeled spot-level exit
+   or a real premium — never an ambiguous number.
+9. **VIX-corruption fix**: negative on RANGING (-4.70 avg), implausibly low on
+   EXPIRY_DAY (~3.2 avg vs real India VIX 13-16). Blocks P1.3 volatility-aware
+   targets + P2 IV-bucket reports.
+
+### Friday operational plan (2026-07-17)
+- **~12:00 IST · Midday spot-check**: run
+  `/app/memory/forensics/p0_4_step2_friday_midday_spotcheck.sh` — read-only,
+  no pod touches, catches dead writers with half a session left to diagnose.
+- **Post 15:30 IST · Full acceptance query**: run
+  `/app/memory/forensics/p0_4_step2_friday_acceptance_query.sql`, verify
+  9 sections (7 original + preamble + UNMAPPED-by-gate breakdown).
+- **Preview pod FROZEN** from now until Friday's acceptance results are in.
+  Zero code, zero env, zero restart touches. Freeze is the operative rule.
 
 ### Owner-side items (not on coder's list)
 - Rotate `nse` DB password across `run_apiserver.sh`, `run_postgres.sh`, `backend/.env`,
