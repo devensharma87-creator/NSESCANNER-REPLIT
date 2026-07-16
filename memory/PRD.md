@@ -852,6 +852,22 @@ Owner-signed rulings encoded as tests:
    before query design begins.
 4. Sites A/B/C acceptance is OPEN — closes with P1.2's first real paper trade; not
    "instrumentation verified" until then.
+5. **DRIFT-P0 (registered 2026-07-16 evening, effective immediately)**: `drizzle-kit push`
+   diff against `nsescanner` is NOT clean — proposes DROP CASCADE on 5 prod tables
+   (`daily_report_runs`, `system_alert_dedup`, `system_alert_state`,
+   `notification_delivery_log`, `reconciliation_report`) plus 3 constraint drifts
+   (`option_signal_plan_audit_reason_check` DROP, 2 PK reshapes on
+   `option_chain_snapshot` and `option_signal_history`, `users.allowed_tabs` default).
+   Until the reconciliation slice lands: NO merges that trigger `scripts/post-merge.sh`
+   and NO manual `pnpm --filter db push`, no exceptions without explicit owner approval.
+   If something must merge urgently before reconciliation, the push step gets consciously
+   skipped/disabled for that merge with owner approval — not trusted to "probably be fine."
+6. **Deployment-env audit (registered 2026-07-16 evening)**: when Publish eventually
+   happens, `REASONING_WRITER_V2_ENABLED=1` AND an audit of EVERY env var the
+   instrumented writers read must be verified present in Emergent's deployment-scoped
+   configuration BEFORE the deploy, with the config shown as evidence. This is a
+   named step in the future reconciliation slice — must not be remembered at 15:25 on
+   a market day.
 
 ### Open items after this slice (corrected queue · 2026-07-16 owner directive)
 1. **Friday 17-Jul evening**: run acceptance query at
@@ -862,7 +878,14 @@ Owner-signed rulings encoded as tests:
 2. **P0.1 + P0.2 iteration** slots into the 2-3 session soak window — starts Monday, checkpoints
    before soak completes. Depends on NONE of the new instrumentation, so no idle time. Content:
    false "Market is closed" + signals schema drift (agreed first fix PR).
-3. **`/audit` panel design (P0.4 Step 3)**: begins once P0.1+P0.2 checkpoints AND the soak
+3. **Drizzle-drift reconciliation slice (NEW P0, queued behind P0.1+P0.2)**: delivers
+   origin-story inventory of all 8 drift items (which call-site creates each runtime
+   table; what changed the 3 constraints), TS schema declarations matching live DB
+   byte-for-byte, diff showing zero pending, then deployment-env audit including
+   `REASONING_WRITER_V2_ENABLED` in Emergent's deployment-scoped config, then Publish.
+   Checkpoint before applying TS declarations. UNBLOCKS: Publish, merges to `main`,
+   any future post-merge push.
+4. **`/audit` panel design (P0.4 Step 3)**: begins once P0.1+P0.2 checkpoints AND the soak
    window has real data (both conditions).
 4. **P1.2**: comes AFTER P0 closes. Deliverable when P1.2 starts is an **options memo** with
    the trigger-geometry evidence attached — NOT a unilateral coder fix. Correct entry model
