@@ -64,6 +64,7 @@ import { centralCachedLotSizeForIndex as getCachedLotSizeForIndex } from "./mark
 import { ensureContractMasterSchemaColumns } from "./ensureContractMasterColumns";
 import { CURRENT_WRITER_VERSION } from "./paperTradeWriterVersion";
 import { computeFnoTradeCost } from "./fnoCostModel";
+import { isReasoningWriterV2Enabled } from "./fnoCanonicalTaxonomy";
 import { mapCostToChargesBreakdown } from "./paperReportsFO";
 // Type-only: does not create a runtime import of fnoExitDecision.ts at
 // module load time (the runtime import is dynamic, inside
@@ -1278,6 +1279,13 @@ async function openPaperTrade(input: LifecycleHookInput): Promise<PaperTradeFoRo
         maxLossPct: maxLossPctPerTrade,
         lots,
         lotSize,
+        // Stage 2 v2 canonical shadow (NULL when flag OFF).
+        gateName: "EXECUTION_OPEN",
+        verdict: "PASS",
+        stage: "OPEN",
+        canonicalDecision: "EXECUTABLE",
+        canonicalReason: "UNMAPPED",
+        tradeClass: "TRADEABLE",
       });
 
       return inserted[0]!;
@@ -1289,6 +1297,48 @@ async function openPaperTrade(input: LifecycleHookInput): Promise<PaperTradeFoRo
     }
     throw err;
   }
+
+  // Stage 2 · PAPER_WRITER post-open history stamp (2026-07-16).
+  // After the paper trade opens, mirror TRIGGERED_OPEN + paper_trade_id
+  // onto the option_signal_history row keyed by (signalDate, indexSymbol,
+  // setupKey, direction). PAPER_WRITER is the only writer per the
+  // permission matrix that may emit TRIGGERED_OPEN — the sweep and
+  // orchestrator paths correctly leave the column NULL for us to fill.
+  // Fire-and-forget outside the transaction: a stamp failure never
+  // reverses a successful paper open (which is already durable), and
+  // one WARN per failure keeps the substrate visible.
+  if (openedRow && isReasoningWriterV2Enabled()) {
+    void (async () => {
+      try {
+        await db
+          .update(optionSignalHistoryTable)
+          .set({
+            executionStatus: "TRIGGERED_OPEN",
+            paperTradeId: openedRow!.id,
+            writerVersion: CURRENT_WRITER_VERSION,
+          })
+          .where(
+            and(
+              eq(optionSignalHistoryTable.signalDate, signalDate),
+              eq(optionSignalHistoryTable.indexSymbol, indexSymbol),
+              eq(optionSignalHistoryTable.setupKey, setupKey),
+              eq(optionSignalHistoryTable.direction, direction),
+            ),
+          );
+      } catch (stampErr) {
+        logger.warn(
+          {
+            err: (stampErr as Error).message,
+            paperTradeId: openedRow!.id,
+            indexSymbol,
+            setupKey,
+          },
+          "Stage 2: TRIGGERED_OPEN history stamp failed (paper trade already open — cosmetic only)",
+        );
+      }
+    })();
+  }
+
   return openedRow;
 }
 
@@ -2620,6 +2670,13 @@ export async function closePaperTradeForSignal(
       realizedPnl,
       lots: r.lots,
       lotSize: r.lotSize,
+      // Stage 2 v2 canonical shadow (NULL when flag OFF).
+      gateName: "LIFECYCLE_CLOSE",
+      verdict: "PASS",
+      stage: "LIFECYCLE",
+      canonicalDecision: "EXECUTABLE",
+      canonicalReason: "UNMAPPED",
+      tradeClass: "TRADEABLE",
     });
 
     return updated[0]!;
@@ -3252,6 +3309,13 @@ function recordMissedSignal(m: MissedSignal): boolean {
     optionTarget1: m.optionTarget1,
     optionTarget2: m.optionTarget2,
     capturedAt: m.observedAt,
+    // Stage 2 v2 canonical shadow (NULL when flag OFF).
+    gateName: "MISSED_WINDOW_GATE",
+    verdict: "SKIP",
+    stage: "TRIGGER_ARM",
+    canonicalDecision: "REJECTED",
+    canonicalReason: "UNMAPPED",
+    tradeClass: null,
   });
 
   return true;

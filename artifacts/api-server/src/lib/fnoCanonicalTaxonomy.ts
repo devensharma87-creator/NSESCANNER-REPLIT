@@ -79,6 +79,27 @@ export type CanonicalReason =
   | "MARKET_CLOSED"
   // Broadcast class
   | "INFO_ONLY_BROADCAST"
+  // Demotion-tag family (Site D `buildEmittedRow` override — writer holds
+  // the tag array in hand at emit time, so we map the primary tag rather
+  // than dropping information on the floor per session 2026-07-16 ruling)
+  | "HTF_BIAS_CONFLICT"        // HTF_CONFLICT, HTF1H_CONFLICT
+  | "RS_CONFLICT"              // RS_CONFLICT
+  | "LOW_WINRATE_HISTORY"      // LOW_WINRATE
+  | "OPENING_NOISE_WINDOW"     // OPENING_NOISE
+  | "CLOSING_NOISE_WINDOW"     // CLOSING_NOISE
+  | "EXPIRY_DAY_MODE"          // EXPIRY_DAY
+  | "OI_ATM_CONFLICT"          // OI_ATM_CONFLICT
+  | "VOL_CLAMPED_STOP"         // VOL_CLAMPED_STOP
+  | "COUNTER_TREND_BIAS"       // COUNTER_TREND
+  | "RECOVERY_MODE_VETO"       // RECOVERY_MODE_VETO
+  | "CHASE_RISK_VETO"          // CHASE_RISK_VETO
+  // Legacy-demotion escape hatch — the writer knows it was demoted but
+  // the tag set contains no mappable entry. Distinguished from generic
+  // UNMAPPED so `/audit` can tell "known legacy demotion path with a
+  // ticket filed" apart from "unknown garbage". Writer-fix ticket:
+  // remove this value once every DEMOTION_TAGS entry has a canonical
+  // mapping and the emission writer stops emitting bare untagged demotes.
+  | "LEGACY_DEMOTION_UNMAPPED"
   // Escape hatch for legacy decisions the helper does not classify —
   // caller writes UNMAPPED explicitly, `/audit` renders "unclassified"
   | "UNMAPPED";
@@ -114,6 +135,24 @@ export type ExecutionBlockedReason =
   | "CONCURRENT_CAP"
   | "DAILY_TRADE_CAP"
   | "BROKER_DISABLED";
+
+/**
+ * Execution-status FSM values written into `option_signal_history.execution_status`.
+ *
+ * `TRIGGERED_AWAITING_EXECUTION` is intentionally distinct from `TRIGGERED_OPEN`
+ * per the honesty guard (session 2026-07-16): a lifecycle sweep that sees a
+ * spot-based trigger fire has NOT observed a paper position opening — writing
+ * `TRIGGERED_OPEN` from such a site would fabricate an open into the audit
+ * trail. Only the paper-writer, which observes the paper_trade_fo insert,
+ * may write `TRIGGERED_OPEN`. See `WRITER_PERMISSION_MATRIX` below.
+ */
+export type ExecutionStatus =
+  | "NOT_TRIGGERED"
+  | "TRIGGERED_AWAITING_EXECUTION"
+  | "TRIGGERED_OPEN"
+  | "TRIGGERED_CLOSED"
+  | "BLOCKED"
+  | "ERROR";
 
 /* ─────────────────── Legacy-shape input contract ─────────────────── */
 
@@ -291,3 +330,143 @@ function mapPreEmissionReason(reason: string): CanonicalReason {
       return "UNMAPPED";
   }
 }
+
+/* ─────────────── Demotion-tag → canonical reason mapping ───────────
+ *
+ * Owner-approved table (session 2026-07-16). Site D's `buildEmittedRow`
+ * writes legacy `reason_code='DEMOTED'` when the tag array carries a
+ * demotion entry. Rather than discard the actual tag information into a
+ * generic UNMAPPED, we map the PRIMARY demotion tag (first match by
+ * order-of-precedence) to its canonical bucket. Unmappable → the
+ * `LEGACY_DEMOTION_UNMAPPED` escape hatch so `/audit` can distinguish
+ * known-tagged demotions from generic UNMAPPED garbage.
+ *
+ * Order below defines precedence when multiple demotion tags coexist on
+ * a signal — higher-priority tags win. Precedence ranking rationale:
+ * data / structural conflicts (HTF, OI) beat regime state (EXPIRY_DAY)
+ * beat quality vetoes (LOW_WINRATE), which is the same order the
+ * emission gate itself uses to shape the demote.
+ */
+const DEMOTION_TAG_TO_CANONICAL: ReadonlyArray<readonly [string, CanonicalReason]> = [
+  ["HTF_CONFLICT", "HTF_BIAS_CONFLICT"],
+  ["HTF1H_CONFLICT", "HTF_BIAS_CONFLICT"],
+  ["OI_ATM_CONFLICT", "OI_ATM_CONFLICT"],
+  ["RS_CONFLICT", "RS_CONFLICT"],
+  ["COUNTER_TREND", "COUNTER_TREND_BIAS"],
+  ["EXPIRY_DAY", "EXPIRY_DAY_MODE"],
+  ["OPENING_NOISE", "OPENING_NOISE_WINDOW"],
+  ["CLOSING_NOISE", "CLOSING_NOISE_WINDOW"],
+  ["VOL_CLAMPED_STOP", "VOL_CLAMPED_STOP"],
+  ["RECOVERY_MODE_VETO", "RECOVERY_MODE_VETO"],
+  ["CHASE_RISK_VETO", "CHASE_RISK_VETO"],
+  ["RR_LOW", "RR_INSUFFICIENT_POST_CLAMP"],
+  ["LOW_WINRATE", "LOW_WINRATE_HISTORY"],
+];
+
+/**
+ * Map an array of demotion tags to a canonical reason using the
+ * priority-ordered table above. Returns `LEGACY_DEMOTION_UNMAPPED` when
+ * the tag set contains no known demotion tag. Pure.
+ *
+ * Empty / null / undefined input → `LEGACY_DEMOTION_UNMAPPED` (defined
+ * behaviour; the caller only reaches this helper on the DEMOTED path).
+ */
+export function mapDemotionTagsToCanonicalReason(
+  tags: ReadonlyArray<string> | null | undefined,
+): CanonicalReason {
+  if (!Array.isArray(tags) || tags.length === 0) {
+    return "LEGACY_DEMOTION_UNMAPPED";
+  }
+  const set = new Set(tags.map((t) => String(t).trim().toUpperCase()));
+  for (const [tag, canonical] of DEMOTION_TAG_TO_CANONICAL) {
+    if (set.has(tag)) return canonical;
+  }
+  return "LEGACY_DEMOTION_UNMAPPED";
+}
+
+/* ───────────────────── Writer-permission matrix ─────────────────── */
+
+/**
+ * Each `option_signal_history.execution_status` value may only be
+ * written from sites that can VERIFY the state from their own data
+ * (honesty guard, session 2026-07-16). A site that cannot determine
+ * the truthful status MUST leave the column NULL rather than guess.
+ *
+ * Sites:
+ *   - `PAPER_WRITER`      — `paperTradingFO.ts` open/close path; observes
+ *                           paper_trade_fo insert directly. Permitted to
+ *                           write every status because it has full
+ *                           visibility of the paper position.
+ *   - `LIFECYCLE_SWEEP`   — `optionSignalLifecycle.ts` STOPPED/EXPIRED
+ *                           sweeps driven by spot-based rules. Sees
+ *                           trigger fires and spot-driven exits, but
+ *                           has NO paper-position awareness. May write
+ *                           NOT_TRIGGERED, TRIGGERED_AWAITING_EXECUTION,
+ *                           TRIGGERED_CLOSED — NEVER TRIGGERED_OPEN.
+ *   - `KITE_TICK_SWEEP`   — tick-driven sweep that latches option_entry
+ *                           on trigger. Sees the trigger fire, has NO
+ *                           paper-position awareness. May only write
+ *                           NOT_TRIGGERED, TRIGGERED_AWAITING_EXECUTION.
+ *   - `ORCHESTRATOR_HOOK` — creates the history row on signal birth.
+ *                           May only write NOT_TRIGGERED.
+ */
+export type ExecutionStatusWriterId =
+  | "PAPER_WRITER"
+  | "LIFECYCLE_SWEEP"
+  | "KITE_TICK_SWEEP"
+  | "ORCHESTRATOR_HOOK";
+
+const WRITER_PERMISSION_MATRIX: Readonly<
+  Record<ExecutionStatusWriterId, ReadonlyArray<ExecutionStatus>>
+> = {
+  PAPER_WRITER: [
+    "NOT_TRIGGERED",
+    "TRIGGERED_AWAITING_EXECUTION",
+    "TRIGGERED_OPEN",
+    "TRIGGERED_CLOSED",
+    "BLOCKED",
+    "ERROR",
+  ],
+  LIFECYCLE_SWEEP: [
+    "NOT_TRIGGERED",
+    "TRIGGERED_AWAITING_EXECUTION",
+    "TRIGGERED_CLOSED",
+  ],
+  KITE_TICK_SWEEP: ["NOT_TRIGGERED", "TRIGGERED_AWAITING_EXECUTION"],
+  ORCHESTRATOR_HOOK: ["NOT_TRIGGERED"],
+};
+
+/**
+ * Pure guard: returns true when `writer` is permitted to write `status`.
+ * Callers use this at the writer boundary and skip the column
+ * assignment (leave NULL) when it returns false — fail-closed by
+ * design. No exceptions thrown; the guard is a policy check, not a
+ * defect detector, so silence is correct.
+ */
+export function writerCanEmit(
+  writer: ExecutionStatusWriterId,
+  status: ExecutionStatus,
+): boolean {
+  return WRITER_PERMISSION_MATRIX[writer].includes(status);
+}
+
+/* ─────────────────────── Feature flag ────────────────────────────── */
+
+/**
+ * Reasoning writer v2 feature flag. When `false` (default), the writer
+ * behaves byte-identically to today: the 9 new reasoning columns and
+ * 5 new history columns remain NULL. When `true`, writers populate the
+ * new columns per the Stage 2 contracts.
+ *
+ * Kept as a function (not a top-level constant) so tests can flip it
+ * via `process.env` mutation inside a try/finally.
+ */
+export function isReasoningWriterV2Enabled(): boolean {
+  return process.env.REASONING_WRITER_V2_ENABLED === "1";
+}
+
+/** Writer version stamped onto every new-write row when v2 is enabled.
+ *  Bump on any change to the writer contract. `/audit` filters on this
+ *  to segment v1 (legacy) rows from v2 (instrumented) rows during the
+ *  rollout window. */
+export const CURRENT_WRITER_VERSION = "paper-writer-v1.3.0-reasoning-instrumented";

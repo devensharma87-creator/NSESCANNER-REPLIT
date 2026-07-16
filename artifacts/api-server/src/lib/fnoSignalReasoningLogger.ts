@@ -41,6 +41,15 @@ import type {
 } from "@workspace/db";
 import { and, asc, desc, eq, gte, lte, sql } from "drizzle-orm";
 import { logger } from "./logger";
+import {
+  CURRENT_WRITER_VERSION,
+  isReasoningWriterV2Enabled,
+  mapDecisionToCanonical,
+  mapDemotionTagsToCanonicalReason,
+  type CanonicalDecision,
+  type CanonicalReason,
+  type TradeClass,
+} from "./fnoCanonicalTaxonomy";
 
 /* ──────────────────── P17a observability counters ────────────────────
  * In-memory counters so an owner-only health endpoint can answer
@@ -180,6 +189,28 @@ export interface FnoReasoningPayload {
 
   snapshot?: Record<string, unknown> | null;
   note?: string | null;
+
+  /* ─── Stage 2 · v2 columns (2026-07-16) ────────────────────────────
+   *
+   * All 9 fields are optional and NULL by default. They are only
+   * populated when `isReasoningWriterV2Enabled()` is true (env flag
+   * `REASONING_WRITER_V2_ENABLED=1`). With the flag OFF, `buildReasoningRow`
+   * writes byte-identically to the pre-Stage-2 behaviour: the new columns
+   * remain NULL on every row. With the flag ON, the 9 required fields
+   * (all except `valuesTestedJson` and `thresholdJson` which are
+   * optional per gate) MUST be populated by the caller — the writer
+   * boundary emits `logger.warn` when a v2-enabled call lacks a required
+   * field so the caller can be fixed. Fail-loud, not fail-silent.
+   */
+  gateName?: string | null;
+  verdict?: import("./fnoCanonicalTaxonomy").Verdict | null;
+  stage?: import("./fnoCanonicalTaxonomy").Stage | null;
+  valuesTestedJson?: Record<string, unknown> | null;
+  thresholdJson?: Record<string, unknown> | null;
+  configVersion?: string | null;
+  tradeClass?: import("./fnoCanonicalTaxonomy").TradeClass | null;
+  canonicalDecision?: import("./fnoCanonicalTaxonomy").CanonicalDecision | null;
+  canonicalReason?: import("./fnoCanonicalTaxonomy").CanonicalReason | null;
 }
 
 /** Numeric -> drizzle string with NaN/Inf guarding. */
@@ -297,6 +328,7 @@ function strOrNull(s: string | null | undefined, max: number): string | null {
  * exact row shape we hand to drizzle. No DB I/O.
  */
 export function buildReasoningRow(p: FnoReasoningPayload): NewFnoSignalReasoningRow {
+  const v2 = isReasoningWriterV2Enabled();
   return {
     capturedAt: p.capturedAt ?? new Date(),
     signalDate: p.signalDate,
@@ -351,6 +383,28 @@ export function buildReasoningRow(p: FnoReasoningPayload): NewFnoSignalReasoning
     lotSize: intOrNull(p.lotSize),
     snapshot: sanitiseSnapshot(p.snapshot ?? null),
     note: p.note ?? null,
+
+    /* ─── Stage 2 · v2 columns ─────────────────────────────────────────
+     * When the flag is OFF, all 9 columns stay NULL — the row shape
+     * is byte-identical to the pre-Stage-2 behaviour. When the flag is
+     * ON, the writer stamps whatever the caller supplied (and NULL for
+     * anything omitted — the fail-loud "required" check for these
+     * fields lives at the call site, not the writer, so the writer
+     * itself never blocks a diagnostic path). */
+    gateName: v2 ? strOrNull(p.gateName ?? null, 64) : null,
+    verdict: v2 ? strOrNull(p.verdict ?? null, 16) : null,
+    stage: v2 ? strOrNull(p.stage ?? null, 24) : null,
+    valuesTestedJson: v2 ? (p.valuesTestedJson ?? null) : null,
+    thresholdJson: v2 ? (p.thresholdJson ?? null) : null,
+    // configVersion falls back to `fno-config-legacy-v0` per §16 bootstrap
+    // rule: writers that predate the config registry document the gap
+    // without failing writes.
+    configVersion: v2
+      ? strOrNull(p.configVersion ?? "fno-config-legacy-v0", 32)
+      : null,
+    tradeClass: v2 ? strOrNull(p.tradeClass ?? null, 16) : null,
+    canonicalDecision: v2 ? strOrNull(p.canonicalDecision ?? null, 24) : null,
+    canonicalReason: v2 ? strOrNull(p.canonicalReason ?? null, 48) : null,
   };
 }
 
@@ -599,6 +653,34 @@ export function buildEmittedRow(
     ? (s.spot > s.vwap ? "ABOVE" : s.spot < s.vwap ? "BELOW" : "AT")
     : null;
 
+  // Stage 2 · Site D canonical shadow (P0.4 Step 2 · 2026-07-16).
+  // Site D writes legacy reason_code='DEMOTED' when demotionTags is
+  // non-empty — that's the exact legacy-writer bug the taxonomy helper
+  // throws on. Per session ruling: byte-identical legacy line stays,
+  // canonical shadow bypasses the helper's throw with a documented
+  // override that maps the primary demotion tag to its canonical bucket
+  // rather than dropping the information on the floor as generic
+  // UNMAPPED. Writer-fix ticket for the underlying reason_code echo:
+  // TODO-P0.4-writer-fix — remove the legacy `reason_code = 'DEMOTED'`
+  // line once every downstream consumer has migrated to reading
+  // `canonical_decision = 'DEMOTED'` instead.
+  const isDemoted = demotionTags.length > 0;
+  const canonicalDecision: CanonicalDecision | null = isDemoted
+    ? "DEMOTED"
+    : "EXECUTABLE";
+  const canonicalReason: CanonicalReason | null = isDemoted
+    ? mapDemotionTagsToCanonicalReason(demotionTags)
+    : "UNMAPPED"; // EMITTED-EXECUTABLE emissions carry no reason bucket
+  // TradeClass promoted from snapshot to first-class column.
+  const rawTradeClass = (s.tradeClass ?? "").toUpperCase();
+  const tradeClass: TradeClass | null =
+    rawTradeClass === "TRADEABLE" ||
+    rawTradeClass === "WATCHLIST" ||
+    rawTradeClass === "INFO_ONLY" ||
+    rawTradeClass === "DIAG"
+      ? (rawTradeClass as TradeClass)
+      : null;
+
   return {
     decision: "EMITTED",
     signalDate,
@@ -608,7 +690,7 @@ export function buildEmittedRow(
     direction: s.bias ?? null,
     optionType: s.leg?.type === "CALL" ? "CE" : s.leg?.type === "PUT" ? "PE" : null,
     tier: s.tier ?? null,
-    reasonCode: demotionTags.length > 0 ? "DEMOTED" : "EMITTED",
+    reasonCode: isDemoted ? "DEMOTED" : "EMITTED",
     confidence: s.confidence ?? null,
     confluenceScore: s.confluenceScore ?? null,
     regime: s.regime ?? null,
@@ -637,6 +719,14 @@ export function buildEmittedRow(
       htfConflict: s.htfConflict ?? null,
       missing,
     },
+    // Stage 2 canonical shadow — populated only when v2 flag is ON
+    // (buildReasoningRow enforces the NULL guard on flag OFF).
+    gateName: "EMISSION",
+    verdict: isDemoted ? "DEMOTE" : "PASS",
+    stage: "EMISSION",
+    tradeClass,
+    canonicalDecision,
+    canonicalReason,
   };
 }
 
@@ -651,14 +741,47 @@ export function buildPreEmissionRejectedRows(
     const reasons = Array.isArray(bucket.reasons) ? bucket.reasons : [];
     for (const raw of reasons) {
       const { setupKey, reason } = parseSuppressionReason(String(raw));
+      const reasonCode = classifySuppressionReason(reason);
+      // Stage 2 canonical shadow — derive from (decision, reason_code).
+      // The helper handles the NO_LIVE_KITE_INTRADAY → DATA_BLOCKED
+      // reason-based override so data failures don't share a bucket
+      // with strategy rejections. OTHER as reason_code will throw at
+      // the helper — that's the intended behaviour (OTHER banned in
+      // new writes). We swallow the throw here and stamp UNMAPPED so
+      // one bad row doesn't poison the batch; the writer's warn path
+      // still records the anomaly.
+      let canonicalDecision: CanonicalDecision;
+      let canonicalReason: CanonicalReason;
+      try {
+        const canon = mapDecisionToCanonical({
+          decision: "PRE_EMISSION_REJECTED",
+          reasonCode,
+        });
+        canonicalDecision = canon.canonicalDecision;
+        canonicalReason = canon.canonicalReason;
+      } catch {
+        // OTHER-ban or legacy-writer-bug throws land here. The row
+        // still writes with UNMAPPED so the funnel count is preserved;
+        // downstream can filter on `canonical_reason='UNMAPPED'` to
+        // see how much OTHER traffic the classifier saw.
+        canonicalDecision = "REJECTED";
+        canonicalReason = "UNMAPPED";
+      }
       out.push({
         decision: "PRE_EMISSION_REJECTED",
         signalDate,
         indexSymbol: bucket.index,
         setupKey,
-        reasonCode: classifySuppressionReason(reason),
+        reasonCode,
         note: reason.slice(0, 240),
         snapshot: { rawReason: String(raw).slice(0, 480) },
+        // Stage 2 v2 canonical shadow (NULL when flag OFF via row builder).
+        gateName: "PRE_EMISSION_GATE",
+        verdict: canonicalDecision === "DATA_BLOCKED" ? "NOT_EVALUATED" : "FAIL",
+        stage: "PRE_EMISSION",
+        tradeClass: null, // pre-emission rejections have no trade class yet
+        canonicalDecision,
+        canonicalReason,
       });
     }
   }

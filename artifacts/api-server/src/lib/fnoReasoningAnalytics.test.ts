@@ -61,6 +61,17 @@ const baseRow = (over: Partial<FnoSignalReasoningRow> = {}): FnoSignalReasoningR
   lotSize: null,
   snapshot: null,
   note: null,
+  // Stage 2 (2026-07-16) — new columns default to null so legacy test fixtures
+  // continue to typecheck as full FnoSignalReasoningRow shapes.
+  gateName: null,
+  verdict: null,
+  stage: null,
+  valuesTestedJson: null,
+  thresholdJson: null,
+  configVersion: null,
+  tradeClass: null,
+  canonicalDecision: null,
+  canonicalReason: null,
   ...over,
 });
 

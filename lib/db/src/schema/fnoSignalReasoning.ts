@@ -140,6 +140,22 @@ export const fnoSignalReasoningTable = pgTable(
 
     /* free-form note for ad-hoc context */
     note: text("note"),
+
+    /* ─── Stage 2 · v2 instrumentation columns (2026-07-16) ──────────────
+     * Additive per §16 gate-storage mandate. Populated only when the
+     * `REASONING_WRITER_V2_ENABLED` feature flag is on; NULL otherwise.
+     * Migration applied via direct `ALTER TABLE ... ADD COLUMN IF NOT
+     * EXISTS` on 2026-07-16 (P0.4 Step 1). See fnoCanonicalTaxonomy.ts
+     * for the closed TS unions that govern the allowed string values. */
+    gateName: varchar("gate_name", { length: 64 }),
+    verdict: varchar("verdict", { length: 16 }),
+    stage: varchar("stage", { length: 24 }),
+    valuesTestedJson: jsonb("values_tested_json"),
+    thresholdJson: jsonb("threshold_json"),
+    configVersion: varchar("config_version", { length: 32 }),
+    tradeClass: varchar("trade_class", { length: 16 }),
+    canonicalDecision: varchar("canonical_decision", { length: 24 }),
+    canonicalReason: varchar("canonical_reason", { length: 48 }),
   },
   (t) => ({
     capturedAtIdx: index("fno_signal_reasoning_captured_at_idx").on(t.capturedAt),

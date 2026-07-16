@@ -7,6 +7,7 @@ import {
   date,
   index,
   primaryKey,
+  varchar,
 } from "drizzle-orm/pg-core";
 
 export const optionSignalHistoryTable = pgTable(
@@ -77,6 +78,21 @@ export const optionSignalHistoryTable = pgTable(
     lastEvaluatedAt: timestamp("last_evaluated_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
+
+    /* ─── Stage 2 · v2 instrumentation columns (2026-07-16) ──────────────
+     * Additive; populated only when `REASONING_WRITER_V2_ENABLED=1`.
+     * Migration applied via direct `ALTER TABLE … ADD COLUMN IF NOT
+     * EXISTS` on 2026-07-16 (P0.4 Step 1). See fnoCanonicalTaxonomy.ts
+     * for the closed TS unions that govern the allowed string values. */
+    signalFingerprint: varchar("signal_fingerprint", { length: 32 }),
+    // Nullable FK-like reference to paper_trade_fo.id (a UUID string
+    // in the paper_trade_fo schema) — no hard constraint (additive
+    // discipline). Populated by the paper-writer path on successful
+    // open; NULL for signals that never opened.
+    paperTradeId: varchar("paper_trade_id", { length: 64 }),
+    executionStatus: varchar("execution_status", { length: 24 }),
+    executionBlockedReason: varchar("execution_blocked_reason", { length: 48 }),
+    writerVersion: varchar("writer_version", { length: 32 }),
   },
   (t) => ({
     pk: primaryKey({

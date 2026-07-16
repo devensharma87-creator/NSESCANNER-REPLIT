@@ -34,6 +34,14 @@ import type {
   FnoExitQuoteProvenance,
   FnoExitDecisionExit,
 } from "./fnoExitDecision";
+import {
+  CURRENT_WRITER_VERSION as OPTION_HISTORY_WRITER_VERSION,
+  isReasoningWriterV2Enabled,
+  writerCanEmit,
+  type ExecutionStatus,
+  type ExecutionStatusWriterId,
+} from "./fnoCanonicalTaxonomy";
+import { computeSignalFingerprint } from "./fnoSignalReasoningLogger";
 
 /**
  * Signal lifecycle tracker.
@@ -363,6 +371,17 @@ export async function recordOrUpdate(
       const exc = init.next === "PENDING"
         ? { mfeBar: 0, maeBar: 0 }
         : bestExcursions(direction, entry, snapshot);
+      // Stage 2 v2 locals — cheap to compute, gated by flag at write site.
+      const v2Enabled = isReasoningWriterV2Enabled();
+      const currentWriterVersion = OPTION_HISTORY_WRITER_VERSION;
+      const historyFingerprint = computeSignalFingerprint({
+        signalDate: date,
+        indexSymbol: signal.index,
+        setupKey: signal.setupKey ?? null,
+        direction,
+        optionType: signal.leg.type,
+        selectedStrike: signal.leg.strike,
+      });
       const insertRow = {
         signalDate: date,
         indexSymbol: signal.index,
@@ -397,6 +416,20 @@ export async function recordOrUpdate(
         maxAdverseExcursion: toDbNumeric(exc.maeBar),
         lastSpot: toDbNumeric(snapshot.spot),
         lastEvaluatedAt: now,
+        /* ─── Stage 2 · v2 instrumentation (2026-07-16, ORCHESTRATOR_HOOK) ──
+         * This site is the ORCHESTRATOR_HOOK writer per the permission
+         * matrix — the ONLY status it may emit is NOT_TRIGGERED (signal
+         * birth). If the initial state is already TRIGGERED / EXPIRED,
+         * we leave execution_status NULL for a downstream permitted
+         * writer to fill in truthfully rather than fabricating a state
+         * this site cannot verify. signal_fingerprint is computed from
+         * the 6-tuple at write time; writer_version is stamped for the
+         * rollout window. */
+        signalFingerprint: v2Enabled ? historyFingerprint : null,
+        paperTradeId: null, // populated later by PAPER_WRITER path
+        executionStatus: v2Enabled && init.next === "PENDING" ? "NOT_TRIGGERED" : null,
+        executionBlockedReason: null,
+        writerVersion: v2Enabled ? currentWriterVersion : null,
       } as const;
       const inserted = await db
         .insert(optionSignalHistoryTable)
@@ -729,6 +762,28 @@ export async function recordOrUpdate(
         maxAdverseExcursion: sql`GREATEST(${optionSignalHistoryTable.maxAdverseExcursion}, ${toDbNumeric(exc.maeBar)}::numeric)`,
         lastSpot: toDbNumeric(snapshot.spot),
         lastEvaluatedAt: now,
+        // Stage 2 v2 · LIFECYCLE_SWEEP writer.
+        // Per permission matrix: LIFECYCLE_SWEEP may emit
+        // NOT_TRIGGERED, TRIGGERED_AWAITING_EXECUTION, TRIGGERED_CLOSED.
+        // TRIGGERED_OPEN is reserved for PAPER_WRITER. Fail-closed: if
+        // the target status isn't permitted for this writer, leave the
+        // column untouched (undefined = no SET → keeps existing value).
+        ...(isReasoningWriterV2Enabled()
+          ? (() => {
+              const target: ExecutionStatus | null =
+                trans.next === "TRIGGERED"
+                  ? "TRIGGERED_AWAITING_EXECUTION"
+                  : trans.next === "STOPPED" ||
+                    trans.next === "TARGET1_HIT" ||
+                    trans.next === "TARGET2_HIT" ||
+                    trans.next === "EXPIRED"
+                  ? "TRIGGERED_CLOSED"
+                  : null;
+              return target && writerCanEmit("LIFECYCLE_SWEEP", target)
+                ? { executionStatus: target }
+                : {};
+            })()
+          : {}),
       })
       .where(
         and(
