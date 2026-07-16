@@ -195,6 +195,22 @@ Two-part change, target ≤3 lines of behaviour change plus tests:
                               write < 5 or > 80.
 ```
 
+### Rider acceptance (added 2026-07-16 evening per owner ruling)
+
+The fix must cover **BOTH halves of the 48h pattern**, not just the 6 negatives:
+
+- **Unit bug (6 negatives + 26 wrongly-typed positives)** — resolved by items 1–3
+  above (pass `.level`, not `.intradayPct`).
+- **VIX-unavailable case (109 NULLs)** — the fix must define writer behaviour when
+  no VIX is available. Presumed shape: **explicit NULL with a data-quality note**
+  (e.g., `data_quality = 'VIX_UNAVAILABLE'` or equivalent on the row), so consumers
+  can tell "we didn't have VIX at write-time" apart from "we had it and it was 14.2".
+  Ambiguous NULLs on rejected/skipped paths are the same honesty defect as the unit
+  bug wearing a quieter costume.
+
+Both halves ship in the same ≤3-line-plus-tests slice; acceptance criteria for the
+rider must include the NULL-annotation contract, not only the unit correction.
+
 **Historical rows: leave dirty with a documented cutover date at fix time** (owner
 ruling, consistent with the no-retro-mapping ruling on taxonomy). Cutover date will be
 inserted here at fix land.
@@ -440,12 +456,17 @@ Consumed today by scanner.ts:486, :742 for per-symbol news blocks.
 Owner audit target: which sources you'd trust levels from; probable outcome is
 whitelist a small subset (Moneycontrol/Mint/ET tier vs Yahoo/Investing tier).
 
-**Promotion path (in order):**
-1. Owner audit of the 20-feed list above — 10-minute pasted review.
-2. Curation design decision — owner's default preference: dumb-but-honest v1.x
-   (whitelisted official-tier feeds only, latest-N timestamped headlines, explicitly
-   labeled "unranked headlines, not analysis").
-3. **Events Calendar split** — see new Row J' below.
+**Owner audit result (2026-07-16 evening, ruled from the pasted list):** AUDIT FAILS.
+All 20 feeds are aggregators. Zero official-source (RBI / NSE / BSE / SEBI / PIB) on
+the list. There is nothing on this list to whitelist. Filtering the aggregator set
+does not fix a source-quality problem.
+
+**Promotion condition (sharpened, replaces earlier draft):**
+- Row J promotion requires a **PROPOSED official-source feed list** — RBI press
+  releases, NSE/BSE exchange circulars, SEBI notifications, PIB briefings — submitted
+  to owner for approval. Not curating the existing aggregator set.
+- No urgency. Low priority. Sits behind everything.
+- **Events Calendar split** — see new Row J' below.
 
 **PRE-8 / POST-8 News in v1:** **MANUAL ✍️ only** (per existing Q4 ruling). No news
 code in Phases 1–4. Three lines of "what I'm watching" from a professional trader

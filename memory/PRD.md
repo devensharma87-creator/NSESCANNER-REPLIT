@@ -1005,3 +1005,25 @@ TREND_CONTINUATION emitter) → P1.3 (exit-price provenance) → Briefing Phases
 
 **Matrix file:** `/app/memory/forensics/phase0_data_availability_matrix.md`
 (finalized with per-row raw evidence, rulings, Friday docket, sign-off checklist).
+
+### Session close addendum (2026-07-16 late evening, owner rulings)
+- **DRIFT-P0 unchanged.** No Publish. `drizzle-kit push` still wants to drop 5 prod
+  tables; publish stays blocked until Drift Reconciliation slice lands. Not re-litigated.
+- **No code review tonight** — the evening was read-only (queries, probes, markdown).
+  Nothing to review.
+- **Row J audit RULED = FAIL.** All 20 feeds are aggregators, zero official-source.
+  Promotion condition sharpened: requires a **PROPOSED official-source feed list**
+  (RBI / NSE / BSE / SEBI / PIB) submitted for approval — not curating aggregators.
+  Low priority, sits behind everything.
+- **Events Calendar (Row J') design memo DEFERRED into Briefing Phase 1 planning**
+  after Checkpoint 0. Not a parallel thread tonight.
+- **VIX Fix Preview memo DECLINED.** Diagnosis IS the memo (file, line, wrong field,
+  missing struct member, fix shape all recorded). Diff gets written inside
+  PAPER_WRITER-DISCIPLINE where its tests run same day.
+- **VIX rider acceptance expanded**: the fix must cover BOTH halves of the 48h
+  pattern — the 6 negatives (unit bug) AND the 109 NULLs (VIX-unavailable behaviour).
+  Presumed shape for NULLs: explicit NULL with `data_quality` annotation on the row.
+  Both halves ship in the same ≤3-line slice; acceptance includes NULL-annotation
+  contract.
+
+**Session closed.** Next contact: Friday 12:00 IST canary.
