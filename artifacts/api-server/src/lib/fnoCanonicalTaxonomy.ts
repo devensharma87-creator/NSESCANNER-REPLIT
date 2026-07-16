@@ -145,12 +145,23 @@ export type ExecutionBlockedReason =
  * `TRIGGERED_OPEN` from such a site would fabricate an open into the audit
  * trail. Only the paper-writer, which observes the paper_trade_fo insert,
  * may write `TRIGGERED_OPEN`. See `WRITER_PERMISSION_MATRIX` below.
+ *
+ * `TRIGGERED_EXPIRED_UNEXECUTED` (2026-07-16 owner amendment) is the
+ * truthful terminal state for a signal whose trigger fired but for which
+ * no paper execution was ever recorded. This is the B8 category proof
+ * (BANKNIFTY 2026-07-14 EXPIRED_TRIGGERED with a fabricated spot-as-
+ * option-exit) — and it is the correct terminal state for EVERY signal
+ * that triggers today until P1.2 wires the real paper writer. A sweep
+ * MUST NOT write `TRIGGERED_CLOSED` on a row that was never observed
+ * open; the state-transition guard in the LIFECYCLE_SWEEP write path
+ * enforces this at the writer boundary.
  */
 export type ExecutionStatus =
   | "NOT_TRIGGERED"
   | "TRIGGERED_AWAITING_EXECUTION"
   | "TRIGGERED_OPEN"
   | "TRIGGERED_CLOSED"
+  | "TRIGGERED_EXPIRED_UNEXECUTED"
   | "BLOCKED"
   | "ERROR";
 
@@ -424,14 +435,22 @@ const WRITER_PERMISSION_MATRIX: Readonly<
     "TRIGGERED_AWAITING_EXECUTION",
     "TRIGGERED_OPEN",
     "TRIGGERED_CLOSED",
+    "TRIGGERED_EXPIRED_UNEXECUTED",
     "BLOCKED",
     "ERROR",
   ],
   LIFECYCLE_SWEEP: [
     "NOT_TRIGGERED",
     "TRIGGERED_AWAITING_EXECUTION",
+    // TRIGGERED_CLOSED is permitted BUT only via the state-transition
+    // guard `canLifecycleSweepCloseFrom` — a sweep may only close what
+    // was previously observed open. Direct permission alone is not
+    // sufficient; the caller must gate on the current status.
     "TRIGGERED_CLOSED",
+    "TRIGGERED_EXPIRED_UNEXECUTED",
   ],
+  // Tick-driven sweeps see triggers fire but never see expiries;
+  // TRIGGERED_EXPIRED_UNEXECUTED remains PAPER_WRITER/LIFECYCLE_SWEEP-only.
   KITE_TICK_SWEEP: ["NOT_TRIGGERED", "TRIGGERED_AWAITING_EXECUTION"],
   ORCHESTRATOR_HOOK: ["NOT_TRIGGERED"],
 };
@@ -448,6 +467,32 @@ export function writerCanEmit(
   status: ExecutionStatus,
 ): boolean {
   return WRITER_PERMISSION_MATRIX[writer].includes(status);
+}
+
+/**
+ * State-transition honesty guard for the LIFECYCLE_SWEEP writer
+ * (session 2026-07-16 · B8 fabrication class).
+ *
+ * A lifecycle sweep with zero paper-position awareness may only close
+ * what was previously observed OPEN — that is, an `execution_status`
+ * of `TRIGGERED_OPEN`. Closing an `AWAITING_EXECUTION` (or NULL, or any
+ * other state) implies a lifecycle transition the sweep never observed.
+ *
+ * B8's failure mode: LIFECYCLE_SWEEP saw a spot-based trigger fire,
+ * later saw a spot-based "exit" condition, and stamped `exit_price` =
+ * spot value on a signal that had no paper position. This guard makes
+ * that state transition unrepresentable at the writer boundary.
+ *
+ * If the guard returns false, the correct behaviour for the writer is
+ * to route the transition to `TRIGGERED_EXPIRED_UNEXECUTED` (the
+ * truthful terminal state for a triggered-but-never-executed signal)
+ * OR to leave `execution_status` untouched. The guard NEVER throws —
+ * fail-closed by policy, not by defect.
+ */
+export function canLifecycleSweepCloseFrom(
+  currentStatus: ExecutionStatus | null | undefined,
+): boolean {
+  return currentStatus === "TRIGGERED_OPEN";
 }
 
 /* ─────────────────────── Feature flag ────────────────────────────── */

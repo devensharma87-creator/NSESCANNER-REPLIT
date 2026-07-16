@@ -36,6 +36,7 @@ import type {
 } from "./fnoExitDecision";
 import {
   CURRENT_WRITER_VERSION as OPTION_HISTORY_WRITER_VERSION,
+  canLifecycleSweepCloseFrom,
   isReasoningWriterV2Enabled,
   writerCanEmit,
   type ExecutionStatus,
@@ -763,22 +764,35 @@ export async function recordOrUpdate(
         lastSpot: toDbNumeric(snapshot.spot),
         lastEvaluatedAt: now,
         // Stage 2 v2 · LIFECYCLE_SWEEP writer.
-        // Per permission matrix: LIFECYCLE_SWEEP may emit
-        // NOT_TRIGGERED, TRIGGERED_AWAITING_EXECUTION, TRIGGERED_CLOSED.
-        // TRIGGERED_OPEN is reserved for PAPER_WRITER. Fail-closed: if
-        // the target status isn't permitted for this writer, leave the
-        // column untouched (undefined = no SET → keeps existing value).
+        // Per permission matrix + state-transition guard: LIFECYCLE_SWEEP
+        // may only write TRIGGERED_CLOSED when the current status is
+        // TRIGGERED_OPEN — closure is only assertable of an open the
+        // paper-writer previously recorded. For every other terminal
+        // transition (STOPPED/TARGET/EXPIRED on a signal never observed
+        // open) the truthful state is TRIGGERED_EXPIRED_UNEXECUTED,
+        // the terminal "trigger fired, never executed, lifecycle
+        // ended" state. This forecloses the B8 fabrication class at
+        // the writer boundary.
         ...(isReasoningWriterV2Enabled()
           ? (() => {
-              const target: ExecutionStatus | null =
-                trans.next === "TRIGGERED"
-                  ? "TRIGGERED_AWAITING_EXECUTION"
-                  : trans.next === "STOPPED" ||
-                    trans.next === "TARGET1_HIT" ||
-                    trans.next === "TARGET2_HIT" ||
-                    trans.next === "EXPIRED"
+              const currentStatus = (row.executionStatus ?? null) as
+                | ExecutionStatus
+                | null;
+              const isTerminal =
+                trans.next === "STOPPED" ||
+                trans.next === "TARGET1_HIT" ||
+                trans.next === "TARGET2_HIT" ||
+                trans.next === "EXPIRED";
+              const target: ExecutionStatus | null = trans.next === "TRIGGERED"
+                ? "TRIGGERED_AWAITING_EXECUTION"
+                : isTerminal
+                ? // Only stamp TRIGGERED_CLOSED if the sweep is closing
+                  // an open the paper-writer previously recorded.
+                  // Otherwise the truthful terminal is EXPIRED_UNEXECUTED.
+                  canLifecycleSweepCloseFrom(currentStatus)
                   ? "TRIGGERED_CLOSED"
-                  : null;
+                  : "TRIGGERED_EXPIRED_UNEXECUTED"
+                : null;
               return target && writerCanEmit("LIFECYCLE_SWEEP", target)
                 ? { executionStatus: target }
                 : {};

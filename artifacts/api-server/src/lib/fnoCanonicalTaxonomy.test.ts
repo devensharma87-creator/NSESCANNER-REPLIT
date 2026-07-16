@@ -12,6 +12,7 @@ import { describe, it, expect, expectTypeOf } from "vitest";
 
 import {
   banOtherReasonAssertion,
+  canLifecycleSweepCloseFrom,
   CURRENT_WRITER_VERSION,
   isReasoningWriterV2Enabled,
   LegacyReasonCodeBugError,
@@ -397,12 +398,13 @@ describe("canonical unions are closed at compile time (writer signatures cannot 
     >();
   });
 
-  it("ExecutionStatus is closed and includes TRIGGERED_AWAITING_EXECUTION (honesty guard)", () => {
+  it("ExecutionStatus is closed and includes TRIGGERED_AWAITING_EXECUTION + TRIGGERED_EXPIRED_UNEXECUTED (honesty guards)", () => {
     expectTypeOf<ExecutionStatus>().toEqualTypeOf<
       | "NOT_TRIGGERED"
       | "TRIGGERED_AWAITING_EXECUTION"
       | "TRIGGERED_OPEN"
       | "TRIGGERED_CLOSED"
+      | "TRIGGERED_EXPIRED_UNEXECUTED"
       | "BLOCKED"
       | "ERROR"
     >();
@@ -541,6 +543,7 @@ describe("writerCanEmit — permission matrix (honesty guard)", () => {
       "TRIGGERED_AWAITING_EXECUTION",
       "TRIGGERED_OPEN",
       "TRIGGERED_CLOSED",
+      "TRIGGERED_EXPIRED_UNEXECUTED",
       "BLOCKED",
       "ERROR",
     ];
@@ -549,10 +552,11 @@ describe("writerCanEmit — permission matrix (honesty guard)", () => {
     }
   });
 
-  it("LIFECYCLE_SWEEP may emit NOT_TRIGGERED / AWAITING / CLOSED — but NOT TRIGGERED_OPEN", () => {
+  it("LIFECYCLE_SWEEP may emit NOT_TRIGGERED / AWAITING / CLOSED / EXPIRED_UNEXECUTED — but NOT TRIGGERED_OPEN", () => {
     expect(writerCanEmit("LIFECYCLE_SWEEP", "NOT_TRIGGERED")).toBe(true);
     expect(writerCanEmit("LIFECYCLE_SWEEP", "TRIGGERED_AWAITING_EXECUTION")).toBe(true);
     expect(writerCanEmit("LIFECYCLE_SWEEP", "TRIGGERED_CLOSED")).toBe(true);
+    expect(writerCanEmit("LIFECYCLE_SWEEP", "TRIGGERED_EXPIRED_UNEXECUTED")).toBe(true);
     // The critical honesty guard: a sweep with no paper-open awareness
     // may NOT claim TRIGGERED_OPEN.
     expect(writerCanEmit("LIFECYCLE_SWEEP", "TRIGGERED_OPEN")).toBe(false);
@@ -560,11 +564,12 @@ describe("writerCanEmit — permission matrix (honesty guard)", () => {
     expect(writerCanEmit("LIFECYCLE_SWEEP", "ERROR")).toBe(false);
   });
 
-  it("KITE_TICK_SWEEP may only emit NOT_TRIGGERED and AWAITING_EXECUTION", () => {
+  it("KITE_TICK_SWEEP may only emit NOT_TRIGGERED and AWAITING_EXECUTION — NOT EXPIRED_UNEXECUTED (ticks don't see expiries)", () => {
     expect(writerCanEmit("KITE_TICK_SWEEP", "NOT_TRIGGERED")).toBe(true);
     expect(writerCanEmit("KITE_TICK_SWEEP", "TRIGGERED_AWAITING_EXECUTION")).toBe(true);
     expect(writerCanEmit("KITE_TICK_SWEEP", "TRIGGERED_OPEN")).toBe(false);
     expect(writerCanEmit("KITE_TICK_SWEEP", "TRIGGERED_CLOSED")).toBe(false);
+    expect(writerCanEmit("KITE_TICK_SWEEP", "TRIGGERED_EXPIRED_UNEXECUTED")).toBe(false);
     expect(writerCanEmit("KITE_TICK_SWEEP", "BLOCKED")).toBe(false);
     expect(writerCanEmit("KITE_TICK_SWEEP", "ERROR")).toBe(false);
   });
@@ -574,6 +579,7 @@ describe("writerCanEmit — permission matrix (honesty guard)", () => {
     expect(writerCanEmit("ORCHESTRATOR_HOOK", "TRIGGERED_AWAITING_EXECUTION")).toBe(false);
     expect(writerCanEmit("ORCHESTRATOR_HOOK", "TRIGGERED_OPEN")).toBe(false);
     expect(writerCanEmit("ORCHESTRATOR_HOOK", "TRIGGERED_CLOSED")).toBe(false);
+    expect(writerCanEmit("ORCHESTRATOR_HOOK", "TRIGGERED_EXPIRED_UNEXECUTED")).toBe(false);
     expect(writerCanEmit("ORCHESTRATOR_HOOK", "BLOCKED")).toBe(false);
     expect(writerCanEmit("ORCHESTRATOR_HOOK", "ERROR")).toBe(false);
   });
@@ -583,6 +589,45 @@ describe("writerCanEmit — permission matrix (honesty guard)", () => {
     // whether to write the column at all; a false return means leave
     // it NULL, not raise.
     expect(() => writerCanEmit("LIFECYCLE_SWEEP", "TRIGGERED_OPEN")).not.toThrow();
+  });
+});
+
+/* ─── State-transition guard (B8 fabrication class foreclosure) ──── */
+
+describe("canLifecycleSweepCloseFrom — B8 fabrication-class foreclosure", () => {
+  it("returns true ONLY when current status is TRIGGERED_OPEN — closure is only assertable of an observed open", () => {
+    expect(canLifecycleSweepCloseFrom("TRIGGERED_OPEN")).toBe(true);
+  });
+
+  it("returns false for TRIGGERED_AWAITING_EXECUTION (no open observed yet)", () => {
+    expect(canLifecycleSweepCloseFrom("TRIGGERED_AWAITING_EXECUTION")).toBe(false);
+  });
+
+  it("returns false for NOT_TRIGGERED (nothing happened yet — cannot close)", () => {
+    expect(canLifecycleSweepCloseFrom("NOT_TRIGGERED")).toBe(false);
+  });
+
+  it("returns false for null / undefined (current status unset — cannot claim a close)", () => {
+    expect(canLifecycleSweepCloseFrom(null)).toBe(false);
+    expect(canLifecycleSweepCloseFrom(undefined)).toBe(false);
+  });
+
+  it("returns false for TRIGGERED_CLOSED (already closed — idempotent, but the sweep still cannot re-assert)", () => {
+    expect(canLifecycleSweepCloseFrom("TRIGGERED_CLOSED")).toBe(false);
+  });
+
+  it("returns false for TRIGGERED_EXPIRED_UNEXECUTED (already terminal — not a re-close candidate)", () => {
+    expect(canLifecycleSweepCloseFrom("TRIGGERED_EXPIRED_UNEXECUTED")).toBe(false);
+  });
+
+  it("returns false for BLOCKED / ERROR (paper-writer-only states — sweep cannot close)", () => {
+    expect(canLifecycleSweepCloseFrom("BLOCKED")).toBe(false);
+    expect(canLifecycleSweepCloseFrom("ERROR")).toBe(false);
+  });
+
+  it("does NOT throw (fail-closed by policy, not defect)", () => {
+    expect(() => canLifecycleSweepCloseFrom(null)).not.toThrow();
+    expect(() => canLifecycleSweepCloseFrom("NOT_TRIGGERED")).not.toThrow();
   });
 });
 
