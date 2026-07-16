@@ -363,9 +363,43 @@ export function buildReasoningRow(p: FnoReasoningPayload): NewFnoSignalReasoning
  * On failure, emits one `logger.warn` so the operator sees substrate
  * outages explicitly without spamming the request log.
  */
+/**
+ * Writer-boundary guard (2026-07-16, P0.4 Step 2 quarantine).
+ *
+ * Refuses to write into the reasoning table when running under a test
+ * runner (vitest / NODE_ENV=test) unless an explicit
+ * `ALLOW_TEST_DB_WRITES=1` override is present. This is the systemic
+ * fix for the class of defect that leaked 18 `TREND_CONTINUATION` stub
+ * rows into prod diagnostics (fnoObservability.test.ts calling
+ * `logFnoReasoning` against a live DATABASE_URL on every test run).
+ *
+ * The guard is intentionally at the writer boundary rather than the
+ * caller — one guarded seam protects every current and future test
+ * file that happens to import the logger. Failure mode is fail-loud:
+ * an Error is thrown here and caught by the surrounding try/catch,
+ * which increments `writesFailed` and stamps `lastErrorClass` so the
+ * next test-suite-writer sees the guard in the health surface
+ * immediately.
+ *
+ * ALLOW_TEST_DB_WRITES=1 exists for exactly one intended use: purpose-
+ * built integration tests running against a disposable test DB. It
+ * must NEVER be set in dev/CI envs that carry the prod DATABASE_URL.
+ */
+function assertNotProdDbInTest(): void {
+  const inTestEnv =
+    process.env.VITEST === "true" || process.env.NODE_ENV === "test";
+  const overrideAllowed = process.env.ALLOW_TEST_DB_WRITES === "1";
+  if (inTestEnv && !overrideAllowed) {
+    throw new Error(
+      "REASONING_WRITER_TEST_GUARD: refused to write from a test process (VITEST/NODE_ENV=test) without ALLOW_TEST_DB_WRITES=1. Mock the db module or run against a disposable test DB.",
+    );
+  }
+}
+
 export async function logFnoReasoning(payload: FnoReasoningPayload): Promise<boolean> {
   HEALTH.writesAttempted += 1;
   try {
+    assertNotProdDbInTest();
     const row = buildReasoningRow(payload);
     await db.insert(fnoSignalReasoningTable).values(row);
     HEALTH.writesSucceeded += 1;

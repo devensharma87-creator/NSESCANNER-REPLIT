@@ -496,6 +496,13 @@ describe("logFnoReasoning — non-blocking safety contract", () => {
   });
 
   it("never throws on malformed payload (e.g. all NaN numerics)", async () => {
+    // This test spies on the underlying db.insert to prove logFnoReasoning
+    // still returns true when malformed numerics reach the writer. Since
+    // the writer-boundary guard (2026-07-16) refuses to write from a test
+    // process by default, opt in with ALLOW_TEST_DB_WRITES=1 for this
+    // specific case where the db is already spied — the guard's purpose
+    // is to block accidental leaks into a real DB, and the spy proves
+    // no real DB is touched here.
     const dbModule = await import("@workspace/db");
     const spy = vi.spyOn(dbModule.db, "insert").mockImplementation(() => {
       return {
@@ -503,18 +510,27 @@ describe("logFnoReasoning — non-blocking safety contract", () => {
       } as unknown as ReturnType<typeof dbModule.db.insert>;
     });
 
-    await expect(
-      logFnoReasoning({
-        decision: "OPENED",
-        signalDate: "2026-05-15",
-        indexSymbol: "NIFTY",
-        confidence: NaN,
-        optionEntry: Infinity,
-        spotStop: -Infinity,
-      }),
-    ).resolves.toBe(true);
-
-    spy.mockRestore();
+    const savedAllow = process.env.ALLOW_TEST_DB_WRITES;
+    process.env.ALLOW_TEST_DB_WRITES = "1";
+    try {
+      await expect(
+        logFnoReasoning({
+          decision: "OPENED",
+          signalDate: "2026-05-15",
+          indexSymbol: "NIFTY",
+          confidence: NaN,
+          optionEntry: Infinity,
+          spotStop: -Infinity,
+        }),
+      ).resolves.toBe(true);
+    } finally {
+      if (savedAllow === undefined) {
+        delete process.env.ALLOW_TEST_DB_WRITES;
+      } else {
+        process.env.ALLOW_TEST_DB_WRITES = savedAllow;
+      }
+      spy.mockRestore();
+    }
   });
 });
 
