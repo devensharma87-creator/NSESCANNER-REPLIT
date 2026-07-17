@@ -302,7 +302,7 @@ export async function reconcilePaperAccount(
         // paper_trade_eq may vary — best-effort, honest 0 fallback.
         try {
           const mtmRes = await db.execute(sql`
-            SELECT COALESCE(SUM((last_price - entry_price) * quantity), 0)::float AS mtm
+            SELECT COALESCE(SUM((last_price - entry_price) * qty), 0)::float AS mtm
               FROM paper_trade_eq
              WHERE status = 'OPEN'
           `);
@@ -381,7 +381,7 @@ export async function reconcilePaperAccount(
     // across CLOSED trades and apply the static schedule. For F&O the
     // notional is `entry_premium × lots × lot_size` on the buy side and
     // `exit_premium × lots × lot_size` on the sell side. For equity we
-    // use `entry_price × quantity` / `exit_price × quantity`. Best-effort
+    // use `entry_price × qty` / `exit_price × qty`. Best-effort
     // — a query-column mismatch returns 0 with a note (never throws).
     let chargesTotal = 0;
     let chargesToday = 0;
@@ -420,8 +420,8 @@ export async function reconcilePaperAccount(
         // EQUITY paper — best-effort. Column mismatch returns 0.
         try {
           const notionalRes = await db.execute(sql`
-            SELECT COALESCE(SUM(entry_price * quantity), 0)::float AS buy_notional,
-                   COALESCE(SUM(exit_price  * quantity), 0)::float AS sell_notional
+            SELECT COALESCE(SUM(entry_price * qty), 0)::float AS buy_notional,
+                   COALESCE(SUM(exit_price  * qty), 0)::float AS sell_notional
               FROM paper_trade_eq
              WHERE status = 'CLOSED'
           `);
@@ -433,8 +433,8 @@ export async function reconcilePaperAccount(
             Number(n.sell_notional),
           );
           const todayNotionalRes = await db.execute(sql.raw(`
-            SELECT COALESCE(SUM(entry_price * quantity), 0)::float AS buy_notional,
-                   COALESCE(SUM(exit_price  * quantity), 0)::float AS sell_notional
+            SELECT COALESCE(SUM(entry_price * qty), 0)::float AS buy_notional,
+                   COALESCE(SUM(exit_price  * qty), 0)::float AS sell_notional
               FROM paper_trade_eq
              WHERE status = 'CLOSED'
                AND exited_at >= '${startUtc}'
