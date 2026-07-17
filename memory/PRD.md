@@ -1518,3 +1518,80 @@ recovered 11:42–11:44 IST). What survives, what doesn't:
 - P0.4 Step 2 acceptance criteria met on today's evidence.
 
 **Standing by for Monday M1 kickoff.**
+
+---
+
+## 2026-07-17 · M0 SIGNED · Weekend + Monday commitments
+
+**M0 checkpoint status: SIGNED** by owner (Devendra) at ~20:15 IST.
+
+Sign-off notes and commitments carried forward:
+
+### 1. M0-B scope AMENDED — study + memo, not memo alone
+
+Previous framing ("2-page memo based on 4 decision axes from today's case study")
+is superseded. The weekend deliverable is now a **read-only historical trigger-
+geometry study PLUS the memo built on it**.
+
+**Study parameters (approved 2026-07-17):**
+- Sample: 60–90 sessions of NIFTY / BANKNIFTY / SENSEX 15-min spot candles from the
+  warehouse.
+- Models to replay: displaced-breakout, pullback/retest, regime-conditional.
+- Per model × per regime, compute:
+  - Trigger-hit rate vs stale rate.
+  - MFE / MAE post-trigger.
+  - Time-to-trigger distribution.
+  - Outcome under each staleness-window candidate (including re-arm-on-retest as
+    a lifecycle rule).
+- Scope: **spot-level only, no option pricing, no new build** — warehouse read +
+  replay logic that already exists.
+
+**Honesty requirement**: the study reports **descriptive statistics per option, not
+a winner**. Ranking the models is the M4 decision — the owner's, not the study's.
+
+**Pre-requisite verification**: warehouse coverage check FIRST — is 90 sessions ×
+3 indices × 15-min actually present? Gaps annotated honestly before the sample
+size is claimed. Note: this preview pod's `candle` and `global_candles` tables
+were empty in Row A audit; the warehouse may live elsewhere (prod pod, external
+store) or need a hydration step. Coverage-check output determines whether the
+study proceeds at 90 sessions, a smaller reproducible slice, or requires a
+warehouse hydration slice before starting.
+
+**Deliverable format**: descriptive-stats tables + the ≤2-page memo whose options
+each carry a quarter's evidence.
+
+### 2. M1 rider · Suppression-log persistence
+
+Approved. Every suppression event acquires a timestamped row from Monday onward.
+The fix and its evidence mechanism land together — if false MARKET_CLOSED ever
+fires in-session again, it convicts itself with a row. Ends the M0-A "P0.1
+evidence UNRESOLVED" gap by construction.
+
+### 3. Monday mid-day Row K re-probe · guardrails
+
+Approved with strict guardrails:
+- Window: **11:30–14:00 IST** (away from open/close volatility).
+- Duration: **60 seconds** maximum.
+- Pacing: **3 req/sec** (same as Friday off-hours).
+- Read-only.
+- **Abort on first 429** — do not probe the ceiling. Goal: "session-hours confirms
+  off-hours" as a data point, not a rate-limit incident on M1 kickoff day.
+
+### 4. Owner's weekend reading
+
+`/app/memory/forensics/case_study_2026-07-17.md` — Devendra reads it BEFORE the
+memo drops. It's the missed day in numbers, and it's the fuel the memo options
+will reference. The M4 decision that follows is described as **the single highest-
+leverage trading decision in the entire mission** — everything M5 builds
+executes that answer.
+
+### The critical path from here
+
+- **Weekend**: owner reads case study · agent builds study + memo.
+- **Monday morning**: M1 kickoff (P0.1 + P0.2 + suppression-log rider).
+- **Monday mid-day**: 60s Row K re-probe, guarded.
+- **Next conversation deliverable**: the memo + the M4 decision from the owner.
+- **Everything else on the mission**: unchanged.
+
+Week closed properly. Two live incidents caught and killed same-day. Funnel
+instrumented and verified. Mission signed and fueled.
