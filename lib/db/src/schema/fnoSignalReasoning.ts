@@ -148,7 +148,7 @@ export const fnoSignalReasoningTable = pgTable(
      * EXISTS` on 2026-07-16 (P0.4 Step 1). See fnoCanonicalTaxonomy.ts
      * for the closed TS unions that govern the allowed string values. */
     gateName: varchar("gate_name", { length: 64 }),
-    verdict: varchar("verdict", { length: 16 }),
+    verdict: varchar("verdict", { length: 24 }),
     stage: varchar("stage", { length: 24 }),
     valuesTestedJson: jsonb("values_tested_json"),
     thresholdJson: jsonb("threshold_json"),

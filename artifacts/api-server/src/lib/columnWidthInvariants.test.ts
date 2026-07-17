@@ -131,12 +131,12 @@ const VERDICTS = [
 
 const COLUMN_WIDTHS = {
   // option_signal_history (lib/db/src/schema/optionSignals.ts:87–95)
-  "option_signal_history.execution_status": 24,
+  "option_signal_history.execution_status": 32, // was varchar(24) pre-2026-07-17-17:52-fix
   "option_signal_history.execution_blocked_reason": 48,
-  "option_signal_history.writer_version": 64, // was varchar(32) pre-2026-07-17-fix
+  "option_signal_history.writer_version": 64, // was varchar(32) pre-2026-07-17-11:43-fix
 
   // fno_signal_reasoning (lib/db/src/schema/fnoSignalReasoning.ts:150–158)
-  "fno_signal_reasoning.verdict": 16,
+  "fno_signal_reasoning.verdict": 24, // was varchar(16) pre-2026-07-17-17:52-sibling-sweep (3-char margin flagged)
   "fno_signal_reasoning.stage": 24,
   "fno_signal_reasoning.trade_class": 16,
   "fno_signal_reasoning.canonical_decision": 24,

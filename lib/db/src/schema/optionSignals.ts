@@ -90,7 +90,7 @@ export const optionSignalHistoryTable = pgTable(
     // discipline). Populated by the paper-writer path on successful
     // open; NULL for signals that never opened.
     paperTradeId: varchar("paper_trade_id", { length: 64 }),
-    executionStatus: varchar("execution_status", { length: 24 }),
+    executionStatus: varchar("execution_status", { length: 32 }),
     executionBlockedReason: varchar("execution_blocked_reason", { length: 48 }),
     writerVersion: varchar("writer_version", { length: 64 }),
   },

@@ -1390,3 +1390,57 @@ alongside this note).
 
 ### Definition of mission success
 A trade the owner can trust — every number on its trace real, labeled, reproducible — followed by a sample large enough to judge the strategy instead of the plumbing. Not "the system is perfect." The system **MEASURABLE**.
+
+---
+
+## 2026-07-17 · Post-close docket · Item 2 · Column-width invariant test (LANDED)
+
+**File**: `/app/artifacts/api-server/src/lib/columnWidthInvariants.test.ts`
+**Test suite**: 10/10 passing (8 invariant assertions + 2 control-block "would-fail
+evidence" assertions).
+
+### Assertion table (canonical, kept in-sync with test's COLUMN_WIDTHS map)
+
+| Column | Width | Max literal | Margin | Enum | Longest literal |
+|---|---|---|---|---|---|
+| `option_signal_history.execution_status` | 32 (was 24 pre-fix) | 28 | 4 | `ExecutionStatus` | `TRIGGERED_EXPIRED_UNEXECUTED` |
+| `option_signal_history.execution_blocked_reason` | 48 | 20 | 28 | `ExecutionBlockedReason` | `SYSTEM_MODE_DEGRADED` |
+| `option_signal_history.writer_version` | 64 (was 32 pre-morning-fix) | 42 | 22 | (const) | `paper-writer-v1.3.0-reasoning-instrumented` |
+| `fno_signal_reasoning.verdict` | 24 (was 16 pre-fix) | 13 | 11 | `Verdict` | `NOT_EVALUATED` |
+| `fno_signal_reasoning.stage` | 24 | 18 | 6 | `Stage` | `CONTRACT_SELECTION` |
+| `fno_signal_reasoning.trade_class` | 16 | 9 | 7 | `TradeClass` | `INFO_ONLY` |
+| `fno_signal_reasoning.canonical_decision` | 24 | 12 | 12 | `CanonicalDecision` | `DATA_BLOCKED` |
+| `fno_signal_reasoning.canonical_reason` | 48 | 26 | 22 | `CanonicalReason` | `RR_INSUFFICIENT_POST_CLAMP` |
+
+### Item 2 secondary finding — invariant test caught 2 live defects on first run
+
+The invariant test surfaced two column-width overflows on its inaugural run,
+resolved in the same pre-approved sibling sweep:
+
+- **`option_signal_history.execution_status` varchar(24)** — overflow.
+  `TRIGGERED_AWAITING_EXECUTION` and `TRIGGERED_EXPIRED_UNEXECUTED` both 28 chars.
+  Writer site: `optionSignalLifecycle.ts:787–794`.
+  **Second gap window: 11:54:20 IST → 12:26:18 IST, 33 dropped INSERTs.**
+  ALTER to varchar(32) applied 17:52:46 IST, catalog-only, no restart.
+- **`fno_signal_reasoning.verdict` varchar(16)** — margin ≤ 3 (`NOT_EVALUATED` at 13
+  chars). Flagged by the ~4-char headroom rule in the same sweep. Widened
+  preventatively to varchar(24) (matches sibling status-class columns), no observed
+  failures. Drizzle declarations updated same-branch.
+
+Standing rule ratified: **the invariant test is now the width policy for these
+columns.** Sizes = contents + reasonable headroom; the test enforces the invariant
+in CI forever.
+
+### Two gap windows for acceptance-query annotation
+
+Tonight's 9-section query must annotate BOTH:
+
+1. **10:50–11:43 IST (PG dead)** — all writes; recovery via apt install + supervisor
+   restart + first widening ALTER.
+2. **11:54–12:26 IST (TRIGGERED branch only)** — 33 dropped `option_signal_history`
+   INSERTs on the varchar(24) execution_status overflow; `fno_signal_reasoning`
+   writes continuous throughout.
+
+**B8-class strict check**: if it returns zero rows, that reflects the two dropped-
+write windows, not absent logic. State this explicitly in the query preamble so
+Monday's combined sample isn't misread.
