@@ -92,7 +92,7 @@ export const optionSignalHistoryTable = pgTable(
     paperTradeId: varchar("paper_trade_id", { length: 64 }),
     executionStatus: varchar("execution_status", { length: 24 }),
     executionBlockedReason: varchar("execution_blocked_reason", { length: 48 }),
-    writerVersion: varchar("writer_version", { length: 32 }),
+    writerVersion: varchar("writer_version", { length: 64 }),
   },
   (t) => ({
     pk: primaryKey({
