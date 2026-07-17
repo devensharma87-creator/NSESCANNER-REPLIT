@@ -1034,3 +1034,98 @@ Both true, different populations. Rider acceptance MUST state its population —
 denominator is **post-cutover rows only** (writer_version stamped by the fix onward),
 not a fixed 48h window and not the full historical table. Historical rows stay dirty
 per prior ruling.
+
+---
+
+## 2026-07-17 (Fri live-market) — P0 INCIDENT: pod recycle + writer_version varchar overflow
+
+### Timeline (IST)
+- ~04:55 UTC / 10:25 IST — container recycled overnight. `/app/.pgdata` preserved (68M);
+  `postgresql-15` server binary + package uninstalled by the recycle. Client-15 package
+  remained.
+- 10:25–10:58 IST — PG briefly served (redo + "database system ready" at 04:55 UTC).
+  During this ~30-min window, EVERY `option_signal_history` INSERT failed
+  `value too long for type character varying(32)`. Reasoning writer unaffected
+  (uses shorter `config_version` string).
+- ~11:00 IST — PG process died (cause not in log excerpts). `run_postgres.sh` self-heal
+  loop began but hit a hidden defect: script checks `/usr/lib/postgresql/*/bin`
+  directory existence, not the `postgres` binary; since client-15 keeps `bin/`
+  populated, the install-branch was skipped in an infinite loop until supervisor
+  FATAL'd at 10 startretries.
+- 11:41 IST — owner authorized recovery with preflight (`PG_VERSION=15` vs apt
+  candidate 15.18-0+deb12u1 = MATCH).
+- 11:42 IST — manual `apt-get install -y postgresql-15 postgresql-contrib-15` +
+  `sudo supervisorctl start postgresql` → PG **RUNNING**.
+- 11:43:49 IST — pre-approved `ALTER TABLE option_signal_history ALTER COLUMN
+  writer_version TYPE varchar(64);` executed. Catalog-only. No apiserver restart.
+- 11:43:49 IST — `/app/lib/db/src/schema/optionSignals.ts:95` Drizzle declaration
+  updated `length: 32` → `length: 64` (same-day, no new drift).
+- 11:43:18 IST — Devendra's Kite login went through (right around PG restart).
+  Session **KITE_READY**, MRV421, feed running, 58 subs.
+- 11:44:40 IST — first live post-ALTER `option_signal_history` INSERT lands.
+
+### Root cause (2 defects)
+1. **`option_signal_history.writer_version` = varchar(32)** but stamp value =
+   `"paper-writer-v1.3.0-reasoning-instrumented"` (42 chars) from
+   `fnoCanonicalTaxonomy.ts:517`. History table was declared with a narrower width
+   than reasoning (which uses `config_version`, also varchar(32), but with a shorter
+   string). Wednesday's 3556 green tests didn't exercise real column widths.
+2. **`run_postgres.sh` self-heal defect**: `PGBIN` glob checks for `bin/` directory,
+   not the `postgres` binary. Recovery cannot self-complete when only client-15 is
+   preserved.
+
+### Damage window (measured)
+- Failed `option_signal_history` INSERTs: **all writes from ~05:20 UTC (10:50 IST) to
+  06:13:49 UTC (11:43:49 IST)** — 54 minutes. Exact count of rejected inserts
+  extractable from postgresql.err.log if needed (roughly 1/min cadence × 54 = ~54
+  emissions dropped).
+- `fno_signal_reasoning` writes: **unaffected throughout** — separate table, unaffected
+  column. Continuity preserved.
+- Damage confined to a single table + single writer path.
+
+### Flag state (post-recovery)
+- `REASONING_WRITER_V2_ENABLED=1` survived the recycle (verified via reasoning writer
+  emitting `paper-writer-v1.3.0-reasoning-instrumented` stamps post-recovery).
+
+### Independent verification (bug_testing_agent)
+- Verdict: **fixed** (backend 100%). Evidence: writer_version width=64, 3 post-ALTER
+  rows all carrying the 42-char writer_version, 0 post-cutoff overflow errors, Kite
+  KITE_READY, /api/kite/callback route serving 302 with missing_request_token proof.
+- Reports at `/app/test_reports/iteration_3.json`, `/app/test_reports/bug_verification_3.json`,
+  `/app/test_reports/verify_live_market_p0.sh`.
+
+### Post-close docket additions (elevated by this incident)
+1. **`run_postgres.sh` self-heal directory-vs-binary defect** — P0 resilience: change
+   check from `ls -d /usr/lib/postgresql/*/bin` to
+   `ls /usr/lib/postgresql/*/bin/postgres` (or similar). Will recur on the next
+   container recycle without this fix.
+2. **Self-heal apt-lock survival + FATAL alerting** — supervisor gave up silently
+   after 10 retries during last night's collision with pid 86's apt lock. Needs
+   backoff-retry + alert-on-FATAL.
+3. **Container-recycle persistence audit** — where exactly does `/app/.pgdata` live
+   relative to container lifecycle? What survives, what doesn't? Direct-ALTERs
+   (schema catalog changes) must survive recycles — verify. If they don't, all direct
+   DDL needs a re-apply-on-boot mechanism or the persistence model is broken.
+4. **Column-width invariant test** — one new permanent test for the discipline slice:
+   assert `LENGTH(CURRENT_WRITER_VERSION)` and every canonical-taxonomy enum literal
+   fit their declared column widths. One string-length comparison forecloses this
+   failure class forever.
+5. **`paper_trade_eq.quantity` column-missing** (10:37 IST onwards) — separate
+   ongoing defect on paper-account MTM read path. Still firing post-ALTER (independent
+   incident). Scope: identify actual column name (probably `qty` or `lots`) and
+   correct the SQL in `paperAccountReconciliation.ts` or similar.
+6. **Drift-reconciliation slice scope expansion** — must reconcile against
+   post-recovery reality, not Wednesday's inventory. The 8-item drift list may need
+   updating.
+7. **Credential hygiene** — KITE_API_KEY exposed in transcript (low-risk without
+   secret, but add to the cleanup pass alongside DB password rotation).
+
+### Posture for tonight's acceptance
+- Today's sample = **partial with an annotated gap** (09:15–10:50 IST valid, 10:50–
+  11:43 IST damaged on history table only, 11:43–15:30 IST valid).
+- Reasoning writer sample is CONTINUOUS across the whole window.
+- Step 2 acceptance closes on the **Friday+Monday combined sample** (thin-sample rule
+  pre-invoked).
+- Tonight's 9-section query runs as scheduled over whatever today yields.
+- Incident window itself becomes part of the Step 2 record — the loud-failure design
+  worked: per-statement PG errors, timestamped, attributable, not silent row loss.
