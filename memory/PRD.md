@@ -953,22 +953,81 @@ Owner-signed rulings encoded as tests:
 - Provision `nsescanner_test` DB + `.env.test` (deprecates the `!includes("dummy")` idiom
   across 17 test files).
 
-### Dropped
-- **BUG-53/54: dropped — original spec unrecoverable from handoff; superseded by
-  evidence-based audits** (FNO_SWING_MASTER_FIX doc + two deep audit passes + P0.4
-  funnel forensics + code review). If BUG-53/54 described real defects in the F&O
-  signal-correctness range, they map onto items already captured under P1.2 (setup
-  gating, canonical bias, trigger geometry) and the writer-fix tickets, OR are no
-  longer reproducible. Implementing a guessed spec would be inventing work.
-  **If the original fix-file text ever surfaces, diff it against the current ledger
-  before resurrecting.**
+### Restored from Trading Desk section of the fix file (owner recap 2026-07-17)
 
-### Standing rule (registered 2026-07-17, applies forward)
-- **The directly-given spec is now the single authoritative source.** Anything that
-  enters the roadmap from here enters with its **full text** committed in the repo /
-  PRD — never as a numbered ID pointing at an uncommitted document. Numbered
-  references without recoverable content do not survive handoffs. (Today's incident
-  proved the same point about environments; this makes it about specs.)
+**BUG-53 · Signal cards missing fields (F&O + Swing, frontend + API-read layer)**
+
+*Problem*: Signal cards currently render a partial picture (symbol, direction, maybe
+an entry). A professional trader needs the full decision context on one card, or the
+card is useless — both for the entry decision AND for post-hoc audit of why a bad
+signal fired.
+
+*Required fields on every card (all 15)*:
+1. **Tier badge** — HIGH_CONVICTION / BASELINE / MICRO
+2. **Detector name** — Trend Continuation / VWAP Reclaim / Volume Breakout / EMA Pullback / Mean Reversion
+3. **Direction** — BULLISH / BEARISH
+4. **Instrument** — index + strike + option type (e.g. `NIFTY 24500 CE`)
+5. **Confidence score** — 0–100
+6. **Entry spot / Entry premium estimate** — both
+7. **Stop spot / Stop premium estimate** — both
+8. **Target T1 and T2** — both spot AND premium
+9. **R:R ratio**
+10. **Lots and notional** — lots × lot_size × premium in ₹
+11. **Expected risk ₹ and expected reward ₹**
+12. **Demotion tags (all)** — HTF_CONFLICT, VOL_CLAMPED_STOP, OPENING_NOISE, etc.
+13. **Guard tags (all)** — G1/G2/G3/G4 outcome
+14. **data_source badge** — kite_ws / kite_rest / stale
+15. **Timestamp with data age**
+
+*Acceptance*: no card ships without any of the 15 above. Missing values must render
+as `—` with the reason chip (e.g. `— (writer_v1 vintage)` on old rows), never
+silently omitted.
+
+**BUG-54 · No live signal state on cards (StateBus subscription)**
+
+*Problem*: Signal cards are static — they show creation-time snapshot and don't
+update until page refresh. StateBus (WebSocket-fed) exists but cards don't subscribe.
+
+*Required lifecycle overlay per state*:
+- **PENDING** — "current spot: 24,485.20 · distance to entry: 14.8 pts · ETA if trend continues: ~6 min"
+- **TRIGGERED** — "entered at ₹142.35 · slippage +0.8%"
+- **OPEN** — "current premium: ₹156.20 · MTM +₹3,150 · distance to SL: 12 pts · distance to T1: 18 pts"
+- **CLOSED** — "exit ₹165.80 at 14:32:15 · realised +₹5,820 · reason TARGET_HIT"
+
+*Acceptance*: updates in real-time from StateBus (WebSocket, per-signal subscription),
+NOT on page refresh. Idle disconnect state must be visible (`stale` badge on data_source).
+
+**Why both matter together**: BUG-53 gives you the *why* of every signal; BUG-54
+gives you the *now*. Together they turn a passive feed into an active trading
+dashboard.
+
+### Sizing notes (not scope, just what's known today)
+- Backend writer path already emits many of the BUG-53 fields via P0.4 Step 2:
+  `canonical_decision`, `canonical_reason`, `verdict`, `gate_name`, `stage`,
+  `values_tested_json`, `threshold_json`, `execution_status`, `execution_blocked_reason`.
+- **Known missing pieces to size before implementation**:
+  - Whether the card-read API exposes all 15 fields (grep `/api/options/signals`
+    response shape).
+  - Whether G1/G2/G3/G4 guard outcomes are stamped per-signal (as opposed to logged).
+  - Whether `data_source` per-tick is exposed to the frontend.
+  - StateBus per-signal subscription surface and message shape for lifecycle updates.
+- **Design work required**: 15 fields + 4 lifecycle-state overlays on a card is a
+  real layout problem. Owner may want to call `design_agent_full_stack` before
+  implementation, OR provide the layout spec.
+
+### Sequence proposal (awaiting ruling)
+BUG-53/54 are frontend-heavy slices that consume the writer instrumentation we just
+landed. Two natural placements:
+
+**Option α — between #5 /audit panel and #6 P1.2**: the audit panel proves the read
+surface; BUG-53 promotes that same data to signal cards; then P1.2 emits the first
+real trade and BUG-54's live state matters immediately. Ordering: /audit → BUG-53 →
+BUG-54 → P1.2.
+
+**Option β — after #6 P1.2 as its natural UI consumer**: builds real emit first, so
+BUG-53/54 have real production traffic to render against, not dry runs.
+
+Owner ruling required on placement + any spec-text amendments before sizing.
 
 
 ---
@@ -1152,3 +1211,12 @@ per prior ruling.
   files is one guard away from a prod-write hazard — a real `nsescanner_test` DB +
   `.env.test` retires the hazard class in the same env-surface pass. Slice scope
   expands by one phase; sequence position unchanged.
+
+### Standing rule (registered 2026-07-17, applies forward)
+- **The directly-given spec is now the single authoritative source.** Anything that
+  enters the roadmap from here enters with its **full text** committed in the repo /
+  PRD — never as a numbered ID pointing at an uncommitted document. Numbered
+  references without recoverable content do not survive handoffs. (Today's incident
+  proved the same point about environments; this makes it about specs. BUG-53/54's
+  restoration a few hours after their "dropped" ruling is a live example of the rule
+  working — spec re-entered the ledger with full text, no memory bet.)
