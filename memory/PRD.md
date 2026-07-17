@@ -954,7 +954,21 @@ Owner-signed rulings encoded as tests:
   across 17 test files).
 
 ### Dropped
-- BUG-53/54: no spec was ever provided; removed from roadmap.
+- **BUG-53/54: dropped — original spec unrecoverable from handoff; superseded by
+  evidence-based audits** (FNO_SWING_MASTER_FIX doc + two deep audit passes + P0.4
+  funnel forensics + code review). If BUG-53/54 described real defects in the F&O
+  signal-correctness range, they map onto items already captured under P1.2 (setup
+  gating, canonical bias, trigger geometry) and the writer-fix tickets, OR are no
+  longer reproducible. Implementing a guessed spec would be inventing work.
+  **If the original fix-file text ever surfaces, diff it against the current ledger
+  before resurrecting.**
+
+### Standing rule (registered 2026-07-17, applies forward)
+- **The directly-given spec is now the single authoritative source.** Anything that
+  enters the roadmap from here enters with its **full text** committed in the repo /
+  PRD — never as a numbered ID pointing at an uncommitted document. Numbered
+  references without recoverable content do not survive handoffs. (Today's incident
+  proved the same point about environments; this makes it about specs.)
 
 
 ---
@@ -1129,3 +1143,12 @@ per prior ruling.
 - Tonight's 9-section query runs as scheduled over whatever today yields.
 - Incident window itself becomes part of the Step 2 record — the loud-failure design
   worked: per-statement PG errors, timestamped, attributable, not silent row loss.
+
+### Sequence promotion (registered 2026-07-17, Friday afternoon cross-check)
+- **ENV-ISOLATION rides as the closing phase of the Drift Reconciliation slice
+  (#3 in the strict sequence)** — not a separate ceremony, not floating in backlog.
+  Reasoning: drift reconciliation already touches the env-file surface (password
+  rotation + memory-docs URL parking). The `!includes("dummy")` guard across 17 test
+  files is one guard away from a prod-write hazard — a real `nsescanner_test` DB +
+  `.env.test` retires the hazard class in the same env-surface pass. Slice scope
+  expands by one phase; sequence position unchanged.
