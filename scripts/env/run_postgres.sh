@@ -3,13 +3,25 @@
 # Container recycles wipe /usr + /var but keep /app, so data lives in /app/.pgdata.
 set -e
 PGDATA=/app/.pgdata
-PGBIN=$(ls -d /usr/lib/postgresql/*/bin 2>/dev/null | sort -V | tail -1)
+
+# Pick the newest /usr/lib/postgresql/*/bin that actually contains the postgres server
+# binary. Directory existence alone is NOT a reliable install signal: postgresql-client-15
+# creates bin/ populated with client tools (createdb, psql, etc.) even when the server
+# package is not installed — exactly the state a container recycle can leave behind
+# (observed 2026-07-17 incident, 10:50–11:43 IST). Checking for the postgres binary
+# itself is the correct install signal.
+find_pgbin() {
+  for d in $(ls -d /usr/lib/postgresql/*/bin 2>/dev/null | sort -V); do
+    [ -x "$d/postgres" ] && echo "$d"
+  done | tail -1
+}
+PGBIN=$(find_pgbin)
 
 if [ -z "$PGBIN" ]; then
   echo "[run_postgres] installing postgresql..."
   apt-get update -qq && apt-get install -y -qq postgresql postgresql-contrib > /dev/null
   service postgresql stop > /dev/null 2>&1 || true
-  PGBIN=$(ls -d /usr/lib/postgresql/*/bin | sort -V | tail -1)
+  PGBIN=$(find_pgbin)
 fi
 
 id postgres > /dev/null 2>&1 || useradd -r -s /bin/bash postgres

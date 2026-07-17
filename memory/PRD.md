@@ -1336,3 +1336,57 @@ verification step, not an assumption.**
 
 The Monday P0.1+P0.2 prompt gets drafted to exactly this standard when tonight's
 acceptance results land. Owner will see the format in action there first.
+
+---
+
+## 2026-07-17 · MISSION DIRECTIVE — F&O Money-Path Completion (supersedes queue-per-slice framing)
+
+Owner-issued mission consolidating the remaining sequence into **one campaign with a
+named finish line**: first honest paper trade in ~10 sessions + 20-signal evaluation
+sample 5 sessions after. Full text in
+`/app/memory/forensics/fno_completion_mission.md` (canonical copy will be committed
+alongside this note).
+
+### Phases (6 phases, 6 checkpoints)
+
+- **M0 — Close ledger + build evidence file** (tonight + weekend)
+  - Post-close docket Items 2–4 (invariant test, paper_trade_eq diagnosis, persistence
+    note), Friday probes (Rows F/G/K), 9-section acceptance query with gap annotation.
+  - **NEW**: 2026-07-17 case study capture at `/app/memory/forensics/` — three
+    baseline plan snapshots + trigger-cross times vs plan-expiry times + regime label
+    vs realized session character + all 12 "MARKET CLOSED" suppression timestamps
+    (any in 09:15–15:30 IST = live P0.1 evidence).
+  - **NEW**: Trigger-geometry & lifecycle **options memo** (≤2 pages) — entry model
+    options (displaced / pullback / regime-conditional), lifecycle options (time-expiry
+    / re-arm-on-retest / rolling revalidation), staleness window length options,
+    regime-gating rule options. Evidence-anchored, no defaults disguised as
+    recommendations. Owner decides in M4.
+
+- **M1 — P0.1 + P0.2** (~2 sessions) — market-closed truth on signal surface + `/api/options/signals` degraded-state contract + `contractInstrumentToken` code-layer harmonization.
+
+- **M2 — Drift reconciliation** (~1–2 sessions) — origin-story inventory re-verified against post-recovery reality; `drizzle-kit push` diff = ZERO; deployment-env audit; **closing sub-step: ENV-ISOLATION** (nsescanner_test + .env.test, retire `!includes("dummy")`). DRIFT-P0 lifts.
+
+- **M3 — PAPER_WRITER discipline** (~2 sessions) — `transitionExecutionStatus` SQL-level compare-and-set + TRIGGERED_CLOSED stamp + DB-read validation + fingerprint widening. **VIX rider**: `VixSnapshot.level` add + populate + optionSignals.ts:3191 fix + 5–80 sanity gate + NULL data_quality annotation.
+
+- **M4 — Owner decision gate (no code)** — scheduled DURING M1–M3 build; memo lands at M0, decision due before M5 starts. Never blocks critical path.
+
+- **M5 — P1.2 real emitter + first trade** (~3–4 sessions) — TREND_CONTINUATION writer per master doc §15 implementing M4 decisions; canonical bias one-path; regime classifier validated against M0 case study; wire emission → contract selection → sizing → paper execution → net-P&L trace. Optional second setup (VWAP_RECLAIM or EMA_PULLBACK) same-phase only after TREND_CONTINUATION verifies. Checkpoint = **first real paper trade's complete trace pasted**.
+
+- **M6 — Evaluation sample** (~5 sessions, passive) — 20+ signals across NIFTY/BANKNIFTY/SENSEX, daily read-only verification, NO tuning during window. Deliver expectancy report per-setup/per-index/per-regime after costs. This is where the 6–12 month out-of-sample clock officially starts.
+
+### Explicitly DEFERRED until mission complete
+- /audit panel (P0.4 Step 3)
+- P1.3 exit-price provenance — EXCEPTION: if M5's exit path would write an ambiguous unit, implement the unit-label column then, minimally
+- BUG-53 / BUG-54 signal cards (spec preserved above; execution deferred)
+- Briefing engine Phases 1–4
+- Row J official-source feed list / Row J' Events Calendar
+- Phases 7 / 8 / 9 (live trading / backtesting / AI sentiment)
+- All backlog items not named in a phase
+
+### Failure handling during mission
+- Live-market incidents: the 2026-07-17 emergency lane applies (diagnose → minimal pre-approved fix → evidence → resume).
+- Off-path defects: log and continue.
+- Any phase slipping >2 sessions past estimate: stop, report specific blocker, re-plan with owner. No silent extension.
+
+### Definition of mission success
+A trade the owner can trust — every number on its trace real, labeled, reproducible — followed by a sample large enough to judge the strategy instead of the plumbing. Not "the system is perfect." The system **MEASURABLE**.
