@@ -1444,3 +1444,38 @@ Tonight's 9-section query must annotate BOTH:
 **B8-class strict check**: if it returns zero rows, that reflects the two dropped-
 write windows, not absent logic. State this explicitly in the query preamble so
 Monday's combined sample isn't misread.
+
+---
+
+## 2026-07-17 · Post-close docket · Item 4 · Recycle-survival matrix (persistence audit, reduced scope)
+
+Empirical evidence from the 2026-07-17 morning incident (container recycled ~04:55 UTC,
+recovered 11:42–11:44 IST). What survives, what doesn't:
+
+| Path / artifact | Survives recycle? | Evidence |
+|---|---|---|
+| `/app/*` (application code, memory, scripts, .env, .git) | ✅ YES | Files untouched; git status clean vs Wednesday HEAD |
+| **`/app/.pgdata/` (Postgres data directory)** | ✅ **YES — 68M intact** | `PG_VERSION` = `15` (Jul 14 mtime); `global/` recovered redo log at 04:55 UTC per postgresql.err.log; row counts post-recovery matched pre-recycle baseline (reasoning ≥ 141, history = 6) |
+| **Direct-DDL changes applied to PGDATA** | ✅ **YES — proven** | Wednesday's 14 instrumented columns (`gate_name`, `verdict`, `stage`, `values_tested_json`, `threshold_json`, `config_version`, `trade_class`, `canonical_decision`, `canonical_reason`, `signal_fingerprint`, `paper_trade_id`, `execution_status`, `execution_blocked_reason`, `writer_version`) all present post-recycle. Column widths preserved (including the pre-fix varchar(32) writer_version that triggered the morning's incident) |
+| **Runtime `CREATE TABLE IF NOT EXISTS` tables (5)** | ✅ YES — same PGDATA | `system_alert_dedup`, `system_alert_state`, `daily_report_runs`, `notification_delivery_log`, `reconciliation_report` all present post-recovery (verified via `\dt` at 11:42 IST). The morning's `to_regclass` fail at boot was a DB-was-dead artifact, not a table-loss artifact |
+| `/usr/lib/postgresql/*/bin/*` (server binaries) | ❌ NO | `postgres` binary was wiped; `postgresql-15` server package went to `in` state; apt reinstall required |
+| `/usr/bin/psql`, `/usr/lib/postgresql/*/bin/psql` (client) | ✅ YES (partial) | Client-15 package survived; `bin/` directory was populated with client tools even when server was uninstalled (the exact state that broke `run_postgres.sh`'s directory-existence check — see Item 1 fix) |
+| `/var/lib/apt/lists/lock`, dpkg locks | Recycle-transient | Held briefly by pid 86 during self-boot; cleared naturally. `run_postgres.sh` retries collided with the lock and exhausted at 10 attempts |
+| Supervisor unit state | Reset | `postgresql` unit began at BACKOFF after 10 failed startretries; API-server rebooted fresh |
+| Kite session (`kite_session` row) | ✅ YES (in PGDATA) | Session token from Wednesday persisted; expired naturally at 06:00 UTC per Zerodha's daily expiry rule (unrelated to recycle) |
+| In-process caches (feed subscriptions, dedupe LRU) | ❌ NO | Rebuilt on apiserver boot; ~60s warmup after connectivity |
+| `/var/log/supervisor/*.log` | ✅ YES | Continuous history through recycle; used as forensic evidence |
+
+### Consequence for the mission
+
+- **Schema drift risk from recycles is CLOSED.** Direct-DDL survives PGDATA;
+  Wednesday's 14-column instrumentation, the widened `writer_version`,
+  `execution_status`, `verdict`, and any future ALTERs all persist through recycles.
+  There is **no need** for a "re-apply-on-boot mechanism" for schema changes.
+- **What CAN break a recycle** is the binary/package layer: the `run_postgres.sh`
+  self-heal is the sole guardian. Item 1's binary-check fix closes the last known
+  failure mode there.
+- **Drift-reconciliation slice (M2)** must still land — Drizzle TS declarations
+  differing from live PGDATA is a separate discipline issue, unrelated to recycles.
+- Container-Recycle Persistence Audit is now marked **RESOLVED / SCOPE COMPLETE**.
+  No further platform-team escalation.
