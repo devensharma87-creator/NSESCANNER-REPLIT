@@ -1015,9 +1015,77 @@ dashboard.
   real layout problem. Owner may want to call `design_agent_full_stack` before
   implementation, OR provide the layout spec.
 
+### Sequence placement (ruled 2026-07-17, modified β)
+
+**Inserts as:** `... → /audit panel → P1.2 → P1.3 → BUG-53 → BUG-54 → Briefing Phases 1–4.`
+
+Neither α nor plain β survives two dependencies the spec itself contains:
+
+1. **Expectancy-clock argument dominates.** Every slice inserted before P1.2 delays
+   the first real paper trade. BUG-54 (live PENDING distance-to-entry, OPEN MTM,
+   CLOSED realised P&L) rendering over a feed with zero real trades = building
+   against dry runs and BASELINE broadcasts, then re-validating when real traffic
+   arrives. BUG-53 before P1.2 = polish on an empty feed (beautiful cards showing
+   INFO_ONLY broadcasts). The "audit panel proves the read surface" argument is
+   real but minor — audit panel keeps its Step 3 slot in both options.
+
+2. **P1.3 must precede BUG-54.** BUG-54's CLOSED state renders "exit ₹165.80 ·
+   realised +₹5,820" — which consumes exactly the value P1.3 exists to
+   disambiguate. Today `exit_price` carries two unit semantics (spot level vs
+   option premium, the B8 finding). A card displaying that as a premium before
+   P1.3 lands puts the most trader-facing surface on top of a known ambiguous
+   column. **Cards are where data-honesty failures become trading losses; they
+   render last, on clean columns.**
+
+BUG-53 before BUG-54 is natural layering: static truth first, live overlay second.
+
+### G1-G4 guard tags (ruled 2026-07-17)
+
+**Conditional, verification-first, defaulting to v1.1.** Rule that keeps
+write-path discipline intact: **BUG-53 v1 renders every field the write side
+already persists — no field may force new write-side stamping into a display
+slice.**
+
+First deliverable of the BUG-53 slice is a **Phase-0-style field-availability
+check across all 15 fields.** G1–G4 (and any other field that turns out
+unstamped) becomes v1.1, riding on whatever writer slice stamps it. The `—`
+with-reason-chip pattern already registered handles the gap honestly in the
+meantime — the provenance-chip philosophy applied to cards.
+
+### Spec amendments (ruled 2026-07-17, both data-honesty)
+
+**A. DROP the "ETA if trend continues: ~6 min" text from PENDING overlay.**
+It's a forecast wearing a data costume. A linear extrapolation of spot velocity
+rendered next to verified fields inherits their credibility without their basis.
+**Distance-to-entry in points is honest and sufficient**; ETA invites exactly
+the chase-entry impulse the platform's vetoes exist to block. Amended PENDING
+line: *"current spot: 24,485.20 · distance to entry: 14.8 pts"* — no ETA.
+
+**B. `data_source` badge + timestamp/data-age are load-bearing, not
+decorative.** Card-level version of the provenance system. In the
+field-availability check they get **verified FIRST**; if per-tick `data_source`
+isn't exposed to the frontend, **that gap gets closed write-side before v1**
+rather than deferred — a live MTM number without a freshness label is precisely
+the "stale treated as live" failure the constitution bans. This is the one
+BUG-53 field allowed to trigger write-side work; it's the field that makes the
+rest of the card trustworthy.
+
+### Design ruling (2026-07-17)
+
+**No design agent needed.** Cards follow the dark-terminal system already
+established on the option-chain redesign — same chips, same discipline. **One-page
+layout proposal** (field placement, state-overlay treatment, chip positions)
+comes to owner for sign-off before implementation, same as every schema has.
+
 ### Sequence proposal (awaiting ruling)
 BUG-53/54 are frontend-heavy slices that consume the writer instrumentation we just
-landed. Two natural placements:
+### Sequence proposal (SUPERSEDED by ruling above — retained for context)
+Original proposal was Option α (cards between /audit and P1.2) or Option β (cards
+after P1.2). Owner ruled **modified β** — cards after P1.3 — per the two-dependency
+argument in the "Sequence placement" section above. Original proposal text follows
+for historical context only:
+
+Earlier: Two natural placements considered:
 
 **Option α — between #5 /audit panel and #6 P1.2**: the audit panel proves the read
 surface; BUG-53 promotes that same data to signal cards; then P1.2 emits the first
@@ -1027,7 +1095,7 @@ BUG-54 → P1.2.
 **Option β — after #6 P1.2 as its natural UI consumer**: builds real emit first, so
 BUG-53/54 have real production traffic to render against, not dry runs.
 
-Owner ruling required on placement + any spec-text amendments before sizing.
+Owner ruling: modified β (see "Sequence placement" section above).
 
 
 ---
