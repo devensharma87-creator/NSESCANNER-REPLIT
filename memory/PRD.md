@@ -1595,3 +1595,59 @@ executes that answer.
 
 Week closed properly. Two live incidents caught and killed same-day. Funnel
 instrumented and verified. Mission signed and fueled.
+
+### Weekend path pre-flight (executed 2026-07-17 20:19 IST) — COVERAGE + ENTITLEMENT
+
+**Step 1 · Coverage check on this pod's warehouse:**
+- `candle` rows = 0
+- `global_candles` rows = 0
+- `candle_sync_run` runs = 0
+- No alternate `WAREHOUSE_URL` / `CANDLE_DB` env in the code
+- **Verdict: completely dry** — this pod IS the warehouse, and it holds no history.
+
+**Step 2 · Backfill machinery inventory:**
+- `/app/artifacts/api-server/src/scripts/fetchKiteIndexCandles.ts` exists — designed
+  to fetch 2 years of 15-min NIFTY 50 / NIFTY BANK / SENSEX candles from Kite in
+  100-day chunks (under Kite's ~200-day 15-min cap), rate-limited to 3 req/sec,
+  reusing the app's live session via `getRestClient()`.
+- Output shape: 3 CSVs (`date,open,high,low,close,volume`) in the in-repo
+  backtester's expected format.
+- Kite historical-data throttle already wired in `kiteIntraday.ts:160+`.
+
+**Step 3 · Kite historical-API entitlement probe:**
+- One small call: `kc.getHistoricalData(NIFTY_50_TOKEN=256265, "15minute", -3d, now, false, false)`.
+- Result: **ENTITLED** — 100 candles returned in 386ms.
+- Sample first: `{date:"2026-07-14T03:45:00Z", open:24068, high:24157.1, low:24050.55, close:24140.9, volume:0}`
+- Sample last: `{date:"2026-07-17T09:45:00Z", open:24328.9, high:24352.65, low:24320.3, close:24346.7, volume:0}`
+- `volume=0` on cash-index confirmed (the exact contract the backtester and live
+  engine both handle via typical-price VWAP fallback).
+
+**Weekend path unblocked — no Zerodha add-on decision needed from owner.**
+
+Concrete numbers for the M0-B backfill:
+- Sample: 90 sessions ≈ 3 months = ~28 chunks × 3 indices = **84 REST calls**.
+- Pacing at 450ms per script config = ~40 seconds pure fetch time.
+- Plus per-chunk stitching + dedupe + write = 2–3 minutes total off-hours.
+- Rate-limit safety: well within off-hours 3 req/sec headroom already measured
+  tonight in Row K (0 429s at ~3.4 req/sec sequential).
+
+**Deliverables for the next agent session:**
+1. Run `pnpm --filter @workspace/api-server run fetch:index-candles` for the M0-B
+   sample (may need to trim YEARS_BACK=2 to YEARS_BACK=0.5 for 6-month study; the
+   script argument is a constant, will need a small config-only edit).
+2. Backfilled rows land in CSV per the script — since the WAREHOUSE need is for
+   the study, not for live decisions, CSV output is sufficient (no DB insert
+   needed, and inserting into `candle`/`global_candles` requires their own
+   scheduler/schema patterns which are M2 work).
+3. Historical replay logic: implement in a new one-off script
+   `/app/artifacts/api-server/src/scripts/m0b_trigger_geometry_study.ts` that
+   consumes the CSVs and produces descriptive-stats tables per model per regime.
+4. Memo (≤2 pages) built on the tables.
+
+**Honesty guardrails carried forward:**
+- Backfilled candles marked with source provenance in any output file
+  (`source=KITE_HISTORICAL_BACKFILL_2026-07-17`).
+- Study reports descriptive statistics only — no ranking, no winner.
+- Sample size claimed = sample size verified (gap-annotated).
+
+Weekend closed cleanly. Next contact: memo + Devendra's M4 decision.
