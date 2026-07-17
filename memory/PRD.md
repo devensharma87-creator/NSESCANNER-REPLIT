@@ -1288,3 +1288,51 @@ per prior ruling.
   proved the same point about environments; this makes it about specs. BUG-53/54's
   restoration a few hours after their "dropped" ruling is a live example of the rule
   working — spec re-entered the ledger with full text, no memory bet.)
+
+---
+
+## Standing rule · Prompt / directive / spec standard (registered 2026-07-17, applies forward)
+
+Every directive and spec that flows through this stream from now on — Monday's
+P0.1+P0.2, the drift-reconciliation slice, PAPER_WRITER-DISCIPLINE (+ VIX-level
+rider), P1.2 trigger-geometry memo, P1.3, BUG-53 layout proposal, BUG-54, Briefing
+Phases 1–4, and every ticket after — is held to the following bar. Codification of
+what the last two weeks have already converged on.
+
+### Three qualities every prompt satisfies
+
+**Accurate** — every prompt states only what's evidenced. No "likely," no "should
+be" where a query can answer it. The spec cites the finding (file, line, row count,
+timestamp) or it marks the item **VERIFY**. Template: the BUG-53 field-availability
+check — don't assume the read surface exposes 15 fields, check first, spec against
+what's real.
+
+**To the point** — every prompt has exactly four parts and nothing else. No
+motivational framing, no restated history the coder already has, no optional
+suggestions mixed into requirements. If something is optional, it isn't in the
+prompt.
+
+**Professional-level** — reads like an institutional work order. Enumerated
+requirements. Closed vocabularies (enums, not adjectives). Explicit fail behavior
+for every component (e.g. "on source failure, render `UNAVAILABLE` with reason" —
+never `undefined`). A stop-point ("checkpoint here, wait for review") so scope
+can't creep past the boundary silently.
+
+### The four-part skeleton
+
+Every prompt is exactly:
+
+1. **Scope** — what this slice does.
+2. **Bright lines** — what it must not do.
+3. **Deliverables** — what gets built.
+4. **Acceptance evidence** — the literal artifacts that prove it (test pass lines,
+   query output, screenshots).
+
+When drafting each one, the four-part structure is the skeleton and the evidence
+citations are the flesh. **Anything that can't cite evidence goes in as a
+verification step, not an assumption.**
+
+### First application
+
+The Monday P0.1+P0.2 prompt gets drafted to exactly this standard when tonight's
+acceptance results land. Owner will see the format in action there first.
