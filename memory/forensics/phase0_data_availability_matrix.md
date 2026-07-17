@@ -516,11 +516,24 @@ PRE-8** and belongs to a dedicated slice, not to newsRss.
 
 ---
 
-## 🟠 ROW K · NIFTY 500 rate-limit sweep — **DEFERRED TO POST-15:30 IST FRIDAY**
+## 🟢 ROW K · NIFTY 500 rate-limit sweep — **FEASIBLE (off-hours verified 2026-07-17)**
 
-Not probed tonight. Ruling reaffirmed: shares Kite session with signal generation; run
-sweep only after market close tomorrow, small-sample cap, capture per-symbol latency
-distribution + any 429s.
+**Executed:** 2026-07-17 19:41:45 IST (off-hours), 30 sequential single-symbol
+`kc.getQuote()` calls + one 100-symbol batch call via the app's own `getRestClient()`.
+
+**Results:**
+- **Sequential**: 30/30 OK, **0 errors, 0 429s**, latency p50=236ms / p95=316ms / mean=294ms, effective rate ~3.4 req/sec sustained.
+- **Batch**: 100 symbols in **262ms** (2.6ms/sym), 97/100 returned (3 delisted/renamed).
+
+**Full forensic file:** `/app/memory/forensics/row_k_rate_sweep_2026-07-17.md`
+
+**Caveat**: verified off-hours only. Session-hours confirmation = 60-second spot-check
+during Monday's live session (post-M1 kickoff, read-only, mid-day) — if clean, Row K
+promotes to fully-ACTIVE.
+
+**Consumers unblocked**: POST-2 breadth (single batched call viable), M5 contract-
+selection (3 indices × ~30 contracts = one ~250ms batch), Row L sector sweep
+(essentially free).
 
 ---
 

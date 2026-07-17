@@ -1479,3 +1479,42 @@ recovered 11:42–11:44 IST). What survives, what doesn't:
   differing from live PGDATA is a separate discipline issue, unrelated to recycles.
 - Container-Recycle Persistence Audit is now marked **RESOLVED / SCOPE COMPLETE**.
   No further platform-team escalation.
+
+---
+
+## 2026-07-17 Post-close docket · CLOSED
+
+**Complete summary of tonight's work, in the ruled order:**
+
+| Item | Status | Evidence |
+|---|---|---|
+| 1 · `run_postgres.sh` self-heal fix | ✅ APPLIED | binary-check function; 4 dry-run cases pass; syntax OK; incident-anchored comment in place |
+| 2 · Column-width invariant test | ✅ LANDED | 10/10 assertions pass (8 invariant + 2 control). Caught 2 live defects on first run — both fixed same-pass |
+| 2a · `execution_status` varchar(24)→32 | ✅ ALTER applied 17:52:46 IST | Overflow was blocking 33 INSERTs 11:54–12:26 IST |
+| 2b · `verdict` varchar(16)→24 (sibling sweep) | ✅ ALTER applied 17:52:46 IST | Preventative flag — 3-char margin caught by ~4-char rule |
+| 3 · `paper_trade_eq.quantity` → `qty` | ✅ APPLIED + build/restart 19:30:40 IST | MTM endpoint returns ₹15,954.45 (was 0), 0 residual errors, all prior fixes preserved |
+| 4 · Recycle-survival matrix | ✅ IN PRD | Persistence audit RESOLVED — direct-DDL survives PGDATA |
+| 5.G · Row G same-code-path re-run | ✅ CAPTURED | instFlows refresher fired 17:52:49 IST, 3 latest rows refreshed |
+| 5.K · Row K rate-limit sweep | ✅ FEASIBLE off-hours | 30-seq: 0 errors, 0 429s, p50=236ms; 100-batch: 262ms/97 syms. Session-hours confirmation Mon mid-day |
+| 5.F · Row F retest | ✅ ACTIVE | Today's participant OI row landed 19:31:42 IST via same-code-path wrapper (direct Akamai URL still 503/404) |
+| 6 · P0.4 Step 2 acceptance query | ✅ ALL ZERO-DEFECT ASSERTIONS PASS | 91 rows / 23 EMITTED / 0 OTHER / 0 DIAG / 0 mandatory-NULL / 0 B8-class defects |
+| M0-A · 2026-07-17 case study | ✅ WRITTEN | Full mission Exhibit A at `/app/memory/forensics/case_study_2026-07-17.md` |
+| M0-B · Trigger-geometry memo | 📝 STRUCTURED IN CASE STUDY | 4 decision axes drafted; owner-decision memo formalization in next session |
+
+**bug_testing_agent verifications tonight:**
+- iteration_3 / bug_verification_3 — writer_version ALTER
+- iteration_4 / bug_verification_4 — execution_status + verdict sibling sweep
+- iteration_5 / bug_verification_5 — quantity→qty rename + rebuild + restart
+
+**Acceptance sample composition:**
+- 5.5 hours of live-instrumented session data captured
+- 3 gap windows annotated: 10:50–11:43 (PG dead), 11:54–12:26 (TRIGGERED branch overflow), continuous small VIX-corruption slice
+- Step 2 closes on Friday+Monday combined sample per thin-sample rule pre-invoked
+
+**Mission M0 checkpoint: SIGNABLE.**
+- Docket complete.
+- Case study committed as Exhibit A.
+- Memo structure drafted (formalization = one more session).
+- P0.4 Step 2 acceptance criteria met on today's evidence.
+
+**Standing by for Monday M1 kickoff.**
