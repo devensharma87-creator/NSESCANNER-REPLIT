@@ -1,0 +1,104 @@
+{
+  "ok": true,
+  "results": [
+    {
+      "name": "admin login returns ok and session cookie",
+      "ok": true,
+      "detail": {
+        "status": 200,
+        "body": "{\"ok\":true}",
+        "hasCookie": true
+      }
+    },
+    {
+      "name": "paper equity reconciliation returns finite non-null MTM without quantity error",
+      "ok": true,
+      "detail": {
+        "status": 200,
+        "openMarkToMarketPnl": 15954.45,
+        "bodySample": "{\"segment\":\"EQUITY\",\"istDate\":\"2026-07-17\",\"computedAt\":\"2026-07-17T14:04:25.712Z\",\"seedCapital\":1000000,\"actualBalance\":71.35,\"recordedDayRealizedPnl\":0,\"capitalDeployedTodayOpen\":0,\"closedTodayCount\":0,\"closedTodayCapitalReturned\":0,\"closedTodayRealizedPnl\":0,\"carryOverOpenCount\":5,\"carryOverCapitalDeployed\":999928.65,\"openMarkToMarketPnl\":15954.45,\"expectedBalance\":71.35,\"driftAmount\":0,\"reconciled\":true,\"notes\":[],\"chargesEstimate\":{\"estimatedTotal\":0,\"estimatedToday\":0,\"estimated\":true,\"sch",
+        "notes": ""
+      }
+    },
+    {
+      "name": "kite status after admin login is loggedIn and KITE_READY",
+      "ok": true,
+      "detail": {
+        "status": 200,
+        "loggedIn": true,
+        "readinessState": "KITE_READY",
+        "bodySample": "{\"credentialsConfigured\":true,\"apiKeyPreview\":\"8yak…\",\"loggedIn\":true,\"userId\":\"MRV421\",\"userName\":\"Devendra Ramkishan Sharma\",\"loginTime\":\"2026-07-17T11:11:23.827Z\",\"expiresAt\":\"2026-07-18T00:30:00.000Z\",\"feed\":{\"running\":true,\"connected\":true,\"subscribed\":58,\"liveQuotes\":8,\"lastConnectAt\":\"2026-07-17T14:00:43.045Z\",\"lastDisconnectAt\":null,\"lastError\":null},\"readiness\":{\"state\":\"KITE_READY\",\"severity\":\"ok\",\"sessionPresent\":true,\"sessionValid\":true,\"loginTime\":\"2026-07-17T11:11:23.827Z\",\"expires"
+      }
+    },
+    {
+      "name": "kite login-url is available to logged-in admin",
+      "ok": true,
+      "detail": {
+        "status": 200,
+        "urlSample": "https://kite.zerodha.com/connect/login?api_key=***&v=3",
+        "expectedAppRedirectPath": "/api/kite/callback"
+      }
+    },
+    {
+      "name": "kite callback redirect endpoint is reachable at /api/kite/callback",
+      "ok": true,
+      "detail": {
+        "status": 302,
+        "location": "/kite?login=failed&reason=missing_request_token",
+        "redirectUrlForKiteApp": "<deployment-domain>/api/kite/callback"
+      }
+    },
+    {
+      "name": "source has no quantity fossil and expected qty snippets",
+      "ok": true,
+      "detail": {
+        "quantityCount": 0,
+        "snippetsPresent": {
+          "SUM((last_price - entry_price) * qty)": true,
+          "entry_price × qty": true,
+          "SUM(entry_price * qty)": true,
+          "SUM(exit_price  * qty)": true
+        }
+      }
+    },
+    {
+      "name": "compiled dist/index.mjs rebuilt at/after restart moment",
+      "ok": true,
+      "detail": {
+        "mtime": "2026-07-17T14:00:40.840Z",
+        "threshold": "2026-07-17T14:00:40Z"
+      }
+    },
+    {
+      "name": "running apiserver process has REASONING_WRITER_V2_ENABLED=1",
+      "ok": true,
+      "detail": {
+        "pids": [
+          "4709",
+          "5184"
+        ],
+        "envValue": "1"
+      }
+    },
+    {
+      "name": "postgresql.err.log has zero post-restart quantity errors",
+      "ok": true,
+      "detail": {
+        "count": 0,
+        "sample": []
+      }
+    },
+    {
+      "name": "prior varchar ALTERs are preserved",
+      "ok": true,
+      "detail": {
+        "got": {
+          "fno_signal_reasoning.verdict": 24,
+          "option_signal_history.execution_status": 32,
+          "option_signal_history.writer_version": 64
+        },
+        "raw": "fno_signal_reasoning|verdict|24\noption_signal_history|execution_status|32\noption_signal_history|writer_version|64"
+      }
+    }
+  ]
+}
