@@ -2048,6 +2048,14 @@ export function _resetDetectorCooldownForTest(): void {
 export function _setCooldownForTest(key: string, ts: number): void {
   detectorCooldownMap.set(key, ts);
 }
+/** Checks whether a specific (setupKey, index, direction) is currently on cooldown. */
+export function _isDetectorOnCooldownForTest(setupKey: string, index: string, direction: string): boolean {
+  return isDetectorOnCooldown({ setupKey, index, bias: direction });
+}
+/** Records a detector emit for (setupKey, index, direction) — for behavioral tests. */
+export function _recordDetectorEmitForTest(setupKey: string, index: string, direction: string): void {
+  recordDetectorEmit({ setupKey, index, bias: direction });
+}
 
 // ─── Server-side trigger evaluator ───────────────────────────────────────
 //

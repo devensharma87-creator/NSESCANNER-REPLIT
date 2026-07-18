@@ -1995,6 +1995,17 @@ router.get("/paper/lifecycle/:symbol", requireOwner, async (req, res, next) => {
   }
 });
 
+// ── F-37: Swing regression baseline ───────────────────────────────────────
+router.get("/paper/swing-regression", requireOwner, async (_req, res, next) => {
+  try {
+    const { checkSwingRegressionBaseline } = await import("../lib/swingRegressionGate");
+    const result = await checkSwingRegressionBaseline();
+    return res.json(result);
+  } catch (err) {
+    return next(err);
+  }
+});
+
 void sql;
 
 export default router;

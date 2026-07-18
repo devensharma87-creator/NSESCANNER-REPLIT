@@ -386,7 +386,7 @@ function buildMissedFromOpenCtx(args: {
   };
 }
 
-async function openPaperTrade(input: LifecycleHookInput): Promise<PaperTradeFoRow | null> {
+export async function openPaperTrade(input: LifecycleHookInput): Promise<PaperTradeFoRow | null> {
   // Belt-and-braces: every caller already gates above this, but a hard
   // gate inside the only function that mutates `paper_trade_fo` makes
   // the read-only-mode invariant impossible to bypass via a future

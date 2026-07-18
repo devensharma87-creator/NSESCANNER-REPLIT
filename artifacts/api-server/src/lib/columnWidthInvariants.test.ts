@@ -43,7 +43,6 @@ import {
 // ────────────────────────────────────────────────────────────────────────────
 
 const CANONICAL_DECISIONS = [
-  "EMITTED",
   "EXECUTABLE",
   "WATCH",
   "DEMOTED",

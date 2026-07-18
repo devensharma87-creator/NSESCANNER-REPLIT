@@ -170,6 +170,21 @@ function useEndpoint<T>(path: string, auto: boolean, refreshTick: number): Fetch
 
 // ── endpoint response shapes (loose — only what the dashboard renders) ─────
 
+type SwingRegressionStatus = "OK" | "WARN" | "ALERT" | "INSUFFICIENT_DATA";
+interface SwingRegressionResult {
+  status: SwingRegressionStatus;
+  autonomousTradeCount: number;
+  wins: number;
+  losses: number;
+  winRate: number | null;
+  profitFactor: number | null;
+  avgWinPnl: number | null;
+  avgLossPnl: number | null;
+  lookbackDays: number;
+  computedAt: string;
+  notes: string[];
+}
+
 interface SecurityAuditCheck { id: string; status: "ok" | "warn" | "fail"; title: string; detail: string; category: string }
 interface SecurityAudit {
   generatedAt: string;
@@ -3108,6 +3123,95 @@ function SystemAlertHealthSection({ data, error, loading }: FetchState<SystemAle
   );
 }
 
+// ─── F-37: Swing Regression Baseline Section ─────────────────────────────────
+
+function SwingRegressionSection({
+  data,
+  error,
+  loading,
+}: FetchState<SwingRegressionResult>): React.ReactElement {
+  const severityMap: Record<SwingRegressionStatus, Severity> = {
+    OK: "ok",
+    WARN: "warn",
+    ALERT: "fail",
+    INSUFFICIENT_DATA: "disabled",
+  };
+
+  const severity: Severity = loading
+    ? "disabled"
+    : error
+      ? "fail"
+      : data
+        ? severityMap[data.status]
+        : "disabled";
+
+  const pct = (v: number | null) =>
+    v != null ? `${(v * 100).toFixed(1)}%` : "—";
+  const inr = (v: number | null) =>
+    v != null ? `₹${v.toFixed(0)}` : "—";
+  const fmt = (v: number | null) =>
+    v != null ? v.toFixed(2) : "—";
+
+  return (
+    <SectionShell
+      title="Swing Regression Baseline (F-37)"
+      icon={Activity}
+      severity={severity}
+      description={`Autonomous equity swing edge over the last ${data?.lookbackDays ?? 30} days.`}
+      testId="section-swing-regression"
+    >
+      {loading && <div className="text-sm text-muted-foreground">Loading…</div>}
+      {error && (
+        <div className="text-sm text-rose-600">
+          Error: {error}
+        </div>
+      )}
+      {data && (
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+            <div>
+              <div className="text-muted-foreground text-xs mb-0.5">Trades (autonomous)</div>
+              <div className="font-mono font-medium">{data.autonomousTradeCount}</div>
+            </div>
+            <div>
+              <div className="text-muted-foreground text-xs mb-0.5">Win Rate</div>
+              <div className="font-mono font-medium">{pct(data.winRate)}</div>
+            </div>
+            <div>
+              <div className="text-muted-foreground text-xs mb-0.5">Profit Factor</div>
+              <div className="font-mono font-medium">{fmt(data.profitFactor)}</div>
+            </div>
+            <div>
+              <div className="text-muted-foreground text-xs mb-0.5">Wins / Losses</div>
+              <div className="font-mono font-medium">{data.wins} / {data.losses}</div>
+            </div>
+            <div>
+              <div className="text-muted-foreground text-xs mb-0.5">Avg Win</div>
+              <div className="font-mono font-medium">{inr(data.avgWinPnl)}</div>
+            </div>
+            <div>
+              <div className="text-muted-foreground text-xs mb-0.5">Avg Loss</div>
+              <div className="font-mono font-medium">{inr(data.avgLossPnl)}</div>
+            </div>
+          </div>
+          {data.notes.length > 0 && (
+            <div className="space-y-1">
+              {data.notes.map((note, i) => (
+                <div key={i} className="text-xs text-muted-foreground">
+                  {note}
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="text-xs text-muted-foreground">
+            Computed: {data.computedAt ? new Date(data.computedAt).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" }) : "—"}
+          </div>
+        </div>
+      )}
+    </SectionShell>
+  );
+}
+
 export default function InfraHealthPage(): React.ReactElement {
   const [auto, setAuto] = useState(true);
   const [tick, setTick] = useState(0);
@@ -3141,6 +3245,7 @@ export default function InfraHealthPage(): React.ReactElement {
   const globalHealth = useEndpoint<GlobalDataHealthResp>("api/data-health/global", auto, tick);
   const exitMonitor = useEndpoint<ExitMonitorStatusResp>("api/paper/diagnostics/fo/exit-monitor/status", auto, tick);
   const systemAlertHealth = useEndpoint<SystemAlertHealthDiag>("api/alerts/system-health", auto, tick);
+  const swingRegression = useEndpoint<SwingRegressionResult>("api/paper/swing-regression", auto, tick);
 
   // P16: failure-diagnosis endpoint with an exact-only toggle. The URL changes
   // when the toggle flips, which invalidates the SWR/useEndpoint cache key.
@@ -3284,6 +3389,9 @@ export default function InfraHealthPage(): React.ReactElement {
         </div>
         <div className="md:col-span-2">
           <SystemAlertHealthSection {...systemAlertHealth} />
+        </div>
+        <div className="md:col-span-2">
+          <SwingRegressionSection {...swingRegression} />
         </div>
       </div>
     </div>
