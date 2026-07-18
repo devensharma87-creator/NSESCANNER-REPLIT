@@ -1,0 +1,475 @@
+# MarketScanner (Hrishi Associates) · Complete Project Delta Report
+
+**Report generated:** 2026-07-17 20:25 IST (post-close)
+**Scope:** every improvement, change, bug fix, and addition made across the two forked
+sessions that landed on this pod (2026-07-14 through 2026-07-17).
+**Downloadable path:** `/app/memory/PROJECT_DELTA_REPORT_2026-07-17.md`
+**Companion files:** `/app/memory/PRD.md` (1,653 lines — full running ledger),
+`/app/memory/forensics/*` (7 files — investigation evidence, case studies, matrices).
+
+---
+
+## Executive summary
+
+Over the reporting window this pod went from "9 phases of legacy bugs partially
+addressed on unstable instrumentation" to **a strictly-sequenced 6-phase mission
+(M0→M6) with a signed M0 checkpoint** whose finish line is the first honest paper
+trade. The path there involved: (a) closing the last measurement-integrity gaps
+(P0.4 Step 2 writer instrumentation), (b) an instrumented full audit of every data
+source (Phase 0 Data Availability Matrix, 13 rows), (c) handling a live-market P0
+incident cluster on 2026-07-17 that surfaced two symmetrical schema-width defects
+and one fossil-rename bug — all three closed same-day, all three independently
+verified by the testing agent, (d) building the tools that would have caught those
+defects earlier so they never fire silently again (column-width invariant test,
+self-heal fix in `run_postgres.sh`), and (e) capturing the day's missed F&O
+setups as forensic Exhibit A for the M4 owner decision that gates the real
+emitter.
+
+**Independent verifications this window: 3 bug_testing_agent verdicts (all `fixed`)
++ 2 iterations of full backend suite runs (3556/3556 green at flag-flip; 3382/3385
+in the prior fork).**
+
+**Files touched this fork:** 12 source/schema files + 7 memory/forensics artifacts
++ 3 test reports.
+
+---
+
+## 1 · Bug fixes
+
+### 1.1 Live-market P0 · Postgres pod recovery + varchar(32) writer_version overflow (2026-07-17 morning)
+
+**Symptom**: system unresponsive during live market; every `option_signal_history`
+INSERT was silently failing with `value too long for type character varying(32)`.
+
+**Root causes (two, tangled):**
+1. Container recycled overnight (~04:55 UTC / 10:25 IST). `postgresql-15` server
+   package wiped from disk while `/app/.pgdata/` (68M) survived intact. Supervisor's
+   `run_postgres.sh` self-heal hit an apt lock held by pid 86, retried 10× until
+   FATAL. Postgres died at ~10:58 IST.
+2. `option_signal_history.writer_version` was declared `varchar(32)` but the value
+   being stamped is `CURRENT_WRITER_VERSION = "paper-writer-v1.3.0-reasoning-
+   instrumented"` (42 chars) from `fnoCanonicalTaxonomy.ts:517`. Every insert
+   failed the width check during the ~30-minute window PG was up this morning.
+
+**Fixes applied:**
+- Manual `apt-get install -y postgresql-15 postgresql-contrib-15` + `sudo
+  supervisorctl start postgresql`. Postgres RUNNING at 11:42 IST against intact
+  PGDATA.
+- `ALTER TABLE option_signal_history ALTER COLUMN writer_version TYPE varchar(64);`
+  applied 11:43:49 IST. Catalog-only, no restart, no data touch.
+- `/app/lib/db/src/schema/optionSignals.ts` line 95 Drizzle declaration updated
+  same-branch: `length: 32` → `length: 64`.
+
+**Damage window**: ~54 minutes of dropped INSERTs (10:50–11:43 IST). Reasoning
+writer unaffected throughout.
+
+**Verification**: `bug_testing_agent` verdict `fixed` (report at
+`/app/test_reports/bug_verification_3.json` and `/app/test_reports/iteration_3.json`).
+
+### 1.2 Live-market P0 · varchar(24) execution_status overflow (2026-07-17 evening)
+
+**Discovery**: the invariant test (see §2.1) caught this on its first run — 4 minutes
+after being written.
+
+**Root cause**: `option_signal_history.execution_status` was declared `varchar(24)`
+but `TRIGGERED_AWAITING_EXECUTION` and `TRIGGERED_EXPIRED_UNEXECUTED` are both 28
+chars — same failure class as §1.1, one column narrower. Writer site:
+`optionSignalLifecycle.ts:787–794`.
+
+**Fix applied (same emergency-lane precedent):**
+- `ALTER TABLE option_signal_history ALTER COLUMN execution_status TYPE varchar(32);`
+  applied 17:52:46 IST.
+- Drizzle declaration same-branch: `length: 24` → `length: 32`.
+
+**Sibling sweep in the same pass (owner's ~4-char headroom rule):**
+- `fno_signal_reasoning.verdict` had 3-char headroom (`NOT_EVALUATED` = 13 chars vs
+  varchar(16)). Widened preventatively to varchar(24) — matches sibling status-class
+  columns.
+- `ALTER TABLE fno_signal_reasoning ALTER COLUMN verdict TYPE varchar(24);`
+- Drizzle `/app/lib/db/src/schema/fnoSignalReasoning.ts:151`: `length: 16` → `length: 24`.
+
+**Damage window**: 11:54:20 → 12:26:18 IST (33 dropped INSERTs on the TRIGGERED
+branch, `execution_status` overflow). Writer stopped attempting once Kite quieted.
+
+**Verification**: `bug_testing_agent` verdict `fixed` at
+`/app/test_reports/bug_verification_4.json` + `/app/test_reports/iteration_4.json`.
+
+### 1.3 Live P0 · paper_trade_eq.quantity → qty fossil rename (2026-07-17 evening)
+
+**Symptom**: every apiserver reconnect emitted 2 identical PG errors
+(`column "quantity" does not exist`), and `GET /api/paper/account?segment=EQUITY&
+reconcile=1` returned `openMarkToMarketPnl = 0` (error-swallowed).
+
+**Root cause**: 4 raw-SQL statements + 1 comment in
+`/app/artifacts/api-server/src/lib/paperAccountReconciliation.ts` used the fossil
+column name `quantity`. The actual DB column and Drizzle schema field are both
+`qty`. A rename that missed these 5 string literals in one file.
+
+**Blast radius**: read-only paper-account MTM reconciliation for equity paper
+trades. Non-blocker for signal emission; noisy tripwire in the error log we now
+depend on for incident detection.
+
+**Fix applied:**
+- 4 SQL replacements + 1 comment in `paperAccountReconciliation.ts`
+  (lines 305, 384, 423-424, 436-437).
+- Class sweep: repo-wide grep for `quantity` against paper-equity SQL — no fifth
+  instance found elsewhere. Sweep was tighter than the fix requested.
+- Full `apiserver` rebuild via `supervisorctl restart apiserver` (owner-authorized
+  post-close deploy, ~60s downtime, cleanest restart window of the week).
+
+**Verification**: `openMarkToMarketPnl` went from 0 to **₹15,954.45** across 5 open
+equity trades. Zero `column "quantity" does not exist` errors post-14:00:40 UTC.
+Kite session + `REASONING_WRITER_V2_ENABLED=1` flag + all prior fixes preserved
+through the restart. `bug_testing_agent` verdict `fixed` at
+`/app/test_reports/bug_verification_5.json`.
+
+### 1.4 VIX-corruption (P1 · numerically proven, fix DEFERRED to M3 rider)
+
+**Discovery**: Phase 0 Data Availability Matrix Row C probe found
+`fno_signal_reasoning.vix` last-48h distribution = 30 NULLs + 6 negatives (–4.80 to
+–4.51). Full-table scan showed 109 NULLs + 32 non-nulls, all non-nulls being
+change-percent values rather than VIX levels.
+
+**Root cause (fully diagnosed 2026-07-16)**: `optionSignals.ts:3191` passes
+`gateCtx.vix.intradayPct` (a change-%) into a level-typed field. `VixSnapshot`
+interface at `optionSignalGates.ts:80–89` has only percent fields (`intradayPct`,
+`dayPct`, `spike`, `reason`) — no `.level` field exists on the struct. Bug is
+architectural at the type level.
+
+**Fix shape (queued as rider on M3 PAPER_WRITER-DISCIPLINE)**:
+1. Add `level: number | null` to `VixSnapshot`.
+2. Populate `.level` in `loadVixSnapshot()` from the same Kite quote that already
+   feeds `intradayPct`.
+3. Change writer line to pass `.level` not `.intradayPct`.
+4. Sanity gate at write time: reject writes outside 5..80.
+5. VIX-unavailable case (109 NULLs half of the pattern): explicit NULL with
+   `data_quality` annotation on the row.
+
+**Denominator ruling for the fix's acceptance query**: post-cutover rows only
+(writer_version stamped by the fix onward). Historical rows stay dirty per
+no-retro-mapping ruling.
+
+**Not landing tonight per owner sequence discipline.** Rider ships with M3.
+
+---
+
+## 2 · Features / additions
+
+### 2.1 Column-width invariant test (2026-07-17)
+
+**File**: `/app/artifacts/api-server/src/lib/columnWidthInvariants.test.ts`
+
+**Purpose**: assert every closed-enum literal + the `CURRENT_WRITER_VERSION` stamp
+fits its declared Drizzle column width. **One string-length comparison forecloses
+the width-overflow failure class forever.**
+
+**Coverage**: 8 columns across 2 tables:
+- `option_signal_history.execution_status` / `.execution_blocked_reason` / `.writer_version`
+- `fno_signal_reasoning.verdict` / `.stage` / `.trade_class` / `.canonical_decision` / `.canonical_reason`
+
+**Structure**: 10 assertions total — 8 invariant checks (one per column) + 2
+control-block "would-fail evidence" assertions that prove the test catches the
+incident condition (asserts the pre-fix width would have been caught).
+
+**Result on first run**: caught 2 real live defects (see §1.2). Standing rule
+registered: the invariant test is now the width policy for these columns.
+
+### 2.2 `run_postgres.sh` self-heal binary-check fix (2026-07-17)
+
+**File**: `/app/scripts/env/run_postgres.sh`
+
+**Root cause of the defect it prevents**: the old `PGBIN` glob
+(`ls -d /usr/lib/postgresql/*/bin`) checked for the directory's existence, not the
+`postgres` binary itself. When only `postgresql-client-15` was preserved (the exact
+container-recycle state on 2026-07-17), `bin/` existed with client tools but no
+server binary — script skipped its install branch in an infinite loop until
+supervisor FATAL'd.
+
+**Fix**: `find_pgbin()` helper that iterates `bin/` candidates and returns the newest
+one that actually contains the `postgres` executable. Same helper is used at both
+call sites in the script (pre-install check + post-install re-check).
+
+**Dry-run evidence pack**: 4 cases (current healthy state / synthetic client-only
+state / synthetic multi-version / synthetic fresh-pod) — all pass. Case B is the
+direct reproduction proving the change would have prevented the morning's
+90-minute incident.
+
+**Next container recycle no longer punishes delay.**
+
+### 2.3 Phase 0 Data Availability Matrix (2026-07-16 → 2026-07-17)
+
+**File**: `/app/memory/forensics/phase0_data_availability_matrix.md` (~35KB)
+
+**Purpose**: honest evidence-anchored inventory of every data source the Pre/Post
+Briefing Engine would depend on. 13 rows (A–M), each with method, raw evidence,
+verdict.
+
+**Highlights of the matrix findings:**
+
+| Row | What | Verdict |
+|---|---|---|
+| A | Index candles + EMA/RSI/VWAP/ATR | Compute-ACTIVE; DB dry (candles=0) → warehouse hydration required for M0-B |
+| B | Option chain OI/PCR/MaxPain | ACTIVE via `kiteOptionChain.ts` on-demand |
+| C | India VIX via direct Kite quote | PARTIAL — mapping correct, historical column carries change-% not level (issue 4) |
+| D | F&O expiries | ACTIVE via `kc.getInstruments()` on-demand |
+| E | ATM straddle premium | Derived from B, ACTIVE |
+| F | Participant OI file | ACTIVE post-recovery — data lands via `instFlows.ts` wrapper's internal fallback |
+| G | Cash bhavcopy + FII/DII | ACTIVE — `nsearchives.*` vs `archives.*` Akamai edge split explained |
+| H | GIFT Nifty | GATED — external provider |
+| I | US-10Y / global cues | ACTIVE (analytics tier) — Yahoo `^TNX` ×10 unit-parse verified correct at `preMarket.ts:1320` |
+| J | News source | PROMOTABLE-infrastructure / GATED-as-section — 20 aggregator feeds exist but no official-source; owner ruling stands |
+| J' | Events Calendar (SPLIT) | GATED — structured source needed |
+| K | NIFTY 500 rate-limit sweep | FEASIBLE off-hours (0 errors, 0 429s, p50=236ms) — session-hours confirmation Monday |
+| L | Sector indices Kite | ACTIVE at generate-time via Kite batch |
+| M | Snapshot ingestor | Exists, dormant on this pod |
+
+### 2.4 F&O Completion Mission directive (2026-07-17)
+
+**File**: `/app/memory/forensics/fno_completion_mission.md` (9,650 bytes)
+
+**Purpose**: consolidate the remaining strict sequence into one campaign with a
+named finish line. Six phases, six checkpoints, expectancy-clock as the ordering
+principle.
+
+**Phases:**
+- **M0** — Close ledger + build evidence file (this weekend, checkpoint SIGNED tonight)
+- **M1** — P0.1 (market-closed truth) + P0.2 (`/api/options/signals` degraded-state contract) + suppression-log persistence rider (~2 sessions, Mon onward)
+- **M2** — Drift reconciliation + ENV-ISOLATION closing sub-step
+- **M3** — PAPER_WRITER discipline + VIX-level rider (§1.4)
+- **M4** — Owner decision on entry model / lifecycle / regime gating (based on M0-B memo)
+- **M5** — P1.2 real TREND_CONTINUATION emitter + first honest paper trade
+- **M6** — Evaluation sample: 20+ signals across 3 indices over 5 sessions passive, expectancy report
+
+**Definition of mission success**: a trade the owner can trust — every number on
+its trace real, labeled, reproducible — followed by a sample large enough to judge
+the strategy instead of the plumbing.
+
+### 2.5 M0-A · 2026-07-17 missed-move case study
+
+**File**: `/app/memory/forensics/case_study_2026-07-17.md`
+
+**Purpose**: mission Exhibit A. Numeric backing for owner's screenshot diagnosis
+("good moves, no signals").
+
+**Contents:**
+- Three baseline plans as stamped in `option_signal_history` (NIFTY 24288.90,
+  BANKNIFTY 58185.85, SENSEX 77989.44) — with strikes, spot triggers, option
+  premiums, stops, targets, MFE/MAE, exit reasons, timestamps.
+- Timeline reconstruction of the day (Kite offline morning, PG-dead window,
+  post-recovery emissions, STALE_TRIGGER expiries at 13:27, unfired trigger
+  crosses post-14:00).
+- Regime label vs realized behavior contradiction (all 3 plans stamped
+  `regime = RANGING` on a +1.13% / +1.67% / +1.32% trend day).
+- VIX corruption confirmed on today's data (values 2.02–3.42 in a field expected
+  to hold ~14).
+- P0.1 evidence-status flagged UNRESOLVED (in-memory suppression counter, not
+  persisted per-timestamp).
+- Funnel breakdown: 91 rows / 23 EMITTED (all INFO_ONLY BASELINE) / 65 REJECTED
+  at pre-emission / 3 DATA_BLOCKED / 0 DIAG / 0 canonical_reason=OTHER.
+- Four decision axes drafted for M0-B memo formalization.
+
+### 2.6 Row K rate-limit sweep evidence
+
+**File**: `/app/memory/forensics/row_k_rate_sweep_2026-07-17.md`
+
+- 30 sequential single-symbol `kc.getQuote()` calls: 0 errors, 0 429s,
+  p50=236ms / p95=316ms / mean=294ms, effective 3.4 req/sec sustained.
+- 100-symbol batch: 262ms / 97 syms (2.6ms/sym — 34× lower per-symbol cost than
+  sequential).
+- Verdict: FEASIBLE off-hours; session-hours confirmation Monday mid-day.
+- Consumers unblocked: POST-2 briefing breadth, M5 contract-selection, Row L
+  sector sweep.
+
+### 2.7 P0.4 Step 2 acceptance query + Friday mid-day spot-check script
+
+**Files**:
+- `/app/memory/forensics/p0_4_step2_friday_acceptance_query.sql` (9-section)
+- `/app/memory/forensics/p0_4_step2_friday_midday_spotcheck.sh`
+
+**Query result tonight**: **ALL ZERO-DEFECT ASSERTIONS PASS on today's 91-row
+sample**:
+- 0 rows with mandatory-column NULLs after flag flip
+- 0 `trade_class` NULL on emission/later stage
+- 0 `canonical_reason = OTHER`
+- 0 Site E OTHER-catch fallbacks
+- 0 DIAG writes (test-env writer guard clean)
+- 0 B8-class `TRIGGERED_CLOSED` on non-paper-open
+
+### 2.8 Pre/Post Briefing build plan
+
+**File**: `/app/memory/pre_post_briefing_build_plan.md`
+
+Living plan for the Pre/Post Market Briefing Engine + Telegram delivery + Pre/Post
+tab. Frozen for now behind M0–M6 mission critical path.
+
+---
+
+## 3 · Schema changes (all catalog-only, all owner-pre-approved)
+
+### 3.1 P0.4 Step 2 Phase-2 columns (added prior fork, verified this window)
+
+**`option_signal_history`** gained 5 columns:
+- `signal_fingerprint` varchar(32)
+- `paper_trade_id` varchar(64) — was originally varchar(64) not UUID (documented
+  in handoff)
+- `execution_status` varchar(24) → **varchar(32)** *(§1.2 fix)*
+- `execution_blocked_reason` varchar(48)
+- `writer_version` varchar(32) → **varchar(64)** *(§1.1 fix)*
+
+**`fno_signal_reasoning`** gained 9 columns:
+- `gate_name` varchar(64)
+- `verdict` varchar(16) → **varchar(24)** *(§1.2 sibling sweep)*
+- `stage` varchar(24)
+- `values_tested_json` jsonb
+- `threshold_json` jsonb
+- `config_version` varchar(32)
+- `trade_class` varchar(16)
+- `canonical_decision` varchar(24)
+- `canonical_reason` varchar(48)
+
+**Total this session: 3 ALTER TABLE catalog-only widenings.**
+
+### 3.2 Drizzle declarations synchronized
+
+Every DB widening was mirrored in the Drizzle TS schema **same-branch, same-day**:
+- `/app/lib/db/src/schema/optionSignals.ts:93` — `executionStatus` length 24→32
+- `/app/lib/db/src/schema/optionSignals.ts:95` — `writerVersion` length 32→64
+- `/app/lib/db/src/schema/fnoSignalReasoning.ts:151` — `verdict` length 16→24
+
+Zero new drift added by this session's fixes.
+
+---
+
+## 4 · Documentation artifacts committed
+
+| File | Size | Purpose |
+|---|---|---|
+| `/app/memory/PRD.md` | 1,653 lines | Full running product ledger — every ruling, every decision, every rider, every damage window |
+| `/app/memory/forensics/phase0_data_availability_matrix.md` | 35,046 bytes | Data-source audit, 13 rows, verdict per row |
+| `/app/memory/forensics/fno_completion_mission.md` | 9,650 bytes | M0→M6 mission directive |
+| `/app/memory/forensics/case_study_2026-07-17.md` | 7,811 bytes | Mission Exhibit A, missed-move forensic |
+| `/app/memory/forensics/row_k_rate_sweep_2026-07-17.md` | 4,047 bytes | Rate-limit sweep evidence + verdict |
+| `/app/memory/forensics/p0_4_step2_friday_acceptance_query.sql` | 10,750 bytes | 9-section acceptance query |
+| `/app/memory/forensics/p0_4_step2_friday_midday_spotcheck.sh` | 4,086 bytes | Mid-day acceptance spot-check |
+| `/app/memory/pre_post_briefing_build_plan.md` | 5,199 bytes | Briefing engine build plan (deferred) |
+
+---
+
+## 5 · Independent verifications (bug_testing_agent)
+
+Three verdicts this window, all `fixed`:
+
+| Iteration | Fix | Evidence file |
+|---|---|---|
+| 3 | writer_version varchar(32) → 64 ALTER | `/app/test_reports/iteration_3.json`, `bug_verification_3.json` |
+| 4 | execution_status varchar(24) → 32 + verdict varchar(16) → 24 sibling sweep | `/app/test_reports/iteration_4.json`, `bug_verification_4.json` |
+| 5 | quantity → qty fossil rename + rebuild + restart | `/app/test_reports/iteration_5.json`, `bug_verification_5.json`, `bug_verification_5_raw_results.json` |
+
+Test-run helpers committed alongside:
+`/app/test_reports/run_bug_verification_5.mjs`, `verify_live_market_p0.sh`.
+
+---
+
+## 6 · Standing rules ratified this window
+
+1. **Full-text spec commitment**: anything entering the roadmap does so with its
+   complete text in the repo/PRD. Numbered IDs pointing at uncommitted docs do not
+   survive handoffs. (BUG-53/54 restored a few hours after being "dropped" is the
+   live example of this rule working.)
+2. **Prompt/directive standard** (four-part skeleton): Scope · Bright lines ·
+   Deliverables · Acceptance evidence. Everything not evidenced is a verification
+   step, not an assumption.
+3. **Re-observing a known defect does not re-prioritize it. New exposure does.**
+   (Applied to VIX-Corruption — stays P1 rider on M3.)
+4. **Discovering plumbing is Phase 0's job; deciding what deserves the platform's
+   honesty stamp is the owner's.** (Applied to Row J News.)
+5. **Match probe methodology to the operational window** — Row F pushed from
+   Thursday pre-publish 503 to Friday post-close in-window retest.
+6. **Historical rows stay dirty with a documented cutover date at fix time**
+   (VIX rider, taxonomy).
+7. **Column-width invariant test is the width policy for the 8 covered columns.**
+8. **Recycle-survival matrix ratified**: `/app/.pgdata/` + direct-DDL survive
+   recycles; server binaries do not. Item 1 fix (§2.2) closes the last known
+   self-heal defect.
+
+---
+
+## 7 · Sequence & priority (post-M0-signed)
+
+Strict order (owner-ratified, no opportunistic draws):
+
+1. **M0** — SIGNED tonight
+2. **M1** — P0.1 + P0.2 + suppression-log persistence rider (Monday)
+3. **M2** — Drift reconciliation + ENV-ISOLATION closing sub-step
+4. **M3** — PAPER_WRITER discipline + VIX-level rider
+5. **M4** — Owner decision (memo + case study driven; runs parallel to M1–M3)
+6. **M5** — First honest paper trade (P1.2 real emitter)
+7. **M6** — Evaluation sample + expectancy report
+
+**Explicitly deferred until mission complete**: /audit panel · P1.3 exit-price
+provenance (unless M5 needs unit-labeling minimally) · BUG-53 signal-card 15-field
+render + BUG-54 lifecycle overlay · Briefing engine Phases 1–4 · Row J official-
+source list · Events Calendar · Phases 7/8/9 · all backlog not named in a phase.
+
+---
+
+## 8 · Weekend + Monday commitments (post-M0)
+
+- **Owner reading**: `/app/memory/forensics/case_study_2026-07-17.md` before M4 memo drops.
+- **Agent weekend**: M0-B backfill via `pnpm --filter @workspace/api-server run fetch:index-candles` (Kite historical API entitlement confirmed tonight — 100 candles returned in 386ms) → replay 3 candidate entry models over 90 sessions × 3 indices at 15-min → descriptive-stats tables per model per regime → ≤2-page memo (no ranking).
+- **Monday M1 kickoff**: P0.1 (false market-closed truth on signal surface) + P0.2 (`/api/options/signals` degraded-state contract + `contractInstrumentToken` code-layer harmonization) + suppression-log persistence rider.
+- **Monday mid-day**: 60-second Row K re-probe during live session (11:30–14:00 IST, 3 req/sec, abort on first 429).
+
+---
+
+## 9 · Files modified this fork (12 source/schema + 7 memory)
+
+**Source / schema:**
+1. `/app/artifacts/api-server/src/lib/columnWidthInvariants.test.ts` — **NEW** (invariant test)
+2. `/app/artifacts/api-server/src/lib/fnoCanonicalTaxonomy.ts` (Phase-2 taxonomy)
+3. `/app/artifacts/api-server/src/lib/fnoCanonicalTaxonomy.test.ts` (Phase-2 tests)
+4. `/app/artifacts/api-server/src/lib/fnoReasoningAnalytics.test.ts`
+5. `/app/artifacts/api-server/src/lib/fnoReasoningWriterStage2.test.ts`
+6. `/app/artifacts/api-server/src/lib/fnoSignalReasoningLogger.ts` (writer v2 logic)
+7. `/app/artifacts/api-server/src/lib/optionSignalLifecycle.ts` (TRIGGERED-branch writer, subject of §1.2)
+8. `/app/artifacts/api-server/src/lib/paperAccountReconciliation.ts` (§1.3 fix)
+9. `/app/artifacts/api-server/src/lib/paperTradingFO.ts`
+10. `/app/lib/db/src/schema/fnoSignalReasoning.ts` (Phase-2 columns + verdict width)
+11. `/app/lib/db/src/schema/optionSignals.ts` (Phase-2 columns + writer_version + execution_status widths)
+12. `/app/scripts/env/run_postgres.sh` (§2.2 self-heal fix)
+
+**Memory / forensics / plans:**
+13. `/app/memory/PRD.md`
+14. `/app/memory/forensics/case_study_2026-07-17.md` (NEW)
+15. `/app/memory/forensics/fno_completion_mission.md` (NEW)
+16. `/app/memory/forensics/p0_4_step2_friday_midday_spotcheck.sh` (NEW)
+17. `/app/memory/forensics/phase0_data_availability_matrix.md`
+18. `/app/memory/forensics/row_k_rate_sweep_2026-07-17.md` (NEW)
+19. `/app/memory/pre_post_briefing_build_plan.md`
+
+**Test reports:**
+20. `/app/test_reports/bug_verification_{3,4,5}.json` + `iteration_{3,4,5}.json`
+
+Total git commits this fork: **25** (per auto-commit machinery).
+
+---
+
+## 10 · Report closing
+
+**What went wrong today**: a container recycle + two column-width defects tried to
+turn a Friday acceptance day into an incident day. All three closed same-day,
+independently verified, with the tools that would have caught them earlier now
+built and in the tree.
+
+**What went right today**: the invariant test caught its second defect four
+minutes after being written; the P0.4 acceptance sample carries every zero-defect
+signature we specified in the flag-on protocol; the case study made today's
+missed setups into forensic Exhibit A that will calibrate the M4 decision that
+decides the entire real emitter.
+
+**Where the mission stands**: M0 SIGNED. M1 kicks off Monday. The critical path
+from here to the first honest paper trade is ~10 sessions, with a 20-signal
+evaluation sample 5 sessions after that. Everything not on that path is
+explicitly frozen.
+
+**Report ends.**
