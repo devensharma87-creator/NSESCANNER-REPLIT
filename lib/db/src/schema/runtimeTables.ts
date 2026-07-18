@@ -1,6 +1,8 @@
 import {
   pgTable,
   text,
+  integer,
+  date,
   serial,
   timestamp,
   jsonb,
@@ -110,4 +112,31 @@ export const systemAlertState = pgTable("system_alert_state", {
     .notNull()
     .defaultNow(),
   workerId: text("worker_id"),
+});
+
+/**
+ * W3a declaration (2026-07-18 Weekend work).
+ *
+ * `reconciliation_report` is created at runtime by `eodReconciliation.ts`
+ * via raw `CREATE TABLE IF NOT EXISTS` (runs lazily on first EOD tick ≥15:35 IST
+ * on a trading day). Declared here so drizzle-kit push never sees it as
+ * out-of-schema and offers to DROP it on next Publish.
+ *
+ * Column types match the live DDL in eodReconciliation.ts exactly:
+ *   id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+ *   ist_date DATE NOT NULL UNIQUE,
+ *   status TEXT NOT NULL,
+ *   checks JSONB NOT NULL,
+ *   live_note TEXT NOT NULL DEFAULT '',
+ *   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+ */
+export const reconciliationReport = pgTable("reconciliation_report", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  istDate: date("ist_date").notNull().unique(),
+  status: text("status").notNull(),
+  checks: jsonb("checks").notNull(),
+  liveNote: text("live_note").notNull().default(""),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
 });

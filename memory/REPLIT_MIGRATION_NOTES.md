@@ -133,7 +133,7 @@ Please provide these as attachments and they will be committed to `/memory/`.
 | C0.6 Paper DB snapshot | ✅ DONE | `memory/forensics/paper_db_snapshot_C0_2026-07-18.sql` (627 lines, all 8 paper tables, INSERT format) |
 | C0.7 Analysis mode banner | ✅ DONE | `ContainmentBanner` component + wired into `layout.tsx`; shows unconditionally on all pages |
 | C0.8 REASONING_WRITER_V2_ENABLED=1 | ✅ DONE | Set in shared env + `artifact.toml` production run env; api-server restarted |
-| C0.9 Audit + notes committed | ✅ DONE | Audit file at `memory/NSESCANNER_DEEP_AUDIT_2026-07-18.md` (802 lines); this log entry; PROJECT_DELTA_REPORT.md PENDING user re-upload |
+| C0.9 Audit + notes committed | ✅ DONE | Audit file at `memory/NSESCANNER_DEEP_AUDIT_2026-07-18.md` (802 lines); master directive at `memory/REPLIT_MASTER_DIRECTIVE_C0_MISSIONv2.md` (90 lines); this log entry; PROJECT_DELTA_REPORT.md PENDING user re-upload |
 
 ### Exit condition check (audit §11)
 - No autonomous open possible: FNO_AUTO_OPEN_C0_BLOCKED + EQUITY_AUTO_OPEN_C0_BLOCKED both `true` in source ✅
