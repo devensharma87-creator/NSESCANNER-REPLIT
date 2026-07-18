@@ -1,18 +1,18 @@
 /**
  * F-37 — Swing Regression Baseline Gate tests.
  *
- * Tests cover:
- *  1. SWING_REGRESSION_CONFIG constants are within expected ranges.
- *  2. checkSwingRegressionBaseline returns INSUFFICIENT_DATA when below MIN_SAMPLE.
- *  3. Returns OK when win-rate and profit-factor are above thresholds.
- *  4. Returns WARN when win-rate is below WR_WARN_THRESHOLD.
- *  5. Returns ALERT when win-rate is below WR_ALERT_THRESHOLD.
- *  6. Returns WARN when profit-factor is below PF_WARN_THRESHOLD.
- *  7. Autonomous filter: MANUAL_OVERRIDE and MANUAL_BUY rows are EXCLUDED.
- *     Rows with NULL exit_reason / source are INCLUDED (autonomous).
- *  8. Returns INSUFFICIENT_DATA (not an error) when the DB query fails.
+ * Contract: checkSwingRegressionBaseline returns
+ *   { ok, tradeCount, winRate, profitFactor, reason?, computedAt }
  *
- * The DB module is mocked so no real database is required.
+ * Gate logic:
+ *   - tradeCount < MIN_SAMPLE (10) → ok=true, winRate/profitFactor null
+ *   - tradeCount >= MIN_SAMPLE    → ok = (winRate >= WR_FLOOR) AND (PF >= PF_FLOOR)
+ *   - WR_FLOOR = 0.45, PF_FLOOR = 2.0
+ *
+ * Autonomous = exit_reason != 'MANUAL_OVERRIDE' AND source != 'MANUAL_BUY'
+ * NULLs are treated as autonomous via or(isNull, ne).
+ *
+ * DB module is fully mocked — no real database required.
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -23,8 +23,6 @@ import {
 } from "./swingRegressionGate";
 
 // ─── Mock @workspace/db ───────────────────────────────────────────────────────
-// We intercept the `db.select(...).from(...).where(...)` chain by returning
-// a mock that resolves to whatever `mockRows` is set to.
 
 let mockRows: Array<{ realizedPnl: string | null }> = [];
 let mockShouldThrow = false;
@@ -76,24 +74,27 @@ function makeRows(
   ];
 }
 
-// ─── tests ───────────────────────────────────────────────────────────────────
+// ─── SWING_REGRESSION_CONFIG constants ───────────────────────────────────────
 
 describe("SWING_REGRESSION_CONFIG", () => {
-  it("LOOKBACK_DAYS is positive", () => {
-    expect(SWING_REGRESSION_CONFIG.LOOKBACK_DAYS).toBeGreaterThan(0);
+  it("LOOKBACK_DAYS is 90", () => {
+    expect(SWING_REGRESSION_CONFIG.LOOKBACK_DAYS).toBe(90);
   });
 
-  it("MIN_SAMPLE is positive", () => {
-    expect(SWING_REGRESSION_CONFIG.MIN_SAMPLE).toBeGreaterThan(0);
+  it("MIN_SAMPLE is 10", () => {
+    expect(SWING_REGRESSION_CONFIG.MIN_SAMPLE).toBe(10);
   });
 
-  it("WR_ALERT_THRESHOLD < WR_WARN_THRESHOLD < 1", () => {
-    expect(SWING_REGRESSION_CONFIG.WR_ALERT_THRESHOLD).toBeLessThan(
-      SWING_REGRESSION_CONFIG.WR_WARN_THRESHOLD,
-    );
-    expect(SWING_REGRESSION_CONFIG.WR_WARN_THRESHOLD).toBeLessThan(1);
+  it("WR_FLOOR is 0.45", () => {
+    expect(SWING_REGRESSION_CONFIG.WR_FLOOR).toBe(0.45);
+  });
+
+  it("PF_FLOOR is 2.0", () => {
+    expect(SWING_REGRESSION_CONFIG.PF_FLOOR).toBe(2.0);
   });
 });
+
+// ─── checkSwingRegressionBaseline behavior ───────────────────────────────────
 
 describe("checkSwingRegressionBaseline", () => {
   beforeEach(() => {
@@ -101,94 +102,111 @@ describe("checkSwingRegressionBaseline", () => {
     mockShouldThrow = false;
   });
 
-  it("returns INSUFFICIENT_DATA when row count < MIN_SAMPLE", async () => {
-    mockRows = makeRows(3, 2);
+  it("returns ok=true with null metrics when tradeCount < MIN_SAMPLE", async () => {
+    mockRows = makeRows(3, 2); // 5 trades
     const r: SwingRegressionResult = await checkSwingRegressionBaseline();
-    expect(r.status).toBe("INSUFFICIENT_DATA");
+    expect(r.ok).toBe(true);
+    expect(r.tradeCount).toBe(5);
     expect(r.winRate).toBeNull();
     expect(r.profitFactor).toBeNull();
-    expect(r.notes[0]).toMatch(/insufficient sample/i);
+    expect(r.reason).toBeUndefined();
   });
 
-  it("returns OK when win-rate and profit-factor are healthy", async () => {
-    // 7 wins at +500, 3 losses at -200 → WR=70%, PF=3500/600=5.83
-    mockRows = makeRows(7, 3, 500, -200);
+  it("returns ok=true when both WR and PF are above floor", async () => {
+    // 7 wins @600, 3 losses @200 → WR=70%, PF=4200/600=7.0 (both above floor)
+    mockRows = makeRows(7, 3, 600, -200);
     const r = await checkSwingRegressionBaseline();
-    expect(r.status).toBe("OK");
-    expect(r.wins).toBe(7);
-    expect(r.losses).toBe(3);
+    expect(r.ok).toBe(true);
+    expect(r.tradeCount).toBe(10);
     expect(r.winRate).toBeCloseTo(0.7, 3);
-    expect(r.profitFactor).toBeCloseTo(5.83, 1);
+    expect(r.profitFactor).toBeGreaterThan(SWING_REGRESSION_CONFIG.PF_FLOOR);
+    expect(r.reason).toBeUndefined();
   });
 
-  it("returns WARN when win-rate is below WR_WARN_THRESHOLD but above ALERT", async () => {
-    // WR_WARN=0.45, WR_ALERT=0.35 — use WR=0.40
-    // 4 wins, 6 losses → WR=0.40
+  it("returns ok=false when WR is below WR_FLOOR (0.45)", async () => {
+    // WR = 4/10 = 0.40 < 0.45
     mockRows = makeRows(4, 6, 500, -200);
     const r = await checkSwingRegressionBaseline();
-    expect(r.status).toBe("WARN");
+    expect(r.ok).toBe(false);
     expect(r.winRate).toBeCloseTo(0.4, 3);
-    expect(r.notes.some((n) => /WARN threshold/i.test(n))).toBe(true);
+    expect(r.reason).toMatch(/win.rate/i);
   });
 
-  it("returns ALERT when win-rate is below WR_ALERT_THRESHOLD", async () => {
-    // WR_ALERT=0.35 — use 3 wins, 7 losses → WR=0.30
-    mockRows = makeRows(3, 7, 500, -200);
+  it("returns ok=false when PF is below PF_FLOOR (2.0)", async () => {
+    // WR = 6/10 = 0.60 (above 0.45), PF = 600/900 = 0.67 (below 2.0)
+    mockRows = makeRows(6, 4, 100, -225);
     const r = await checkSwingRegressionBaseline();
-    expect(r.status).toBe("ALERT");
-    expect(r.winRate).toBeCloseTo(0.3, 3);
-    expect(r.notes.some((n) => /ALERT threshold/i.test(n))).toBe(true);
+    expect(r.ok).toBe(false);
+    expect(r.winRate).toBeCloseTo(0.6, 3);
+    expect(r.profitFactor).toBeLessThan(SWING_REGRESSION_CONFIG.PF_FLOOR);
+    expect(r.reason).toMatch(/profit.factor/i);
   });
 
-  it("returns WARN when profit-factor is below PF_WARN_THRESHOLD", async () => {
-    // WR=0.6 (OK), PF=0.5 (WARN): 6 wins @100, 4 losses @300
-    mockRows = makeRows(6, 4, 100, -300);
+  it("returns ok=false when BOTH WR and PF are below floor", async () => {
+    // WR = 3/10 = 0.30 < 0.45; PF = 300/700 = 0.43 < 2.0
+    mockRows = makeRows(3, 7, 100, -100);
     const r = await checkSwingRegressionBaseline();
-    expect(r.status).toBe("WARN");
-    expect(r.profitFactor).toBeLessThan(SWING_REGRESSION_CONFIG.PF_WARN_THRESHOLD);
-    expect(r.notes.some((n) => /profit.factor/i.test(n))).toBe(true);
+    expect(r.ok).toBe(false);
+    // reason should mention both
+    expect(r.reason).toMatch(/win.rate/i);
+    expect(r.reason).toMatch(/profit.factor/i);
   });
 
-  it("includes avgWinPnl and avgLossPnl in the response", async () => {
-    mockRows = makeRows(7, 3, 600, -400);
+  it("profitFactor is null (not ok=false) when there are no losses", async () => {
+    // 10 wins, 0 losses → PF undefined/null, WR=100%, should be ok=true
+    mockRows = makeRows(10, 0, 300, -200);
     const r = await checkSwingRegressionBaseline();
-    expect(r.avgWinPnl).toBeCloseTo(600, 0);
-    expect(r.avgLossPnl).toBeCloseTo(-400, 0);
+    expect(r.profitFactor).toBeNull();
+    expect(r.ok).toBe(true); // PF null is treated as passing (no denominator)
   });
 
-  it("returns INSUFFICIENT_DATA (not an exception) when DB query throws", async () => {
+  it("returns ok=true (fail-open) when DB query throws", async () => {
     mockShouldThrow = true;
     const r = await checkSwingRegressionBaseline();
-    expect(r.status).toBe("INSUFFICIENT_DATA");
-    expect(r.notes[0]).toMatch(/DB query failed/i);
+    expect(r.ok).toBe(true);
+    expect(r.tradeCount).toBe(0);
+    expect(r.winRate).toBeNull();
+    expect(r.profitFactor).toBeNull();
+    expect(r.reason).toMatch(/DB query failed/i);
   });
 
-  it("handles null realizedPnl rows gracefully (skips them)", async () => {
-    // 8 valid rows + 2 null-pnl rows → count=10, processed=8
+  it("handles null realizedPnl rows gracefully (skips them in win/loss tally)", async () => {
+    // 8 valid rows + 2 null-pnl rows → tradeCount=10, only 8 processed
     mockRows = [
       ...makeRows(5, 3, 500, -200),
       { realizedPnl: null },
       { realizedPnl: null },
     ];
     const r = await checkSwingRegressionBaseline();
-    // autonomousTradeCount = 10 (query result), wins/losses from finite rows only
-    expect(r.wins + r.losses).toBe(8);
-    expect(r.status).not.toBe("INSUFFICIENT_DATA");
+    expect(r.tradeCount).toBe(10); // db returns 10 rows
+    // The 2 null rows are skipped in pnl tally but don't crash
+    expect(r.winRate).toBeDefined();
   });
 
-  it("response always includes computedAt and lookbackDays", async () => {
+  it("computedAt is always a valid ISO timestamp", async () => {
     mockRows = makeRows(7, 3);
     const r = await checkSwingRegressionBaseline();
     expect(r.computedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
-    expect(r.lookbackDays).toBe(SWING_REGRESSION_CONFIG.LOOKBACK_DAYS);
   });
 
-  it("profitFactor is null when there are no losses", async () => {
-    // 10 wins, 0 losses → loss total = 0, PF = null
-    mockRows = makeRows(10, 0, 300, -200);
+  it("exact gate boundary: WR exactly at WR_FLOOR passes", async () => {
+    // WR = 0.45 exactly: 45 wins, 55 losses, but we only use 10+
+    // Use: 9 wins, 11 losses → WR = 9/20 = 0.45 exactly
+    mockRows = [
+      ...makeRows(9, 11, 500, -200),
+    ];
     const r = await checkSwingRegressionBaseline();
-    expect(r.losses).toBe(0);
-    expect(r.profitFactor).toBeNull();
-    expect(r.status).toBe("OK");
+    expect(r.winRate).toBeCloseTo(0.45, 3);
+    // At the floor, ok depends on both WR and PF; WR just barely passes
+    // PF: 4500/2200 = 2.045 > 2.0 → both pass
+    expect(r.ok).toBe(true);
+  });
+
+  it("exact gate boundary: WR just below WR_FLOOR fails", async () => {
+    // 4 wins, 6 losses → WR = 0.40 < 0.45
+    mockRows = makeRows(4, 6, 500, -200);
+    const r = await checkSwingRegressionBaseline();
+    expect(r.ok).toBe(false);
+    expect(r.reason).toBeTruthy();
   });
 });

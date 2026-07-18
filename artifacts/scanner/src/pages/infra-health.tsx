@@ -170,19 +170,13 @@ function useEndpoint<T>(path: string, auto: boolean, refreshTick: number): Fetch
 
 // ── endpoint response shapes (loose — only what the dashboard renders) ─────
 
-type SwingRegressionStatus = "OK" | "WARN" | "ALERT" | "INSUFFICIENT_DATA";
 interface SwingRegressionResult {
-  status: SwingRegressionStatus;
-  autonomousTradeCount: number;
-  wins: number;
-  losses: number;
+  ok: boolean;
+  tradeCount: number;
   winRate: number | null;
   profitFactor: number | null;
-  avgWinPnl: number | null;
-  avgLossPnl: number | null;
-  lookbackDays: number;
+  reason?: string;
   computedAt: string;
-  notes: string[];
 }
 
 interface SecurityAuditCheck { id: string; status: "ok" | "warn" | "fail"; title: string; detail: string; category: string }
@@ -3130,25 +3124,20 @@ function SwingRegressionSection({
   error,
   loading,
 }: FetchState<SwingRegressionResult>): React.ReactElement {
-  const severityMap: Record<SwingRegressionStatus, Severity> = {
-    OK: "ok",
-    WARN: "warn",
-    ALERT: "fail",
-    INSUFFICIENT_DATA: "disabled",
-  };
-
   const severity: Severity = loading
     ? "disabled"
     : error
       ? "fail"
       : data
-        ? severityMap[data.status]
+        ? data.ok
+          ? data.tradeCount < 10
+            ? "disabled"
+            : "ok"
+          : "fail"
         : "disabled";
 
   const pct = (v: number | null) =>
     v != null ? `${(v * 100).toFixed(1)}%` : "—";
-  const inr = (v: number | null) =>
-    v != null ? `₹${v.toFixed(0)}` : "—";
   const fmt = (v: number | null) =>
     v != null ? v.toFixed(2) : "—";
 
@@ -3157,21 +3146,19 @@ function SwingRegressionSection({
       title="Swing Regression Baseline (F-37)"
       icon={Activity}
       severity={severity}
-      description={`Autonomous equity swing edge over the last ${data?.lookbackDays ?? 30} days.`}
+      description="Autonomous equity swing edge over the last 90 days."
       testId="section-swing-regression"
     >
       {loading && <div className="text-sm text-muted-foreground">Loading…</div>}
       {error && (
-        <div className="text-sm text-rose-600">
-          Error: {error}
-        </div>
+        <div className="text-sm text-rose-600">Error: {error}</div>
       )}
       {data && (
         <div className="space-y-3">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-sm">
             <div>
-              <div className="text-muted-foreground text-xs mb-0.5">Trades (autonomous)</div>
-              <div className="font-mono font-medium">{data.autonomousTradeCount}</div>
+              <div className="text-muted-foreground text-xs mb-0.5">Trades (autonomous, 90d)</div>
+              <div className="font-mono font-medium">{data.tradeCount}</div>
             </div>
             <div>
               <div className="text-muted-foreground text-xs mb-0.5">Win Rate</div>
@@ -3181,30 +3168,19 @@ function SwingRegressionSection({
               <div className="text-muted-foreground text-xs mb-0.5">Profit Factor</div>
               <div className="font-mono font-medium">{fmt(data.profitFactor)}</div>
             </div>
-            <div>
-              <div className="text-muted-foreground text-xs mb-0.5">Wins / Losses</div>
-              <div className="font-mono font-medium">{data.wins} / {data.losses}</div>
-            </div>
-            <div>
-              <div className="text-muted-foreground text-xs mb-0.5">Avg Win</div>
-              <div className="font-mono font-medium">{inr(data.avgWinPnl)}</div>
-            </div>
-            <div>
-              <div className="text-muted-foreground text-xs mb-0.5">Avg Loss</div>
-              <div className="font-mono font-medium">{inr(data.avgLossPnl)}</div>
-            </div>
           </div>
-          {data.notes.length > 0 && (
-            <div className="space-y-1">
-              {data.notes.map((note, i) => (
-                <div key={i} className="text-xs text-muted-foreground">
-                  {note}
-                </div>
-              ))}
+          {data.reason && (
+            <div className="text-xs text-rose-600">{data.reason}</div>
+          )}
+          {data.tradeCount < 10 && !data.reason && (
+            <div className="text-xs text-muted-foreground">
+              Fewer than 10 autonomous trades in the lookback window — gate not active yet.
             </div>
           )}
           <div className="text-xs text-muted-foreground">
-            Computed: {data.computedAt ? new Date(data.computedAt).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" }) : "—"}
+            Computed: {data.computedAt
+              ? new Date(data.computedAt).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })
+              : "—"}
           </div>
         </div>
       )}

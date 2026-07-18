@@ -153,31 +153,43 @@ export const FNO_BASELINE_RISK = {
  * Update this list after each RBI MPC calendar release or once the NSE
  * Muhurat date is officially announced.
  */
-export const EVENT_BLACKOUT_DATES: ReadonlySet<string> = new Set([
+/** A single blackout calendar entry with a human-readable label. */
+export interface BlackoutEntry {
+  /** YYYY-MM-DD, IST. */
+  date: string;
+  /** Short description shown in logs and UI (e.g. "RBI MPC Jun 2026"). */
+  label: string;
+}
+
+export const EVENT_BLACKOUT_DATES: ReadonlyArray<BlackoutEntry> = [
   // ── 2026 ──────────────────────────────────────────────────────────────
-  "2026-04-09", // RBI MPC Apr 2026
-  "2026-06-06", // RBI MPC Jun 2026
-  "2026-08-06", // RBI MPC Aug 2026
-  "2026-10-08", // RBI MPC Oct 2026
-  "2026-11-01", // Diwali Muhurat 2026 (approx — confirm NSE announcement)
-  "2026-12-04", // RBI MPC Dec 2026
+  { date: "2026-04-09", label: "RBI MPC Apr 2026" },
+  { date: "2026-06-06", label: "RBI MPC Jun 2026" },
+  { date: "2026-08-06", label: "RBI MPC Aug 2026" },
+  { date: "2026-10-08", label: "RBI MPC Oct 2026" },
+  { date: "2026-11-01", label: "Diwali Muhurat 2026 (approx)" },
+  { date: "2026-12-04", label: "RBI MPC Dec 2026" },
   // ── 2027 ──────────────────────────────────────────────────────────────
-  "2027-02-01", // Union Budget 2027
-  "2027-02-05", // RBI MPC Feb 2027
-  "2027-04-09", // RBI MPC Apr 2027
-  "2027-06-04", // RBI MPC Jun 2027
-  "2027-08-06", // RBI MPC Aug 2027
-  "2027-10-08", // RBI MPC Oct 2027
-  "2027-10-21", // Diwali Muhurat 2027 (approx — confirm NSE announcement)
-  "2027-12-03", // RBI MPC Dec 2027
-]);
+  { date: "2027-02-01", label: "Union Budget 2027" },
+  { date: "2027-02-05", label: "RBI MPC Feb 2027" },
+  { date: "2027-04-09", label: "RBI MPC Apr 2027" },
+  { date: "2027-06-04", label: "RBI MPC Jun 2027" },
+  { date: "2027-08-06", label: "RBI MPC Aug 2027" },
+  { date: "2027-10-08", label: "RBI MPC Oct 2027" },
+  { date: "2027-10-21", label: "Diwali Muhurat 2027 (approx)" },
+  { date: "2027-12-03", label: "RBI MPC Dec 2027" },
+];
 
 /**
- * Returns true when `istDate` (YYYY-MM-DD, IST) is a calendar blackout day
- * for F&O paper auto-opens.  Pure function — no I/O, no side effects.
+ * Returns `{ blocked: true, label }` when `istDate` (YYYY-MM-DD, IST) is a
+ * calendar blackout day, or `{ blocked: false }` otherwise.
+ * Pure function — no I/O, no side effects.
  */
-export function isEventBlackoutDay(istDate: string): boolean {
-  return EVENT_BLACKOUT_DATES.has(istDate);
+export function isEventBlackoutDay(
+  istDate: string,
+): { blocked: boolean; label?: string } {
+  const entry = EVENT_BLACKOUT_DATES.find((e) => e.date === istDate);
+  return entry ? { blocked: true, label: entry.label } : { blocked: false };
 }
 
 /**

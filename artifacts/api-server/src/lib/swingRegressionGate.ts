@@ -1,15 +1,24 @@
 /**
  * Swing Regression Baseline Gate (F-37).
  *
- * Queries the last LOOKBACK_DAYS days of CLOSED autonomous equity paper
- * trades and computes win-rate / profit-factor metrics.  A regression signal
- * fires when either metric drops below the defined thresholds.
+ * Queries the last LOOKBACK_DAYS (90) days of CLOSED autonomous equity paper
+ * trades and computes win-rate / profit-factor metrics.
  *
- * "Autonomous" is defined as BOTH conditions holding:
+ * Gate passes (ok = true) when EITHER:
+ *   - tradeCount < MIN_SAMPLE (insufficient data — no gate failure yet)
+ *   - winRate >= WR_FLOOR AND profitFactor >= PF_FLOOR
+ *
+ * Gate fails (ok = false) when sample is sufficient AND either metric
+ * drops below its floor.
+ *
+ * "Autonomous" means BOTH:
  *   1. exit_reason IS NOT 'MANUAL_OVERRIDE'  — operator-influenced closes
- *      contaminate the strategy edge; exclude them.
- *   2. source IS NOT 'MANUAL_BUY'  — manually-opened positions don't
- *      reflect scanner quality; exclude them too.
+ *      contaminate the scanner edge; exclude them.
+ *   2. source IS NOT 'MANUAL_BUY'            — manually-opened positions don't
+ *      reflect scanner quality; exclude them.
+ *
+ *  NULL exit_reason / source rows are treated as autonomous (no operator
+ *  fingerprint → include them via `or(isNull, ne)`).
  *
  * Pure DB read — no mutations, no trading decisions.
  */
@@ -17,34 +26,30 @@ import { db, paperTradeEqTable } from "@workspace/db";
 import { and, eq, ne, or, isNull, gte } from "drizzle-orm";
 import { logger } from "./logger";
 
-/** Thresholds and lookback parameters for the regression gate. */
 export const SWING_REGRESSION_CONFIG = {
   /** Rolling window for the regression check (calendar days). */
-  LOOKBACK_DAYS: 30,
-  /** Minimum closed autonomous trades needed before the gate fires. */
+  LOOKBACK_DAYS: 90,
+  /** Minimum closed autonomous trades required before the gate can fire. */
   MIN_SAMPLE: 10,
-  /** Win-rate floor: below this threshold → WARN. */
-  WR_WARN_THRESHOLD: 0.45,
-  /** Win-rate floor: below this threshold → ALERT. */
-  WR_ALERT_THRESHOLD: 0.35,
-  /** Profit-factor floor: below this threshold → WARN. */
-  PF_WARN_THRESHOLD: 1.0,
+  /** Win-rate floor — gate fails when winRate < this AND sample >= MIN_SAMPLE. */
+  WR_FLOOR: 0.45,
+  /** Profit-factor floor — gate fails when PF < this AND sample >= MIN_SAMPLE. */
+  PF_FLOOR: 2.0,
 } as const;
 
-export type SwingRegressionStatus = "OK" | "WARN" | "ALERT" | "INSUFFICIENT_DATA";
-
 export interface SwingRegressionResult {
-  status: SwingRegressionStatus;
-  autonomousTradeCount: number;
-  wins: number;
-  losses: number;
+  /** True = gate passes (system OK or insufficient data); false = regression detected. */
+  ok: boolean;
+  /** Total autonomous closed trades in the lookback window. */
+  tradeCount: number;
+  /** Win-rate (0–1) or null when tradeCount < MIN_SAMPLE. */
   winRate: number | null;
+  /** Gross profit-factor or null when there are no losses or tradeCount < MIN_SAMPLE. */
   profitFactor: number | null;
-  avgWinPnl: number | null;
-  avgLossPnl: number | null;
-  lookbackDays: number;
+  /** Human-readable reason when ok = false. */
+  reason?: string;
+  /** ISO timestamp when the check was computed. */
   computedAt: string;
-  notes: string[];
 }
 
 /**
@@ -52,33 +57,28 @@ export interface SwingRegressionResult {
  * CLOSED autonomous equity paper trades.
  *
  * Autonomous = exit_reason != 'MANUAL_OVERRIDE' AND source != 'MANUAL_BUY'.
- * NULL exit_reason / source rows are treated as autonomous (no operator
- * fingerprint → include them).
+ * NULL exit_reason / source rows are treated as autonomous.
  */
 export async function checkSwingRegressionBaseline(): Promise<SwingRegressionResult> {
   const now = new Date();
   const cutoff = new Date(
     now.getTime() - SWING_REGRESSION_CONFIG.LOOKBACK_DAYS * 24 * 3600 * 1000,
   );
-  const notes: string[] = [];
 
   try {
     const rows = await db
-      .select({
-        realizedPnl: paperTradeEqTable.realizedPnl,
-      })
+      .select({ realizedPnl: paperTradeEqTable.realizedPnl })
       .from(paperTradeEqTable)
       .where(
         and(
           eq(paperTradeEqTable.status, "CLOSED"),
           gte(paperTradeEqTable.exitedAt, cutoff),
-          // Exclude manual-override exits — op-influenced closes contaminate
-          // the autonomous strategy edge measurement.
+          // Exclude manual-override exits (operator influenced).
           or(
             isNull(paperTradeEqTable.exitReason),
             ne(paperTradeEqTable.exitReason, "MANUAL_OVERRIDE"),
           ),
-          // Exclude manually-opened trades — scanner quality only.
+          // Exclude manually-opened trades.
           or(
             isNull(paperTradeEqTable.source),
             ne(paperTradeEqTable.source, "MANUAL_BUY"),
@@ -86,30 +86,21 @@ export async function checkSwingRegressionBaseline(): Promise<SwingRegressionRes
         ),
       );
 
-    const count = rows.length;
+    const tradeCount = rows.length;
 
-    if (count < SWING_REGRESSION_CONFIG.MIN_SAMPLE) {
-      notes.push(
-        `Only ${count}/${SWING_REGRESSION_CONFIG.MIN_SAMPLE} autonomous trades in last ` +
-          `${SWING_REGRESSION_CONFIG.LOOKBACK_DAYS}d — insufficient sample.`,
-      );
+    // Insufficient data — gate passes trivially; return without metric
+    // computation so the caller knows not to act on null metrics.
+    if (tradeCount < SWING_REGRESSION_CONFIG.MIN_SAMPLE) {
       return {
-        status: "INSUFFICIENT_DATA",
-        autonomousTradeCount: count,
-        wins: 0,
-        losses: 0,
+        ok: true,
+        tradeCount,
         winRate: null,
         profitFactor: null,
-        avgWinPnl: null,
-        avgLossPnl: null,
-        lookbackDays: SWING_REGRESSION_CONFIG.LOOKBACK_DAYS,
         computedAt: now.toISOString(),
-        notes,
       };
     }
 
     let wins = 0;
-    let losses = 0;
     let totalWinPnl = 0;
     let totalLossPnl = 0;
 
@@ -120,76 +111,50 @@ export async function checkSwingRegressionBaseline(): Promise<SwingRegressionRes
         wins++;
         totalWinPnl += pnl;
       } else {
-        losses++;
         totalLossPnl += Math.abs(pnl);
       }
     }
 
-    const winRate = count > 0 ? wins / count : null;
+    const winRate = wins / tradeCount;
     const profitFactor = totalLossPnl > 0 ? totalWinPnl / totalLossPnl : null;
-    const avgWinPnl = wins > 0 ? totalWinPnl / wins : null;
-    const avgLossPnl = losses > 0 ? -(totalLossPnl / losses) : null;
 
-    let status: SwingRegressionStatus = "OK";
+    const wrOk = winRate >= SWING_REGRESSION_CONFIG.WR_FLOOR;
+    const pfOk = profitFactor == null || profitFactor >= SWING_REGRESSION_CONFIG.PF_FLOOR;
+    const ok = wrOk && pfOk;
 
-    if (winRate != null) {
-      if (winRate < SWING_REGRESSION_CONFIG.WR_ALERT_THRESHOLD) {
-        status = "ALERT";
-        notes.push(
-          `Win-rate ${(winRate * 100).toFixed(1)}% is below ALERT threshold ` +
-            `(${(SWING_REGRESSION_CONFIG.WR_ALERT_THRESHOLD * 100).toFixed(0)}%).`,
-        );
-      } else if (winRate < SWING_REGRESSION_CONFIG.WR_WARN_THRESHOLD) {
-        status = "WARN";
-        notes.push(
-          `Win-rate ${(winRate * 100).toFixed(1)}% is below WARN threshold ` +
-            `(${(SWING_REGRESSION_CONFIG.WR_WARN_THRESHOLD * 100).toFixed(0)}%).`,
-        );
-      }
+    const reasons: string[] = [];
+    if (!wrOk) {
+      reasons.push(
+        `win-rate ${(winRate * 100).toFixed(1)}% < floor ${(SWING_REGRESSION_CONFIG.WR_FLOOR * 100).toFixed(0)}%`,
+      );
     }
-
-    if (profitFactor != null && profitFactor < SWING_REGRESSION_CONFIG.PF_WARN_THRESHOLD) {
-      if (status === "OK") status = "WARN";
-      notes.push(
-        `Profit-factor ${profitFactor.toFixed(2)} is below threshold ` +
-          `(${SWING_REGRESSION_CONFIG.PF_WARN_THRESHOLD.toFixed(1)}).`,
+    if (!pfOk && profitFactor != null) {
+      reasons.push(
+        `profit-factor ${profitFactor.toFixed(2)} < floor ${SWING_REGRESSION_CONFIG.PF_FLOOR.toFixed(1)}`,
       );
     }
 
-    if (notes.length === 0) {
-      notes.push("Autonomous swing edge is within acceptable thresholds.");
-    }
-
     return {
-      status,
-      autonomousTradeCount: count,
-      wins,
-      losses,
+      ok,
+      tradeCount,
       winRate,
       profitFactor,
-      avgWinPnl,
-      avgLossPnl,
-      lookbackDays: SWING_REGRESSION_CONFIG.LOOKBACK_DAYS,
+      reason: reasons.length > 0 ? reasons.join("; ") : undefined,
       computedAt: now.toISOString(),
-      notes,
     };
   } catch (err) {
     logger.warn(
       { err: (err as Error).message },
-      "checkSwingRegressionBaseline: DB query failed",
+      "checkSwingRegressionBaseline: DB query failed — returning ok=true (fail-open)",
     );
+    // Fail-open: a DB error must NOT block the swing scanner.
     return {
-      status: "INSUFFICIENT_DATA",
-      autonomousTradeCount: 0,
-      wins: 0,
-      losses: 0,
+      ok: true,
+      tradeCount: 0,
       winRate: null,
       profitFactor: null,
-      avgWinPnl: null,
-      avgLossPnl: null,
-      lookbackDays: SWING_REGRESSION_CONFIG.LOOKBACK_DAYS,
+      reason: "DB query failed — see server logs",
       computedAt: now.toISOString(),
-      notes: ["DB query failed — see server logs."],
     };
   }
 }

@@ -41,7 +41,7 @@ import {
   OI_VETO_THRESHOLD,
   type GateContext,
 } from "./optionSignalGates";
-import { WIN_RATE_CALIBRATION, RELATIVE_STRENGTH } from "./paperAccount";
+import { WIN_RATE_CALIBRATION, RELATIVE_STRENGTH, isEventBlackoutDay } from "./paperAccount";
 import { evaluateDirectionalVetoes, deriveTradeClass } from "./optionSignalVetoes";
 import { isSignalHygieneV2Enabled } from "./signalHygieneFlag";
 import {
@@ -1818,17 +1818,27 @@ function buildSignalsForIndex(
   const out: OptionSignal[] = [];
   for (const d of cleanHc.slice(0, 3)) {
     const s = toSignal(ctx, d, "HIGH_CONVICTION");
-    // F-27: skip re-emit within DETECTOR_COOLDOWN_MS of a prior emit for the
-    // same (setupKey, index, direction) tuple.  First emit records the time;
-    // subsequent calls within 30 min are suppressed from the results list.
-    if (!isDetectorOnCooldown(s)) {
+    // F-27: direction-independent per-detector/per-index cooldown (30 min).
+    // Key = "index::setupKey" — opposite direction re-fires are also blocked
+    // within the window to prevent flip-flopping on the same setup.
+    if (isDetectorOnCooldown(s)) {
+      logger.debug(
+        { index: s.index, setupKey: s.setupKey, tier: "HIGH_CONVICTION" },
+        "Detector cooldown: HC signal suppressed",
+      );
+    } else {
       recordDetectorEmit(s);
       out.push(applyLock(s));
     }
   }
   for (const d of demotedHc) {
     const s = toSignal(ctx, d, "BASELINE");
-    if (!isDetectorOnCooldown(s)) {
+    if (isDetectorOnCooldown(s)) {
+      logger.debug(
+        { index: s.index, setupKey: s.setupKey, tier: "BASELINE/demotedHC" },
+        "Detector cooldown: demoted HC signal suppressed",
+      );
+    } else {
       recordDetectorEmit(s);
       out.push(applyLock(s));
     }
@@ -1839,7 +1849,12 @@ function buildSignalsForIndex(
     if (veto.recovery && baseline.direction === "BEARISH") baseline.recoveryVetoGate = true;
     if (veto.chase && baseline.direction === "BULLISH") baseline.chaseVetoGate = true;
     const s = toSignal(ctx, baseline, "BASELINE");
-    if (!isDetectorOnCooldown(s)) {
+    if (isDetectorOnCooldown(s)) {
+      logger.debug(
+        { index: s.index, setupKey: s.setupKey, tier: "BASELINE" },
+        "Detector cooldown: baseline signal suppressed",
+      );
+    } else {
       recordDetectorEmit(s);
       out.push(applyLock(s));
     }
@@ -2020,20 +2035,27 @@ setInterval(() => {
 const DETECTOR_COOLDOWN_MS = 30 * 60 * 1000; // 30 minutes
 const detectorCooldownMap: Map<string, number> = new Map();
 
-function cooldownKey(setupKey: string, index: string, direction: string): string {
-  return `${setupKey}|${index}|${direction}`;
+// Key = "index::setupKey" — direction is intentionally excluded so that a
+// detector that fires BULLISH cannot immediately re-fire BEARISH on the same
+// index within the cooldown window.  Both directions share the same slot.
+function cooldownKey(setupKey: string, index: string): string {
+  return `${index}::${setupKey}`;
 }
 
-function isDetectorOnCooldown(s: { setupKey?: string | null; index: string; bias?: string | null }): boolean {
-  const k = cooldownKey(s.setupKey ?? "default", s.index, s.bias ?? "NEUTRAL");
+function isDetectorOnCooldown(s: { setupKey?: string | null; index: string }): boolean {
+  const k = cooldownKey(s.setupKey ?? "default", s.index);
   const last = detectorCooldownMap.get(k);
   return last !== undefined && Date.now() - last < DETECTOR_COOLDOWN_MS;
 }
 
-function recordDetectorEmit(s: { setupKey?: string | null; index: string; bias?: string | null }): void {
-  const k = cooldownKey(s.setupKey ?? "default", s.index, s.bias ?? "NEUTRAL");
+function recordDetectorEmit(s: { setupKey?: string | null; index: string }): void {
+  const k = cooldownKey(s.setupKey ?? "default", s.index);
   detectorCooldownMap.set(k, Date.now());
 }
+
+// F-32: once-per-day blackout warning set — prevents log spam on every sweep
+// while ensuring the operator sees at least one warning per blackout day.
+const blackoutWarnedDates = new Set<string>();
 
 // ─── Test helpers (never called in production paths) ─────────────────────
 /** Returns the detector cooldown duration in milliseconds (for tests). */
@@ -2048,13 +2070,13 @@ export function _resetDetectorCooldownForTest(): void {
 export function _setCooldownForTest(key: string, ts: number): void {
   detectorCooldownMap.set(key, ts);
 }
-/** Checks whether a specific (setupKey, index, direction) is currently on cooldown. */
-export function _isDetectorOnCooldownForTest(setupKey: string, index: string, direction: string): boolean {
-  return isDetectorOnCooldown({ setupKey, index, bias: direction });
+/** Checks whether (index, setupKey) is on cooldown — direction-independent. */
+export function _isDetectorOnCooldownForTest(setupKey: string, index: string): boolean {
+  return isDetectorOnCooldown({ setupKey, index });
 }
-/** Records a detector emit for (setupKey, index, direction) — for behavioral tests. */
-export function _recordDetectorEmitForTest(setupKey: string, index: string, direction: string): void {
-  recordDetectorEmit({ setupKey, index, bias: direction });
+/** Records a detector emit for (index, setupKey) — direction-independent. */
+export function _recordDetectorEmitForTest(setupKey: string, index: string): void {
+  recordDetectorEmit({ setupKey, index });
 }
 
 // ─── Server-side trigger evaluator ───────────────────────────────────────
@@ -2556,6 +2578,24 @@ async function applyOiConfirmation(
 
 export async function getOptionSignals(): Promise<OptionSignalsResult> {
   if (cache && Date.now() - cache.ts < TTL) return cache.data;
+
+  // F-32: once-per-day blackout observability.  Signal display is NOT
+  // suppressed — the paper auto-open gate lives in openPaperTrade.  This
+  // single warning per day lets operators correlate sweep timing with the
+  // blackout calendar without flooding logs on every poll cycle.
+  const todayIstWarn = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Kolkata",
+  }).format(new Date());
+  if (!blackoutWarnedDates.has(todayIstWarn)) {
+    const bk = isEventBlackoutDay(todayIstWarn);
+    if (bk.blocked) {
+      blackoutWarnedDates.add(todayIstWarn);
+      logger.warn(
+        { date: todayIstWarn, label: bk.label },
+        "Signal sweep: blackout event day — signals shown but paper auto-opens are BLOCKED",
+      );
+    }
+  }
   // F&O Exit Monitoring Reliability scheduler summary (T004, 2026-07-02):
   // one explicit accumulator PER `getOptionSignals()` invocation, never a
   // module-level singleton — this function is also invoked on-demand (no

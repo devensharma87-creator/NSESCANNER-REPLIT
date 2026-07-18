@@ -434,11 +434,12 @@ export async function openPaperTrade(input: LifecycleHookInput): Promise<PaperTr
   // positions are left to settle naturally.  Recorded as EVENT_BLACKOUT
   // so the audit panel surfaces the exact reason.
   const todayIst = istDateString();
-  if (isEventBlackoutDay(todayIst)) {
+  const blackout = isEventBlackoutDay(todayIst);
+  if (blackout.blocked) {
     if (recordSkip("EVENT_BLACKOUT")) {
       logger.info(
-        { indexSymbol, setupKey, tier, confidence, date: todayIst },
-        "Paper FO skip: EVENT_BLACKOUT — calendar event day, no new opens",
+        { indexSymbol, setupKey, tier, confidence, date: todayIst, blackoutLabel: blackout.label },
+        `Paper FO skip: EVENT_BLACKOUT (${blackout.label ?? todayIst}) — no new opens`,
       );
     }
     return null;
