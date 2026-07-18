@@ -139,6 +139,48 @@ export const FNO_BASELINE_RISK = {
 } as const;
 
 /**
+ * Calendar dates on which the F&O paper auto-trader does NOT open NEW
+ * positions. These are high-volatility event days where gap/spike risk is
+ * incompatible with the paper framework:
+ *   - Union Budget day (Feb 1)
+ *   - RBI MPC monetary-policy decision days (~first Fri of every other month)
+ *   - Diwali Muhurat trading session (NSE-defined special session)
+ *
+ * YYYY-MM-DD strings, IST.  Existing OPEN positions are NOT force-closed —
+ * only NEW opens are blocked.  The gate fires in `openPaperTrade` and records
+ * EVENT_BLACKOUT in the missed-signal log so the audit panel shows the reason.
+ *
+ * Update this list after each RBI MPC calendar release or once the NSE
+ * Muhurat date is officially announced.
+ */
+export const EVENT_BLACKOUT_DATES: ReadonlySet<string> = new Set([
+  // ── 2026 ──────────────────────────────────────────────────────────────
+  "2026-04-09", // RBI MPC Apr 2026
+  "2026-06-06", // RBI MPC Jun 2026
+  "2026-08-06", // RBI MPC Aug 2026
+  "2026-10-08", // RBI MPC Oct 2026
+  "2026-11-01", // Diwali Muhurat 2026 (approx — confirm NSE announcement)
+  "2026-12-04", // RBI MPC Dec 2026
+  // ── 2027 ──────────────────────────────────────────────────────────────
+  "2027-02-01", // Union Budget 2027
+  "2027-02-05", // RBI MPC Feb 2027
+  "2027-04-09", // RBI MPC Apr 2027
+  "2027-06-04", // RBI MPC Jun 2027
+  "2027-08-06", // RBI MPC Aug 2027
+  "2027-10-08", // RBI MPC Oct 2027
+  "2027-10-21", // Diwali Muhurat 2027 (approx — confirm NSE announcement)
+  "2027-12-03", // RBI MPC Dec 2027
+]);
+
+/**
+ * Returns true when `istDate` (YYYY-MM-DD, IST) is a calendar blackout day
+ * for F&O paper auto-opens.  Pure function — no I/O, no side effects.
+ */
+export function isEventBlackoutDay(istDate: string): boolean {
+  return EVENT_BLACKOUT_DATES.has(istDate);
+}
+
+/**
  * BASELINE-lane-specific guardrails (independent of FNO_RISK / DD caps).
  * All checks fire BEFORE openPaperTrade reaches sizing, and each check
  * records a distinct MissedSignal SkipReason so the audit panel shows

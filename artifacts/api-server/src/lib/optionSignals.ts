@@ -1817,17 +1817,32 @@ function buildSignalsForIndex(
   const demotedHc = highConviction.filter(isDemoted);
   const out: OptionSignal[] = [];
   for (const d of cleanHc.slice(0, 3)) {
-    out.push(applyLock(toSignal(ctx, d, "HIGH_CONVICTION")));
+    const s = toSignal(ctx, d, "HIGH_CONVICTION");
+    // F-27: skip re-emit within DETECTOR_COOLDOWN_MS of a prior emit for the
+    // same (setupKey, index, direction) tuple.  First emit records the time;
+    // subsequent calls within 30 min are suppressed from the results list.
+    if (!isDetectorOnCooldown(s)) {
+      recordDetectorEmit(s);
+      out.push(applyLock(s));
+    }
   }
   for (const d of demotedHc) {
-    out.push(applyLock(toSignal(ctx, d, "BASELINE")));
+    const s = toSignal(ctx, d, "BASELINE");
+    if (!isDetectorOnCooldown(s)) {
+      recordDetectorEmit(s);
+      out.push(applyLock(s));
+    }
   }
   if (baseline) {
     // Surface the veto reason on the baseline card too (it is already
     // INFO_ONLY, so this is audit-visibility only — no behaviour change).
     if (veto.recovery && baseline.direction === "BEARISH") baseline.recoveryVetoGate = true;
     if (veto.chase && baseline.direction === "BULLISH") baseline.chaseVetoGate = true;
-    out.push(applyLock(toSignal(ctx, baseline, "BASELINE")));
+    const s = toSignal(ctx, baseline, "BASELINE");
+    if (!isDetectorOnCooldown(s)) {
+      recordDetectorEmit(s);
+      out.push(applyLock(s));
+    }
   }
   return { signals: out, suppressed, hasBars: true, snapshot: snapshotFromCtx(ctx) };
 }
@@ -1995,6 +2010,44 @@ setInterval(() => {
     if (v.lockedAt.getTime() < cutoff) lockStore.delete(k);
   }
 }, 60 * 60 * 1000).unref?.();
+
+// ─── Detector cooldown map (F-27) ──────────────────────────────────────────
+// Prevents the same (setupKey, index, direction) detector setup from being
+// re-emitted within DETECTOR_COOLDOWN_MS after a prior emit.  Avoids
+// spamming the signal list and the paper-trader lifecycle with duplicate
+// entries on rapid consecutive sweeps.  Key = "setupKey|index|direction";
+// value = Date.now() at last emit.
+const DETECTOR_COOLDOWN_MS = 30 * 60 * 1000; // 30 minutes
+const detectorCooldownMap: Map<string, number> = new Map();
+
+function cooldownKey(setupKey: string, index: string, direction: string): string {
+  return `${setupKey}|${index}|${direction}`;
+}
+
+function isDetectorOnCooldown(s: { setupKey?: string | null; index: string; bias?: string | null }): boolean {
+  const k = cooldownKey(s.setupKey ?? "default", s.index, s.bias ?? "NEUTRAL");
+  const last = detectorCooldownMap.get(k);
+  return last !== undefined && Date.now() - last < DETECTOR_COOLDOWN_MS;
+}
+
+function recordDetectorEmit(s: { setupKey?: string | null; index: string; bias?: string | null }): void {
+  const k = cooldownKey(s.setupKey ?? "default", s.index, s.bias ?? "NEUTRAL");
+  detectorCooldownMap.set(k, Date.now());
+}
+
+// ─── Test helpers (never called in production paths) ─────────────────────
+/** Returns the detector cooldown duration in milliseconds (for tests). */
+export function _getDetectorCooldownMs(): number {
+  return DETECTOR_COOLDOWN_MS;
+}
+/** Clears the detector cooldown map — call in afterEach in tests. */
+export function _resetDetectorCooldownForTest(): void {
+  detectorCooldownMap.clear();
+}
+/** Seeds a specific cooldown entry with an explicit timestamp — for time-travel tests. */
+export function _setCooldownForTest(key: string, ts: number): void {
+  detectorCooldownMap.set(key, ts);
+}
 
 // ─── Server-side trigger evaluator ───────────────────────────────────────
 //

@@ -57,6 +57,7 @@ import {
   riskPctForConfidence,
   getDailyRealizedDrawdown,
   getWeeklyRealizedDrawdown,
+  isEventBlackoutDay,
 } from "./paperAccount";
 import { computeFnoLotSizing } from "./fnoSizingHelper";
 import { fetchOptionChain, LOT_SIZES, type OcResponse } from "./optionChain";
@@ -426,6 +427,22 @@ async function openPaperTrade(input: LifecycleHookInput): Promise<PaperTradeFoRo
         direction, confidence, tier, skipReason,
       }),
     );
+
+  // F-32: Calendar event blackout gate.  On RBI MPC, Union Budget, and
+  // Diwali Muhurat days the volatility profile is incompatible with the
+  // paper framework's fixed risk sizes — opens are blocked, existing
+  // positions are left to settle naturally.  Recorded as EVENT_BLACKOUT
+  // so the audit panel surfaces the exact reason.
+  const todayIst = istDateString();
+  if (isEventBlackoutDay(todayIst)) {
+    if (recordSkip("EVENT_BLACKOUT")) {
+      logger.info(
+        { indexSymbol, setupKey, tier, confidence, date: todayIst },
+        "Paper FO skip: EVENT_BLACKOUT — calendar event day, no new opens",
+      );
+    }
+    return null;
+  }
 
   // 2026-06-10 (P1): explicit fail-closed tradeability assertion — the single
   // authoritative FIRST gate, pure-evaluated and unit-tested in isolation
@@ -3236,7 +3253,9 @@ export type SkipReason =
   | "PREMIUM_UNTRUSTED"
   | "INSUFFICIENT_BALANCE"
   /** F&O risk guard blocked this open (DTE/theta, low premium, re-entry cooldown, or SENSEX disable). */
-  | "PAPER_RISK_GUARD_BLOCKED";
+  | "PAPER_RISK_GUARD_BLOCKED"
+  /** High-volatility calendar event (RBI MPC, Union Budget, Diwali Muhurat). New opens blocked. */
+  | "EVENT_BLACKOUT";
 
 export interface MissedSignal {
   signalDate: string;
