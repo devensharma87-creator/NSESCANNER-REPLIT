@@ -1,0 +1,24 @@
+Stop before committing or deploying. Deleting the six SILENT_DRIFT audit rows was destructive, unauthorized, and conflicts with the append-only evidence requirement.
+
+Send this immediately:
+
+Do not commit, restart, or deploy yet.
+
+The six SILENT_DRIFT rows are incident evidence. Deleting them to satisfy a CHECK constraint is not an acceptable migration fix.
+
+1. Restore the six rows exactly from the pre-change database backup, transaction rollback, PITR, SQL logs, or exported query results—including IDs, timestamps and payloads. Do not reconstruct or invent missing values.
+2. Record whether the DELETE committed, its timestamp, executing identity and the recovery source.
+3. If exact restoration is impossible, declare an audit-evidence-loss incident. Preserve every remaining trace and do not claim the ledger history is complete.
+4. Remove or revise the new constraint before restoring if it rejects the historical rows.
+5. Determine whether SILENT_DRIFT is:
+    * a legitimate historical audit classification that the constraint must allow; or
+    * obsolete data requiring a documented, reversible migration to a canonical value.
+6. Never delete audit rows to make a test pass. Historical normalization must preserve the original value and migration provenance—prefer an additive correction/mapping record.
+7. Re-run the affected constraint and immutability tests after recovery.
+8. Re-run the complete API suite and the root five-package typecheck after all changes. An API-only typecheck and targeted 5-test rerun are not final validation.
+9. Provide the actual gate diff and prove the behavioral tests bypass C0 only in test scope. Production C0 containment must remain unchanged.
+10. Report separate counts for passed, failed, skipped and timed-out tests. Do not label the full suite clean until the recovered database and all chunks pass.
+
+Broker execution remains DISABLED.
+
+The constraint failure was useful: it exposed historical state that the schema did not account for. Those rows should have triggered migration analysis, not deletion. The 30-session reconciliation clock must not start until this evidence-loss issue and the F&O balance incident are both resolved.

@@ -55,6 +55,45 @@ async function applyOptionSignalPlanSchema(): Promise<void> {
     CREATE INDEX IF NOT EXISTS option_signal_plan_audit_signal_idx
       ON option_signal_plan_audit (signal_date, index_symbol, setup_key, direction)
   `);
+  // Apply the reason CHECK constraint as a SEPARATE ALTER TABLE so it takes
+  // effect even when CREATE TABLE IF NOT EXISTS was silently skipped (i.e. the
+  // table already existed without the constraint). Uses a DO block for idempotency
+  // (PostgreSQL has no ADD CONSTRAINT IF NOT EXISTS syntax). NOT VALID skips a
+  // full-table scan, allowing existing historical rows to remain without being
+  // rejected — any historical reason values must be classified and migrated via a
+  // documented owner-approved procedure BEFORE removing NOT VALID.
+  //
+  // MIGRATION PROTOCOL for historical rows with non-canonical reason values:
+  //   1. Owner identifies each row's origin and classifies it.
+  //   2. If test-artifact: delete with documented record (see afterAll in
+  //      optionSignalPlanImmutability.test.ts for the cleanup gap that was fixed).
+  //   3. If legitimate historical event: map to a canonical reason (insert a
+  //      correction row with DATA_ERROR_CORRECTION_WITH_AUDIT, preserve original).
+  //   4. After all non-canonical rows are resolved, run:
+  //      ALTER TABLE option_signal_plan_audit VALIDATE CONSTRAINT
+  //        option_signal_plan_audit_reason_check;
+  //   5. Remove NOT VALID from this DDL.
+  await db.execute(sql`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'option_signal_plan_audit_reason_check'
+          AND conrelid = 'option_signal_plan_audit'::regclass
+      ) THEN
+        ALTER TABLE option_signal_plan_audit
+          ADD CONSTRAINT option_signal_plan_audit_reason_check
+            CHECK (reason IN (
+              'MANUAL_OWNER_EDIT',
+              'CONTRACT_CORRECTION_WITH_AUDIT',
+              'CORPORATE_ACTION_ADJUSTMENT',
+              'DATA_ERROR_CORRECTION_WITH_AUDIT'
+            ))
+            NOT VALID;
+      END IF;
+    END
+    $$
+  `);
 }
 
 let schemaPromise: Promise<void> | null = null;

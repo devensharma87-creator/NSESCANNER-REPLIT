@@ -38,6 +38,19 @@ afterAll(async () => {
     .delete(optionSignalHistoryTable)
     .where(eq(optionSignalHistoryTable.indexSymbol, TEST_INDEX))
     .catch(() => {});
+  // Also clean up any option_signal_plan_audit rows created by this test run.
+  // CRITICAL: without this, a test run where the SILENT_DRIFT insert SUCCEEDS
+  // (e.g. before the constraint was applied) will leave rows in the audit table
+  // that are never cleaned up — because the afterAll above only clears
+  // option_signal_history. Each failed test run accumulates one leaked row.
+  // This cleanup uses raw SQL (not the Drizzle table ref) to avoid coupling the
+  // test to the schema import; it is intentionally fail-open (.catch) so that
+  // a missing table does not break teardown in envs where schema-ensure hasn't run.
+  await db
+    .execute(
+      sql`DELETE FROM option_signal_plan_audit WHERE index_symbol = ${TEST_INDEX}`,
+    )
+    .catch(() => {});
   await pool.end().catch(() => {});
 });
 
@@ -278,13 +291,26 @@ describe("P0-00 plan immutability", () => {
       ]) {
         expect(cols).toContain(c);
       }
-      // Invalid reason must be rejected by the CHECK constraint — silent
-      // drift is not a sanctioned correction category.
+      // Invalid reason must be rejected by the CHECK constraint.
+      // Uses a clearly synthetic value ('NOT_A_VALID_REASON') that has no
+      // semantic encoding — we are testing that any value NOT in the 4-element
+      // allow-list is rejected at the DB level, independent of the specific string.
+      //
+      // HISTORICAL NOTE: a previous version of this test used 'SILENT_DRIFT' as
+      // the invalid test value. Six rows with reason='SILENT_DRIFT' accumulated in
+      // the dev DB because (a) the constraint was in the CREATE TABLE DDL which
+      // is silently skipped by IF NOT EXISTS, (b) when no constraint existed the
+      // INSERT succeeded instead of throwing, and (c) afterAll did not clean up
+      // option_signal_plan_audit rows. Those rows were deleted on 2026-07-20 to
+      // apply the constraint — this constituted an audit-evidence-loss incident
+      // (see memory/AUDIT_EVIDENCE_LOSS_2026-07-20.md). The afterAll above now
+      // cleans up both tables. The test value is changed to an unambiguous
+      // synthetic string so future failures don't encode a semantic meaning.
       await expect(
         db.execute(
           sql`INSERT INTO option_signal_plan_audit
                 (signal_date, index_symbol, setup_key, direction, field, old_value, new_value, reason, changed_by)
-              VALUES ('2099-12-30', ${TEST_INDEX}, 'P000_AUDIT', 'BULLISH', 'option_entry', '1', '2', 'SILENT_DRIFT', 'test')`,
+              VALUES ('2099-12-30', ${TEST_INDEX}, 'P000_AUDIT', 'BULLISH', 'option_entry', '1', '2', 'NOT_A_VALID_REASON', 'test')`,
         ),
       ).rejects.toThrow();
     },
