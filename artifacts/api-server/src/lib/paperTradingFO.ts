@@ -386,7 +386,16 @@ function buildMissedFromOpenCtx(args: {
   };
 }
 
+// C0 — P0-01 / P0-05: F&O auto-open hard-blocked.
+// Root causes: expiry calendar wrong for BANKNIFTY (last-Thu) and SENSEX (Tue);
+// multiple fail-open controls (liquidity, timestamps, edge inputs).
+// Lift ONLY after M1 exchange-calendar service is complete, validated against
+// official contract master, and all expiry + session guards are fail-closed.
+// Re-enable by setting FNO_AUTO_OPEN_C0_BLOCKED = false here AND in artifact.toml.
+const FNO_AUTO_OPEN_C0_BLOCKED = true;
+
 export async function openPaperTrade(input: LifecycleHookInput): Promise<PaperTradeFoRow | null> {
+  if (FNO_AUTO_OPEN_C0_BLOCKED) return null;
   // Belt-and-braces: every caller already gates above this, but a hard
   // gate inside the only function that mutates `paper_trade_fo` makes
   // the read-only-mode invariant impossible to bypass via a future

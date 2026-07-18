@@ -22,6 +22,7 @@ timeoutMs = 20000
 [userenv]
 
 [userenv.shared]
+REASONING_WRITER_V2_ENABLED = "1"
 
 [userenv.development]
 KITE_MIRROR_URL = "https://marketscannerbydev.in"

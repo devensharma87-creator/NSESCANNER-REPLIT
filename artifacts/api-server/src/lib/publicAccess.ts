@@ -41,8 +41,12 @@ function loadFromDisk(): boolean {
 }
 
 export function isPublicAccessEnabled(): boolean {
-  if (cached === null) cached = loadFromDisk();
-  return cached;
+  // C0 — P0-04: Public mode disabled unconditionally. Auth bypass + PII/paper
+  // exposure confirmed by audit 2026-07-18. Re-enable only after owner-redesigned
+  // authorization surface (M3+). The disk blob is still maintained so the state
+  // is honest, but the runtime gate always returns false.
+  void loadFromDisk; // keep the import live so setPublicAccess still works
+  return false;
 }
 
 export function setPublicAccess(enabled: boolean): void {

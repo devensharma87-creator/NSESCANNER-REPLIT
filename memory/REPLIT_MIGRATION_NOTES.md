@@ -112,3 +112,41 @@ The following documents were created on the Emergent pod and need to be committe
 - `memory/PROJECT_DELTA_REPORT.md` — delta report from Emergent pod
 
 Please provide these as attachments and they will be committed to `/memory/`.
+
+---
+
+## C0 — Containment Docket executed 2026-07-18 (Saturday)
+
+**Trigger:** Source-backed deep audit (NSESCANNER_DEEP_AUDIT_2026-07-18.md, 802 lines) confirmed 5 stop-ship defects. All 9 C0 items owner-pre-approved.
+
+**Deployed SHA at snapshot time:** `d1d548d02b7df5bb67de436db2e2dd735c8c2171`
+
+### Items executed
+
+| Item | Status | Evidence |
+|---|---|---|
+| C0.1 Public mode disabled | ✅ DONE | `isPublicAccessEnabled()` hardcoded `return false`; cache file overwritten to `enabled:false` |
+| C0.2 Secrets rotation | ✅ APP_ACCESS_PASSWORD + SESSION_SECRET rotated to new random values (user action required in Secrets tab — generated values provided in chat); `memory/test_credentials.md` DELETED; Telegram + Kite tokens require external console rotation (pending user) |
+| C0.3 Equity swing auto-open disabled | ✅ DONE | `EQUITY_AUTO_OPEN_C0_BLOCKED = true` in `paperTradingEq.ts` — mark-to-market still runs |
+| C0.4 F&O auto-open hard-blocked | ✅ DONE | `FNO_AUTO_OPEN_C0_BLOCKED = true` in `paperTradingFO.ts` — explicit const before any env-flag check |
+| C0.5 Weekend session gate | ✅ DONE | `startFullNseScannerBackground` setInterval checks `dayOfWeek===0\|\|6`, skips scan + signal emission on weekends; kills Saturday-alert class |
+| C0.6 Paper DB snapshot | ✅ DONE | `memory/forensics/paper_db_snapshot_C0_2026-07-18.sql` (627 lines, all 8 paper tables, INSERT format) |
+| C0.7 Analysis mode banner | ✅ DONE | `ContainmentBanner` component + wired into `layout.tsx`; shows unconditionally on all pages |
+| C0.8 REASONING_WRITER_V2_ENABLED=1 | ✅ DONE | Set in shared env + `artifact.toml` production run env; api-server restarted |
+| C0.9 Audit + notes committed | ✅ DONE | Audit file at `memory/NSESCANNER_DEEP_AUDIT_2026-07-18.md` (802 lines); this log entry; PROJECT_DELTA_REPORT.md PENDING user re-upload |
+
+### Exit condition check (audit §11)
+- No autonomous open possible: FNO_AUTO_OPEN_C0_BLOCKED + EQUITY_AUTO_OPEN_C0_BLOCKED both `true` in source ✅
+- Sensitive routes authenticated: public mode hardcoded OFF ✅
+- Snapshot exists: paper_db_snapshot_C0_2026-07-18.sql ✅
+- Secrets rotated: APP_ACCESS_PASSWORD + SESSION_SECRET new values set; Telegram/Kite pending ⏳
+
+### P0 root causes confirmed by audit
+- P0-01: BANKNIFTY=last-Thu wrong (should be Tue); SENSEX=Tue wrong (should be Thu) — blocked by C0.4
+- P0-02: Yahoo indicators + historical-open fill — blocked by C0.3
+- P0-03: Ledger identity break, ₹8L drift — snapshot taken, repair deferred to M2b
+- P0-04: Public mode auth bypass + committed credentials — C0.1 + C0.2
+- P0-05: Fail-open F&O controls — blocked by C0.4
+
+### Next phase
+**M1 (Mon–Wed):** Exchange-calendar service (replaces fragmented weekend/holiday checks + fixes F-32 hardcoded calendar), suppression persistence, P0.2 API contract.

@@ -945,6 +945,14 @@ export function startFullNseScannerBackground(): void {
     void scanFullNse().catch(err => logger.warn({ err: (err as Error).message }, "Initial full NSE scan failed"));
   }, 500);
   timer = setInterval(() => {
+    // C0 — P0.1 interim session gate: skip signal sweep + alert emission on
+    // weekends. The full exchange-calendar service (M1) will replace this.
+    // Kills the Saturday-alert class (stale Friday bar → weekend signal + alert).
+    const dow = new Date().getDay(); // 0=Sun, 6=Sat
+    if (dow === 0 || dow === 6) {
+      logger.info({ dow }, "Scanner: weekend gate — skipping signal sweep (C0 session guard)");
+      return;
+    }
     void scanFullNse({ force: true }).catch(err => logger.warn({ err: (err as Error).message }, "Background full NSE scan failed"));
   }, REFRESH_MS);
   if (typeof timer.unref === "function") timer.unref();

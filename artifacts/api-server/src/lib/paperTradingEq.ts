@@ -1016,6 +1016,13 @@ export async function evaluatePaperEquityTrades(
  * existing OPEN position. Both phases are quiet on per-row failure so
  * one bad symbol never poisons the cycle.
  */
+// C0 — P0-02: Equity swing auto-open hard-blocked.
+// Root causes: indicators sourced from Yahoo Finance (declared unsuitable for
+// signals in source), fill price uses historical-open not trigger-time price.
+// Lift ONLY after M2b provenance + fill-price audit passes and sector-gate is
+// wired to authoritative symbol-sector mapping.
+const EQUITY_AUTO_OPEN_C0_BLOCKED = true;
+
 export async function runEquityPaperTradingTick(
   scannerRows: readonly StockRow[],
   signals: readonly SwingSignal[],
@@ -1023,7 +1030,7 @@ export async function runEquityPaperTradingTick(
   // Read-only-mode short-circuit on auto opens. Mark-to-market
   // (`evaluatePaperEquityTrades`) still runs so existing OPEN
   // positions move as expected — we only suppress the auto opener.
-  const autoOpensEnabled = isPaperAutoTradingEnabled();
+  const autoOpensEnabled = isPaperAutoTradingEnabled() && !EQUITY_AUTO_OPEN_C0_BLOCKED;
 
   // Open new trades first so they participate in this same tick's
   // evaluator pass (cheap because the new row's LTP is by definition
