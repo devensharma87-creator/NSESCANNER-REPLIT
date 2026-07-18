@@ -1365,6 +1365,7 @@ alongside this note).
 - **M1 — P0.1 + P0.2** (~2 sessions) — market-closed truth on signal surface + `/api/options/signals` degraded-state contract + `contractInstrumentToken` code-layer harmonization.
 
 - **M2 — Drift reconciliation** (~1–2 sessions) — origin-story inventory re-verified against post-recovery reality; `drizzle-kit push` diff = ZERO; deployment-env audit; **closing sub-step: ENV-ISOLATION** (nsescanner_test + .env.test, retire `!includes("dummy")`). DRIFT-P0 lifts.
+  * **M2c acceptance criterion (audit-binding, added 2026-07-20)**: zero unexplained paper-ledger drift for **30 consecutive trading sessions** before either paper entry lane (`FNO_AUTO_OPEN_C0_BLOCKED` / `EQUITY_AUTO_OPEN_C0_BLOCKED`) may be re-enabled. Current state: FNO drift = **₹799,772.70** (seed ₹200,000 + 7 closed trades P&L ₹6,508.30 = expected ₹206,508.30 vs actual ₹1,006,281.00; no capital events recorded); EQUITY drift = **₹0** (clean). FNO drift must be reconstructed via owner-approved incident procedure (export → identify first divergence → classify cause → insert documented adjustment event) before the 30-session clock can start. Do NOT reset balance or backfill guessed capital events.
 
 - **M3 — PAPER_WRITER discipline** (~2 sessions) — `transitionExecutionStatus` SQL-level compare-and-set + TRIGGERED_CLOSED stamp + DB-read validation + fingerprint widening. **VIX rider**: `VixSnapshot.level` add + populate + optionSignals.ts:3191 fix + 5–80 sanity gate + NULL data_quality annotation.
 
