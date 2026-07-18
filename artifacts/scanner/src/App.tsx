@@ -1,4 +1,5 @@
 import { Switch, Route, Router as WouterRouter, useLocation } from "wouter";
+import { useEffect } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -141,9 +142,36 @@ function RoutedShell() {
   );
 }
 
+/**
+ * Detects Kite OAuth callback params (request_token + action=login + status=success)
+ * on ANY page load and immediately forwards to the backend /api/kite/callback handler.
+ * This allows the Zerodha Connect redirect URL to be set to the root domain
+ * (e.g. https://marketscannerbydev.in/) rather than the full /api/kite/callback path.
+ */
+function KiteCallbackForwarder() {
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const requestToken = params.get("request_token");
+    const action = params.get("action");
+    const status = params.get("status");
+    if (requestToken && action === "login") {
+      const base = import.meta.env.BASE_URL.replace(/\/$/, "");
+      window.location.replace(`${base}/api/kite/callback${window.location.search}`);
+    }
+    // If Kite returns a non-success status, still forward so the backend can
+    // redirect to /kite?login=failed&reason=... with the right error message.
+    if (!requestToken && action === "login" && status && status !== "success") {
+      const base = import.meta.env.BASE_URL.replace(/\/$/, "");
+      window.location.replace(`${base}/api/kite/callback${window.location.search}`);
+    }
+  }, []);
+  return null;
+}
+
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
+      <KiteCallbackForwarder />
       <TooltipProvider>
         <ErrorBoundary>
           <AuthProvider>
