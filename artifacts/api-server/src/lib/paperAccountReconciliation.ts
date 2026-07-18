@@ -523,3 +523,68 @@ export async function reconcilePaperAccount(
     };
   }
 }
+
+/**
+ * Ledger reconciliation entry gate — fail-closed.
+ *
+ * Returns { blocked: false } when the append-only trade + capital-event ledger
+ * can reproduce paper_account.balance within tolerance (reconciled = true).
+ *
+ * Returns { blocked: true, reason: "LEDGER_RECONCILIATION_FAILED" } when
+ * reconciliation detects drift (unexplained balance difference).
+ *
+ * Returns { blocked: true, reason: "LEDGER_RECONCILIATION_QUERY_ERROR" } on
+ * any DB or query failure — FAIL-CLOSED: no opens allowed when the gate
+ * cannot be evaluated.
+ *
+ * @param segment   — "FNO" or "EQUITY" account to check.
+ * @param istDate   — ISO date override (YYYY-MM-DD); defaults to today IST.
+ * @param _reconcileFn — Injectable reconcile function for unit tests; defaults
+ *                       to the real reconcilePaperAccount. Callers in
+ *                       production never pass this.
+ *
+ * NOTE: This gate sits AFTER the C0 hard-block and isPaperAutoTradingEnabled
+ * checks, so it is unreachable while C0 is active. Its behavioral tests
+ * (ledgerReconciliationGate.behavioral.test.ts) import and invoke it directly
+ * with a mock reconcileFn to verify the gate logic independently of C0.
+ */
+export async function checkLedgerReconciliationGate(
+  segment: ReconciliationSegment,
+  istDate?: string,
+  _reconcileFn: (
+    seg: ReconciliationSegment,
+    day?: string,
+  ) => Promise<ReconciliationResult> = reconcilePaperAccount,
+): Promise<{ blocked: boolean; reason: string; driftAmount: number }> {
+  try {
+    const result = await _reconcileFn(segment, istDate);
+    if (result.reconciled) {
+      return { blocked: false, reason: "RECONCILED", driftAmount: result.driftAmount };
+    }
+    logger.warn(
+      {
+        segment,
+        driftAmount: result.driftAmount,
+        actualBalance: result.actualBalance,
+        expectedBalance: result.expectedBalance,
+        notes: result.notes,
+      },
+      "checkLedgerReconciliationGate: ledger drift detected — blocking paper open (fail-closed)",
+    );
+    return {
+      blocked: true,
+      reason: "LEDGER_RECONCILIATION_FAILED",
+      driftAmount: result.driftAmount,
+    };
+  } catch (err) {
+    logger.warn(
+      { err: (err as Error).message, segment },
+      "checkLedgerReconciliationGate: reconcile query threw — blocking paper open (fail-closed)",
+    );
+    return {
+      blocked: true,
+      reason: "LEDGER_RECONCILIATION_QUERY_ERROR",
+      driftAmount: NaN,
+    };
+  }
+}

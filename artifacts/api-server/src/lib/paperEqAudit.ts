@@ -38,6 +38,9 @@ export type EqAuditReason =
   | "HEAT_CAP"
   | "DUPLICATE"
   | "TXN_ABORT"
+  /** Ledger drift detected or reconcile query failed; opens blocked by fail-closed gate. */
+  | "LEDGER_RECONCILIATION_FAILED"
+  | "LEDGER_RECONCILIATION_QUERY_ERROR"
   // OPEN
   | "OPENED";
 

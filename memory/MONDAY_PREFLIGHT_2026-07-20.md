@@ -1,4 +1,4 @@
-# Monday Preflight Checklist — 2026-07-21 (M1 Session 1)
+# Monday Preflight Checklist — 2026-07-20 (M1 Session 1)
 
 **Rule**: read-only observation during market hours (09:15–15:30 IST). No deploys before 15:30 IST. No gate/threshold changes without owner ruling. No adjacent fixes inline.
 
@@ -98,7 +98,7 @@
 |---|---|
 | C0.5 gap: F&O signal sweep runs outside weekend gate | Log only; M1 calendar service fix |
 | FNO paper ledger drift ₹799,772.70 | M2c incident procedure — owner must approve |
-| Jul 15–17 signal gap | Root cause: server idle or Kite session expired; not a gate defect |
+| Jul 15–17 signal gap | Classification: **PIPELINE_DID_NOT_REACH_DURABLE_REASONING_WRITER** — leading hypothesis: Replit workspace idle sleep (not confirmed). Other possibilities include: scheduler disabled, process startup failure, DB outage, exception silently swallowed before logging. **Action**: collect deployment uptime log, process-start timestamps, scheduler-heartbeat (if any), and exception log for Jul 14–18. Not a gate/threshold defect. |
 | paper_capital_event empty (0 rows) | M2c — reconstruct before re-enabling opens |
 
 ---

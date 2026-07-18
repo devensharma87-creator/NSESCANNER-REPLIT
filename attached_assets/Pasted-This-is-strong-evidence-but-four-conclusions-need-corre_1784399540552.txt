@@ -1,0 +1,29 @@
+This is strong evidence, but four conclusions need correction before sign-off:
+
+1. Calendar error: 21 July 2026 is Tuesday, not Monday. Monday is 20 July 2026. Rename or reschedule MONDAY_PREFLIGHT_2026-07-21.md.
+2. Signal-gap root cause is not proven: zero reasoning rows strongly indicates the pipeline did not reach its durable writer, but it does not conclusively prove Replit idle sleep. Other possibilities include scheduler disabled, startup failure, DB outage, or an exception before logging. Mark idle sleep as the leading hypothesis pending uptime/deployment logs.
+3. Ledger gate is currently masked: the hard-coded C0 blocks execute before reconciliation. Therefore the report proves containment, but not that reconciliation will safely control entries after C0 is removed. Behavioral tests must temporarily bypass C0 in a test context and establish:
+    * drift blocks F&O and EQ opens;
+    * reconciled accounts can proceed to subsequent gates;
+    * reconciliation/query failure blocks opens;
+    * closes remain available.
+4. Validation is incomplete: the full API suite and migration-drift check are still outstanding, so “all seven complete” should be “completed subject to two Monday gates.”
+
+Send Replit Coder:
+
+Good evidence. Apply these corrections before closing the work order:
+
+* Correct the runbook date: Monday is 2026-07-20; 2026-07-21 is Tuesday.
+* Change the Jul 15–17 conclusion to PIPELINE_DID_NOT_REACH_DURABLE_REASONING_WRITER. Replit sleep is the leading hypothesis, not confirmed root cause. Collect deployment uptime, process-start, scheduler-heartbeat, DB-health and exception logs.
+* Add a durable scheduler heartbeat containing deployment SHA, instance ID, tick type, market state, last successful tick and failure reason. Alert when no expected heartbeat arrives during a trading session.
+* Add behavioral tests proving ledger reconciliation blocks both entry paths independently of the hard-coded C0 block. C0 must not hide an untested downstream safety gate.
+* Recalculate reconciliation using raw database decimals and ledgerNetRealizedPnl, not a rounded/gross display value. Explain the ₹0.08 difference between earlier ₹799,772.78 and current ₹799,772.70.
+* Confirm whether EQUITY’s ₹67,024.86 is gross or ledger-net after durable charges. Reconciliation must use the amount actually credited to cash.
+* Complete the API suite in four deterministic chunks and report aggregate totals, skipped tests and failures.
+* Run migration drift using a database clone or guaranteed non-mutating validation. Do not execute an interactive drizzle-kit push against production.
+* Do not start the 30-session clock until the F&O incident is resolved, the account reconciles, and the reconciliation gate’s behavioral tests pass.
+* Add persistent-worker hosting to the roadmap. A sleeping web workspace cannot provide reliable intraday scheduling.
+
+Broker execution remains DISABLED.
+
+The ledger evidence is sufficiently strong to classify F&O accounting as an open incident. Do not “correct” the ₹799,772.70 until the earliest direct balance mutation is identified or an owner-approved adjustment event is documented.

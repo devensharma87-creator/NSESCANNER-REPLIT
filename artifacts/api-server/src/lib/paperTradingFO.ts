@@ -93,6 +93,7 @@ import {
   FNO_GUARD_CONFIG,
   type RecentStoppedTrade,
 } from "./fnoPaperRiskGuards";
+import { checkLedgerReconciliationGate } from "./paperAccountReconciliation";
 
 /**
  * Risk tier for an auto-opened paper trade.
@@ -401,6 +402,19 @@ export async function openPaperTrade(input: LifecycleHookInput): Promise<PaperTr
   // the read-only-mode invariant impossible to bypass via a future
   // caller that forgets the check.
   if (!isPaperAutoTradingEnabled()) return null;
+  // Ledger reconciliation gate — fail-closed. Sits AFTER C0 + isPaperAutoTradingEnabled
+  // so it is unreachable while C0 is active. Behavioral tests in
+  // ledgerReconciliationGate.behavioral.test.ts prove this gate independent of C0.
+  {
+    const reconcGate = await checkLedgerReconciliationGate("FNO");
+    if (reconcGate.blocked) {
+      logger.warn(
+        { segment: "FNO", reason: reconcGate.reason, driftAmount: reconcGate.driftAmount },
+        "openPaperTrade: ledger reconciliation gate blocked open (fail-closed)",
+      );
+      return null;
+    }
+  }
   const { signal, signalDate, direction } = input;
   const tier: TradeTier = input.tier ?? "STANDARD";
   const minConfidence =
@@ -3265,7 +3279,11 @@ export type SkipReason =
   /** F&O risk guard blocked this open (DTE/theta, low premium, re-entry cooldown, or SENSEX disable). */
   | "PAPER_RISK_GUARD_BLOCKED"
   /** High-volatility calendar event (RBI MPC, Union Budget, Diwali Muhurat). New opens blocked. */
-  | "EVENT_BLACKOUT";
+  | "EVENT_BLACKOUT"
+  /** Ledger drift detected: paper_account.balance diverges from trade+capital-event ledger. */
+  | "LEDGER_RECONCILIATION_FAILED"
+  /** Ledger reconciliation query failed; opens blocked by fail-closed gate. */
+  | "LEDGER_RECONCILIATION_QUERY_ERROR";
 
 export interface MissedSignal {
   signalDate: string;

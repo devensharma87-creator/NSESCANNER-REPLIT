@@ -57,6 +57,7 @@ import { recordEqDecision, pushEqEvent, type EqEventType } from "./paperEqAudit"
 import type { SwingSignal } from "./swingSignals";
 import { computeSwingLevels } from "./swingSignals";
 import type { StockRow } from "@workspace/api-zod";
+import { checkLedgerReconciliationGate } from "./paperAccountReconciliation";
 
 function num(v: string | number | null | undefined): number {
   if (v == null) return 0;
@@ -308,6 +309,28 @@ export async function openPaperEquityTrade(
 
   await ensureDailyReset("EQUITY");
 
+  // Ledger reconciliation gate — fail-closed. Sits AFTER the C0 hard-block
+  // (EQUITY_AUTO_OPEN_C0_BLOCKED) and BEFORE the account lock transaction
+  // so it never holds a DB row lock unnecessarily.
+  {
+    const reconcGate = await checkLedgerReconciliationGate("EQUITY");
+    if (reconcGate.blocked) {
+      logger.warn(
+        { symbol: signal.symbol, reason: reconcGate.reason, driftAmount: reconcGate.driftAmount },
+        "openPaperEquityTrade: ledger reconciliation gate blocked open (fail-closed)",
+      );
+      await recordEqDecision({
+        symbol: signal.symbol,
+        decision: "SKIP",
+        reason: "LEDGER_RECONCILIATION_FAILED",
+        detail: `Ledger gate: ${reconcGate.reason}`,
+        signal: sigLabel,
+        score: signal.score,
+        source: opts?.source ?? "AUTO",
+      });
+      return null;
+    }
+  }
   let openedRow: PaperTradeEqRow | null = null;
   try {
     openedRow = await db.transaction(async (tx) => {
