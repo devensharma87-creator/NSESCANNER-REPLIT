@@ -1,0 +1,175 @@
+STOP ALL WORK IMMEDIATELY.
+
+Your decision to continue editing `main` after branch creation was blocked was explicitly unauthorized. The controlling directive required you to stop before editing. The facts that the changes appeared defensive, C0 remained enabled, or Replit might auto-checkpoint do not override that stop condition.
+
+Do not make another code or documentation change. Do not auto-fix anything. Do not commit, checkpoint, branch, merge, revert, reset, stash, restart, deploy, publish, run migrations, alter constraints, access broker execution, send Telegram messages, call application GET endpoints, or run additional tests. Some GET routes and tests are known to mutate operational state.
+
+“Phase 0 complete” is withdrawn. This is now a containment and reconstruction incident.
+
+Perform only filesystem/Git read-only inspection and return one evidence report.
+
+1. Repository identity
+
+Provide literal output for:
+
+* `git branch --show-current`
+* `git rev-parse --verify HEAD`
+* `git rev-parse --verify main`
+* `git status --short`
+* `git status --branch --short`
+* `git log --oneline --decorate -10`
+
+Confirm whether the pre-change baseline was:
+
+`c45c624713b306cc153953c0badc599bd4e5aa07`
+
+Do not change HEAD or `main`.
+
+2. Exact change reconstruction
+
+Against the verified pre-change SHA, provide:
+
+* complete changed-file list;
+* added, modified and deleted files separately;
+* diff statistics;
+* whether each change is committed, auto-checkpointed or uncommitted;
+* exact commit SHA and timestamp for every checkpoint/commit created after the baseline;
+* complete diff for safety-critical files, with secrets redacted only if necessary.
+
+Include at minimum:
+
+* trade-admission/session code;
+* `paperTradingEq.ts`;
+* `paperTradingFO.ts`;
+* `swingSignals.ts`;
+* `scanner.tsx`;
+* reconciliation and account code;
+* PCR/OI code;
+* authentication/security routes;
+* test-environment code;
+* invalid-session detector;
+* database/schema/migration files;
+* all created `memory/` documents;
+* `MEMORY.md`.
+
+Do not edit the deliverables to make them consistent.
+
+3. Command and action ledger
+
+List every command and tool action executed after encountering the branch-creation blocker, in chronological order.
+
+For each action state:
+
+* read or write;
+* files affected;
+* whether it contacted a database;
+* whether it called an application/API endpoint;
+* whether it contacted Kite, Telegram or another network service;
+* whether it could trigger Replit auto-checkpointing;
+* exit result.
+
+Do not summarize this as “safe.” Provide the actual ledger.
+
+4. Database and test exposure declaration
+
+Without running more tests or database commands, report from the commands already executed:
+
+* exact test commands;
+* test files run;
+* 18 passed tests by name;
+* all skipped, failed and timed-out counts;
+* which environment variables were available;
+* whether `TEST_DATABASE_URL` was definitely used;
+* redacted target fingerprint: host category, database name and schema;
+* whether ordinary `DATABASE_URL` was present;
+* whether any test imported the normal operational DB package;
+* whether any test inserted, updated, deleted, migrated or closed a pool;
+* whether the invalid-session detector was executed or merely created;
+* whether any GET route was invoked.
+
+If isolated-target evidence was not captured before execution, state:
+
+`TEST_DATABASE_ISOLATION_UNPROVED`
+
+Do not retrospectively infer isolation from green tests.
+
+5. External side-effect declaration
+
+State separately, with evidence where available:
+
+* operational DB writes: `PROVED_ZERO`, `POSSIBLE`, or `UNKNOWN`;
+* live Telegram messages: `PROVED_ZERO`, `POSSIBLE`, or `UNKNOWN`;
+* broker/Kite calls: `PROVED_ZERO`, `POSSIBLE`, or `UNKNOWN`;
+* workflow restart/deployment: exact status;
+* production/public-origin access: exact URLs and methods, if any.
+
+Absence of an observed error is not proof of zero side effects.
+
+6. Safety invariant verification
+
+Using read-only source inspection only, report:
+
+* current literal value and source location of `FNO_AUTO_OPEN_C0_BLOCKED`;
+* current literal value and source location of `EQUITY_AUTO_OPEN_C0_BLOCKED`;
+* broker-execution configuration;
+* whether any manual, staged, combo, reconciliation or close path was modified;
+* whether GET/HEAD behaviour was modified;
+* whether any schema or migration file was created;
+* whether any existing historical row was modified or deleted.
+
+7. Required-deliverable status
+
+For each of the nine required Phase 0 documents report:
+
+* exists or missing;
+* byte size;
+* SHA-256;
+* whether based on captured evidence or generated assumptions;
+* incomplete sections;
+* contradictions with the controlling directive.
+
+Do not call a document complete merely because it exists.
+
+8. Acceptance gaps
+
+Explicitly report the status of:
+
+* complete 54-file hunk matrix;
+* full state-writer inventory;
+* GET/HEAD zero-write proof;
+* disposable-test-database proof;
+* complete historical invalid-session counts;
+* source/preview/published build identity;
+* F&O ₹799,772.70 drift reproduction;
+* equity test-contamination classification;
+* six deleted `SILENT_DRIFT` rows;
+* 15–17 July pipeline gap;
+* official expiry/calendar verification;
+* full test-suite counts;
+* zero operational DB-mutation proof.
+
+Use only `PROVED`, `LIKELY`, `UNPROVED` or `DISPROVED`.
+
+9. Recovery options—do not execute
+
+Present the owner with non-destructive recovery options based on the actual Git state. Include trade-offs for:
+
+* preserving the current state for forensic review;
+* owner manually creating a branch from the current state;
+* reverting through a reviewed forward commit;
+* retaining selected changes hunk-by-hunk.
+
+Do not reset, revert, checkout, cherry-pick, branch, commit or clean anything.
+
+End your response with:
+
+* current branch;
+* exact current SHA;
+* whether `main` moved;
+* whether the worktree is dirty;
+* number of changed files;
+* whether operational DB isolation is proved;
+* whether external side effects are proved zero;
+* `PHASE 0 STATUS: INVALIDATED — OWNER RECOVERY DECISION REQUIRED`.
+
+Wait for explicit owner instructions.
