@@ -1,0 +1,85 @@
+Subject: Binding Audit Handoff and Phase-0 Execution Authorization
+
+I have attached the final audit documents, build directive, UI/data audit and Phase-0 patch for MarketScannerByDev.
+
+Please read every attached document completely before changing code.
+
+Document precedence
+REPLIT_MASTER_BUILD_DIRECTIVE_FINAL_2026-07-19.md is the controlling instruction.
+The audit reports are the confirmed defect inventory and supporting evidence.
+The Phase-0 patch is a proposed implementation bundle—it must be reviewed against the current complete repository, not applied blindly.
+If documents conflict materially, stop and request my decision. Do not silently choose an interpretation.
+Current safety state
+Broker execution must remain DISABLED.
+C0 automatic-open containment must remain ACTIVE.
+Do not restart or deploy during market hours.
+Do not delete, reset, rewrite or “clean up” historical trades, balances, capital events or audit records.
+The approximately ₹7.99 lakh F&O ledger drift remains an unresolved incident.
+The six deleted SILENT_DRIFT rows remain documented as probable test artifacts, but not with forensic certainty.
+Tests must use an isolated test database/schema and must never write to an operational database.
+Do not change trading thresholds, signal rules or risk gates to increase signal volume.
+Authorized work
+
+Execute Phase 0 only: Containment and Forensic Closeout from the Master Build Directive.
+
+This authorization includes:
+
+read-only inspection;
+repository and deployment-SHA verification;
+isolated-test infrastructure;
+test-scoped code changes;
+actual entry-boundary safety tests;
+reviewed migration-file preparation;
+typecheck, tests and production build;
+migration validation on an isolated database clone;
+security and anonymous-access verification.
+
+This does not authorize:
+
+production database mutation;
+historical balance correction;
+audit-row deletion or rewriting;
+credential rotation;
+workflow restart;
+deployment;
+public-mode changes;
+automatic-open re-enablement;
+broker enablement or order placement.
+Before making changes, return
+Confirmation that all attachments were read.
+Base Git SHA, current branch and deployed SHA.
+Current dirty-working-tree status.
+Exact Phase-0 scope.
+Files and migrations expected to change.
+Test-database isolation plan.
+Database impact and rollback plan.
+Acceptance tests and verification commands.
+Confirmation that no production mutation, restart or deployment is planned.
+
+After I review this pre-work response, continue with Phase 0.
+
+Completion evidence
+
+At the Phase-0 checkpoint, provide:
+
+complete changed-file list;
+exact commands executed;
+passed, failed, skipped, todo and timed-out test counts;
+root five-package typecheck and build results;
+raw test-log locations;
+migration-clone validation;
+actual F&O and equity open-boundary tests;
+proof that exits remain available;
+anonymous authorization matrix;
+database/ledger findings;
+unresolved risks and decisions needed.
+
+End the response with:
+
+Broker execution remains DISABLED.
+C0 automatic-open containment remains ACTIVE.
+No trading thresholds were loosened.
+No historical balance, trade or audit rows were deleted or rewritten.
+No production restart or deployment was performed.
+
+Stop after Phase 0 and wait for my approval. Do not automatically continue to Phase 1.
