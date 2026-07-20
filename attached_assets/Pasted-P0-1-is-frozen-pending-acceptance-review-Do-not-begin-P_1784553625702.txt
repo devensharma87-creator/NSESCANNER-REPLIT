@@ -1,0 +1,154 @@
+P0.1 is frozen pending acceptance review.
+
+Do not begin P0.2. Do not edit files, fix deviations, run tests, access any database, call endpoints, restart, commit, checkpoint, merge, push or deploy.
+
+Perform read-only Git and source inspection only.
+
+Repository state
+
+Provide literal output:
+
+current branch;
+exact HEAD SHA;
+exact main SHA;
+git status --short --branch;
+latest five commits;
+complete git diff --name-status 47611aa6fad3785f02f97280570f025c71fb975a..HEAD;
+complete diff statistics against 47611aa.
+
+Separate committed, staged, unstaged and untracked files.
+
+Scope deviation declaration
+
+Explicitly explain:
+
+why MEMORY.md was modified despite being prohibited;
+exact lines added to it;
+why Stages B, C and D were implemented in parallel despite the sequential requirement;
+whether the work-order attachment was committed;
+whether any file outside the predeclared list changed;
+whether any auto-checkpoint occurred.
+
+Do not correct these deviations yet.
+
+Package-script proof
+
+Show the exact before-and-after test-related scripts from artifacts/api-server/package.json, including:
+
+default test;
+test:unit;
+test:db;
+integration/migration/full-suite scripts;
+any script that still invokes Vitest directly.
+
+Answer explicitly:
+
+Can the ordinary/default test command still discover DB-backed tests?
+Can it still inherit operational DATABASE_URL?
+Does any existing script bypass the new preflight?
+Is the fail-closed boundary mandatory or merely an optional new command?
+
+If the previous unsafe command remains available, classify acceptance criterion 4–6 as failed.
+
+Pre-import enforcement proof
+
+For dbTestPreflightRunner.ts, provide:
+
+all imports;
+complete execution order;
+exact point where environment validation occurs;
+exact point where Vitest is spawned;
+spawn executable and arguments;
+whether shell execution is used;
+whether application modules can load before validation;
+whether failed validation guarantees Vitest is never spawned;
+whether exit codes/signals propagate correctly.
+
+For dbTestGuard.ts, provide:
+
+all imports;
+canonicalization rules;
+redacted-fingerprint construction;
+target comparison rules;
+required confirmation variables;
+TEST_RUN_ID validation;
+denylist mechanism;
+external-service/broker requirements;
+all reason codes.
+
+Do not print real environment values, URLs or secrets.
+
+Unit-test configuration proof
+
+For vitest.config.unit.ts, provide:
+
+all imports;
+setup/global-setup files;
+include patterns;
+exclude patterns;
+environment;
+whether it imports any workspace/application module;
+how DB-direct, DB-transitive, external-service and unknown tests are excluded.
+
+State whether the exclusion list is generated from the completed inventory or manually approximated.
+
+Guard-test proof
+
+For dbTestGuard.test.ts, provide:
+
+all imports;
+all 26 test names;
+whether any test imports application code;
+whether any test imports @workspace/db;
+whether any test uses a real environment variable or URL;
+whether child-process/fake-spawn tests can start Vitest;
+first and final run counts separately.
+Test-coupling inventory results
+
+Provide exact totals for:
+
+total test files by package;
+PURE_UNIT_CONFIRMED;
+DB_DIRECT;
+DB_TRANSITIVE;
+EXTERNAL_SERVICE_DIRECT;
+EXTERNAL_SERVICE_TRANSITIVE;
+UNKNOWN_REQUIRES_TRACE;
+files calling pool .end();
+tests containing inserts/updates/deletes/truncates;
+migration/schema-ensure tests;
+live/dev/production-labelled tests.
+
+A file may appear in multiple categories. Explain how transitive classifications were established without module execution.
+
+Command and side-effect ledger
+
+List every executed command chronologically and classify:
+
+static read;
+file write;
+typecheck;
+pure unit test;
+possible application import;
+possible DB/network contact;
+checkpoint/commit trigger.
+
+Provide the exact typecheck and Vitest commands.
+
+Acceptance matrix
+
+Report each P0.1 criterion as:
+
+PASSED;
+FAILED;
+UNPROVED;
+NOT_RUN;
+SCOPE_DEVIATION.
+
+Do not call P0.1 complete merely because 26 tests passed.
+
+End with:
+
+P0.1 STATUS: FROZEN — OWNER ACCEPTANCE REVIEW REQUIRED
+
+Wait for owner instructions.
