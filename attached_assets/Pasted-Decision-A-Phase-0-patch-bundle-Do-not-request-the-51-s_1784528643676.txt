@@ -1,0 +1,112 @@
+Decision A — Phase-0 patch bundle
+
+Do not request the 51 source files individually.
+
+The ZIP is a binary archive and should not be opened through a UTF-8 text reader. Use read-only shell inspection:
+
+file attached_assets/NSESCANNER_PHASE0_TRUTH_SAFETY_PATCH_*.zip
+sha256sum attached_assets/NSESCANNER_PHASE0_TRUTH_SAFETY_PATCH_*.zip
+unzip -t attached_assets/NSESCANNER_PHASE0_TRUTH_SAFETY_PATCH_*.zip
+unzip -l attached_assets/NSESCANNER_PHASE0_TRUTH_SAFETY_PATCH_*.zip
+
+Expected auditor bundle SHA-256:
+
+335e198d67db1420b8f51fd9edb7f781d5d85648edeee7eb6886955b1f652392
+
+Before extraction, reject:
+
+absolute paths;
+../ traversal paths;
+symlinks escaping the extraction directory;
+credential, environment or database-dump files.
+
+Extract it into a temporary comparison directory—not over the repository:
+
+mkdir -p /tmp/nsescanner-phase0-review
+unzip attached_assets/NSESCANNER_PHASE0_TRUTH_SAFETY_PATCH_*.zip \
+  -d /tmp/nsescanner-phase0-review
+
+Then compare every patch file with the current repository. The current repository already contains later changes, so:
+
+do not overwrite current files wholesale;
+do not apply the archive automatically;
+classify each patch item as ALREADY_PRESENT, PARTIALLY_PRESENT, MISSING, CONFLICTING or OBSOLETE;
+provide the comparison matrix before implementing anything.
+
+If the binary is genuinely inaccessible to shell tools, use the audit findings and current repository as the implementation source. Treat the ZIP as unavailable supporting evidence—not authorization to bypass review.
+
+Decision B — Test database
+
+Select option (b): provision a separate TEST_DATABASE_URL.
+
+Do not:
+
+use the operational development database for tests;
+use the production database;
+use ephemeral schemas inside an operational database;
+accept rollback discipline alone as isolation.
+
+Until TEST_DATABASE_URL is provisioned:
+
+DB-writing integration tests must remain blocked;
+pure and fully mocked tests may run;
+do not redirect the existing DATABASE_URL;
+do not create/drop schemas in the operational database.
+
+The guard must parse the URL and verify the actual database name—not search the entire secret string for the word test.
+
+Required conditions:
+
+NODE_ENV=test
+TEST_DATABASE_URL is present
+TEST_DATABASE_URL != DATABASE_URL
+parsed database name has an approved test prefix/suffix
+production host/database fingerprints are rejected
+
+Do not print either connection string in logs, even partially.
+
+Additional corrections to the pre-work plan
+Re-run and paste the literal output of:
+git rev-parse --verify HEAD
+git rev-parse --verify main
+git status --short
+
+The reported HEAD SHA appears malformed or concatenated. A Git SHA should be reported exactly as returned by Git.
+
+Do not assume the deployed SHA equals HEAD merely because the checkpoint name says “Published your App.” Obtain deployed SHA/build identity from deployment metadata.
+Do not use git reset --hard as the rollback plan. Use:
+a dedicated Phase-0 branch;
+isolated commits;
+git revert for committed work;
+file-specific restoration only for files changed by this phase.
+Do not run pg_dump, createdb, schema creation or migration commands against any operational database without separate owner approval. Prepare the commands and migration files only.
+Anonymous authorization checks against localhost prove only the workspace build. Later Phase-0 evidence must also test the deployed public URL without authentication.
+Test cleanup must target unique test-owned IDs. It must never delete all rows from an audit table.
+The patch comparison and all code changes must wait until after 15:30 IST today. During the live session, continue read-only observation only:
+scheduler heartbeats/reasoning rows;
+system mode;
+Kite and DB health;
+snapshot freshness;
+confirmation of zero new paper opens;
+confirmation that exits remain available.
+Authorization status
+
+You are authorized to continue read-only Phase-0 investigation and prepare the patch comparison and isolated-test plan.
+
+You are not yet authorized to:
+
+provision or mutate an operational database;
+write Phase-0 code during market hours;
+apply the patch;
+run DB-writing tests without TEST_DATABASE_URL;
+restart or deploy;
+validate the production constraint;
+change balances or historical records.
+
+After 15:30 IST, return the ZIP comparison matrix, corrected SHAs, deployed-build identity and the exact steps needed to provision the separate test database. Stop for approval before writing code.
+
+Broker execution remains DISABLED.
+C0 automatic-open containment remains ACTIVE.
+No trading thresholds were loosened.
+No historical balance, trade or audit rows were deleted or rewritten.
+No production restart or deployment was performed.
