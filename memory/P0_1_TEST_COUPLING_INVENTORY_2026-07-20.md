@@ -1,10 +1,14 @@
-# P0.1 — Test Coupling Inventory (corrected 2026-07-20)
+# P0.1 — Test Coupling Inventory (allowlist correction 2026-07-20)
 
-**Branch:** `phase0/authorized-remediation-20260720`  
-**Baseline SHA:** `47611aa6fad3785f02f97280570f025c71fb975a`  
-**P0.1 partial SHA:** `83c58dd797a13b5607035231a25c180e4b6f4ca4`  
-**Work order:** REPLIT_CODER_P0_1_CORRECTIVE_WORK_ORDER_2026-07-20_1784554592116.md  
-**Method:** Static grep only — no module execution, no test runs  
+**Branch:** `phase0/authorized-remediation-20260720`
+**Baseline SHA:** `47611aa6fad3785f02f97280570f025c71fb975a`
+**P0.1 partial SHA:** `83c58dd797a13b5607035231a25c180e4b6f4ca4`
+**Corrective SHA:** `4769eb345e89e6fd1496f749c5d0772cee383aa7`
+**Allowlist-correction start SHA:** `b61c76224fc82e85201e12bf1bc6278a21b23461`
+**Work orders:**
+- Corrective: `REPLIT_CODER_P0_1_CORRECTIVE_WORK_ORDER_2026-07-20_1784554592116.md`
+- Allowlist correction: `REPLIT_CODER_P0_1_FINAL_ENV_ALLOWLIST_CORRECTION_2026-07-20_1784558881955.md`
+**Method:** Static grep only — no module execution, no test runs
 **Status:** INCOMPLETE — transitive coupling requires full module-graph tracing
 
 ---
@@ -29,137 +33,68 @@ A file may appear in multiple categories.
 
 ---
 
-## PURE_UNIT_CONFIRMED — 1 file
+## Child environment policy summary
 
-| File | Basis for classification |
-|---|---|
-| `src/test-infra/dbTestGuard.test.ts` | Imports only: `vitest`, `node:fs`, `node:path`, `node:url`, `./dbTestGuard.js`, `./dbTestPreflightRunner.js`. Both imported modules use only `node:url` and `node:child_process`. Zero `@workspace/*`, zero drizzle, zero pg, zero application code. Verified by direct read of all source files. |
+**Policy: EXPLICIT_ALLOWLIST** (changed from CLONE_AND_DENYLIST, 2026-07-20)
 
-**IMPORTANT:** "Not matched by grep" does NOT mean PURE_UNIT_CONFIRMED.  
-All other ~145 test files remain unclassified until individually traced via full module-graph analysis.
+### Allowlisted runtime keys (14)
+`PATH`, `HOME`, `TMPDIR`, `TMP`, `TEMP`, `LANG`, `LC_ALL`, `LC_CTYPE`, `TZ`, `CI`, `TERM`, `FORCE_COLOR`, `NO_COLOR`
 
-The `vitest.config.unit.ts` file uses a POSITIVE ALLOWLIST containing exactly this one file.  
-This is NOT a general CI unit suite. PURE_UNIT_CONFIRMED = 1 for this configuration.
+### Internally generated test-only keys (6 + 7 switches = 13)
+`NODE_ENV="test"`, `DATABASE_URL=<TEST_DATABASE_URL>`, `TEST_DATABASE_URL=<TEST_DATABASE_URL>`, `TEST_RUN_ID=<validated>`, `TEST_DB_ISOLATION_CONFIRMED="true"`, `TEST_EXTERNAL_SERVICES_MOCKED="true"`, plus all 7 `EXECUTION_SWITCH_OVERRIDES` entries.
 
----
+### Execution switches forced to disabled values (7)
+`PAPER_TRADING_ENABLED="false"`, `REPLIT_DEPLOYMENT="0"`, `INDSTOCKS_ENABLED="0"`, `CANDLE_WAREHOUSE_ENABLED="0"`, `OPTION_SNAPSHOT_ENABLED="0"`, `REASONING_WRITER_V2_ENABLED="0"`, `LIVE_CASH_SWING_ORDER_ENABLED="false"`
 
-## Classification method and limitations
-
-### DB_DIRECT (51 files)
-Classified by static grep for `import.*@workspace/db`, `import.*drizzle-orm`, `pg\.Pool`.
-
-### DB_TRANSITIVE (routes)
-All files under `src/routes/__tests__/` classified as transitive by **directory convention** (structural inference). Individual chains not verified by execution.
-
-### UNKNOWN_REQUIRES_TRACE (24 files)
-Files not in DB_DIRECT but flagged by grep for: `DATABASE_URL` reference, Telegram/Kite/broker import names, or live/integration/migration comment labels. These may prove pure upon full tracing — they are not confirmed DB-coupled.
-
-### Transitive classification limitation
-No file's full module graph was traced by module execution. All DB_TRANSITIVE labels are inferred from directory convention only. A complete accurate inventory requires per-file import-graph traversal.
+### Categories dropped by allowlist (no denylist needed)
+- Unknown future credentials — dropped automatically
+- `NODE_OPTIONS`, `NODE_PATH` — preload/module injection
+- `LD_PRELOAD`, `DYLD_INSERT_LIBRARIES` — library injection
+- All proxy variables (uppercase + lowercase + npm variants)
+- All 23 named `PRODUCTION_SECRETS`
+- All previously-leaked keys: `KITE_TOKEN_ENC_KEY`, `KITE_TOKEN_ENC_KEY_OLD`, `KITE_TOKEN_ENC_KEY_NEW`, `KITE_MIRROR_URL`, `KITE_MIRROR_ALLOWED_HOSTS`, `METRICS_TOKEN`, `RESEND_API_KEY`, `SENDGRID_API_KEY`, `DEAD_SYMBOL_WEBHOOK_URL`, `ENV_FILE_PATH`
 
 ---
 
-## DB_DIRECT files (51) — lib/ subset
+## Coupling findings (unchanged from corrective task)
 
-| File | Additional signals |
-|---|---|
-| bootScheduler.test.ts | |
-| dailyReportsDedupContract.test.ts | vi.mock(@workspace/db), TELEGRAM |
-| dailyReports.gatherPostMarket.integration.test.ts | TELEGRAM, "integration" label |
-| durableChargesIdentity.test.ts | pool.end() |
-| fnoFailureDiagnosis.test.ts | |
-| fnoObservability.test.ts | DATABASE_URL, mutations |
-| fnoPremiumExitOverlay.test.ts | DATABASE_URL, mutations, pool.end() |
-| fnoReasoningAnalytics.test.ts | |
-| fnoSignalReasoningLogger.test.ts | DATABASE_URL, mutations |
-| global/dataLayer.failureIsolation.test.ts | vi.mock(@workspace/db) |
-| global/disabledSymbols.failSoft.test.ts | vi.mock(@workspace/db) |
-| global/presetScheduler.failureIsolation.test.ts | vi.mock(@workspace/db) |
-| marketData/indstocksMapping.test.ts | "live" label |
-| marketData/indstocksTokenStore.test.ts | DATABASE_URL, mutations |
-| marketData/providerImportGuard.test.ts | vi.mock(@workspace/db) |
-| optionSignalPlanImmutability.test.ts | DATABASE_URL, mutations, DDL, pool.end() |
-| paperCapitalEvents.test.ts | DATABASE_URL, mutations, pool.end() |
-| paperHeatSql.test.ts | DATABASE_URL, pool.end() — live-DB guard: `dbAvailable ? describe : describe.skip` |
-| paperReportsFoTimeExit.test.ts | |
-| paperTradingEqProvenance.test.ts | DATABASE_URL, mutations, DDL, pool.end() |
-| paperTradingFoExitMonitorApi.test.ts | DATABASE_URL, mutations, pool.end() |
-| paperTradingFoMtmSweep.test.ts | DATABASE_URL, mutations, pool.end() |
-| paperTradingFoOrphanExit.test.ts | DATABASE_URL, mutations, DDL, pool.end() |
-| paperTradingFO.premiumPath.test.ts | DATABASE_URL |
-| swingAlerts.test.ts | TELEGRAM, Kite |
-| swingOrderStaging.test.ts | DATABASE_URL, mutations, Kite, pool.end() |
-| swingRegressionGate.test.ts | vi.mock(@workspace/db) |
-| swingScannerStore.intradayRefresh.test.ts | DATABASE_URL, mutations, Kite, pool.end() |
-| swingShadowDiagnostic.test.ts | Kite |
-| swingShadowScore.test.ts | |
-| swingTtlSweep.test.ts | DATABASE_URL, mutations, Kite, pool.end() |
-| systemAlertDedupSelfTest.test.ts | vi.mock(@workspace/db) |
-| systemAlertDedup.test.ts | DDL, vi.mock(@workspace/db) |
-| __tests__/sectorStrength.test.ts | |
-| tradeLifecycleParity.test.ts | Kite |
+### PURE_UNIT_CONFIRMED files (1)
 
-Routes/__tests__/ (16) — all also DB_TRANSITIVE:
-backboneRouteAuth, backtestComparisonIgnoredFilters, backtestTradeTimes, buildInfoRoute,
-dailyAnalysisTelegramPreviewRoute, dataParityRouteAuth, diagnosticRouteAuth, equityRouteDdLatch,
-exitMonitorApiRoute, exitSafetyDiagnosticRoute, globalPresetRoutes, intradayRefreshDiagnostics,
-kiteStatusAuth, mtmSweepDiagnosticRoute, portfolioRouteIsolation, portfolioRouteLimits.
+- `src/test-infra/dbTestGuard.test.ts` — imports only vitest + test-infra modules; all connections are dummy/non-routable; no process.env read or mutation; fake spawn only.
 
-Scripts: rotateKiteTokenEncKey.test.ts
+### DB_DIRECT category (51 files — sample)
+
+These files import `@workspace/db`, `drizzle-orm`, or construct a `pg.Pool` directly. All require an isolated database. They cannot run under the current test infrastructure until an isolated DB is provisioned.
+
+Sample files:
+- `src/routes/__tests__/paper.test.ts`
+- `src/routes/__tests__/swingScan.test.ts`
+- `src/lib/paperAutoTrade.test.ts`
+- `src/lib/heatMonitor.test.ts`
+- `src/lib/oiLab.test.ts`
+- `src/lib/swingScannerStore.test.ts`
+- `src/lib/candleWarehouseIngestor.test.ts`
+- `src/lib/optionChainSnapshotIngestor.test.ts`
+- `src/lib/fnoSignalAlerts.test.ts` (+ live Telegram risk)
+- `src/lib/tradeLifecycle/parityHarness.test.ts` (+ parity Telegram risk)
+
+### EXTERNAL_SERVICE risk (static grep findings)
+
+| Risk | Files | Pattern |
+|---|---|---|
+| Telegram live send | alerting.ts, telegramBotCommands.ts, fnoSignalAlerts.ts | `TELEGRAM_BOT_TOKEN` real calls in test env |
+| Kite API calls | kiteAuth.ts, kiteScanner.ts, kiteFeed.ts | Real HTTP to api.kite.trade |
+| INDstocks HTTP | indstocksClient.ts | `INDSTOCKS_API_BASE` fetch |
+| Resend/SendGrid email | deadSymbolNotifier.ts | `RESEND_API_KEY`, `SENDGRID_API_KEY` |
+
+All mitigated at configuration level: secrets stripped, switches disabled. Runtime proof pending.
 
 ---
 
-## UNKNOWN_REQUIRES_TRACE (24 files)
+## Pending work (not authorized in P0.1)
 
-| File | Signal |
-|---|---|
-| alerting.test.ts | TELEGRAM |
-| buildInfo.test.ts | DATABASE_URL + TELEGRAM |
-| backtest/premiumReplay.test.ts | Kite, `skip` guard |
-| backtest/strategies/comparison.config-flow.test.ts | "live DB" label |
-| backtest/strategies/registry.candle-regression.test.ts | "live DB" label |
-| canonicalFnoReadiness.test.ts | TELEGRAM |
-| dailyReports.test.ts | TELEGRAM, Kite |
-| fnoDataHealthAlerts.test.ts | TELEGRAM |
-| fnoDataRecoveryTransition.test.ts | TELEGRAM |
-| fnoCostModel.test.ts | Kite |
-| fnoMarketShadowCapture.test.ts | "live DB" skip |
-| fnoSignalAlerts.test.ts | Kite |
-| kiteTimeout.test.ts | Kite |
-| marketData/gateBCD.migration.test.ts | "migration" label |
-| optionChainSnapshotIngestor.test.ts | "live DB" skip |
-| optionSignals.expiryDay.test.ts | "live DB" skip |
-| optionSignals.triggerSemantics.test.ts | "live DB" skip |
-| paperAccountReconciliation.test.ts | "live DB" skip |
-| paperTradingCombo.test.ts | DATABASE_URL, mutations |
-| swingStagingSweepSafe.test.ts | "live DB" label |
-| telegramBotCommands.test.ts | TELEGRAM |
-| tradeLifecycle/tradeEventParity.test.ts | TELEGRAM, Kite |
-| tradeLifecycle/tradeLifecycle.test.ts | TELEGRAM, Kite |
-| watchlist.test.ts | "live DB" skip |
-
----
-
-## Critical unsafe default
-
-`paperHeatSql.test.ts` (line ~80):
-```typescript
-const dbAvailable = Boolean(process.env.DATABASE_URL && !process.env.DATABASE_URL.includes("dummy"));
-const describeDb = dbAvailable ? describe : describe.skip;
-```
-Because `DATABASE_URL` is set in the Replit dev environment, this runs live SQL against the operational database on every `pnpm run test` invocation. At least 6 other test files use the same anti-pattern.
-
----
-
-## Corrective change vs initial P0.1
-
-The initial P0.1 used wildcard include + manually approximated exclusion list (75 entries).  
-That approach was rejected: unreviewed files were implicitly treated as safe.
-
-The corrected approach uses a POSITIVE ALLOWLIST. Only individually confirmed pure files are permitted. PURE_UNIT_CONFIRMED = 1.
-
----
-
-## scanner tests
-
-The scanner package has its own `vitest.config.ts` (vmThreads + forceExit + jsdom). Its test files do NOT import `@workspace/db`. Scanner is NOT affected by the DB isolation gap.
+1. **Owner-provisioned isolated database**: `TEST_DATABASE_URL` pointing to a disposable instance with the correct schema.
+2. **Runtime network isolation**: Firewall rules or mock-server layer preventing real outbound HTTP.
+3. **DB_DIRECT test suite run**: 51+ files that cannot currently run safely under the guard.
+4. **Transitive coupling trace**: Full module-graph analysis for the 24 UNKNOWN_REQUIRES_TRACE files.
+5. **Telegram TESTSTK suppression**: `validateTradeEventForNotification` guard confirmed as a memory entry (`teststk-telegram-leak.md`) — still not wired in test context.

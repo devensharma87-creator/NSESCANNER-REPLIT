@@ -19,6 +19,7 @@ import {
   buildIsolatedChildEnv,
   PRODUCTION_SECRETS,
   EXECUTION_SWITCH_OVERRIDES,
+  CHILD_PROCESS_ENV_ALLOWLIST,
 } from "./dbTestPreflightRunner.js";
 
 // ── Canonical valid dummy configuration ──────────────────────────────────────
@@ -45,7 +46,7 @@ const VALID_ENV = {
 
 const DUMMY_PARENT_ENV: Readonly<Record<string, string | undefined>> = {
   ...VALID_ENV,
-  // Production secrets — must be stripped from child env
+  // Production secrets — must be absent from child env (now by allowlist policy)
   APP_ACCESS_PASSWORD:            "dummy-app-password-not-real",
   GLOBAL_APP_ACCESS_PASSWORD:     "dummy-global-password-not-real",
   SESSION_SECRET:                  "dummy-session-secret-not-real",
@@ -59,11 +60,47 @@ const DUMMY_PARENT_ENV: Readonly<Record<string, string | undefined>> = {
   INDSTOCKS_API_TOKEN:             "dummy-indstocks-token-not-real",
   PARITY_TEST_TELEGRAM_BOT_TOKEN:  "dummy-parity-tg-bot-not-real",
   PARITY_TEST_TELEGRAM_CHAT_ID:    "dummy-parity-tg-chat-not-real",
-  // Execution switches — must be overridden to disabled
-  PAPER_TRADING_ENABLED: "true",
-  REPLIT_DEPLOYMENT:     "1",
-  INDSTOCKS_ENABLED:     "1",
-  // Ordinary runtime vars — should survive into child env
+  // Previously-leaked keys (now caught by allowlist) — must be absent from child env
+  KITE_TOKEN_ENC_KEY:              "dummy-kite-enc-key-not-real",
+  KITE_TOKEN_ENC_KEY_OLD:          "dummy-kite-enc-old-not-real",
+  KITE_TOKEN_ENC_KEY_NEW:          "dummy-kite-enc-new-not-real",
+  KITE_MIRROR_URL:                 "https://dummy-kite-mirror.invalid",
+  KITE_MIRROR_ALLOWED_HOSTS:       "dummy-allowed-hosts.invalid",
+  METRICS_TOKEN:                   "dummy-metrics-token-not-real",
+  RESEND_API_KEY:                  "dummy-resend-key-not-real",
+  SENDGRID_API_KEY:                "dummy-sendgrid-key-not-real",
+  DEAD_SYMBOL_WEBHOOK_URL:         "https://dummy-webhook.invalid/hook",
+  ENV_FILE_PATH:                   "/dummy/.env.not-real",
+  // Preload / Node internals — must be dropped
+  NODE_OPTIONS:                    "--require dummy-hook-not-real.js",
+  NODE_PATH:                       "/dummy/node/path",
+  // Injection variables — must be dropped
+  LD_PRELOAD:                      "/dummy/lib-not-real.so",
+  DYLD_INSERT_LIBRARIES:           "/dummy/lib-not-real.dylib",
+  // Proxy variables — must be dropped (uppercase)
+  HTTP_PROXY:                      "http://proxy.invalid:3128",
+  HTTPS_PROXY:                     "https://proxy.invalid:3128",
+  ALL_PROXY:                       "socks5://proxy.invalid:1080",
+  NO_PROXY:                        "localhost,127.0.0.1",
+  GRPC_PROXY:                      "http://proxy.invalid:3128",
+  // Proxy variables — must be dropped (lowercase)
+  http_proxy:                      "http://proxy.invalid:3128",
+  https_proxy:                     "https://proxy.invalid:3128",
+  // Package-manager proxy variables — must be dropped
+  NPM_CONFIG_PROXY:                "http://proxy.invalid:3128",
+  NPM_CONFIG_HTTPS_PROXY:          "https://proxy.invalid:3128",
+  // Completely unknown future key — must be dropped without changing any list
+  FUTURE_PROVIDER_API_KEY:         "dummy-future-secret-not-real",
+  RANDOM_UNKNOWN_KEY_XYZ_789:      "dummy-unknown-value-not-real",
+  // Execution switches — must be overridden to disabled regardless of parent value
+  PAPER_TRADING_ENABLED:           "true",
+  REPLIT_DEPLOYMENT:               "1",
+  INDSTOCKS_ENABLED:               "1",
+  CANDLE_WAREHOUSE_ENABLED:        "true",
+  OPTION_SNAPSHOT_ENABLED:         "true",
+  REASONING_WRITER_V2_ENABLED:     "1",
+  LIVE_CASH_SWING_ORDER_ENABLED:   "true",
+  // Ordinary runtime vars — these ARE on the allowlist and should survive
   PATH: "/usr/bin:/bin",
   HOME: "/home/runner",
 };
@@ -702,5 +739,262 @@ describe("Positive unit allowlist — strict one-file include", () => {
     const contents = readFileSync(configPath, "utf8");
     expect(contents).not.toContain('"src/lib/bootScheduler.test.ts"');
     expect(contents).not.toContain('"src/routes/**"');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Tests 48–50: EXPLICIT_ALLOWLIST policy — only approved keys survive
+// ─────────────────────────────────────────────────────────────────────────────
+
+// The complete set of keys that may lawfully appear in the child env:
+// allowlisted runtime keys + internally generated test-only keys.
+const GENERATED_TEST_KEYS = new Set([
+  "NODE_ENV",
+  "DATABASE_URL",
+  "TEST_DATABASE_URL",
+  "TEST_RUN_ID",
+  "TEST_DB_ISOLATION_CONFIRMED",
+  "TEST_EXTERNAL_SERVICES_MOCKED",
+  ...Object.keys(EXECUTION_SWITCH_OVERRIDES),
+]);
+
+const PERMITTED_CHILD_KEYS = new Set([
+  ...CHILD_PROCESS_ENV_ALLOWLIST,
+  ...GENERATED_TEST_KEYS,
+]);
+
+describe("buildIsolatedChildEnv — explicit allowlist policy", () => {
+  it("every child key is either on the allowlist or is a generated test-only key", () => {
+    const child = buildIsolatedChildEnv(DUMMY_PARENT_ENV);
+    for (const key of Object.keys(child)) {
+      expect(
+        PERMITTED_CHILD_KEYS.has(key),
+        `child env key '${key}' is not in CHILD_PROCESS_ENV_ALLOWLIST nor a generated test key`,
+      ).toBe(true);
+    }
+  });
+
+  it("a random unknown parent key is dropped", () => {
+    const child = buildIsolatedChildEnv(DUMMY_PARENT_ENV);
+    expect("RANDOM_UNKNOWN_KEY_XYZ_789" in child).toBe(false);
+  });
+
+  it("FUTURE_PROVIDER_API_KEY is dropped without modifying any denylist", () => {
+    const child = buildIsolatedChildEnv(DUMMY_PARENT_ENV);
+    expect("FUTURE_PROVIDER_API_KEY" in child).toBe(false);
+    // Verify by policy: the key is not on the allowlist
+    expect(CHILD_PROCESS_ENV_ALLOWLIST).not.toContain("FUTURE_PROVIDER_API_KEY");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Tests 51–60: Previously-leaked keys are now dropped by allowlist policy
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("buildIsolatedChildEnv — previously-leaked keys dropped by allowlist", () => {
+  it("KITE_TOKEN_ENC_KEY is absent from child env", () => {
+    expect("KITE_TOKEN_ENC_KEY" in buildIsolatedChildEnv(DUMMY_PARENT_ENV)).toBe(false);
+  });
+
+  it("KITE_TOKEN_ENC_KEY_OLD is absent from child env", () => {
+    expect("KITE_TOKEN_ENC_KEY_OLD" in buildIsolatedChildEnv(DUMMY_PARENT_ENV)).toBe(false);
+  });
+
+  it("KITE_TOKEN_ENC_KEY_NEW is absent from child env", () => {
+    expect("KITE_TOKEN_ENC_KEY_NEW" in buildIsolatedChildEnv(DUMMY_PARENT_ENV)).toBe(false);
+  });
+
+  it("KITE_MIRROR_URL is absent from child env", () => {
+    expect("KITE_MIRROR_URL" in buildIsolatedChildEnv(DUMMY_PARENT_ENV)).toBe(false);
+  });
+
+  it("KITE_MIRROR_ALLOWED_HOSTS is absent from child env", () => {
+    expect("KITE_MIRROR_ALLOWED_HOSTS" in buildIsolatedChildEnv(DUMMY_PARENT_ENV)).toBe(false);
+  });
+
+  it("METRICS_TOKEN is absent from child env", () => {
+    expect("METRICS_TOKEN" in buildIsolatedChildEnv(DUMMY_PARENT_ENV)).toBe(false);
+  });
+
+  it("RESEND_API_KEY is absent from child env", () => {
+    expect("RESEND_API_KEY" in buildIsolatedChildEnv(DUMMY_PARENT_ENV)).toBe(false);
+  });
+
+  it("SENDGRID_API_KEY is absent from child env", () => {
+    expect("SENDGRID_API_KEY" in buildIsolatedChildEnv(DUMMY_PARENT_ENV)).toBe(false);
+  });
+
+  it("DEAD_SYMBOL_WEBHOOK_URL is absent from child env", () => {
+    expect("DEAD_SYMBOL_WEBHOOK_URL" in buildIsolatedChildEnv(DUMMY_PARENT_ENV)).toBe(false);
+  });
+
+  it("ENV_FILE_PATH is absent from child env", () => {
+    expect("ENV_FILE_PATH" in buildIsolatedChildEnv(DUMMY_PARENT_ENV)).toBe(false);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Tests 61–64: Preload and Node internals dropped
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("buildIsolatedChildEnv — NODE_OPTIONS / NODE_PATH / preload dropped", () => {
+  it("NODE_OPTIONS is absent from child env", () => {
+    expect("NODE_OPTIONS" in buildIsolatedChildEnv(DUMMY_PARENT_ENV)).toBe(false);
+  });
+
+  it("NODE_PATH is absent from child env", () => {
+    const parent = { ...DUMMY_PARENT_ENV, NODE_PATH: "/dummy/path" };
+    expect("NODE_PATH" in buildIsolatedChildEnv(parent)).toBe(false);
+  });
+
+  it("LD_PRELOAD is absent from child env", () => {
+    expect("LD_PRELOAD" in buildIsolatedChildEnv(DUMMY_PARENT_ENV)).toBe(false);
+  });
+
+  it("DYLD_INSERT_LIBRARIES is absent from child env", () => {
+    expect("DYLD_INSERT_LIBRARIES" in buildIsolatedChildEnv(DUMMY_PARENT_ENV)).toBe(false);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Tests 65–73: Proxy variables dropped (uppercase, lowercase, npm variants)
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("buildIsolatedChildEnv — proxy variables dropped", () => {
+  it("HTTP_PROXY (uppercase) is absent from child env", () => {
+    expect("HTTP_PROXY" in buildIsolatedChildEnv(DUMMY_PARENT_ENV)).toBe(false);
+  });
+
+  it("HTTPS_PROXY (uppercase) is absent from child env", () => {
+    expect("HTTPS_PROXY" in buildIsolatedChildEnv(DUMMY_PARENT_ENV)).toBe(false);
+  });
+
+  it("ALL_PROXY is absent from child env", () => {
+    expect("ALL_PROXY" in buildIsolatedChildEnv(DUMMY_PARENT_ENV)).toBe(false);
+  });
+
+  it("NO_PROXY is absent from child env", () => {
+    expect("NO_PROXY" in buildIsolatedChildEnv(DUMMY_PARENT_ENV)).toBe(false);
+  });
+
+  it("GRPC_PROXY is absent from child env", () => {
+    expect("GRPC_PROXY" in buildIsolatedChildEnv(DUMMY_PARENT_ENV)).toBe(false);
+  });
+
+  it("http_proxy (lowercase) is absent from child env", () => {
+    expect("http_proxy" in buildIsolatedChildEnv(DUMMY_PARENT_ENV)).toBe(false);
+  });
+
+  it("https_proxy (lowercase) is absent from child env", () => {
+    expect("https_proxy" in buildIsolatedChildEnv(DUMMY_PARENT_ENV)).toBe(false);
+  });
+
+  it("NPM_CONFIG_PROXY is absent from child env", () => {
+    expect("NPM_CONFIG_PROXY" in buildIsolatedChildEnv(DUMMY_PARENT_ENV)).toBe(false);
+  });
+
+  it("NPM_CONFIG_HTTPS_PROXY is absent from child env", () => {
+    expect("NPM_CONFIG_HTTPS_PROXY" in buildIsolatedChildEnv(DUMMY_PARENT_ENV)).toBe(false);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Tests 74–77: Additional execution switches forced to disabled values
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("buildIsolatedChildEnv — additional execution switches forced disabled", () => {
+  it("CANDLE_WAREHOUSE_ENABLED is forced to '0' regardless of parent value", () => {
+    const child = buildIsolatedChildEnv(DUMMY_PARENT_ENV);
+    expect(child["CANDLE_WAREHOUSE_ENABLED"]).toBe(
+      EXECUTION_SWITCH_OVERRIDES["CANDLE_WAREHOUSE_ENABLED"],
+    );
+  });
+
+  it("OPTION_SNAPSHOT_ENABLED is forced to '0' regardless of parent value", () => {
+    const child = buildIsolatedChildEnv(DUMMY_PARENT_ENV);
+    expect(child["OPTION_SNAPSHOT_ENABLED"]).toBe(
+      EXECUTION_SWITCH_OVERRIDES["OPTION_SNAPSHOT_ENABLED"],
+    );
+  });
+
+  it("REASONING_WRITER_V2_ENABLED is forced to '0' regardless of parent value", () => {
+    const child = buildIsolatedChildEnv(DUMMY_PARENT_ENV);
+    expect(child["REASONING_WRITER_V2_ENABLED"]).toBe(
+      EXECUTION_SWITCH_OVERRIDES["REASONING_WRITER_V2_ENABLED"],
+    );
+  });
+
+  it("LIVE_CASH_SWING_ORDER_ENABLED is forced to 'false' regardless of parent value", () => {
+    const child = buildIsolatedChildEnv(DUMMY_PARENT_ENV);
+    expect(child["LIVE_CASH_SWING_ORDER_ENABLED"]).toBe(
+      EXECUTION_SWITCH_OVERRIDES["LIVE_CASH_SWING_ORDER_ENABLED"],
+    );
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Tests 78–80: Generated test-only keys are set internally, not inherited
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("buildIsolatedChildEnv — generated test-only keys set explicitly", () => {
+  it("TEST_RUN_ID is set from the validated parent value, not from parent env blindly", () => {
+    const child = buildIsolatedChildEnv(DUMMY_PARENT_ENV);
+    expect(child["TEST_RUN_ID"]).toBe("run-abc123");
+  });
+
+  it("TEST_DB_ISOLATION_CONFIRMED is forced to 'true' in child env", () => {
+    const parent = { ...DUMMY_PARENT_ENV, TEST_DB_ISOLATION_CONFIRMED: "false" };
+    const child = buildIsolatedChildEnv(parent);
+    expect(child["TEST_DB_ISOLATION_CONFIRMED"]).toBe("true");
+  });
+
+  it("TEST_EXTERNAL_SERVICES_MOCKED is forced to 'true' in child env", () => {
+    const parent = { ...DUMMY_PARENT_ENV, TEST_EXTERNAL_SERVICES_MOCKED: "0" };
+    const child = buildIsolatedChildEnv(parent);
+    expect(child["TEST_EXTERNAL_SERVICES_MOCKED"]).toBe("true");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test 81: Property test — 100 arbitrary non-allowlisted keys all dropped
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("buildIsolatedChildEnv — property test: arbitrary non-allowlisted keys dropped", () => {
+  it("100 arbitrary non-allowlisted parent keys are all dropped from child env", () => {
+    // Generate 100 keys that are guaranteed to be off the allowlist.
+    const arbitraryKeys: string[] = [];
+    for (let i = 0; i < 100; i++) {
+      arbitraryKeys.push(`ARBITRARY_NON_ALLOWLISTED_KEY_${i.toString().padStart(3, "0")}`);
+    }
+
+    // Verify none of the generated keys are on the allowlist (test precondition).
+    const allowlistSet = new Set(CHILD_PROCESS_ENV_ALLOWLIST);
+    for (const key of arbitraryKeys) {
+      expect(allowlistSet.has(key)).toBe(false);
+    }
+
+    // Build a parent env that includes all 100 arbitrary keys with dummy values.
+    const parent: Record<string, string | undefined> = { ...DUMMY_PARENT_ENV };
+    for (const key of arbitraryKeys) {
+      parent[key] = `dummy-value-for-${key}`;
+    }
+
+    const child = buildIsolatedChildEnv(parent);
+
+    // Every arbitrary key must be absent from the child env.
+    for (const key of arbitraryKeys) {
+      expect(
+        key in child,
+        `arbitrary key '${key}' must be dropped by the allowlist policy`,
+      ).toBe(false);
+    }
+
+    // Child must contain no key that is not in PERMITTED_CHILD_KEYS.
+    for (const key of Object.keys(child)) {
+      expect(
+        PERMITTED_CHILD_KEYS.has(key),
+        `child key '${key}' is not an approved allowlisted or generated key`,
+      ).toBe(true);
+    }
   });
 });

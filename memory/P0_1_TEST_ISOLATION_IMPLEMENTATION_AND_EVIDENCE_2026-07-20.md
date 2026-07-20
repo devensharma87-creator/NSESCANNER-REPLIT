@@ -1,247 +1,147 @@
-# P0.1 — Test Isolation Implementation & Evidence (corrected 2026-07-20)
+# P0.1 — Test Isolation Implementation & Evidence (allowlist correction 2026-07-20)
 
-**Branch:** `phase0/authorized-remediation-20260720`  
-**Work order:** REPLIT_CODER_P0_1_CORRECTIVE_WORK_ORDER_2026-07-20_1784554592116.md  
+**Branch:** `phase0/authorized-remediation-20260720`
+**Work orders:**
+- Corrective: `REPLIT_CODER_P0_1_CORRECTIVE_WORK_ORDER_2026-07-20_1784554592116.md`
+- Allowlist correction: `REPLIT_CODER_P0_1_FINAL_ENV_ALLOWLIST_CORRECTION_2026-07-20_1784558881955.md`
+
 **Starting SHA for corrective task:** `83c58dd797a13b5607035231a25c180e4b6f4ca4`
+**Allowlist-correction start SHA:** `b61c76224fc82e85201e12bf1bc6278a21b23461`
 
 ---
 
-## Corrective changes made
+## Corrective changes (from original P0.1 work order)
 
 ### 1. `artifacts/api-server/package.json`
-Changed `"test"` from `vitest run --pool=threads` (raw, unsafe) to `tsx src/test-infra/dbTestPreflightRunner.ts` (fail-closed preflight).
+Changed `"test"` from raw `vitest run --pool=threads` to `tsx src/test-infra/dbTestPreflightRunner.ts` (fail-closed preflight).
 
 | Script | Before | After |
 |---|---|---|
 | `test` | `vitest run --pool=threads` (RAW — unsafe) | `tsx src/test-infra/dbTestPreflightRunner.ts` (FAIL-CLOSED) |
-| `test:unit` | `vitest run --config vitest.config.unit.ts --pool=threads` | unchanged |
+| `test:unit` | unchanged | unchanged |
 | `test:db` | `tsx src/test-infra/dbTestPreflightRunner.ts` | unchanged |
-
-No raw `vitest run` bypass remains except `test:unit`, which uses the strict positive-allowlist config.
 
 ### 2. `artifacts/api-server/src/test-infra/dbTestGuard.ts`
 Added 3 new reason codes and 3 new validation steps:
 - Step 7: `TEST_RUN_ID` format validation — `TEST_RUN_ID_FORMAT_INVALID`
-- Step 9: run ID present in DB name — `TEST_RUN_ID_TARGET_MISMATCH`
+- Step 9: run ID embedded in DB name — `TEST_RUN_ID_TARGET_MISMATCH`
 - Step 11: external-service mock confirmation — `TEST_EXTERNAL_SERVICES_NOT_MOCKED`
 
-### 3. `artifacts/api-server/src/test-infra/dbTestPreflightRunner.ts`
-Added:
-- `PRODUCTION_SECRETS` — list of all project-verified secret env var names (static-grep sourced)
-- `EXECUTION_SWITCH_OVERRIDES` — project-verified kill switches forced to disabled values
-- `buildIsolatedChildEnv()` — exported pure function that builds sanitized child env
-- Updated `runPreflightCheck` to pass `buildIsolatedChildEnv(env)` as child env to spawn
-
-### 4. `artifacts/api-server/vitest.config.unit.ts`
-Replaced wildcard include + exclusion list with single-file positive allowlist:
-```
+### 3. `artifacts/api-server/src/test-infra/vitest.config.unit.ts`
+Replaced wildcard `include` + denylist `exclude` with a POSITIVE ALLOWLIST:
+```typescript
 include: ["src/test-infra/dbTestGuard.test.ts"]
 ```
-No wildcard. No exclusion list. PURE_UNIT_CONFIRMED = 1.
-
-### 5. `artifacts/api-server/src/test-infra/dbTestGuard.test.ts`
-- Updated `VALID_ENV`: added `TEST_EXTERNAL_SERVICES_MOCKED: "true"`, changed run ID to `"run-abc123"` and DB name to `"nse_vitest_run-abc123"` (run ID embedded in DB name).
-- Updated test 19 (runId assertion) and test 21 (URL to match new VALID_ENV).
-- Replaced old tests 25–26 (weak script assertions) with 23 new tests across 7 new describe blocks.
-- Total: **47 tests** (24 kept + 23 new).
+No wildcards. No exclusion lists.
 
 ---
 
-## All reason codes
+## Allowlist-correction changes (2026-07-20, this session)
 
-| Code | Trigger |
+### 4. `artifacts/api-server/src/test-infra/dbTestPreflightRunner.ts`
+
+**Policy changed:** `CLONE_AND_DENYLIST` → `EXPLICIT_ALLOWLIST`
+
+**Before:** `buildIsolatedChildEnv()` iterated all parent env entries and copied everything not in a 14-key denylist. Unknown credentials, preload hooks, and proxy variables survived.
+
+**After:** `buildIsolatedChildEnv()` starts from an **empty object** and copies only keys present in `CHILD_PROCESS_ENV_ALLOWLIST`. All other parent keys are dropped automatically — no denylist needed.
+
+#### Exported `CHILD_PROCESS_ENV_ALLOWLIST` (14 keys, individually justified)
+
+| Key | Justification |
 |---|---|
-| `NOT_TEST_ENV` | `NODE_ENV !== "test"` |
-| `TEST_DATABASE_URL_MISSING` | `TEST_DATABASE_URL` absent/empty/non-postgres |
-| `OPERATIONAL_DATABASE_FALLBACK_FORBIDDEN` | `TEST_DATABASE_URL` absent, `DATABASE_URL` present |
-| `TEST_EQUALS_OPERATIONAL_TARGET` | Canonical host:port/db matches operational URL |
-| `TEST_TARGET_NOT_ISOLATED` | DB name contains denylist fragment OR lacks isolation keyword |
-| `TEST_RUN_ID_MISSING` | `TEST_RUN_ID` absent or empty after trim |
-| `TEST_RUN_ID_FORMAT_INVALID` | `TEST_RUN_ID` fails `/^[A-Za-z0-9_-]{8,64}$/` |
-| `TEST_RUN_ID_TARGET_MISMATCH` | DB name does not contain normalized run ID |
-| `TEST_DB_CONFIRMATION_MISSING` | `TEST_DB_ISOLATION_CONFIRMED !== "true"` |
-| `TEST_EXTERNAL_SERVICES_NOT_MOCKED` | `TEST_EXTERNAL_SERVICES_MOCKED !== "true"` |
-| `VALID_ISOLATED_TEST_CONFIGURATION` | All 10 checks pass (success) |
+| `PATH` | Locate node/vitest/pnpm executables |
+| `HOME` | Node/npm home for package resolution and .npmrc lookup |
+| `TMPDIR` | macOS/Linux primary temp dir |
+| `TMP` | Cross-platform fallback (Windows, some Linux) |
+| `TEMP` | Windows/cross-platform fallback |
+| `LANG` | System locale (e.g. `en_US.UTF-8`) |
+| `LC_ALL` | Overrides all `LC_*` locale categories |
+| `LC_CTYPE` | Character classification and encoding |
+| `TZ` | Time-zone for deterministic timestamp-sensitive tests |
+| `CI` | Vitest CI mode (compact output, exit on first failure) |
+| `TERM` | Terminal type for ANSI/formatting |
+| `FORCE_COLOR` | Force colour output even when not a TTY |
+| `NO_COLOR` | Disable colour output |
 
----
+Keys **not** included (explicitly excluded by policy, not by denylist):
+- `NODE_OPTIONS`, `NODE_PATH` — preload/module-path injection
+- `LD_PRELOAD`, `DYLD_INSERT_LIBRARIES` — library injection
+- `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, `NO_PROXY`, `GRPC_PROXY`, `http_proxy`, `https_proxy` — proxy routing
+- `NPM_CONFIG_PROXY`, `NPM_CONFIG_HTTPS_PROXY` — package-manager proxy
+- All credential, token, secret, webhook, API-key, session, cookie, broker, Telegram, INDstocks, mirror, database-path, and metrics-token variables
+- All unknown future parent variables (dropped automatically)
 
-## Project-verified secrets stripped from child environment
+#### Generated test-only keys (set explicitly, not inherited)
 
-Source: static grep of `artifacts/api-server/src/` for `process.env["VAR_NAME"]`.
-
-| Env var | Source file(s) |
+| Key | Value |
 |---|---|
-| `APP_ACCESS_PASSWORD` | `auth.ts`, `kiteAuth.ts` |
-| `GLOBAL_APP_ACCESS_PASSWORD` | `global/auth.ts` |
-| `SESSION_SECRET` | session config |
-| `TRADINGVIEW_WEBHOOK_SECRET` | `systemStatus.ts` |
-| `KITE_API_KEY` | `kiteAuth.ts` |
-| `KITE_API_SECRET` | `kiteAuth.ts` |
-| `TELEGRAM_BOT_TOKEN` | `alerting.ts`, `telegramBotCommands.ts` |
-| `TELEGRAM_CHAT_ID` | `alerting.ts`, `telegramBotCommands.ts` |
-| `PREPOST_TELEGRAM_BOT_TOKEN` | `alerting.ts` |
-| `PREPOST_TELEGRAM_CHAT_ID` | `alerting.ts` |
-| `INDSTOCKS_API_TOKEN` | `indstocksClient.ts`, `indstocksTokenStore.ts` |
-| `PARITY_TEST_TELEGRAM_BOT_TOKEN` | `tradeLifecycle/parityHarness.ts` |
-| `PARITY_TEST_TELEGRAM_CHAT_ID` | `tradeLifecycle/parityHarness.ts` |
+| `NODE_ENV` | `"test"` |
+| `DATABASE_URL` | validated `TEST_DATABASE_URL` value |
+| `TEST_DATABASE_URL` | validated `TEST_DATABASE_URL` value |
+| `TEST_RUN_ID` | validated run ID (from guard-passed parent) |
+| `TEST_DB_ISOLATION_CONFIRMED` | `"true"` |
+| `TEST_EXTERNAL_SERVICES_MOCKED` | `"true"` |
+| + all `EXECUTION_SWITCH_OVERRIDES` entries | see below |
 
-`DATABASE_URL` is also removed and replaced with the validated `TEST_DATABASE_URL` value.
+#### Expanded `EXECUTION_SWITCH_OVERRIDES` (7 entries)
 
----
+| Switch | Forced value | Parser semantics (static inspection 2026-07-20) | Default when absent |
+|---|---|---|---|
+| `PAPER_TRADING_ENABLED` | `"false"` | TRUTHY/FALSY set; `"false"` → FALSY → disabled | auto-detect via REPLIT_DEPLOYMENT |
+| `REPLIT_DEPLOYMENT` | `"0"` | strict `=== "1"`; `"0"` → false at all 7 read sites | undefined → false |
+| `INDSTOCKS_ENABLED` | `"0"` | `envFlag()` FALSY set; `"0"` → disabled (default false) | false |
+| `CANDLE_WAREHOUSE_ENABLED` | `"0"` | TRUTHY/FALSY set; `"0"` → FALSY → disabled | auto-detect via REPLIT_DEPLOYMENT |
+| `OPTION_SNAPSHOT_ENABLED` | `"0"` | TRUTHY/FALSY set; `"0"` → disabled | auto-detect via REPLIT_DEPLOYMENT |
+| `REASONING_WRITER_V2_ENABLED` | `"0"` | strict `=== "1"`; `"0"` → false | undefined → false |
+| `LIVE_CASH_SWING_ORDER_ENABLED` | `"false"` | TRUTHY set; `"false"` not in TRUTHY → false (disabled) | false |
 
-## Project-verified execution switches forced to disabled
+#### Switches intentionally absent from overrides (provably safe or pure-calculation only)
 
-Source: static grep of `artifacts/api-server/src/` for `process.env["SWITCH_NAME"]`.
-
-| Env var | Forced value | Source file(s) |
+| Switch | Absent default | Reason for omission |
 |---|---|---|
-| `PAPER_TRADING_ENABLED` | `"false"` | `paperAutoTradeFlag.ts` |
-| `REPLIT_DEPLOYMENT` | `"0"` | `paperAutoTradeFlag.ts`, `candleWarehouseIngestor.ts`, `optionChainSnapshotIngestor.ts` |
-| `INDSTOCKS_ENABLED` | `"0"` | `indstocksRouter.ts` (indirectly via policy.ts) |
+| `PAPER_FO_COSTS_SHADOW_ENABLED` | `true` | Pure shadow/reporting; no external call, no broker action |
+| `PAPER_FO_SHADOW_EXITS_ENABLED` | `true` | Pure shadow/reporting; no external call, no broker action |
+| `FNO_SIGNAL_HYGIENE_V2` | `true` (blocks bad trades) | Pure signal gate; default ON is the conservative safety choice |
+| `SWING_CASH_EXECUTION_MODE` | `"paper_only"` | Safe default; no external call |
+| `SWING_SHADOW_DIAG_ENABLED` | `true` | Owner-only diagnostic route; no external call |
+
+#### `PRODUCTION_SECRETS` (expanded from 13 to 23 entries)
+
+Now documents all project-verified secrets for audit traceability. Security no longer depends on this list — the EXPLICIT_ALLOWLIST drops everything not on the allowlist regardless.
+
+Added since corrective task: `KITE_TOKEN_ENC_KEY`, `KITE_TOKEN_ENC_KEY_OLD`, `KITE_TOKEN_ENC_KEY_NEW`, `KITE_MIRROR_URL`, `KITE_MIRROR_ALLOWED_HOSTS`, `METRICS_TOKEN`, `RESEND_API_KEY`, `SENDGRID_API_KEY`, `DEAD_SYMBOL_WEBHOOK_URL`, `ENV_FILE_PATH`.
 
 ---
 
-## Child environment key policy
+## Test evidence
 
-```
-NODE_ENV                    = "test"                        (forced)
-DATABASE_URL                = <TEST_DATABASE_URL value>     (replaced)
-TEST_DATABASE_URL           = <TEST_DATABASE_URL value>     (preserved)
-PAPER_TRADING_ENABLED       = "false"                       (forced disabled)
-REPLIT_DEPLOYMENT           = "0"                           (forced disabled)
-INDSTOCKS_ENABLED           = "0"                           (forced disabled)
-APP_ACCESS_PASSWORD         = STRIPPED
-GLOBAL_APP_ACCESS_PASSWORD  = STRIPPED
-SESSION_SECRET              = STRIPPED
-TRADINGVIEW_WEBHOOK_SECRET  = STRIPPED
-KITE_API_KEY                = STRIPPED
-KITE_API_SECRET             = STRIPPED
-TELEGRAM_BOT_TOKEN          = STRIPPED
-TELEGRAM_CHAT_ID            = STRIPPED
-PREPOST_TELEGRAM_BOT_TOKEN  = STRIPPED
-PREPOST_TELEGRAM_CHAT_ID    = STRIPPED
-INDSTOCKS_API_TOKEN         = STRIPPED
-PARITY_TEST_TELEGRAM_BOT_TOKEN = STRIPPED
-PARITY_TEST_TELEGRAM_CHAT_ID   = STRIPPED
-PATH, HOME, and other runtime vars = passed through
-```
+### Typecheck
 
-Values and secrets are never logged.
-
----
-
-## EXTERNAL_NETWORK_RUNTIME_ISOLATION: UNPROVED
-
-Configuration-level isolation is enforced. The child environment has secrets stripped and kill switches set to disabled values. However:
-- Application modules that bypass env-var gating (e.g. hardcoded endpoints, cached token variables) may still attempt outbound network connections.
-- No outbound network blocking infrastructure (firewall rule, network namespace, mock server binding) is in place.
-- `TEST_EXTERNAL_SERVICES_MOCKED=true` is a caller-supplied assertion, not a verified runtime guarantee.
-
-This limitation is acknowledged in the guard's reason text and in the `buildIsolatedChildEnv` JSDoc.
-
----
-
-## All 47 test names and results
-
-**Command:**
-```
-cd artifacts/api-server && \
-  node_modules/.bin/vitest run --config vitest.config.unit.ts --pool=threads
-```
-
-**Result: 47 tests passed, 0 failed, 0 skipped. Duration: ~846 ms.**
-
-| # | Describe | it |
+| Attempt | Command | Result |
 |---|---|---|
-| 1 | NOT_TEST_ENV | rejects when NODE_ENV is absent |
-| 2 | NOT_TEST_ENV | rejects when NODE_ENV is 'development' |
-| 3 | NOT_TEST_ENV | rejects when NODE_ENV is 'production' |
-| 4 | TEST_DATABASE_URL_MISSING | rejects when absent and DATABASE_URL also absent |
-| 5 | TEST_DATABASE_URL_MISSING | rejects when whitespace and no DATABASE_URL fallback |
-| 6 | TEST_DATABASE_URL_MISSING | rejects when not a valid postgres URL |
-| 7 | OPERATIONAL_DATABASE_FALLBACK_FORBIDDEN | rejects when TEST_DATABASE_URL absent but DATABASE_URL present |
-| 8 | TEST_EQUALS_OPERATIONAL_TARGET | rejects when textually identical |
-| 9 | TEST_EQUALS_OPERATIONAL_TARGET — port canonicalization | rejects when implicit/explicit port 5432 same target |
-| 10 | TEST_EQUALS_OPERATIONAL_TARGET — hostname case | rejects when PROD-DB.INTERNAL vs prod-db.internal |
-| 11 | TEST_DB_CONFIRMATION_MISSING | rejects when TEST_DB_ISOLATION_CONFIRMED absent |
-| 12 | TEST_DB_CONFIRMATION_MISSING | rejects when 'false' |
-| 13 | TEST_DB_CONFIRMATION_MISSING | rejects when '1' (not 'true') |
-| 14 | TEST_RUN_ID_MISSING | rejects when absent |
-| 15 | TEST_RUN_ID_MISSING | rejects when whitespace only |
-| 16 | TEST_TARGET_NOT_ISOLATED — denylist | rejects when DB name contains 'nse_scanner' |
-| 17 | TEST_TARGET_NOT_ISOLATED — denylist | rejects when DB name exactly 'nse_scanner' |
-| 18 | TEST_TARGET_NOT_ISOLATED — denylist | rejects when no isolation keyword |
-| 19 | VALID_ISOLATED_TEST_CONFIGURATION | accepts structurally valid dummy without connecting |
-| 20 | VALID_ISOLATED_TEST_CONFIGURATION | accepts when DATABASE_URL absent (offline CI) |
-| 21 | Redacted fingerprint | fingerprint has no password/username/query params |
-| 22 | runPreflightCheck — blocks when guard fails | rejects with code when NODE_ENV wrong; spawn not called |
-| 23 | runPreflightCheck — blocks when guard fails | rejects when TEST_DATABASE_URL missing; spawn not called |
-| 24 | runPreflightCheck — calls spawn sentinel on valid config | invokes spawnFn with vitest args without connecting |
-| 25 | TEST_EXTERNAL_SERVICES_NOT_MOCKED | rejects when TEST_EXTERNAL_SERVICES_MOCKED absent |
-| 26 | TEST_EXTERNAL_SERVICES_NOT_MOCKED | rejects when TEST_EXTERNAL_SERVICES_MOCKED is '0' |
-| 27 | TEST_RUN_ID_FORMAT_INVALID | rejects when fewer than 8 characters |
-| 28 | TEST_RUN_ID_FORMAT_INVALID | rejects when contains invalid character (space) |
-| 29 | TEST_RUN_ID_FORMAT_INVALID | rejects when more than 64 characters |
-| 30 | TEST_RUN_ID_TARGET_MISMATCH | rejects when DB name does not contain normalized run ID |
-| 31 | buildIsolatedChildEnv — database URL isolation | child DATABASE_URL equals TEST_DATABASE_URL, not operational URL |
-| 32 | buildIsolatedChildEnv — database URL isolation | operational DATABASE_URL value absent from all child entries |
-| 33 | buildIsolatedChildEnv — production secrets stripped | all PRODUCTION_SECRETS keys absent from child env |
-| 34 | buildIsolatedChildEnv — production secrets stripped | Kite credentials absent from child env values |
-| 35 | buildIsolatedChildEnv — production secrets stripped | Telegram and parity tokens absent from child env values |
-| 36 | buildIsolatedChildEnv — execution switches forced disabled | PAPER_TRADING_ENABLED forced to 'false' |
-| 37 | buildIsolatedChildEnv — execution switches forced disabled | REPLIT_DEPLOYMENT forced to '0' |
-| 38 | buildIsolatedChildEnv — execution switches forced disabled | INDSTOCKS_ENABLED forced to '0' |
-| 39 | runPreflightCheck — spawn receives isolated child environment | DATABASE_URL=TEST_DATABASE_URL; operational URL absent; PAPER_TRADING_ENABLED disabled |
-| 40 | Package-script mandatory preflight enforcement | 'test' routes through dbTestPreflightRunner |
-| 41 | Package-script mandatory preflight enforcement | 'test' is not a raw vitest invocation |
-| 42 | Package-script mandatory preflight enforcement | 'test:db' routes through dbTestPreflightRunner |
-| 43 | Package-script mandatory preflight enforcement | 'test:db' is not a raw vitest invocation |
-| 44 | Package-script mandatory preflight enforcement | 'test:unit' uses vitest.config.unit.ts |
-| 45 | Package-script mandatory preflight enforcement | no script other than 'test:unit' launches an unguarded vitest run |
-| 46 | Positive unit allowlist — strict one-file include | vitest.config.unit.ts include has only guard test; no wildcard |
-| 47 | Positive unit allowlist — strict one-file include | vitest.config.unit.ts has no broad exclusion list |
+| 1 (only) | `pnpm --filter @workspace/api-server run typecheck` (`tsc -p tsconfig.json --noEmit`) | **Exit 0 — clean** |
+
+### Unit test run
+
+| Attempt | Command | Passed | Failed | Skipped | Duration |
+|---|---|---|---|---|---|
+| 1 (only) | `vitest run --config vitest.config.unit.ts --pool=threads` | **81** | **0** | **0** | ~798 ms |
+
+No DB connection opened. No real secrets read. No real spawn. No network call.
 
 ---
 
-## Typecheck result
+## Label status
 
-```
-pnpm --filter @workspace/api-server run typecheck
-→ tsc -p tsconfig.json --noEmit
-→ Exit 0 (clean)
-```
-
----
-
-## Test run history (corrective task, separate from initial P0.1 runs)
-
-| Run | Command | Result |
+| Label | Status | Evidence |
 |---|---|---|
-| 1 | `vitest run --config vitest.config.unit.ts --pool=threads` | 47/47 passed — first run, clean |
-
-No failed attempts in the corrective task.
-
----
-
-## Hard prohibitions confirmed not violated
-
-- ✅ No DB connection opened
-- ✅ No existing application tests executed
-- ✅ No production source files modified
-- ✅ No workflow restart
-- ✅ No merge/push/deploy
-- ✅ No Kite/Telegram API calls
-- ✅ No real environment variables read (all tests use injected objects)
-- ✅ `test` and `test:db` not executed (no isolated DB provisioned)
-
----
-
-## Honest status labels
-
-| Label | Status |
-|---|---|
-| `DEFAULT_TEST_FAIL_CLOSED` | **PROVED** — `pnpm run test` now routes through preflight; raw bypass removed |
-| `OPERATIONAL_DATABASE_CHILD_LEAK` | **PROVED_ABSENT** — configuration-level; `DATABASE_URL` replaced in child env by `buildIsolatedChildEnv`; confirmed by test 31–32 and test 39 |
-| `PURE_UNIT_ALLOWLIST` | **PROVED** — positive one-file allowlist; no wildcard; confirmed by tests 46–47 |
-| `EXTERNAL_NETWORK_RUNTIME_ISOLATION` | **UNPROVED** — kill switches set in child env; no outbound network block |
-| `TEST_DATABASE_ISOLATION_RUNTIME_PROOF` | **NOT_RUN_NO_DATABASE_AUTHORITY** — no isolated DB provisioned |
+| `DEFAULT_TEST_FAIL_CLOSED` | PROVED | `"test"` routes through preflight; guard blocks on any failure before spawn |
+| `OPERATIONAL_DATABASE_CHILD_LEAK` | PROVED_ABSENT | DATABASE_URL stripped; child receives TEST_DATABASE_URL value only |
+| `PURE_UNIT_ALLOWLIST` | PROVED | One-file positive include, no wildcard |
+| `CHILD_ENV_POLICY` | **EXPLICIT_ALLOWLIST** | Empty-object start; only CHILD_PROCESS_ENV_ALLOWLIST keys copied |
+| `UNKNOWN_SECRET_CHILD_LEAK` | **PROVED_ABSENT_AT_CHILD_ENV_CONSTRUCTION** | Allowlist policy: unknown keys dropped automatically; 100-key property test passes |
+| `NODE_PRELOAD_CHILD_RISK` | **PROVED_ABSENT_AT_CHILD_ENV_CONSTRUCTION** | NODE_OPTIONS, NODE_PATH, LD_PRELOAD, DYLD_INSERT_LIBRARIES not on allowlist; confirmed absent in tests 61–64 |
+| `PROXY_ENV_CHILD_RISK` | **PROVED_ABSENT_AT_CHILD_ENV_CONSTRUCTION** | No proxy variable is on the allowlist; confirmed absent in tests 65–73 |
+| `EXTERNAL_NETWORK_RUNTIME_ISOLATION` | **UNPROVED** | Application modules bypassing env-var gating may still attempt outbound connections |
+| `TEST_DATABASE_ISOLATION_RUNTIME_PROOF` | **NOT_RUN_NO_DATABASE_AUTHORITY** | No isolated DB provisioned; runtime SQL proof pending owner provisioning |
