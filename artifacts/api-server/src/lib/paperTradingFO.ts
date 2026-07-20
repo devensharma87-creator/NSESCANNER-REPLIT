@@ -565,31 +565,6 @@ export async function openPaperTrade(input: LifecycleHookInput): Promise<PaperTr
     logger.info({ indexSymbol }, "Paper FO skip: unknown lot size");
     return null;
   }
-
-  // ─── P0-D: Contract-grade backstop (fail-closed) ────────────────────
-  // If the lot size was sourced from the static fallback (Kite instrument
-  // master cold / unreachable), the contract identity (lot size, instrument
-  // token, and strike step) cannot be verified against the live exchange
-  // master. Block until the Kite instrument cache is warm.
-  //
-  // C0 (FNO_AUTO_OPEN_C0_BLOCKED) already blocks all opens. This gate is
-  // defense-in-depth: when C0 is eventually lifted after owner approval,
-  // this ensures no paper trade opens against unverified contract specs.
-  // getLotSizeSource() returns "instrument_master" when the Kite cache is
-  // warm, or "static_fallback" when it is cold.
-  {
-    const contractGrade = getLotSizeSource(indexSymbol);
-    if (contractGrade === "static_fallback") {
-      if (recordSkip("CONTRACT_NOT_TRADE_GRADE")) {
-        logger.info(
-          { indexSymbol, setupKey, tier, confidence, contractGrade },
-          "Paper FO skip: contract grade is static_fallback — Kite instrument master not warm (CONTRACT_NOT_TRADE_GRADE)",
-        );
-      }
-      return null;
-    }
-  }
-
   // Ensure the new contract-master provenance columns exist on first write
   // (memoized — no-op after the first call).
   await ensureContractMasterSchemaColumns();
@@ -3308,13 +3283,7 @@ export type SkipReason =
   /** Ledger drift detected: paper_account.balance diverges from trade+capital-event ledger. */
   | "LEDGER_RECONCILIATION_FAILED"
   /** Ledger reconciliation query failed; opens blocked by fail-closed gate. */
-  | "LEDGER_RECONCILIATION_QUERY_ERROR"
-  /**
-   * P0-D: Lot size is from static fallback (Kite instrument master cold).
-   * Contract identity cannot be verified from the live exchange master.
-   * Blocked until the Kite instrument cache is warm (instrument_master grade).
-   */
-  | "CONTRACT_NOT_TRADE_GRADE";
+  | "LEDGER_RECONCILIATION_QUERY_ERROR";
 
 export interface MissedSignal {
   signalDate: string;

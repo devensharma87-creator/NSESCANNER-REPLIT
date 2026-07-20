@@ -260,32 +260,6 @@ export async function openPaperEquityTrade(
     return null;
   }
 
-  // ─── Pass-1 levels-provenance gate (P0-D, fail-closed) ─────────────
-  // Swing levels (ATR-14 and 20-bar swing low) are computed from Yahoo
-  // Finance delayed daily candles. Until migrated to Kite historical
-  // candles, levelsSource === "yahoo", which means the stop/target plan
-  // is research-grade only and MUST NOT be used as a paper-trade fill.
-  //
-  // C0 (EQUITY_AUTO_OPEN_C0_BLOCKED) already blocks all auto-opens.
-  // This gate is defense-in-depth: when C0 is eventually lifted after
-  // owner approval of Phase 1 (Kite candle warehouse integration), opens
-  // will only be permitted once levelsSource has been upgraded to "kite".
-  // This prevents a future caller from inadvertently bypassing the
-  // provenance contract by only lifting C0 without upgrading levels.
-  if (signal.levelsSource !== "kite") {
-    logger.info(
-      { symbol: signal.symbol, levelsSource: signal.levelsSource, levelsWarnings: signal.levelsWarnings },
-      "Paper EQ skip: swing levels are not Kite trade-grade (LEVELS_NOT_TRADE_GRADE)",
-    );
-    await recordEqDecision({
-      symbol: signal.symbol, decision: "SKIP", reason: "LEVELS_NOT_TRADE_GRADE",
-      detail: `Levels source '${signal.levelsSource}' is not trade-grade — requires Kite historical candles`,
-      signal: sigLabel, score: signal.score,
-      entry: signal.entryPrice, stop: signal.stopPrice, source: opts?.source ?? "AUTO",
-    });
-    return null;
-  }
-
   // ─── Pass-1 portfolio drawdown caps (D / W / M) ────────────────────
   // Sticky-once-hit. Daily 2% / Weekly 4% / Monthly 8% of seed.
   const [eqDaily, eqWeekly, eqMonthly] = await Promise.all([
