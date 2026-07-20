@@ -1,0 +1,142 @@
+Continue the recovery report in READ-ONLY mode only.
+
+Your previous response was truncated at test number 12. Do not repeat completed sections 1–3. Do not modify files, commit, checkpoint, branch, reset, revert, stash, run tests, access the database, invoke an application endpoint, restart, deploy, publish, or call Telegram/Kite.
+
+The project remains frozen at:
+
+`9bd8f92a541427b421804020a8df2a8c19115a3a`
+
+Do not call Phase 0 complete.
+
+Return the missing evidence in four short, separately labelled parts so the response is not truncated.
+
+PART A — COMPLETE TEST AND SIDE-EFFECT REPORT
+
+Resume with test 13 and provide all remaining test names through test 18.
+
+Then report:
+
+1. Exact typecheck commands and results.
+2. Tests passed, failed, skipped and timed out separately.
+3. Whether `TEST_DATABASE_URL` was present.
+4. Whether ordinary `DATABASE_URL` was present.
+5. Whether the test setup/config imported `@workspace/db`.
+6. Whether any setup file, global hook or imported module could initialise the operational pool.
+7. Whether the passing test run used an isolated database fingerprint.
+8. Whether Telegram, Kite and broker adapters were mocked.
+9. Whether any Replit workflow automatically hot-reloaded after source files changed.
+10. Source, preview and published runtime SHA status based only on evidence already collected.
+
+Use these exact classifications:
+
+* `TEST_DATABASE_ISOLATION: PROVED` or `UNPROVED`
+* `OPERATIONAL_DB_WRITES: PROVED_ZERO`, `POSSIBLE`, or `UNKNOWN`
+* `LIVE_TELEGRAM_SENDS: PROVED_ZERO`, `POSSIBLE`, or `UNKNOWN`
+* `KITE/BROKER_CALLS: PROVED_ZERO`, `POSSIBLE`, or `UNKNOWN`
+* `PREVIEW_HOT_RELOAD: PROVED`, `DISPROVED`, or `UNPROVED`
+
+Do not infer zero side effects from green tests.
+
+PART B — ACTUAL CODE-INTEGRATION PROOF
+
+Using read-only source search and diff inspection only, report every import and call site for:
+
+* `evaluateAdmission`;
+* `TradeAdmissionDecision`;
+* `testIsolationGuard`;
+* its test-startup/sentinel function;
+* `invalidSessionDetector`;
+* `isTradeGradeSwingRow`;
+* `LEVELS_NOT_TRADE_GRADE`;
+* `CONTRACT_NOT_TRADE_GRADE`.
+
+For each one state:
+
+* defined location;
+* imported locations;
+* actual production call sites;
+* actual test call sites;
+* whether it is wired into every intended runtime path;
+* whether it is merely standalone/dead code;
+* whether callers can provide or override the C0 booleans;
+* whether actual C0 constants—not test-supplied values—control the decision;
+* whether the boundary enforces canonical session, official calendar, quote freshness, provenance, ledger status, contract token, system mode, risk limits and idempotency;
+* whether manual, automatic, staged, combo and reconciliation entry paths all reach it.
+
+Directly testing a standalone helper is not runtime integration proof.
+
+Specifically answer:
+
+1. Did `tradeAdmissionDecision.ts` get imported by `paperTradingEq.ts`?
+2. Did it get imported by `paperTradingFO.ts`?
+3. Did it get imported by combo/manual/staged/reconciliation writers?
+4. Is `testIsolationGuard.ts` automatically executed before every DB-backed test, or was it tested only as a standalone helper?
+5. Does `invalidSessionDetector.ts` import the operational `@workspace/db` package?
+6. Is the detector reachable from any route, startup hook or scheduler?
+7. Can importing the detector create an operational connection?
+8. Does `isTradeGradeSwingRow()` independently verify freshness and source, or merely trust `rowSource.canDriveSignals`?
+9. Are the newly added EQ/F&O guards positioned at a shared writer boundary or only inside selected functions?
+10. Did any modification correct the original missing canonical market-session guard or misuse of `signal.triggeredAt`?
+
+Classify each result as `PROVED`, `LIKELY`, `UNPROVED` or `DISPROVED`.
+
+PART C — DELIVERABLE VALIDITY AND ACCEPTANCE GAPS
+
+For each of the nine created `memory/` deliverables state:
+
+* complete or incomplete;
+* evidence-backed or assumption-generated;
+* whether written before the relevant implementation/testing finished;
+* material statements now contradicted by the recovery report;
+* whether it incorrectly claims operational DB isolation, zero side effects, runtime integration or Phase 0 completion.
+
+Then provide the status of every required acceptance item:
+
+* complete 54-file hunk-level matrix;
+* all 44 partial files adjudicated;
+* complete state-writer inventory;
+* all open paths using one admission boundary;
+* canonical session gate at the writer boundary;
+* server/database time separated from `signal.triggeredAt`;
+* GET/HEAD zero-write proof;
+* isolated disposable database proof;
+* historical invalid-session detector execution and counts;
+* F&O ₹799,772.70 drift reproduction;
+* equity test-row contamination classification;
+* six deleted-row owner classification;
+* 15–17 July durable-worker root cause;
+* source/preview/published build identity;
+* scanner row-level provenance;
+* missing PCR semantics;
+* Kite session-export security;
+* F&O rollover and missed-15:20 conservation tests;
+* full API test suite;
+* full workspace typecheck;
+* zero operational database mutations;
+* zero production Telegram messages;
+* C0 constants still true;
+* broker execution still disabled.
+
+Use only `PASSED`, `FAILED`, `NOT_IMPLEMENTED`, `NOT_RUN`, `UNPROVED`, or `OWNER_DECISION_REQUIRED`.
+
+PART D — RECOVERY OPTIONS WITHOUT EXECUTION
+
+Based on the actual repository state, present non-destructive owner options for preserving commit `9bd8f92` for forensic review while protecting `main`.
+
+Do not execute any option.
+
+Include:
+
+1. Preserve the current commit under an owner-created recovery branch.
+2. Review and retain only independently accepted hunks.
+3. Restore `main` through a reviewed method after the recovery branch exists.
+4. Reimplement accepted fixes on a proper isolated branch.
+5. Risks of allowing the current auto-checkpoint to remain on `main`.
+
+Do not recommend `git reset --hard`, deletion, cleanup or history rewriting.
+
+End with exactly:
+
+`PHASE 0 STATUS: INVALIDATED — MAIN CONTAINS UNAUTHORIZED AUTO-CHECKPOINT 9bd8f92 — OWNER RECOVERY DECISION REQUIRED`
+
+Wait for owner instructions.
