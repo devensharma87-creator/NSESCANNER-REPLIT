@@ -364,6 +364,28 @@ export async function buildSwingSignalFromRow(
 }
 
 /**
+ * P0-D: Row-level trade-grade check for swing signals.
+ *
+ * Returns true ONLY when the row's underlying quote is Kite trade-grade
+ * (rowSource.canDriveSignals === true). Yahoo, stale, EOD, and offline
+ * rows always return false.
+ *
+ * This is NOT a signal filter on its own — callers must also enforce the
+ * C0 hard-block constants (EQUITY_AUTO_OPEN_C0_BLOCKED), session rules,
+ * and level-provenance gates. This function is defense-in-depth: it
+ * prevents Yahoo-sourced scanner rows from reaching the trade writer even
+ * after C0 is eventually lifted.
+ *
+ * Undefined/missing rowSource → provenance unknown → fail closed (false).
+ */
+export function isTradeGradeSwingRow(row: StockRow): boolean {
+  // canDriveSignals is only true for fresh Kite intraday rows.
+  // An absent rowSource field means the scanner cache pre-dates the
+  // Part D provenance contract — treat as not trade-grade.
+  return row.rowSource?.canDriveSignals === true;
+}
+
+/**
  * Build SwingSignals for every STRONG_BUY scanner row that passes the
  * universe + score filter. Concurrent Yahoo fetches for the level
  * computation are allowed because the count is naturally tiny — the

@@ -41,6 +41,12 @@ export type EqAuditReason =
   /** Ledger drift detected or reconcile query failed; opens blocked by fail-closed gate. */
   | "LEDGER_RECONCILIATION_FAILED"
   | "LEDGER_RECONCILIATION_QUERY_ERROR"
+  /**
+   * P0-D: Swing levels sourced from Yahoo Finance delayed daily candles.
+   * Stop/target plan is research-grade only — not a valid trade fill level.
+   * Gate blocks until levelsSource is upgraded to "kite" (Phase 1).
+   */
+  | "LEVELS_NOT_TRADE_GRADE"
   // OPEN
   | "OPENED";
 
