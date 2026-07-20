@@ -1,0 +1,47 @@
+Complete the P0.1 corrective task report. Do not make further code changes or run additional tests.
+
+Perform read-only Git/source inspection only and provide:
+
+1. Current branch, exact HEAD SHA and exact `main` SHA.
+2. `git status --short --branch`.
+3. Latest four commits with decorations.
+4. Exact auto-checkpoint/corrective commit SHA and message.
+5. Complete changed-file list:
+
+   * `83c58dd..HEAD`;
+   * `4c799d4..HEAD`.
+6. Separate committed, staged, unstaged and untracked files.
+7. Confirm whether the corrective work-order attachment or freeze attachments were auto-committed.
+8. Exact final package scripts for `test`, `test:unit` and `test:db`.
+9. Exact positive include list from `vitest.config.unit.ts`.
+10. All final guard reason codes.
+11. The validated child-environment behaviour:
+
+    * child `DATABASE_URL` source;
+    * whether operational `DATABASE_URL` is absent;
+    * secrets stripped;
+    * actual project-recognized kill switches forced off;
+    * external-service mock confirmation required.
+12. List the actual kill-switch and secret environment-variable names found through static source inspection. Do not print values.
+13. All 47 test names and final counts.
+14. Every test/typecheck attempt separately, including failures, skipped and timed-out counts.
+15. Confirm that only the five permitted test-infrastructure/package files and two P0.1 evidence documents changed.
+16. Confirm no database, endpoint, Kite, Telegram, broker or external network contact.
+17. Confirm no workflow restart, migration, merge, push, publish or deployment.
+18. Provide the updated acceptance matrix.
+
+Use these mandatory labels:
+
+* `DEFAULT_TEST_FAIL_CLOSED`
+* `OPERATIONAL_DATABASE_CHILD_LEAK`
+* `PURE_UNIT_ALLOWLIST`
+* `EXTERNAL_NETWORK_RUNTIME_ISOLATION`
+* `TEST_DATABASE_ISOLATION_RUNTIME_PROOF`
+
+Do not call external-network or database runtime isolation proved because no isolated runtime test was authorized.
+
+End exactly with:
+
+`P0.1 STATUS: LOCALLY CORRECTED — OWNER-PROVISIONED ISOLATED DATABASE AND NETWORK RUNTIME PROOF STILL REQUIRED`
+
+Wait for owner review. Do not begin P0.2.
