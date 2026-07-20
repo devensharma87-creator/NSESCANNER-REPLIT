@@ -8,7 +8,7 @@
     "build": "node ./build.mjs",
     "start": "node --enable-source-maps ./dist/index.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run --pool=threads",
+    "test": "tsx src/test-infra/dbTestPreflightRunner.ts",
     "test:unit": "vitest run --config vitest.config.unit.ts --pool=threads",
     "test:db": "tsx src/test-infra/dbTestPreflightRunner.ts",
     "backfill:swing-sector": "tsx ./src/scripts/backfill-swing-sector.ts",

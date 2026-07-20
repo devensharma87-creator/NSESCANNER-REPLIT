@@ -1,42 +1,65 @@
-# P0.1 — Test Coupling Inventory
-**Date**: 2026-07-20  
-**Branch**: phase0/authorized-remediation-20260720  
-**Scope**: artifacts/api-server (146 test files), artifacts/scanner (~30 test files)  
-**Method**: Static grep analysis only — no test execution, no DB connection.
+# P0.1 — Test Coupling Inventory (corrected 2026-07-20)
+
+**Branch:** `phase0/authorized-remediation-20260720`  
+**Baseline SHA:** `47611aa6fad3785f02f97280570f025c71fb975a`  
+**P0.1 partial SHA:** `83c58dd797a13b5607035231a25c180e4b6f4ca4`  
+**Work order:** REPLIT_CODER_P0_1_CORRECTIVE_WORK_ORDER_2026-07-20_1784554592116.md  
+**Method:** Static grep only — no module execution, no test runs  
+**Status:** INCOMPLETE — transitive coupling requires full module-graph tracing
 
 ---
 
-## Summary counts (api-server)
+## Summary counts (api-server only)
 
-| Category | Count |
+| Category | Count | Basis |
+|---|---|---|
+| Total test files | ~146 | Prior estimate; not re-counted in this task |
+| **PURE_UNIT_CONFIRMED** | **1** | `src/test-infra/dbTestGuard.test.ts` only — positive allowlist |
+| DB_DIRECT | 51 | Direct `@workspace/db`, `drizzle-orm`, or `pg.Pool` import — static grep |
+| DB_TRANSITIVE | 16+ | All `src/routes/__tests__/` — structural inference only |
+| EXTERNAL_SERVICE_DIRECT | Not separately counted | Captured in UNKNOWN |
+| EXTERNAL_SERVICE_TRANSITIVE | Not classified | Requires full module-graph trace |
+| UNKNOWN_REQUIRES_TRACE | 24 | DATABASE_URL ref, Telegram/Kite module names, or live/integration labels |
+| Files calling pool.end() | 11 | Static grep |
+| INSERT/UPDATE/DELETE/TRUNCATE | 37 | Static grep |
+| Migration/schema-ensure tests | 5 | Static grep |
+| Live/dev/production-labelled | 37 | Static grep |
+
+A file may appear in multiple categories.
+
+---
+
+## PURE_UNIT_CONFIRMED — 1 file
+
+| File | Basis for classification |
 |---|---|
-| Total test files | 146 |
-| DB_DIRECT (import @workspace/db directly) | 51 |
-| References DATABASE_URL in source | 22 |
-| DB mutation patterns (.insert/.update/.delete) | 37 |
-| Pool close (.end()) | 11 |
-| Schema-ensure / DDL | 5 |
-| vi.mock(@workspace/db) | 21 |
-| TELEGRAM references | 12 |
-| Kite/broker references | 21 |
+| `src/test-infra/dbTestGuard.test.ts` | Imports only: `vitest`, `node:fs`, `node:path`, `node:url`, `./dbTestGuard.js`, `./dbTestPreflightRunner.js`. Both imported modules use only `node:url` and `node:child_process`. Zero `@workspace/*`, zero drizzle, zero pg, zero application code. Verified by direct read of all source files. |
+
+**IMPORTANT:** "Not matched by grep" does NOT mean PURE_UNIT_CONFIRMED.  
+All other ~145 test files remain unclassified until individually traced via full module-graph analysis.
+
+The `vitest.config.unit.ts` file uses a POSITIVE ALLOWLIST containing exactly this one file.  
+This is NOT a general CI unit suite. PURE_UNIT_CONFIRMED = 1 for this configuration.
 
 ---
 
-## Classification key
+## Classification method and limitations
 
-- **DB_DIRECT** — test file directly imports `@workspace/db`, `drizzle-orm`, `pg.Pool`, or equivalent.
-- **DB_TRANSITIVE** — no direct DB import, but imports an express route handler or application module that transitively reaches `@workspace/db`.
-- **EXTERNAL_SERVICE_DIRECT** — directly imports a Telegram or Kite adapter module.
-- **UNKNOWN_REQUIRES_TRACE** — does not appear in DB_DIRECT, but references `DATABASE_URL`, external-service env vars, or is labelled `integration`/`live`/`migration` in comments. Needs full transitive trace before classifying as safe.
-- **PURE_UNIT_CONFIRMED** — confirmed safe for unit runner: no DB import, no external service, no DATABASE_URL reference, no live-DB skip guard.
+### DB_DIRECT (51 files)
+Classified by static grep for `import.*@workspace/db`, `import.*drizzle-orm`, `pg\.Pool`.
+
+### DB_TRANSITIVE (routes)
+All files under `src/routes/__tests__/` classified as transitive by **directory convention** (structural inference). Individual chains not verified by execution.
+
+### UNKNOWN_REQUIRES_TRACE (24 files)
+Files not in DB_DIRECT but flagged by grep for: `DATABASE_URL` reference, Telegram/Kite/broker import names, or live/integration/migration comment labels. These may prove pure upon full tracing — they are not confirmed DB-coupled.
+
+### Transitive classification limitation
+No file's full module graph was traced by module execution. All DB_TRANSITIVE labels are inferred from directory convention only. A complete accurate inventory requires per-file import-graph traversal.
 
 ---
 
-## DB_DIRECT files (51) — excluded from vitest.config.unit.ts
-
-All 51 confirmed via `grep -rln "@workspace/db|drizzle-orm|pg.Pool"`.
-
-### lib/ (35)
+## DB_DIRECT files (51) — lib/ subset
 
 | File | Additional signals |
 |---|---|
@@ -76,38 +99,17 @@ All 51 confirmed via `grep -rln "@workspace/db|drizzle-orm|pg.Pool"`.
 | __tests__/sectorStrength.test.ts | |
 | tradeLifecycleParity.test.ts | Kite |
 
-### routes/__tests__/ (16) — all also DB_TRANSITIVE (import express app)
+Routes/__tests__/ (16) — all also DB_TRANSITIVE:
+backboneRouteAuth, backtestComparisonIgnoredFilters, backtestTradeTimes, buildInfoRoute,
+dailyAnalysisTelegramPreviewRoute, dataParityRouteAuth, diagnosticRouteAuth, equityRouteDdLatch,
+exitMonitorApiRoute, exitSafetyDiagnosticRoute, globalPresetRoutes, intradayRefreshDiagnostics,
+kiteStatusAuth, mtmSweepDiagnosticRoute, portfolioRouteIsolation, portfolioRouteLimits.
 
-backboneRouteAuth.test.ts, backtestComparisonIgnoredFilters.test.ts,  
-backtestTradeTimes.test.ts, buildInfoRoute.test.ts,  
-dailyAnalysisTelegramPreviewRoute.test.ts, dataParityRouteAuth.test.ts,  
-diagnosticRouteAuth.test.ts, equityRouteDdLatch.test.ts,  
-exitMonitorApiRoute.test.ts, exitSafetyDiagnosticRoute.test.ts,  
-globalPresetRoutes.test.ts, intradayRefreshDiagnostics.test.ts,  
-kiteStatusAuth.test.ts, mtmSweepDiagnosticRoute.test.ts,  
-portfolioRouteIsolation.test.ts, portfolioRouteLimits.test.ts
-
-### scripts/
-
-rotateKiteTokenEncKey.test.ts
+Scripts: rotateKiteTokenEncKey.test.ts
 
 ---
 
-## DB_TRANSITIVE — all routes (not already in DB_DIRECT)
-
-All `src/routes/__tests__/` files not listed above import the express application which transitively reaches `@workspace/db`.
-
-Additional route test files confirmed by file listing:
-- etfQuoteRoute.test.ts
-- swingStagingSweepSafe.test.ts
-- observabilityRoutes.test.ts (if present)
-- observabilitySummaryRoute.test.ts (if present)
-
----
-
-## UNKNOWN_REQUIRES_TRACE — requires full transitive trace before reclassifying
-
-These files do **not** appear in DB_DIRECT, but have signals that preclude confirming them as PURE_UNIT:
+## UNKNOWN_REQUIRES_TRACE (24 files)
 
 | File | Signal |
 |---|---|
@@ -136,42 +138,28 @@ These files do **not** appear in DB_DIRECT, but have signals that preclude confi
 | tradeLifecycle/tradeLifecycle.test.ts | TELEGRAM, Kite |
 | watchlist.test.ts | "live DB" skip |
 
-**Migration backlog**: All 24 files above must be fully traced before reclassifying. The most common remediation pattern is `vi.mock("@workspace/db")` + a stub pool that never opens a socket, or restructuring the module under test to accept an injected db handle.
-
 ---
 
-## Critical unsafe default identified
+## Critical unsafe default
 
-**`paperHeatSql.test.ts` live-DB skip guard (line 80):**
+`paperHeatSql.test.ts` (line ~80):
 ```typescript
-const dbAvailable = Boolean(
-  process.env.DATABASE_URL && !process.env.DATABASE_URL.includes("dummy")
-);
+const dbAvailable = Boolean(process.env.DATABASE_URL && !process.env.DATABASE_URL.includes("dummy"));
 const describeDb = dbAvailable ? describe : describe.skip;
 ```
-
-Because `DATABASE_URL` IS set in the Replit dev environment, this test **runs live SQL** against the operational database every time `pnpm run test` is invoked. This is the canonical example of the unsafe default this P0.1 task addresses.
-
-The same pattern (variations of `DATABASE_URL ? describe : describe.skip`) appears in at least 6 other test files.
+Because `DATABASE_URL` is set in the Replit dev environment, this runs live SQL against the operational database on every `pnpm run test` invocation. At least 6 other test files use the same anti-pattern.
 
 ---
 
-## Remediation priority order
+## Corrective change vs initial P0.1
 
-1. **Immediate (P0.1 done)**: Guard + unit runner established. `test:unit` safe, `test:db` gated.
-2. **Next (P0.2)**: Replace `DATABASE_URL ? describe : describe.skip` guards with `TEST_DATABASE_URL` + `dbTestGuard` check in files that genuinely need DB state.
-3. **Medium**: Trace and reclassify the 24 UNKNOWN_REQUIRES_TRACE files.
-4. **Long**: Add vi.mock(@workspace/db) stubs to files that only need DB for side-effect setup.
+The initial P0.1 used wildcard include + manually approximated exclusion list (75 entries).  
+That approach was rejected: unreviewed files were implicitly treated as safe.
+
+The corrected approach uses a POSITIVE ALLOWLIST. Only individually confirmed pure files are permitted. PURE_UNIT_CONFIRMED = 1.
 
 ---
 
 ## scanner tests
 
 The scanner package has its own `vitest.config.ts` (vmThreads + forceExit + jsdom). Its test files do NOT import `@workspace/db`. Scanner is NOT affected by the DB isolation gap.
-
-Known scanner files with Kite/broker references:
-- fnoReasonCategories.test.ts
-- portfolio/csv.test.ts
-- portfolio/persistence.test.ts
-
-These reference Kite data SHAPES (pure type assertions), not live connections — classified as safe under the existing scanner vitest config.

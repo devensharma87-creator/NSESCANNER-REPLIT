@@ -22,7 +22,10 @@ export type IsolationFailureCode =
   | "TEST_EQUALS_OPERATIONAL_TARGET"
   | "TEST_DB_CONFIRMATION_MISSING"
   | "TEST_RUN_ID_MISSING"
-  | "TEST_TARGET_NOT_ISOLATED";
+  | "TEST_RUN_ID_FORMAT_INVALID"
+  | "TEST_RUN_ID_TARGET_MISMATCH"
+  | "TEST_TARGET_NOT_ISOLATED"
+  | "TEST_EXTERNAL_SERVICES_NOT_MOCKED";
 
 export type IsolationSuccessCode = "VALID_ISOLATED_TEST_CONFIGURATION";
 
@@ -53,9 +56,6 @@ const OPERATIONAL_DB_DENYLIST: readonly string[] = [
 ];
 
 // Keywords a test database name must contain to be considered isolated.
-// The database name must also NOT be solely composed of these words
-// (e.g., a database literally named "test" with nothing else is acceptable
-// here but the denylist and RUN_ID checks provide additional safeguards).
 const ISOLATION_KEYWORDS: readonly string[] = [
   "vitest",
   "test",
@@ -65,11 +65,15 @@ const ISOLATION_KEYWORDS: readonly string[] = [
   "sandbox",
 ];
 
+// TEST_RUN_ID format: 8–64 characters, letters/digits/underscore/hyphen only.
+// Reject generic or ambiguous identifiers; require explicit per-run uniqueness.
+const TEST_RUN_ID_PATTERN = /^[A-Za-z0-9_-]{8,64}$/;
+
 // ── URL parsing + canonicalization ──────────────────────────────────────────
 
 interface ParsedPgUrl {
-  host: string;   // lowercase
-  port: number;   // explicit, defaults to 5432
+  host: string;     // lowercase
+  port: number;     // explicit, defaults to 5432
   database: string; // lowercase, leading slash stripped
 }
 
@@ -106,7 +110,7 @@ function sameTarget(a: ParsedPgUrl, b: ParsedPgUrl): boolean {
 export function checkDbTestIsolation(
   env: Readonly<Record<string, string | undefined>> = process.env,
 ): IsolationResult {
-  // ── 1. NODE_ENV must be "test" ─────────────────────────────────────────
+  // ── 1. NODE_ENV must be "test" ──────────────────────────────────────────
   if (env["NODE_ENV"] !== "test") {
     return {
       ok: false,
@@ -117,12 +121,11 @@ export function checkDbTestIsolation(
     };
   }
 
-  // ── 2. TEST_DATABASE_URL must be present and non-empty ────────────────
+  // ── 2. TEST_DATABASE_URL must be present and non-empty ──────────────────
   const testRaw = env["TEST_DATABASE_URL"]?.trim() ?? "";
   const operationalRaw = env["DATABASE_URL"]?.trim() ?? "";
 
   if (!testRaw) {
-    // Explicitly block fallback to DATABASE_URL even when it is set
     if (operationalRaw) {
       return {
         ok: false,
@@ -144,7 +147,7 @@ export function checkDbTestIsolation(
     };
   }
 
-  // ── 3. TEST_DATABASE_URL must be a valid Postgres URL ─────────────────
+  // ── 3. TEST_DATABASE_URL must be a valid Postgres URL ───────────────────
   const testParsed = parsePgUrl(testRaw);
   if (!testParsed) {
     return {
@@ -171,7 +174,7 @@ export function checkDbTestIsolation(
     }
   }
 
-  // ── 5. Denylist: reject known operational database name fragments ──────
+  // ── 5. Denylist: reject known operational database name fragments ────────
   for (const fragment of OPERATIONAL_DB_DENYLIST) {
     if (testParsed.database.includes(fragment)) {
       return {
@@ -185,7 +188,7 @@ export function checkDbTestIsolation(
     }
   }
 
-  // ── 6. TEST_RUN_ID must be present and non-empty ──────────────────────
+  // ── 6. TEST_RUN_ID must be present and non-empty ─────────────────────────
   const runId = env["TEST_RUN_ID"]?.trim() ?? "";
   if (!runId) {
     return {
@@ -198,7 +201,52 @@ export function checkDbTestIsolation(
     };
   }
 
-  // ── 7. Owner confirmation must be explicitly set ──────────────────────
+  // ── 7. TEST_RUN_ID must match the required format ────────────────────────
+  if (!TEST_RUN_ID_PATTERN.test(runId)) {
+    return {
+      ok: false,
+      code: "TEST_RUN_ID_FORMAT_INVALID",
+      reason:
+        `TEST_RUN_ID '${runId}' does not match the required format. ` +
+        "TEST_RUN_ID must be 8–64 characters long and contain only " +
+        "letters (A–Z, a–z), digits (0–9), underscores (_), or hyphens (-).",
+    };
+  }
+
+  // ── 8. Database name must contain an isolation keyword ───────────────────
+  const hasIsolationKeyword = ISOLATION_KEYWORDS.some((kw) =>
+    testParsed.database.includes(kw),
+  );
+  if (!hasIsolationKeyword) {
+    return {
+      ok: false,
+      code: "TEST_TARGET_NOT_ISOLATED",
+      reason:
+        `TEST_DATABASE_URL database name '${testParsed.database}' does not contain a recognized ` +
+        `isolation keyword (${ISOLATION_KEYWORDS.join(", ")}). ` +
+        "Use a name that clearly identifies the database as a disposable test target, " +
+        "e.g. 'nse_vitest_<run-id>'.",
+    };
+  }
+
+  // ── 9. Database name must contain the normalized run ID ──────────────────
+  //
+  // Ties the isolated database to this specific run, preventing accidental
+  // reuse of a shared generic test database name (e.g. "app_test").
+  const normalizedRunId = runId.toLowerCase();
+  if (!testParsed.database.includes(normalizedRunId)) {
+    return {
+      ok: false,
+      code: "TEST_RUN_ID_TARGET_MISMATCH",
+      reason:
+        `TEST_DATABASE_URL database name '${testParsed.database}' does not contain the ` +
+        `normalized TEST_RUN_ID '${normalizedRunId}'. ` +
+        "Include the run ID in the database name to enforce per-run isolation, " +
+        "e.g. 'nse_vitest_<run-id>'.",
+    };
+  }
+
+  // ── 10. Owner confirmation must be explicitly set ─────────────────────────
   if (env["TEST_DB_ISOLATION_CONFIRMED"] !== "true") {
     return {
       ok: false,
@@ -211,23 +259,28 @@ export function checkDbTestIsolation(
     };
   }
 
-  // ── 8. Database name must contain an isolation keyword ────────────────
-  const hasIsolationKeyword = ISOLATION_KEYWORDS.some((kw) =>
-    testParsed.database.includes(kw),
-  );
-  if (!hasIsolationKeyword) {
+  // ── 11. External-service mock confirmation ────────────────────────────────
+  //
+  // DB-backed tests must not contact live Kite, Telegram, broker or other
+  // external services. The project-verified kill switches are enforced in the
+  // child environment by buildIsolatedChildEnv(), but configuration-level
+  // enforcement cannot guarantee runtime network isolation if application
+  // modules bypass env-var gating. The caller must explicitly acknowledge this.
+  if (env["TEST_EXTERNAL_SERVICES_MOCKED"] !== "true") {
     return {
       ok: false,
-      code: "TEST_TARGET_NOT_ISOLATED",
+      code: "TEST_EXTERNAL_SERVICES_NOT_MOCKED",
       reason:
-        `TEST_DATABASE_URL database name '${testParsed.database}' does not contain a recognized ` +
-        `isolation keyword (${ISOLATION_KEYWORDS.join(", ")}). ` +
-        "Use a name that clearly identifies the database as a disposable test target, " +
-        "e.g. 'nse_vitest_20260720_abc123'.",
+        "TEST_EXTERNAL_SERVICES_MOCKED is not set to 'true'. " +
+        "DB-backed tests must not contact live Kite, Telegram, broker or other external services. " +
+        "Set TEST_EXTERNAL_SERVICES_MOCKED=true to confirm that all external services " +
+        "are mocked or disabled for this run. " +
+        "Note: EXTERNAL_NETWORK_RUNTIME_ISOLATION is UNPROVED — configuration-level " +
+        "kill switches are enforced, but runtime network isolation requires additional infrastructure.",
     };
   }
 
-  // ── All checks passed ──────────────────────────────────────────────────
+  // ── All checks passed ──────────────────────────────────────────────────────
   return {
     ok: true,
     code: "VALID_ISOLATED_TEST_CONFIGURATION",
