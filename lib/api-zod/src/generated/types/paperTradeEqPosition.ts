@@ -5,8 +5,11 @@
  * NSE Stock Scanner API
  * OpenAPI spec version: 0.1.0
  */
+import type { PaperTradeEqPositionCutoffPolicyValidity } from "./paperTradeEqPositionCutoffPolicyValidity";
+import type { PaperTradeEqPositionOpenedSessionValidity } from "./paperTradeEqPositionOpenedSessionValidity";
 import type { PaperTradeEqPositionSource } from "./paperTradeEqPositionSource";
 import type { PaperTradeEqPositionStatus } from "./paperTradeEqPositionStatus";
+import type { PaperTradeEqPositionTimestampConfidence } from "./paperTradeEqPositionTimestampConfidence";
 
 export interface PaperTradeEqPosition {
   id: string;
@@ -48,4 +51,18 @@ export interface PaperTradeEqPosition {
   source?: PaperTradeEqPositionSource;
   /** Links back to swing_order_staging.id when opened via the staged-approval path. Null today — that path never opens trades yet. */
   stagedOrderId?: string | null;
+  /** Backend-derived exchange-session validity for openedAt. VALID_SESSION=inside 09:15–15:30 IST non-holiday; OFF_SESSION=outside; SESSION_UNKNOWN=calendar unavailable; TIMESTAMP_AMBIGUOUS=null or unparseable. */
+  openedSessionValidity?: PaperTradeEqPositionOpenedSessionValidity;
+  /** Structured reason code when openedSessionValidity is not VALID_SESSION. */
+  openedSessionReason?: string | null;
+  /** Human-readable IST display string (HH:MM DD-Mon-YYYY) for the openedAt instant. */
+  openedAtIst?: string | null;
+  /** Version tag of the holiday calendar used for session classification (e.g. NSE-2026-v1). */
+  calendarVersion?: string | null;
+  /** Calendar source label (e.g. NSE_CURATED_2026) used for classification. */
+  calendarScope?: string | null;
+  /** HIGH when the stored timestamptz column is timezone-unambiguous (provable from the Drizzle schema); LOW when the timestamp is null, non-finite, or unparseable. */
+  timestampConfidence?: PaperTradeEqPositionTimestampConfidence;
+  /** Strategy automatic-entry cutoff policy validity. UNKNOWN for historical positions where the original cutoff policy cannot be proven from the stored timestamp. */
+  cutoffPolicyValidity?: PaperTradeEqPositionCutoffPolicyValidity;
 }

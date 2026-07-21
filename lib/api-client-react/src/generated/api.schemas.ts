@@ -4441,6 +4441,47 @@ export const PaperTradeEqPositionSource = {
   LEGACY_UNKNOWN: "LEGACY_UNKNOWN",
 } as const;
 
+/**
+ * Backend-derived exchange-session validity for openedAt. VALID_SESSION=inside 09:15–15:30 IST non-holiday; OFF_SESSION=outside; SESSION_UNKNOWN=calendar unavailable; TIMESTAMP_AMBIGUOUS=null or unparseable.
+ */
+export type PaperTradeEqPositionOpenedSessionValidity =
+  | (typeof PaperTradeEqPositionOpenedSessionValidity)[keyof typeof PaperTradeEqPositionOpenedSessionValidity]
+  | null;
+
+export const PaperTradeEqPositionOpenedSessionValidity = {
+  VALID_SESSION: "VALID_SESSION",
+  OFF_SESSION: "OFF_SESSION",
+  SESSION_UNKNOWN: "SESSION_UNKNOWN",
+  TIMESTAMP_AMBIGUOUS: "TIMESTAMP_AMBIGUOUS",
+} as const;
+
+/**
+ * HIGH when the stored timestamptz column is timezone-unambiguous (provable from the Drizzle schema); LOW when the timestamp is null, non-finite, or unparseable.
+ */
+export type PaperTradeEqPositionTimestampConfidence =
+  | (typeof PaperTradeEqPositionTimestampConfidence)[keyof typeof PaperTradeEqPositionTimestampConfidence]
+  | null;
+
+export const PaperTradeEqPositionTimestampConfidence = {
+  HIGH: "HIGH",
+  LOW: "LOW",
+} as const;
+
+/**
+ * Strategy automatic-entry cutoff policy validity. UNKNOWN for historical positions where the original cutoff policy cannot be proven from the stored timestamp.
+ */
+export type PaperTradeEqPositionCutoffPolicyValidity =
+  | (typeof PaperTradeEqPositionCutoffPolicyValidity)[keyof typeof PaperTradeEqPositionCutoffPolicyValidity]
+  | null;
+
+export const PaperTradeEqPositionCutoffPolicyValidity = {
+  VALID: "VALID",
+  PASSED: "PASSED",
+  POLICY_UNAVAILABLE: "POLICY_UNAVAILABLE",
+  NOT_APPLICABLE: "NOT_APPLICABLE",
+  UNKNOWN: "UNKNOWN",
+} as const;
+
 export interface PaperTradeEqPosition {
   id: string;
   symbol: string;
@@ -4481,6 +4522,20 @@ export interface PaperTradeEqPosition {
   source?: PaperTradeEqPositionSource;
   /** Links back to swing_order_staging.id when opened via the staged-approval path. Null today — that path never opens trades yet. */
   stagedOrderId?: string | null;
+  /** Backend-derived exchange-session validity for openedAt. VALID_SESSION=inside 09:15–15:30 IST non-holiday; OFF_SESSION=outside; SESSION_UNKNOWN=calendar unavailable; TIMESTAMP_AMBIGUOUS=null or unparseable. */
+  openedSessionValidity?: PaperTradeEqPositionOpenedSessionValidity;
+  /** Structured reason code when openedSessionValidity is not VALID_SESSION. */
+  openedSessionReason?: string | null;
+  /** Human-readable IST display string (HH:MM DD-Mon-YYYY) for the openedAt instant. */
+  openedAtIst?: string | null;
+  /** Version tag of the holiday calendar used for session classification (e.g. NSE-2026-v1). */
+  calendarVersion?: string | null;
+  /** Calendar source label (e.g. NSE_CURATED_2026) used for classification. */
+  calendarScope?: string | null;
+  /** HIGH when the stored timestamptz column is timezone-unambiguous (provable from the Drizzle schema); LOW when the timestamp is null, non-finite, or unparseable. */
+  timestampConfidence?: PaperTradeEqPositionTimestampConfidence;
+  /** Strategy automatic-entry cutoff policy validity. UNKNOWN for historical positions where the original cutoff policy cannot be proven from the stored timestamp. */
+  cutoffPolicyValidity?: PaperTradeEqPositionCutoffPolicyValidity;
 }
 
 export type PaperTradeEqClosedExitReason =

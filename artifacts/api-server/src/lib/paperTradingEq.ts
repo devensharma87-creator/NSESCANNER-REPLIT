@@ -58,7 +58,7 @@ import type { SwingSignal } from "./swingSignals";
 import { computeSwingLevels } from "./swingSignals";
 import type { StockRow } from "@workspace/api-zod";
 import { checkLedgerReconciliationGate } from "./paperAccountReconciliation";
-import { computeEquitySessionAdmission } from "./sessionAdmission";
+import { computeTradeAdmission, EQUITY_AUTO_ENTRY_CUTOFF } from "./sessionAdmission";
 
 function num(v: string | number | null | undefined): number {
   if (v == null) return 0;
@@ -230,7 +230,16 @@ export async function openPaperEquityTrade(
   // session gate. The route layer also pre-checks the session for MANUAL buys
   // and returns a structured 422 before this writer is even called.
   {
-    const admission = computeEquitySessionAdmission(new Date());
+    const admission = computeTradeAdmission({
+      lane: "equity_cash",
+      segment: "NSE_EQ",
+      instrument: signal.symbol,
+      serverTime: new Date(),
+      source: openSource as "AUTO" | "MANUAL" | "SWING_STAGED_APPROVAL",
+      // EQUITY_AUTO_ENTRY_CUTOFF = null → AUTO/SWING_STAGED_APPROVAL fail closed with
+      // ENTRY_CUTOFF_CONFIG_UNAVAILABLE. MANUAL source skips the cutoff check.
+      entryCutoffPolicy: EQUITY_AUTO_ENTRY_CUTOFF,
+    });
     if (!admission.allowed) {
       logger.info(
         { symbol: signal.symbol, reason: admission.reason, detail: admission.detail, source: openSource },
@@ -1104,11 +1113,21 @@ export async function runEquityPaperTradingTick(
     // become a single log line instead. This path is AUTO-only; MANUAL opens
     // go through the route handler which pre-checks the session before calling
     // openManualPaperEquityTrade → openPaperEquityTrade.
-    const tickAdmission = computeEquitySessionAdmission(new Date());
+    const tickAdmission = computeTradeAdmission({
+      lane: "equity_cash",
+      segment: "NSE_EQ",
+      instrument: "EQUITY_TICK_BELT_BRACES",
+      serverTime: new Date(),
+      source: "AUTO",
+      // Belt-and-braces for the AUTO path. EQUITY_AUTO_ENTRY_CUTOFF = null →
+      // fires ENTRY_CUTOFF_CONFIG_UNAVAILABLE during market hours, which correctly
+      // suppresses bulk auto-opens until a strategy cutoff is configured.
+      entryCutoffPolicy: EQUITY_AUTO_ENTRY_CUTOFF,
+    });
     if (!tickAdmission.allowed) {
       logger.info(
         { reason: tickAdmission.reason, signalCount: signals.length },
-        "Equity tick: session closed — skipping auto-opens (mark-to-market still runs)",
+        "Equity tick: session admission rejected — skipping auto-opens (mark-to-market still runs)",
       );
     } else {
       for (const s of signals) {

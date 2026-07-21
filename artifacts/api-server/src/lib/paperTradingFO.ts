@@ -33,7 +33,7 @@ import {
 import type { PaperTradeFoRow } from "@workspace/db";
 import { and, eq, sql } from "drizzle-orm";
 import { isPaperAutoTradingEnabled } from "./paperAutoTradeFlag";
-import { computeEquitySessionAdmission } from "./sessionAdmission";
+import { computeTradeAdmission, type EntryAdmissionCutoffPolicy } from "./sessionAdmission";
 import { alertFnoTradeableSignal, alertFnoExitSignal } from "./fnoSignalAlerts";
 import { isSignalHygieneV2Enabled } from "./signalHygieneFlag";
 import {
@@ -416,15 +416,42 @@ export async function openPaperTrade(input: LifecycleHookInput): Promise<PaperTr
       return null;
     }
   }
-  // Session admission gate — defense-in-depth for when C0 is lifted.
-  // Uses the same NSE equity-session logic (09:15–15:30 IST, Mon–Fri,
-  // non-holiday) shared with the equity gate. Does NOT change signal scoring,
-  // confluence, expiry rules, sizing, or exits.
+  // Session admission gate — segment-aware defense-in-depth for when C0 is lifted.
+  // Determines NSE vs BSE lane from signal.index and passes the applicable strategy
+  // entry cutoff (BASELINE=14:45, STANDARD=15:25) into the admission context.
+  // BSE F&O (SENSEX) fails closed with CALENDAR_UNAVAILABLE until BSE_CALENDAR_VERIFIED=true.
+  // Does NOT change signal scoring, confluence, expiry rules, sizing, or exits.
   {
-    const admission = computeEquitySessionAdmission(new Date());
+    const fnoTier: TradeTier = input.tier ?? "STANDARD";
+    const fnoIndex = ((input.signal.index ?? "") as string).toUpperCase();
+    const isBse = fnoIndex === "SENSEX";
+    const fnoEntryCutoff: EntryAdmissionCutoffPolicy =
+      fnoTier === "BASELINE"
+        ? {
+            istMinOfDay: FNO_BASELINE_GUARDRAILS.LATE_ENTRY_CUTOFF_IST_MIN,
+            policySource: "FNO_BASELINE_GUARDRAILS.LATE_ENTRY_CUTOFF_IST_MIN",
+          }
+        : {
+            istMinOfDay: 15 * 60 + 25,
+            policySource: "FNO_STANDARD_CUTOFF_15:25",
+          };
+    const admission = computeTradeAdmission({
+      lane: isBse ? "bse_fo" : "nse_fo",
+      segment: isBse ? "BSE_FO" : "NSE_FO",
+      instrument: fnoIndex || "UNKNOWN_FNO",
+      serverTime: new Date(),
+      source: "AUTO",
+      entryCutoffPolicy: fnoEntryCutoff,
+    });
     if (!admission.allowed) {
       logger.info(
-        { reason: admission.reason, detail: admission.detail },
+        {
+          reason: admission.reason,
+          detail: admission.detail,
+          lane: isBse ? "bse_fo" : "nse_fo",
+          instrument: fnoIndex,
+          tier: fnoTier,
+        },
         "Paper FO skip: session admission rejected",
       );
       return null;

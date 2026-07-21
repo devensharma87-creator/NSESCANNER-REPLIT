@@ -5577,6 +5577,59 @@ export const GetPaperPositionsEqResponse = zod.object({
         .describe(
           "Links back to swing_order_staging.id when opened via the staged-approval path. Null today — that path never opens trades yet.",
         ),
+      openedSessionValidity: zod
+        .enum([
+          "VALID_SESSION",
+          "OFF_SESSION",
+          "SESSION_UNKNOWN",
+          "TIMESTAMP_AMBIGUOUS",
+        ])
+        .nullish()
+        .describe(
+          "Backend-derived exchange-session validity for openedAt. VALID_SESSION=inside 09:15–15:30 IST non-holiday; OFF_SESSION=outside; SESSION_UNKNOWN=calendar unavailable; TIMESTAMP_AMBIGUOUS=null or unparseable.",
+        ),
+      openedSessionReason: zod
+        .string()
+        .nullish()
+        .describe(
+          "Structured reason code when openedSessionValidity is not VALID_SESSION.",
+        ),
+      openedAtIst: zod
+        .string()
+        .nullish()
+        .describe(
+          "Human-readable IST display string (HH:MM DD-Mon-YYYY) for the openedAt instant.",
+        ),
+      calendarVersion: zod
+        .string()
+        .nullish()
+        .describe(
+          "Version tag of the holiday calendar used for session classification (e.g. NSE-2026-v1).",
+        ),
+      calendarScope: zod
+        .string()
+        .nullish()
+        .describe(
+          "Calendar source label (e.g. NSE_CURATED_2026) used for classification.",
+        ),
+      timestampConfidence: zod
+        .enum(["HIGH", "LOW"])
+        .nullish()
+        .describe(
+          "HIGH when the stored timestamptz column is timezone-unambiguous (provable from the Drizzle schema); LOW when the timestamp is null, non-finite, or unparseable.",
+        ),
+      cutoffPolicyValidity: zod
+        .enum([
+          "VALID",
+          "PASSED",
+          "POLICY_UNAVAILABLE",
+          "NOT_APPLICABLE",
+          "UNKNOWN",
+        ])
+        .nullish()
+        .describe(
+          "Strategy automatic-entry cutoff policy validity. UNKNOWN for historical positions where the original cutoff policy cannot be proven from the stored timestamp.",
+        ),
     }),
   ),
   generatedAt: zod.coerce.date(),

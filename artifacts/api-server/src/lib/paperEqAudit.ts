@@ -50,8 +50,13 @@ export type EqAuditReason =
   | "BEFORE_MARKET_SESSION"
   /** Blocked — clock is after 15:30 IST. */
   | "AFTER_MARKET_SESSION"
-  /** Blocked — equity entry cutoff has passed (reserved; not yet fired for equity). */
+  /** Blocked — strategy entry cutoff has passed at the time of the open attempt. */
   | "ENTRY_CUTOFF_PASSED"
+  /**
+   * Blocked — the applicable automatic-entry cutoff policy is absent or not configured.
+   * Fired when EQUITY_AUTO_ENTRY_CUTOFF = null and source is AUTO or SWING_STAGED_APPROVAL.
+   */
+  | "ENTRY_CUTOFF_CONFIG_UNAVAILABLE"
   /** Blocked — pre-open auction (09:00–09:15 IST) is not authorized for opens. */
   | "SPECIAL_SESSION_NOT_AUTHORIZED"
   /** Blocked — calendar data unavailable or status UNKNOWN. */

@@ -5504,6 +5504,37 @@ components:
           type: string
           nullable: true
           description: "Links back to swing_order_staging.id when opened via the staged-approval path. Null today — that path never opens trades yet."
+        openedSessionValidity:
+          type: string
+          nullable: true
+          enum: [VALID_SESSION, OFF_SESSION, SESSION_UNKNOWN, TIMESTAMP_AMBIGUOUS]
+          description: "Backend-derived exchange-session validity for openedAt. VALID_SESSION=inside 09:15–15:30 IST non-holiday; OFF_SESSION=outside; SESSION_UNKNOWN=calendar unavailable; TIMESTAMP_AMBIGUOUS=null or unparseable."
+        openedSessionReason:
+          type: string
+          nullable: true
+          description: "Structured reason code when openedSessionValidity is not VALID_SESSION."
+        openedAtIst:
+          type: string
+          nullable: true
+          description: "Human-readable IST display string (HH:MM DD-Mon-YYYY) for the openedAt instant."
+        calendarVersion:
+          type: string
+          nullable: true
+          description: "Version tag of the holiday calendar used for session classification (e.g. NSE-2026-v1)."
+        calendarScope:
+          type: string
+          nullable: true
+          description: "Calendar source label (e.g. NSE_CURATED_2026) used for classification."
+        timestampConfidence:
+          type: string
+          nullable: true
+          enum: [HIGH, LOW]
+          description: "HIGH when the stored timestamptz column is timezone-unambiguous (provable from the Drizzle schema); LOW when the timestamp is null, non-finite, or unparseable."
+        cutoffPolicyValidity:
+          type: string
+          nullable: true
+          enum: [VALID, PASSED, POLICY_UNAVAILABLE, NOT_APPLICABLE, UNKNOWN]
+          description: "Strategy automatic-entry cutoff policy validity. UNKNOWN for historical positions where the original cutoff policy cannot be proven from the stored timestamp."
 
     PaperTradeEqClosed:
       type: object

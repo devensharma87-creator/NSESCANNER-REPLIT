@@ -95,7 +95,7 @@ import {
   getYearlyReport as getEqYearlyReport,
 } from "../lib/paperReportsEq";
 import { forceClosePaperEquityTrade, openManualPaperEquityTrade } from "../lib/paperTradingEq";
-import { computeEquitySessionAdmission, classifyStoredTimestamp } from "../lib/sessionAdmission";
+import { computeTradeAdmission, classifyStoredTimestamp } from "../lib/sessionAdmission";
 import { computeLifecycleSummary } from "../lib/paperEqLifecycleSummary";
 import { listEqAudit, summarizeEqAudit, getEqEventsSince } from "../lib/paperEqAudit";
 import { getAllScannedRows } from "../lib/fullNseScanner";
@@ -1644,22 +1644,17 @@ router.get("/paper/positions/eq", requireOwner, async (_req, res, next) => {
         prevCloseMap.set(sr.symbol, sr.quote.previousClose);
       }
     }
+    // P0.2-correction-4 (updated): session provenance fields are now in the
+    // generated Zod schema (OpenAPI + codegen), so they are included INSIDE the
+    // parse input and validated by the schema — no separate spread-after-parse needed.
     const data = GetPaperPositionsEqResponse.parse({
-      positions: rows.map(r => toEqOpenPosition(r, prevCloseMap.get(r.symbol))),
+      positions: rows.map(r => ({
+        ...toEqOpenPosition(r, prevCloseMap.get(r.symbol)),
+        ...classifyStoredTimestamp(r.openedAt.toISOString()),
+      })),
       generatedAt: new Date().toISOString(),
     });
-    // P0.2-correction-4: augment each position with backend-derived session
-    // provenance so the frontend can render provenance badges without any
-    // client-side calendar logic. These fields are NOT in the generated Zod
-    // schema (no codegen for display-only fields) so they are spread after
-    // the parse. `rows[i]` is safe here — parse preserves the insertion order.
-    return res.json({
-      ...data,
-      positions: data.positions.map((p, i) => ({
-        ...p,
-        ...classifyStoredTimestamp(rows[i]!.openedAt.toISOString()),
-      })),
-    });
+    return res.json(data);
   } catch (err) {
     return next(err);
   }
@@ -1723,7 +1718,14 @@ router.post("/paper/positions/eq/manual", requireOwner, async (req, res, next) =
     // P0.2-correction-1: session gate applies to ALL sources including MANUAL.
     // Check here (before the durable writer) so the UI gets a structured,
     // actionable 422 instead of a generic 409 from the writer's null return.
-    const sessionCheck = computeEquitySessionAdmission(new Date());
+    const sessionCheck = computeTradeAdmission({
+      lane: "equity_cash",
+      segment: "NSE_EQ",
+      instrument: symbol,
+      serverTime: new Date(),
+      source: "MANUAL",
+      // MANUAL is owner-directed: exchange-session check only; no strategy cutoff applies.
+    });
     if (!sessionCheck.allowed) {
       return res.status(422).json({
         error: `Equity paper buy rejected — market session gate (${sessionCheck.reason}): ${sessionCheck.detail}`,
@@ -1732,6 +1734,7 @@ router.post("/paper/positions/eq/manual", requireOwner, async (req, res, next) =
           detail: sessionCheck.detail,
           openedSessionValidity: sessionCheck.openedSessionValidity,
           calendarVersion: sessionCheck.calendarVersion,
+          calendarScope: sessionCheck.calendarScope,
         },
       });
     }

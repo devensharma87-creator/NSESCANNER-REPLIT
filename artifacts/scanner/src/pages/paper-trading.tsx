@@ -260,7 +260,9 @@ interface OpenEqPosition {
   openedSessionReason?: string | null;
   openedAtIst?: string | null;
   calendarVersion?: string | null;
+  calendarScope?: string | null;
   timestampConfidence?: "HIGH" | "LOW" | null;
+  cutoffPolicyValidity?: "VALID" | "PASSED" | "POLICY_UNAVAILABLE" | "NOT_APPLICABLE" | "UNKNOWN" | null;
 }
 
 type EqTradeSource = "AUTO_STRONG_BUY" | "SWING_STAGED_APPROVAL" | "MANUAL_BUY" | "LEGACY_UNKNOWN";
@@ -1289,6 +1291,15 @@ function EqPositionRow({ p }: { p: OpenEqPosition }) {
             title="Session status could not be determined for this position's open timestamp."
           >
             SESSION?
+          </Badge>
+        )}
+        {p.openedSessionValidity === "TIMESTAMP_AMBIGUOUS" && (
+          <Badge
+            variant="outline"
+            className="ml-1.5 text-[9px] px-1 py-0 border-yellow-500/50 text-yellow-500 align-middle"
+            title="Position's openedAt timestamp is null or unparseable — session validity cannot be determined."
+          >
+            TIMESTAMP?
           </Badge>
         )}
       </td>
