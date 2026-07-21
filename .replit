@@ -29,7 +29,8 @@ KITE_MIRROR_URL = "https://marketscannerbydev.in"
 PAPER_FO_SHADOW_EXITS_ENABLED = "1"
 
 [userenv.production]
-PAPER_TRADING_ENABLED = "true"
+PAPER_TRADING_ENABLED = "false"
+LIVE_CASH_SWING_ORDER_ENABLED = "false"
 
 [nix]
 channel = "stable-25_05"
