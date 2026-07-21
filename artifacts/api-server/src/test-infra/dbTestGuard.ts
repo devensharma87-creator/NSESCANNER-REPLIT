@@ -25,7 +25,7 @@ export type IsolationFailureCode =
   | "TEST_RUN_ID_FORMAT_INVALID"
   | "TEST_RUN_ID_TARGET_MISMATCH"
   | "TEST_TARGET_NOT_ISOLATED"
-  | "TEST_EXTERNAL_SERVICES_NOT_MOCKED";
+  | "TEST_EXTERNAL_SERVICES_NOT_CONFIGURED_DISABLED";
 
 export type IsolationSuccessCode = "VALID_ISOLATED_TEST_CONFIGURATION";
 
@@ -259,24 +259,33 @@ export function checkDbTestIsolation(
     };
   }
 
-  // ── 11. External-service mock confirmation ────────────────────────────────
+  // ── 11. External-service configuration check ──────────────────────────────
   //
   // DB-backed tests must not contact live Kite, Telegram, broker or other
   // external services. The project-verified kill switches are enforced in the
   // child environment by buildIsolatedChildEnv(), but configuration-level
   // enforcement cannot guarantee runtime network isolation if application
-  // modules bypass env-var gating. The caller must explicitly acknowledge this.
-  if (env["TEST_EXTERNAL_SERVICES_MOCKED"] !== "true") {
+  // modules bypass env-var gating.
+  //
+  // Evidence status:
+  //   PROVIDER_CREDENTIALS_ABSENT   : enforced by CHILD_PROCESS_ENV_ALLOWLIST policy
+  //   PRODUCTION_SWITCHES_DISABLED  : enforced by EXECUTION_SWITCH_OVERRIDES
+  //   EXTERNAL_NETWORK_RUNTIME_ISOLATION: NOT_EXECUTED / UNPROVEN — no OS-level
+  //     network sandbox has been provisioned. Runtime isolation requires P0.1B.
+  //
+  // The caller must explicitly acknowledge this configuration state.
+  if (env["TEST_EXTERNAL_SERVICES_CONFIGURED_DISABLED"] !== "true") {
     return {
       ok: false,
-      code: "TEST_EXTERNAL_SERVICES_NOT_MOCKED",
+      code: "TEST_EXTERNAL_SERVICES_NOT_CONFIGURED_DISABLED",
       reason:
-        "TEST_EXTERNAL_SERVICES_MOCKED is not set to 'true'. " +
+        "TEST_EXTERNAL_SERVICES_CONFIGURED_DISABLED is not set to 'true'. " +
         "DB-backed tests must not contact live Kite, Telegram, broker or other external services. " +
-        "Set TEST_EXTERNAL_SERVICES_MOCKED=true to confirm that all external services " +
-        "are mocked or disabled for this run. " +
-        "Note: EXTERNAL_NETWORK_RUNTIME_ISOLATION is UNPROVED — configuration-level " +
-        "kill switches are enforced, but runtime network isolation requires additional infrastructure.",
+        "Set TEST_EXTERNAL_SERVICES_CONFIGURED_DISABLED=true to acknowledge that: " +
+        "(1) provider credentials are absent from the child environment (enforced by allowlist policy); " +
+        "(2) production/provider switches are explicitly disabled (enforced by EXECUTION_SWITCH_OVERRIDES); " +
+        "(3) no runtime network sandbox has been proven — EXTERNAL_NETWORK_RUNTIME_ISOLATION is UNPROVEN; " +
+        "(4) DB-backed/application tests remain locked pending P0.1B infrastructure.",
     };
   }
 

@@ -2,6 +2,9 @@
  * P0.1 — Pure unit tests for the DB Test Isolation Guard, Preflight Runner,
  *         and Child Environment Builder.
  *
+ * Stages covered: 1-9 (guard logic, env isolation, executable resolution,
+ *   cleanup safety, runtime lock, terminology).
+ *
  * INVARIANTS:
  *  - Imports ONLY: Vitest, Node standard-library, and the test-infrastructure
  *    modules under review (dbTestGuard.ts, dbTestPreflightRunner.ts).
@@ -10,9 +13,14 @@
  *    No real DB connection is made at any point.
  *  - process.env is never read or mutated; all tests pass plain objects.
  *  - Fake spawn is the only spawn used; no real Vitest process is started.
+ *  - Temporary filesystem activity (cleanup tests) uses uniquely generated
+ *    directories beneath os.tmpdir() and is cleaned in each test's finally block.
  */
 
 import { describe, it, expect, beforeAll } from "vitest";
+import fs from "node:fs";
+import path from "node:path";
+import os from "node:os";
 import { checkDbTestIsolation } from "./dbTestGuard.js";
 import {
   runPreflightCheck,
@@ -20,6 +28,10 @@ import {
   PRODUCTION_SECRETS,
   EXECUTION_SWITCH_OVERRIDES,
   CHILD_PROCESS_ENV_ALLOWLIST,
+  RUN_CONTEXT_DIR_PREFIX,
+  resolveVitestExecutable,
+  safeCleanupRunRoot,
+  type IsolatedPaths,
 } from "./dbTestPreflightRunner.js";
 
 // ── Canonical valid dummy configuration ──────────────────────────────────────
@@ -37,8 +49,31 @@ const VALID_ENV = {
     "postgresql://user:pass@prod-db.internal:5432/nse_scanner",
   TEST_RUN_ID: "run-abc123",
   TEST_DB_ISOLATION_CONFIRMED: "true",
-  TEST_EXTERNAL_SERVICES_MOCKED: "true",
+  TEST_EXTERNAL_SERVICES_CONFIGURED_DISABLED: "true",
 } as const;
+
+// ── Dummy isolated paths for buildIsolatedChildEnv tests ─────────────────────
+//
+// These are static non-existent paths under a plausible run root. They share
+// a common parent (the run root) to enable the "all beneath one run root" test.
+// They do NOT need to exist on disk for pure env-builder tests.
+
+const DUMMY_ISOLATED_PATHS: IsolatedPaths = {
+  home:          "/tmp/nsescanner-vitest-dummy-test/home",
+  tmp:           "/tmp/nsescanner-vitest-dummy-test/tmp",
+  xdgConfigHome: "/tmp/nsescanner-vitest-dummy-test/xdg-config",
+  xdgCacheHome:  "/tmp/nsescanner-vitest-dummy-test/xdg-cache",
+  xdgDataHome:   "/tmp/nsescanner-vitest-dummy-test/xdg-data",
+  xdgRuntimeDir: "/tmp/nsescanner-vitest-dummy-test/xdg-runtime",
+};
+
+// ── Pre-validated values matching VALID_ENV ───────────────────────────────────
+
+const DUMMY_VALIDATED = {
+  testDatabaseUrl:
+    "postgresql://ignored:ignored@test-db.invalid:5432/nse_vitest_run-abc123",
+  testRunId: "run-abc123",
+};
 
 // ── Dummy parent env for buildIsolatedChildEnv tests ────────────────────────
 //
@@ -46,7 +81,7 @@ const VALID_ENV = {
 
 const DUMMY_PARENT_ENV: Readonly<Record<string, string | undefined>> = {
   ...VALID_ENV,
-  // Production secrets — must be absent from child env (now by allowlist policy)
+  // Production secrets — must be absent from child env (by allowlist policy)
   APP_ACCESS_PASSWORD:            "dummy-app-password-not-real",
   GLOBAL_APP_ACCESS_PASSWORD:     "dummy-global-password-not-real",
   SESSION_SECRET:                  "dummy-session-secret-not-real",
@@ -100,10 +135,27 @@ const DUMMY_PARENT_ENV: Readonly<Record<string, string | undefined>> = {
   OPTION_SNAPSHOT_ENABLED:         "true",
   REASONING_WRITER_V2_ENABLED:     "1",
   LIVE_CASH_SWING_ORDER_ENABLED:   "true",
-  // Ordinary runtime vars — these ARE on the allowlist and should survive
+  // PATH and HOME: NOT on the new CHILD_PROCESS_ENV_ALLOWLIST — they will be
+  // dropped by the explicit allowlist policy and replaced with isolated paths.
+  // Kept here to enable tests that explicitly verify they are absent from child env.
   PATH: "/usr/bin:/bin",
   HOME: "/home/runner",
 };
+
+// ── Convenience builder ───────────────────────────────────────────────────────
+//
+// bb() wraps buildIsolatedChildEnv with the canonical dummy validated values and
+// isolated paths, accepting optional extra parent env overrides (merged on top
+// of DUMMY_PARENT_ENV). Use throughout to reduce call-site verbosity.
+
+const bb = (extraParent?: Record<string, string | undefined>): Record<string, string> =>
+  buildIsolatedChildEnv(
+    DUMMY_VALIDATED,
+    DUMMY_ISOLATED_PATHS,
+    extraParent !== undefined
+      ? { ...DUMMY_PARENT_ENV, ...extraParent }
+      : DUMMY_PARENT_ENV,
+  );
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Tests 1–3: NOT_TEST_ENV
@@ -403,59 +455,49 @@ describe("runPreflightCheck — blocks when guard fails", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test 24: runPreflightCheck — calls spawn sentinel on valid configuration
+// Test 24: runPreflightCheck — DB_TEST_RUNTIME_NOT_AUTHORIZED on valid config
+// (Stage 7: hard runtime block — replaces old "calls spawn sentinel" test)
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe("runPreflightCheck — calls spawn sentinel on valid configuration", () => {
-  it("invokes spawnFn with vitest args when guard passes, without connecting to a DB", async () => {
-    const spawned: Array<{ cmd: string; args: string[] }> = [];
-
-    const fakespawn = (cmd: string, args: string[]) => {
-      spawned.push({ cmd, args });
-      const handlers: Record<string, ((code: number) => void)[]> = {};
-      const child = {
-        on: (event: string, cb: (code: number) => void) => {
-          if (!handlers[event]) handlers[event] = [];
-          handlers[event].push(cb);
-          if (event === "close") {
-            setImmediate(() => cb(0));
-          }
-          return child;
-        },
-      };
-      return child;
+describe("runPreflightCheck — DB_TEST_RUNTIME_NOT_AUTHORIZED on valid configuration", () => {
+  it("rejects with DB_TEST_RUNTIME_NOT_AUTHORIZED even when all guard checks pass; spawn not called", async () => {
+    const sentinelCalled: string[] = [];
+    const fakeSpawn = () => {
+      sentinelCalled.push("SPAWN_CALLED");
+      return { on: () => ({}) };
     };
 
-    const code = await runPreflightCheck(VALID_ENV, fakespawn as never);
+    await expect(
+      runPreflightCheck(VALID_ENV, fakeSpawn as never),
+    ).rejects.toBe("DB_TEST_RUNTIME_NOT_AUTHORIZED");
 
-    expect(code).toBe(0);
-    expect(spawned).toHaveLength(1);
-    expect(spawned[0]!.cmd).toBe("vitest");
-    expect(spawned[0]!.args).toContain("run");
+    // The hard block must prevent any spawn attempt.
+    expect(sentinelCalled).toHaveLength(0);
   });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Tests 25–26: TEST_EXTERNAL_SERVICES_NOT_MOCKED (NEW)
+// Tests 25–26: TEST_EXTERNAL_SERVICES_NOT_CONFIGURED_DISABLED
+// (Stage 6: terminology update — was TEST_EXTERNAL_SERVICES_NOT_MOCKED)
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe("TEST_EXTERNAL_SERVICES_NOT_MOCKED", () => {
-  it("rejects when TEST_EXTERNAL_SERVICES_MOCKED is absent", () => {
+describe("TEST_EXTERNAL_SERVICES_NOT_CONFIGURED_DISABLED", () => {
+  it("rejects when TEST_EXTERNAL_SERVICES_CONFIGURED_DISABLED is absent", () => {
     const result = checkDbTestIsolation({
       ...VALID_ENV,
-      TEST_EXTERNAL_SERVICES_MOCKED: undefined,
+      TEST_EXTERNAL_SERVICES_CONFIGURED_DISABLED: undefined,
     });
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.code).toBe("TEST_EXTERNAL_SERVICES_NOT_MOCKED");
+    if (!result.ok) expect(result.code).toBe("TEST_EXTERNAL_SERVICES_NOT_CONFIGURED_DISABLED");
   });
 
-  it("rejects when TEST_EXTERNAL_SERVICES_MOCKED is '0' (not exact 'true')", () => {
+  it("rejects when TEST_EXTERNAL_SERVICES_CONFIGURED_DISABLED is '0' (not exact 'true')", () => {
     const result = checkDbTestIsolation({
       ...VALID_ENV,
-      TEST_EXTERNAL_SERVICES_MOCKED: "0",
+      TEST_EXTERNAL_SERVICES_CONFIGURED_DISABLED: "0",
     });
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.code).toBe("TEST_EXTERNAL_SERVICES_NOT_MOCKED");
+    if (!result.ok) expect(result.code).toBe("TEST_EXTERNAL_SERVICES_NOT_CONFIGURED_DISABLED");
   });
 });
 
@@ -523,7 +565,7 @@ describe("TEST_RUN_ID_TARGET_MISMATCH", () => {
 
 describe("buildIsolatedChildEnv — database URL isolation", () => {
   it("child DATABASE_URL equals the TEST_DATABASE_URL, not the operational URL", () => {
-    const child = buildIsolatedChildEnv(DUMMY_PARENT_ENV);
+    const child = bb();
     expect(child["DATABASE_URL"]).toBe(
       "postgresql://ignored:ignored@test-db.invalid:5432/nse_vitest_run-abc123",
     );
@@ -532,7 +574,7 @@ describe("buildIsolatedChildEnv — database URL isolation", () => {
   });
 
   it("the operational DATABASE_URL value does not appear in any child env entry", () => {
-    const child = buildIsolatedChildEnv(DUMMY_PARENT_ENV);
+    const child = bb();
     const opDbFragment = "nse_scanner";
     for (const [key, val] of Object.entries(child)) {
       expect(
@@ -549,7 +591,7 @@ describe("buildIsolatedChildEnv — database URL isolation", () => {
 
 describe("buildIsolatedChildEnv — production secrets stripped", () => {
   it("all PRODUCTION_SECRETS keys are absent from the child environment", () => {
-    const child = buildIsolatedChildEnv(DUMMY_PARENT_ENV);
+    const child = bb();
     for (const secretKey of PRODUCTION_SECRETS) {
       expect(
         secretKey in child,
@@ -559,13 +601,13 @@ describe("buildIsolatedChildEnv — production secrets stripped", () => {
   });
 
   it("Kite broker API credentials are absent from child env values", () => {
-    const child = buildIsolatedChildEnv(DUMMY_PARENT_ENV);
+    const child = bb();
     const childValues = Object.values(child);
     expect(childValues.every((v) => !v.includes("dummy-kite"))).toBe(true);
   });
 
   it("Telegram credentials and parity harness tokens are absent from child env values", () => {
-    const child = buildIsolatedChildEnv(DUMMY_PARENT_ENV);
+    const child = bb();
     const childValues = Object.values(child);
     expect(childValues.every((v) => !v.includes("dummy-tg"))).toBe(true);
     expect(childValues.every((v) => !v.includes("dummy-prepost"))).toBe(true);
@@ -580,7 +622,7 @@ describe("buildIsolatedChildEnv — production secrets stripped", () => {
 describe("buildIsolatedChildEnv — execution switches forced disabled", () => {
   it("PAPER_TRADING_ENABLED is forced to 'false' regardless of parent value", () => {
     // Parent has PAPER_TRADING_ENABLED=true (from DUMMY_PARENT_ENV)
-    const child = buildIsolatedChildEnv(DUMMY_PARENT_ENV);
+    const child = bb();
     expect(child["PAPER_TRADING_ENABLED"]).toBe(
       EXECUTION_SWITCH_OVERRIDES["PAPER_TRADING_ENABLED"],
     );
@@ -588,7 +630,7 @@ describe("buildIsolatedChildEnv — execution switches forced disabled", () => {
 
   it("REPLIT_DEPLOYMENT is forced to '0' regardless of parent value", () => {
     // Parent has REPLIT_DEPLOYMENT=1
-    const child = buildIsolatedChildEnv(DUMMY_PARENT_ENV);
+    const child = bb();
     expect(child["REPLIT_DEPLOYMENT"]).toBe(
       EXECUTION_SWITCH_OVERRIDES["REPLIT_DEPLOYMENT"],
     );
@@ -596,7 +638,7 @@ describe("buildIsolatedChildEnv — execution switches forced disabled", () => {
 
   it("INDSTOCKS_ENABLED is forced to '0' regardless of parent value", () => {
     // Parent has INDSTOCKS_ENABLED=1
-    const child = buildIsolatedChildEnv(DUMMY_PARENT_ENV);
+    const child = bb();
     expect(child["INDSTOCKS_ENABLED"]).toBe(
       EXECUTION_SWITCH_OVERRIDES["INDSTOCKS_ENABLED"],
     );
@@ -604,54 +646,25 @@ describe("buildIsolatedChildEnv — execution switches forced disabled", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test 39: runPreflightCheck — isolated child environment passed to spawn (NEW)
+// Test 39: runPreflightCheck — hard block: spawn sentinel is never called
+// (Stage 7: replaces old "spawn receives isolated child environment" test)
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe("runPreflightCheck — spawn receives isolated child environment", () => {
-  it("spawned vitest receives DATABASE_URL=TEST_DATABASE_URL and not the operational URL", async () => {
-    const captured: Array<{
-      cmd: string;
-      args: string[];
-      env: Record<string, string>;
-    }> = [];
-
-    const fakespawn = (
-      cmd: string,
-      args: string[],
-      opts: { env?: Record<string, string> },
-    ) => {
-      captured.push({ cmd, args, env: opts.env ?? {} });
-      const handlers: Record<string, ((code: number) => void)[]> = {};
-      const child = {
-        on: (event: string, cb: (code: number) => void) => {
-          if (!handlers[event]) handlers[event] = [];
-          handlers[event].push(cb);
-          if (event === "close") setImmediate(() => cb(0));
-          return child;
-        },
-      };
-      return child;
+describe("runPreflightCheck — hard block: spawn sentinel is never called", () => {
+  it("spawn sentinel remains untouched even when all isolation checks pass", async () => {
+    const sentinelCalled: string[] = [];
+    const fakeSpawn = () => {
+      sentinelCalled.push("SPAWN_CALLED");
+      return { on: () => ({}) };
     };
 
-    await runPreflightCheck(DUMMY_PARENT_ENV, fakespawn as never);
+    // Even with a fully valid environment, the hard block must fire.
+    await expect(
+      runPreflightCheck(DUMMY_PARENT_ENV, fakeSpawn as never),
+    ).rejects.toBe("DB_TEST_RUNTIME_NOT_AUTHORIZED");
 
-    expect(captured).toHaveLength(1);
-    const childEnv = captured[0]!.env;
-
-    // DATABASE_URL in child must be the test URL
-    expect(childEnv["DATABASE_URL"]).toBe(
-      "postgresql://ignored:ignored@test-db.invalid:5432/nse_vitest_run-abc123",
-    );
-    // The operational value must not appear anywhere
-    const opFragment = "nse_scanner";
-    for (const [k, v] of Object.entries(childEnv)) {
-      expect(
-        v.includes(opFragment),
-        `child env key '${k}' passed to spawn must not contain operational DB fragment`,
-      ).toBe(false);
-    }
-    // PAPER_TRADING_ENABLED must be disabled
-    expect(childEnv["PAPER_TRADING_ENABLED"]).toBe("false");
+    // Spawn sentinel must remain untouched.
+    expect(sentinelCalled).toHaveLength(0);
   });
 });
 
@@ -747,14 +760,32 @@ describe("Positive unit allowlist — strict one-file include", () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 // The complete set of keys that may lawfully appear in the child env:
-// allowlisted runtime keys + internally generated test-only keys.
+// allowlisted runtime keys (LANG/LC_ALL/LC_CTYPE, if present in parent)
+// + explicitly set isolated-path keys
+// + deterministic runtime keys
+// + internally generated test-only keys.
+
 const GENERATED_TEST_KEYS = new Set([
   "NODE_ENV",
   "DATABASE_URL",
   "TEST_DATABASE_URL",
   "TEST_RUN_ID",
   "TEST_DB_ISOLATION_CONFIRMED",
-  "TEST_EXTERNAL_SERVICES_MOCKED",
+  "TEST_EXTERNAL_SERVICES_CONFIGURED_DISABLED",
+  // Isolated filesystem paths — set explicitly from isolatedPaths, not from parent
+  "HOME",
+  "TMPDIR",
+  "TMP",
+  "TEMP",
+  "XDG_CONFIG_HOME",
+  "XDG_CACHE_HOME",
+  "XDG_DATA_HOME",
+  "XDG_RUNTIME_DIR",
+  // Deterministic runtime values — always set explicitly
+  "TZ",
+  "CI",
+  "TERM",
+  "NO_COLOR",
   ...Object.keys(EXECUTION_SWITCH_OVERRIDES),
 ]);
 
@@ -765,7 +796,7 @@ const PERMITTED_CHILD_KEYS = new Set([
 
 describe("buildIsolatedChildEnv — explicit allowlist policy", () => {
   it("every child key is either on the allowlist or is a generated test-only key", () => {
-    const child = buildIsolatedChildEnv(DUMMY_PARENT_ENV);
+    const child = bb();
     for (const key of Object.keys(child)) {
       expect(
         PERMITTED_CHILD_KEYS.has(key),
@@ -775,12 +806,12 @@ describe("buildIsolatedChildEnv — explicit allowlist policy", () => {
   });
 
   it("a random unknown parent key is dropped", () => {
-    const child = buildIsolatedChildEnv(DUMMY_PARENT_ENV);
+    const child = bb();
     expect("RANDOM_UNKNOWN_KEY_XYZ_789" in child).toBe(false);
   });
 
   it("FUTURE_PROVIDER_API_KEY is dropped without modifying any denylist", () => {
-    const child = buildIsolatedChildEnv(DUMMY_PARENT_ENV);
+    const child = bb();
     expect("FUTURE_PROVIDER_API_KEY" in child).toBe(false);
     // Verify by policy: the key is not on the allowlist
     expect(CHILD_PROCESS_ENV_ALLOWLIST).not.toContain("FUTURE_PROVIDER_API_KEY");
@@ -793,43 +824,43 @@ describe("buildIsolatedChildEnv — explicit allowlist policy", () => {
 
 describe("buildIsolatedChildEnv — previously-leaked keys dropped by allowlist", () => {
   it("KITE_TOKEN_ENC_KEY is absent from child env", () => {
-    expect("KITE_TOKEN_ENC_KEY" in buildIsolatedChildEnv(DUMMY_PARENT_ENV)).toBe(false);
+    expect("KITE_TOKEN_ENC_KEY" in bb()).toBe(false);
   });
 
   it("KITE_TOKEN_ENC_KEY_OLD is absent from child env", () => {
-    expect("KITE_TOKEN_ENC_KEY_OLD" in buildIsolatedChildEnv(DUMMY_PARENT_ENV)).toBe(false);
+    expect("KITE_TOKEN_ENC_KEY_OLD" in bb()).toBe(false);
   });
 
   it("KITE_TOKEN_ENC_KEY_NEW is absent from child env", () => {
-    expect("KITE_TOKEN_ENC_KEY_NEW" in buildIsolatedChildEnv(DUMMY_PARENT_ENV)).toBe(false);
+    expect("KITE_TOKEN_ENC_KEY_NEW" in bb()).toBe(false);
   });
 
   it("KITE_MIRROR_URL is absent from child env", () => {
-    expect("KITE_MIRROR_URL" in buildIsolatedChildEnv(DUMMY_PARENT_ENV)).toBe(false);
+    expect("KITE_MIRROR_URL" in bb()).toBe(false);
   });
 
   it("KITE_MIRROR_ALLOWED_HOSTS is absent from child env", () => {
-    expect("KITE_MIRROR_ALLOWED_HOSTS" in buildIsolatedChildEnv(DUMMY_PARENT_ENV)).toBe(false);
+    expect("KITE_MIRROR_ALLOWED_HOSTS" in bb()).toBe(false);
   });
 
   it("METRICS_TOKEN is absent from child env", () => {
-    expect("METRICS_TOKEN" in buildIsolatedChildEnv(DUMMY_PARENT_ENV)).toBe(false);
+    expect("METRICS_TOKEN" in bb()).toBe(false);
   });
 
   it("RESEND_API_KEY is absent from child env", () => {
-    expect("RESEND_API_KEY" in buildIsolatedChildEnv(DUMMY_PARENT_ENV)).toBe(false);
+    expect("RESEND_API_KEY" in bb()).toBe(false);
   });
 
   it("SENDGRID_API_KEY is absent from child env", () => {
-    expect("SENDGRID_API_KEY" in buildIsolatedChildEnv(DUMMY_PARENT_ENV)).toBe(false);
+    expect("SENDGRID_API_KEY" in bb()).toBe(false);
   });
 
   it("DEAD_SYMBOL_WEBHOOK_URL is absent from child env", () => {
-    expect("DEAD_SYMBOL_WEBHOOK_URL" in buildIsolatedChildEnv(DUMMY_PARENT_ENV)).toBe(false);
+    expect("DEAD_SYMBOL_WEBHOOK_URL" in bb()).toBe(false);
   });
 
   it("ENV_FILE_PATH is absent from child env", () => {
-    expect("ENV_FILE_PATH" in buildIsolatedChildEnv(DUMMY_PARENT_ENV)).toBe(false);
+    expect("ENV_FILE_PATH" in bb()).toBe(false);
   });
 });
 
@@ -839,20 +870,19 @@ describe("buildIsolatedChildEnv — previously-leaked keys dropped by allowlist"
 
 describe("buildIsolatedChildEnv — NODE_OPTIONS / NODE_PATH / preload dropped", () => {
   it("NODE_OPTIONS is absent from child env", () => {
-    expect("NODE_OPTIONS" in buildIsolatedChildEnv(DUMMY_PARENT_ENV)).toBe(false);
+    expect("NODE_OPTIONS" in bb()).toBe(false);
   });
 
   it("NODE_PATH is absent from child env", () => {
-    const parent = { ...DUMMY_PARENT_ENV, NODE_PATH: "/dummy/path" };
-    expect("NODE_PATH" in buildIsolatedChildEnv(parent)).toBe(false);
+    expect("NODE_PATH" in bb({ NODE_PATH: "/dummy/path" })).toBe(false);
   });
 
   it("LD_PRELOAD is absent from child env", () => {
-    expect("LD_PRELOAD" in buildIsolatedChildEnv(DUMMY_PARENT_ENV)).toBe(false);
+    expect("LD_PRELOAD" in bb()).toBe(false);
   });
 
   it("DYLD_INSERT_LIBRARIES is absent from child env", () => {
-    expect("DYLD_INSERT_LIBRARIES" in buildIsolatedChildEnv(DUMMY_PARENT_ENV)).toBe(false);
+    expect("DYLD_INSERT_LIBRARIES" in bb()).toBe(false);
   });
 });
 
@@ -862,39 +892,39 @@ describe("buildIsolatedChildEnv — NODE_OPTIONS / NODE_PATH / preload dropped",
 
 describe("buildIsolatedChildEnv — proxy variables dropped", () => {
   it("HTTP_PROXY (uppercase) is absent from child env", () => {
-    expect("HTTP_PROXY" in buildIsolatedChildEnv(DUMMY_PARENT_ENV)).toBe(false);
+    expect("HTTP_PROXY" in bb()).toBe(false);
   });
 
   it("HTTPS_PROXY (uppercase) is absent from child env", () => {
-    expect("HTTPS_PROXY" in buildIsolatedChildEnv(DUMMY_PARENT_ENV)).toBe(false);
+    expect("HTTPS_PROXY" in bb()).toBe(false);
   });
 
   it("ALL_PROXY is absent from child env", () => {
-    expect("ALL_PROXY" in buildIsolatedChildEnv(DUMMY_PARENT_ENV)).toBe(false);
+    expect("ALL_PROXY" in bb()).toBe(false);
   });
 
   it("NO_PROXY is absent from child env", () => {
-    expect("NO_PROXY" in buildIsolatedChildEnv(DUMMY_PARENT_ENV)).toBe(false);
+    expect("NO_PROXY" in bb()).toBe(false);
   });
 
   it("GRPC_PROXY is absent from child env", () => {
-    expect("GRPC_PROXY" in buildIsolatedChildEnv(DUMMY_PARENT_ENV)).toBe(false);
+    expect("GRPC_PROXY" in bb()).toBe(false);
   });
 
   it("http_proxy (lowercase) is absent from child env", () => {
-    expect("http_proxy" in buildIsolatedChildEnv(DUMMY_PARENT_ENV)).toBe(false);
+    expect("http_proxy" in bb()).toBe(false);
   });
 
   it("https_proxy (lowercase) is absent from child env", () => {
-    expect("https_proxy" in buildIsolatedChildEnv(DUMMY_PARENT_ENV)).toBe(false);
+    expect("https_proxy" in bb()).toBe(false);
   });
 
   it("NPM_CONFIG_PROXY is absent from child env", () => {
-    expect("NPM_CONFIG_PROXY" in buildIsolatedChildEnv(DUMMY_PARENT_ENV)).toBe(false);
+    expect("NPM_CONFIG_PROXY" in bb()).toBe(false);
   });
 
   it("NPM_CONFIG_HTTPS_PROXY is absent from child env", () => {
-    expect("NPM_CONFIG_HTTPS_PROXY" in buildIsolatedChildEnv(DUMMY_PARENT_ENV)).toBe(false);
+    expect("NPM_CONFIG_HTTPS_PROXY" in bb()).toBe(false);
   });
 });
 
@@ -904,28 +934,28 @@ describe("buildIsolatedChildEnv — proxy variables dropped", () => {
 
 describe("buildIsolatedChildEnv — additional execution switches forced disabled", () => {
   it("CANDLE_WAREHOUSE_ENABLED is forced to '0' regardless of parent value", () => {
-    const child = buildIsolatedChildEnv(DUMMY_PARENT_ENV);
+    const child = bb();
     expect(child["CANDLE_WAREHOUSE_ENABLED"]).toBe(
       EXECUTION_SWITCH_OVERRIDES["CANDLE_WAREHOUSE_ENABLED"],
     );
   });
 
   it("OPTION_SNAPSHOT_ENABLED is forced to '0' regardless of parent value", () => {
-    const child = buildIsolatedChildEnv(DUMMY_PARENT_ENV);
+    const child = bb();
     expect(child["OPTION_SNAPSHOT_ENABLED"]).toBe(
       EXECUTION_SWITCH_OVERRIDES["OPTION_SNAPSHOT_ENABLED"],
     );
   });
 
   it("REASONING_WRITER_V2_ENABLED is forced to '0' regardless of parent value", () => {
-    const child = buildIsolatedChildEnv(DUMMY_PARENT_ENV);
+    const child = bb();
     expect(child["REASONING_WRITER_V2_ENABLED"]).toBe(
       EXECUTION_SWITCH_OVERRIDES["REASONING_WRITER_V2_ENABLED"],
     );
   });
 
   it("LIVE_CASH_SWING_ORDER_ENABLED is forced to 'false' regardless of parent value", () => {
-    const child = buildIsolatedChildEnv(DUMMY_PARENT_ENV);
+    const child = bb();
     expect(child["LIVE_CASH_SWING_ORDER_ENABLED"]).toBe(
       EXECUTION_SWITCH_OVERRIDES["LIVE_CASH_SWING_ORDER_ENABLED"],
     );
@@ -937,21 +967,19 @@ describe("buildIsolatedChildEnv — additional execution switches forced disable
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("buildIsolatedChildEnv — generated test-only keys set explicitly", () => {
-  it("TEST_RUN_ID is set from the validated parent value, not from parent env blindly", () => {
-    const child = buildIsolatedChildEnv(DUMMY_PARENT_ENV);
+  it("TEST_RUN_ID is set from the validated value, not inherited blindly from parent", () => {
+    const child = bb();
     expect(child["TEST_RUN_ID"]).toBe("run-abc123");
   });
 
   it("TEST_DB_ISOLATION_CONFIRMED is forced to 'true' in child env", () => {
-    const parent = { ...DUMMY_PARENT_ENV, TEST_DB_ISOLATION_CONFIRMED: "false" };
-    const child = buildIsolatedChildEnv(parent);
+    const child = bb({ TEST_DB_ISOLATION_CONFIRMED: "false" });
     expect(child["TEST_DB_ISOLATION_CONFIRMED"]).toBe("true");
   });
 
-  it("TEST_EXTERNAL_SERVICES_MOCKED is forced to 'true' in child env", () => {
-    const parent = { ...DUMMY_PARENT_ENV, TEST_EXTERNAL_SERVICES_MOCKED: "0" };
-    const child = buildIsolatedChildEnv(parent);
-    expect(child["TEST_EXTERNAL_SERVICES_MOCKED"]).toBe("true");
+  it("TEST_EXTERNAL_SERVICES_CONFIGURED_DISABLED is forced to 'true' in child env", () => {
+    const child = bb({ TEST_EXTERNAL_SERVICES_CONFIGURED_DISABLED: "0" });
+    expect(child["TEST_EXTERNAL_SERVICES_CONFIGURED_DISABLED"]).toBe("true");
   });
 });
 
@@ -973,15 +1001,15 @@ describe("buildIsolatedChildEnv — property test: arbitrary non-allowlisted key
       expect(allowlistSet.has(key)).toBe(false);
     }
 
-    // Build a parent env that includes all 100 arbitrary keys with dummy values.
-    const parent: Record<string, string | undefined> = { ...DUMMY_PARENT_ENV };
+    // Build parent env with all 100 arbitrary keys.
+    const parentWithArbitrary: Record<string, string | undefined> = { ...DUMMY_PARENT_ENV };
     for (const key of arbitraryKeys) {
-      parent[key] = `dummy-value-for-${key}`;
+      parentWithArbitrary[key] = `dummy-value-for-${key}`;
     }
 
-    const child = buildIsolatedChildEnv(parent);
+    const child = buildIsolatedChildEnv(DUMMY_VALIDATED, DUMMY_ISOLATED_PATHS, parentWithArbitrary);
 
-    // Every arbitrary key must be absent from the child env.
+    // Every arbitrary key must be absent.
     for (const key of arbitraryKeys) {
       expect(
         key in child,
@@ -989,12 +1017,341 @@ describe("buildIsolatedChildEnv — property test: arbitrary non-allowlisted key
       ).toBe(false);
     }
 
-    // Child must contain no key that is not in PERMITTED_CHILD_KEYS.
+    // No key in child that is not in PERMITTED_CHILD_KEYS.
     for (const key of Object.keys(child)) {
       expect(
         PERMITTED_CHILD_KEYS.has(key),
         `child key '${key}' is not an approved allowlisted or generated key`,
       ).toBe(true);
+    }
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Tests 82–86: PATH, HOME, TMPDIR, and XDG paths — isolated, not inherited
+// (Stage 4/5: path isolation tests)
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("buildIsolatedChildEnv — PATH absent (not on allowlist)", () => {
+  it("parent PATH is completely absent from child env", () => {
+    // DUMMY_PARENT_ENV has PATH=/usr/bin:/bin; it must NOT appear in child.
+    // Executables are located via canonical full paths — PATH is never needed.
+    const child = bb();
+    expect("PATH" in child).toBe(false);
+  });
+});
+
+describe("buildIsolatedChildEnv — HOME is isolated, not inherited from parent", () => {
+  it("child HOME equals the isolated path, not the parent HOME", () => {
+    // DUMMY_PARENT_ENV has HOME=/home/runner; must NOT appear in child.
+    const child = bb();
+    expect(child["HOME"]).toBe(DUMMY_ISOLATED_PATHS.home);
+    expect(child["HOME"]).not.toBe("/home/runner");
+  });
+});
+
+describe("buildIsolatedChildEnv — TMPDIR/TMP/TEMP are isolated, not inherited", () => {
+  it("TMPDIR is set to the isolated tmp path", () => {
+    const child = bb();
+    expect(child["TMPDIR"]).toBe(DUMMY_ISOLATED_PATHS.tmp);
+  });
+
+  it("TMP is set to the isolated tmp path", () => {
+    const child = bb();
+    expect(child["TMP"]).toBe(DUMMY_ISOLATED_PATHS.tmp);
+  });
+
+  it("TEMP is set to the isolated tmp path", () => {
+    const child = bb();
+    expect(child["TEMP"]).toBe(DUMMY_ISOLATED_PATHS.tmp);
+  });
+});
+
+describe("buildIsolatedChildEnv — XDG paths are isolated", () => {
+  it("XDG_CONFIG_HOME is set to the isolated xdgConfigHome path", () => {
+    expect(bb()["XDG_CONFIG_HOME"]).toBe(DUMMY_ISOLATED_PATHS.xdgConfigHome);
+  });
+
+  it("XDG_CACHE_HOME is set to the isolated xdgCacheHome path", () => {
+    expect(bb()["XDG_CACHE_HOME"]).toBe(DUMMY_ISOLATED_PATHS.xdgCacheHome);
+  });
+
+  it("XDG_DATA_HOME is set to the isolated xdgDataHome path", () => {
+    expect(bb()["XDG_DATA_HOME"]).toBe(DUMMY_ISOLATED_PATHS.xdgDataHome);
+  });
+
+  it("XDG_RUNTIME_DIR is set to the isolated xdgRuntimeDir path", () => {
+    expect(bb()["XDG_RUNTIME_DIR"]).toBe(DUMMY_ISOLATED_PATHS.xdgRuntimeDir);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Tests 87–90: Deterministic runtime values always set explicitly
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("buildIsolatedChildEnv — deterministic runtime values", () => {
+  it("TZ is forced to 'Asia/Kolkata' regardless of parent value", () => {
+    const child = bb({ TZ: "UTC" });
+    expect(child["TZ"]).toBe("Asia/Kolkata");
+  });
+
+  it("CI is forced to 'true' regardless of parent value", () => {
+    const child = bb({ CI: "false" });
+    expect(child["CI"]).toBe("true");
+  });
+
+  it("TERM is forced to 'dumb' regardless of parent value", () => {
+    const child = bb({ TERM: "xterm-256color" });
+    expect(child["TERM"]).toBe("dumb");
+  });
+
+  it("NO_COLOR is forced to '1' regardless of parent value", () => {
+    const child = bb({ NO_COLOR: "0" });
+    expect(child["NO_COLOR"]).toBe("1");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test 91: All isolated paths share one common run root
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("buildIsolatedChildEnv — all isolated paths beneath one run root", () => {
+  it("HOME, TMPDIR, and all XDG paths share a common parent directory with the correct prefix", () => {
+    const child = bb();
+    const isolatedPathValues = [
+      child["HOME"]!,
+      child["TMPDIR"]!,
+      child["XDG_CONFIG_HOME"]!,
+      child["XDG_CACHE_HOME"]!,
+      child["XDG_DATA_HOME"]!,
+      child["XDG_RUNTIME_DIR"]!,
+    ];
+
+    // All isolated paths must share exactly one parent directory (the run root).
+    const parents = new Set(isolatedPathValues.map((p) => path.dirname(p)));
+    expect(parents.size).toBe(1);
+
+    const [runRoot] = [...parents];
+    // The shared run root basename must start with the expected prefix.
+    expect(path.basename(runRoot!)).toMatch(
+      new RegExp(`^${RUN_CONTEXT_DIR_PREFIX.replace(/-/g, "\\-")}`),
+    );
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Tests 92–94: resolveVitestExecutable — fail-closed on bad input
+// (Stage 3: trusted executable resolver)
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("resolveVitestExecutable — fail-closed on bad resolver", () => {
+  it("throws VitestResolutionFailed when the resolver throws (package not found)", () => {
+    const badResolver = (_id: string): string => {
+      throw new Error("Cannot find module 'vitest/package.json'");
+    };
+    expect(() => resolveVitestExecutable(badResolver)).toThrow(/VitestResolutionFailed/);
+  });
+
+  it("throws VitestResolutionFailed when package.json has no bin field", () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "nse-guard-restest-"));
+    try {
+      const fakePkg = path.join(tmpDir, "package.json");
+      fs.writeFileSync(
+        fakePkg,
+        JSON.stringify({ name: "vitest", version: "0.0.0" }),
+      );
+      expect(() => resolveVitestExecutable(() => fakePkg)).toThrow(/VitestResolutionFailed/);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true });
+    }
+  });
+
+  it("throws VitestResolutionFailed when resolved CLI path escapes the package root", () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "nse-guard-restest-"));
+    try {
+      const pkgDir = path.join(tmpDir, "vitest-pkg");
+      fs.mkdirSync(pkgDir);
+      // A real file outside the package root
+      const outsideFile = path.join(tmpDir, "outside.mjs");
+      fs.writeFileSync(outsideFile, "#!/usr/bin/env node\n");
+      const fakePkg = path.join(pkgDir, "package.json");
+      fs.writeFileSync(
+        fakePkg,
+        JSON.stringify({
+          name: "vitest",
+          version: "0.0.0",
+          bin: { vitest: "../outside.mjs" }, // escapes pkgDir
+        }),
+      );
+      expect(() => resolveVitestExecutable(() => fakePkg)).toThrow(/VitestResolutionFailed/);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true });
+    }
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Tests 95–99: safeCleanupRunRoot — safety invariants
+// (Stage 8: safe cleanup)
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("safeCleanupRunRoot — deletes a valid generated run root", () => {
+  it("accepts and deletes a directory with the correct prefix that is a direct child of tmpdir", () => {
+    const runRoot = fs.mkdtempSync(path.join(os.tmpdir(), RUN_CONTEXT_DIR_PREFIX));
+    expect(fs.existsSync(runRoot)).toBe(true);
+    safeCleanupRunRoot(runRoot);
+    expect(fs.existsSync(runRoot)).toBe(false);
+  });
+});
+
+describe("safeCleanupRunRoot — refuses unsafe paths", () => {
+  it("throws CleanupSafetyError when run root is a symbolic link", () => {
+    const tmpDir = os.tmpdir();
+    const realDir = fs.mkdtempSync(path.join(tmpDir, "nse-guard-real-"));
+    const symlinkPath = path.join(
+      tmpDir,
+      `${RUN_CONTEXT_DIR_PREFIX}symlink-${Date.now()}`,
+    );
+    fs.symlinkSync(realDir, symlinkPath);
+    try {
+      expect(() => safeCleanupRunRoot(symlinkPath)).toThrow(/CleanupSafetyError/);
+    } finally {
+      fs.unlinkSync(symlinkPath);
+      fs.rmdirSync(realDir);
+    }
+  });
+
+  it("throws CleanupSafetyError when run root lacks the required prefix", () => {
+    const wrongPrefixDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "nse-guard-wrong-prefix-"),
+    );
+    try {
+      expect(() => safeCleanupRunRoot(wrongPrefixDir)).toThrow(/CleanupSafetyError/);
+    } finally {
+      // Must clean up manually because safeCleanupRunRoot correctly refused.
+      fs.rmdirSync(wrongPrefixDir);
+    }
+  });
+
+  it("throws CleanupSafetyError when run root is a nested path (not a direct child of tmpdir)", () => {
+    const runRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), RUN_CONTEXT_DIR_PREFIX),
+    );
+    const nestedDir = path.join(runRoot, "subdir");
+    fs.mkdirSync(nestedDir, { mode: 0o700 });
+    try {
+      expect(() => safeCleanupRunRoot(nestedDir)).toThrow(/CleanupSafetyError/);
+    } finally {
+      fs.rmSync(runRoot, { recursive: true });
+    }
+  });
+
+  it("throws on second cleanup attempt (enforces delete-once semantics)", () => {
+    const runRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), RUN_CONTEXT_DIR_PREFIX),
+    );
+    safeCleanupRunRoot(runRoot); // First call: succeeds, directory deleted.
+    // Second call: must throw because the directory no longer exists.
+    expect(() => safeCleanupRunRoot(runRoot)).toThrow();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Tests 100–103: DB_TEST_RUNTIME_NOT_AUTHORIZED — hard runtime lock
+// (Stage 7: runtime lock)
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("DB_TEST_RUNTIME_NOT_AUTHORIZED — hard runtime lock", () => {
+  it("rejects with DB_TEST_RUNTIME_NOT_AUTHORIZED when guard passes; spawn never called", async () => {
+    const sentinelCalled: string[] = [];
+    const fakeSpawn = () => {
+      sentinelCalled.push("SPAWN_CALLED");
+      return { on: () => ({}) };
+    };
+    await expect(
+      runPreflightCheck(VALID_ENV, fakeSpawn as never),
+    ).rejects.toBe("DB_TEST_RUNTIME_NOT_AUTHORIZED");
+    expect(sentinelCalled).toHaveLength(0);
+  });
+
+  it("cannot be bypassed via DB_TEST_RUNTIME_AUTHORIZED env var", async () => {
+    const sentinelCalled: string[] = [];
+    const fakeSpawn = () => {
+      sentinelCalled.push("SPAWN_CALLED");
+      return { on: () => ({}) };
+    };
+    const envWithBypass = { ...VALID_ENV, DB_TEST_RUNTIME_AUTHORIZED: "true" };
+    await expect(
+      runPreflightCheck(envWithBypass, fakeSpawn as never),
+    ).rejects.toBe("DB_TEST_RUNTIME_NOT_AUTHORIZED");
+    expect(sentinelCalled).toHaveLength(0);
+  });
+
+  it("cannot be bypassed via any other environment variable", async () => {
+    const sentinelCalled: string[] = [];
+    const fakeSpawn = () => {
+      sentinelCalled.push("SPAWN_CALLED");
+      return { on: () => ({}) };
+    };
+    const bypassAttempts = [
+      { ...VALID_ENV, P0_1B_AUTHORIZED: "true" },
+      { ...VALID_ENV, BYPASS_DB_RUNTIME_LOCK: "true" },
+      { ...VALID_ENV, FORCE_DB_TESTS: "1" },
+      { ...VALID_ENV, OVERRIDE_RUNTIME_BLOCK: "yes" },
+    ];
+    for (const env of bypassAttempts) {
+      await expect(
+        runPreflightCheck(env, fakeSpawn as never),
+      ).rejects.toBe("DB_TEST_RUNTIME_NOT_AUTHORIZED");
+    }
+    expect(sentinelCalled).toHaveLength(0);
+  });
+
+  it("ALLOW_TEST_DB_WRITES is forced to '0' in child env regardless of parent", () => {
+    const child = bb({ ALLOW_TEST_DB_WRITES: "1" });
+    expect(child["ALLOW_TEST_DB_WRITES"]).toBe(
+      EXECUTION_SWITCH_OVERRIDES["ALLOW_TEST_DB_WRITES"],
+    );
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Tests 104–107: Terminology — TEST_EXTERNAL_SERVICES_CONFIGURED_DISABLED
+// (Stage 6: honest terminology for external-service configuration)
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("Terminology — TEST_EXTERNAL_SERVICES_CONFIGURED_DISABLED", () => {
+  it("old TEST_EXTERNAL_SERVICES_MOCKED key does not appear in child env", () => {
+    const child = bb();
+    expect("TEST_EXTERNAL_SERVICES_MOCKED" in child).toBe(false);
+  });
+
+  it("TEST_EXTERNAL_SERVICES_CONFIGURED_DISABLED is set to 'true' in child env", () => {
+    const child = bb();
+    expect(child["TEST_EXTERNAL_SERVICES_CONFIGURED_DISABLED"]).toBe("true");
+  });
+
+  it("guard rejects when TEST_EXTERNAL_SERVICES_CONFIGURED_DISABLED is absent and code is correct", () => {
+    const result = checkDbTestIsolation({
+      ...VALID_ENV,
+      TEST_EXTERNAL_SERVICES_CONFIGURED_DISABLED: undefined,
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe("TEST_EXTERNAL_SERVICES_NOT_CONFIGURED_DISABLED");
+    }
+  });
+
+  it("guard failure reason does not use the word 'mocked'; uses 'disabled' and 'UNPROVEN'", () => {
+    const result = checkDbTestIsolation({
+      ...VALID_ENV,
+      TEST_EXTERNAL_SERVICES_CONFIGURED_DISABLED: undefined,
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason.toLowerCase()).not.toContain("mock");
+      expect(result.reason.toLowerCase()).toContain("disabled");
+      expect(result.reason.toUpperCase()).toContain("UNPROVEN");
     }
   });
 });

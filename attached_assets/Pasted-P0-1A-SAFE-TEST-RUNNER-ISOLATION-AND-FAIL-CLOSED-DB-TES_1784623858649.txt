@@ -1,0 +1,462 @@
+P0.1A — SAFE TEST-RUNNER ISOLATION AND FAIL-CLOSED DB TEST LOCK
+
+OBJECTIVE
+
+Implement the final static and local-process safety correction for the API-server test runner.
+
+This work must:
+
+1. Eliminate PATH-dependent executable resolution.
+2. Eliminate inherited HOME and temporary-directory exposure.
+3. Produce a minimal deterministic child environment.
+4. Make cleanup safely bounded to one generated test-run directory.
+5. Correct misleading external-service isolation terminology.
+6. Keep all DB-backed/application tests hard-blocked until P0.1B provisions and verifies an isolated test database and runtime network controls.
+7. Preserve the positive unit-test allowlist.
+8. Touch no trading, signal, scheduler, provider, database-schema or production-runtime code.
+
+INCIDENT CONTEXT
+
+P0-INC-01 is provisionally classified:
+
+DEPLOYMENT_CONFIRMED_ANALYSIS_ONLY_WRITES
+
+Reported financial impact:
+
+- zero equity trades opened;
+- zero F&O trades opened;
+- zero broker orders;
+- zero paper-account mutations;
+- zero capital events;
+- both C0 auto-open blocks active;
+- broker execution disabled.
+
+Residual incident items remain tracked separately:
+
+- uncontrolled platform deployment/restart;
+- restart-generated telemetry and PREPOST Telegram activity.
+
+Do not address those residual incident items in this work order.
+
+MODE
+
+Implementation is authorized only on:
+
+phase0/authorized-remediation-20260720
+
+Do not merge to main, push, publish, deploy or restart any workflow.
+
+Do not connect to any database or external service.
+
+Do not run application tests or the existing DB-backed suite.
+
+Do not modify production application code.
+
+STAGE 1 — BASELINE
+
+Before editing, report:
+
+- current branch;
+- current HEAD;
+- main SHA;
+- `git status --short --branch`;
+- whether an automatic checkpoint occurred after the previous loop;
+- exact changed/untracked files.
+
+Stop if:
+
+- the branch is not `phase0/authorized-remediation-20260720`;
+- main moved unexpectedly;
+- tracked application files contain unexplained changes;
+- the worktree contains overlapping changes outside test infrastructure or evidence documentation.
+
+Do not delete or revert unknown files.
+
+STAGE 2 — STATIC INSPECTION
+
+Inspect without executing application modules:
+
+1. `artifacts/api-server/package.json`
+2. Installed Vitest package metadata and its `bin` entry.
+3. `dbTestGuard.ts`
+4. `dbTestPreflightRunner.ts`
+5. `dbTestGuard.test.ts`
+6. `vitest.config.unit.ts`
+7. Any existing API-server DB-test configuration.
+
+Before editing, state the exact proposed file list.
+
+PERMITTED FILES
+
+The implementation should normally be limited to:
+
+- `artifacts/api-server/src/test-infra/dbTestGuard.ts`
+- `artifacts/api-server/src/test-infra/dbTestPreflightRunner.ts`
+- `artifacts/api-server/src/test-infra/dbTestGuard.test.ts`
+- `artifacts/api-server/vitest.config.unit.ts`
+- `artifacts/api-server/package.json`
+- the two existing `memory/P0_1_*.md` evidence documents
+
+A narrowly scoped new helper under `src/test-infra/` is permitted only if necessary.
+
+No file under trading, scanners, schedulers, providers, routes, database schemas or UI may be modified.
+
+STAGE 3 — TRUSTED EXECUTABLE RESOLUTION
+
+Remove all bare-command spawning.
+
+Do not use:
+
+- `spawn("vitest", ...)`;
+- inherited PATH;
+- `node_modules/.bin/vitest` passed to Node without verifying its file type;
+- a hard-coded path that assumes a specific package-manager layout.
+
+Required design:
+
+1. Resolve the installed Vitest package through Node/package module resolution.
+2. Read the installed package metadata and its authoritative `bin` entry.
+3. Resolve and canonicalize the actual JavaScript CLI entry.
+4. Resolve and canonicalize `process.execPath`.
+5. Verify the CLI:
+   - exists;
+   - is a regular file;
+   - is an expected JavaScript module type;
+   - remains within the canonical installed Vitest package directory.
+6. Use `path.relative()` containment checks. Do not use string `startsWith()` for path containment.
+7. Fail closed if resolution, canonicalization, metadata validation or containment fails.
+8. Spawn:
+
+   canonical Node executable
+   + canonical Vitest JavaScript CLI
+   + explicit Vitest arguments
+
+9. Set `shell: false`.
+10. Do not include PATH in the child environment.
+
+Do not assume `.bin/vitest` is JavaScript. Inspect the installed package and use its real CLI target.
+
+STAGE 4 — ISOLATED RUN CONTEXT
+
+Create one fresh, unique run root for each authorized child-test process.
+
+Required structure:
+
+- one generated root directly beneath the canonical OS temporary directory;
+- HOME beneath that root;
+- TMPDIR/TMP/TEMP beneath that root;
+- XDG_CONFIG_HOME beneath that root;
+- XDG_CACHE_HOME beneath that root;
+- XDG_DATA_HOME beneath that root;
+- XDG_RUNTIME_DIR beneath that root.
+
+Requirements:
+
+1. Use a fixed safe prefix such as `nsescanner-vitest-`.
+2. Let the OS generate the unpredictable suffix.
+3. Do not use a user-controlled path.
+4. Do not use TEST_RUN_ID as the only uniqueness mechanism.
+5. Set restrictive directory permissions where supported.
+6. Create all required subdirectories explicitly.
+7. Never inherit parent HOME, PATH, TMPDIR, TMP, TEMP or XDG paths.
+8. Return an explicit run-context object containing:
+   - canonical run root;
+   - isolated HOME;
+   - isolated temp path;
+   - XDG paths;
+   - child environment;
+   - resolved executable information.
+
+Keep filesystem creation separate from the pure child-environment builder where practical, so pure policy behaviour remains independently testable.
+
+STAGE 5 — MINIMAL DETERMINISTIC CHILD ENVIRONMENT
+
+Start from an empty object.
+
+The child environment may contain only validated/generated values needed for the test process.
+
+Required deterministic values:
+
+- `NODE_ENV=test`
+- validated `DATABASE_URL=TEST_DATABASE_URL`
+- validated `TEST_DATABASE_URL`
+- validated `TEST_RUN_ID`
+- isolated HOME
+- isolated TMPDIR/TMP/TEMP
+- isolated XDG paths
+- `TZ=Asia/Kolkata`
+- deterministic UTF-8 locale values supported by the current environment
+- `CI=true`
+- `TERM=dumb`
+- `NO_COLOR=1`
+
+Do not inherit:
+
+- PATH;
+- HOME;
+- temporary-directory variables;
+- XDG variables;
+- NODE_OPTIONS;
+- NODE_PATH;
+- loader/preload variables;
+- proxy variables;
+- npm/pnpm configuration variables;
+- credentials;
+- broker/provider secrets;
+- Telegram secrets;
+- operational DATABASE_URL;
+- unknown/future variables.
+
+Keep all production execution controls explicitly disabled:
+
+- `PAPER_TRADING_ENABLED=false`
+- `REPLIT_DEPLOYMENT=0`
+- `INDSTOCKS_ENABLED=0`
+- `CANDLE_WAREHOUSE_ENABLED=0`
+- `OPTION_SNAPSHOT_ENABLED=0`
+- `REASONING_WRITER_V2_ENABLED=0`
+- `LIVE_CASH_SWING_ORDER_ENABLED=false`
+
+Search statically for any additional application execution, scheduler, writer, broker or delivery switch. If one exists and can activate side effects, add an explicit safe override and document its parser semantics.
+
+Do not claim a switch is disabled until its actual parser behaviour is verified.
+
+STAGE 6 — HONEST EXTERNAL-SERVICE TERMINOLOGY
+
+The current variable:
+
+`TEST_EXTERNAL_SERVICES_MOCKED=true`
+
+is declarative and does not enforce network isolation.
+
+Do not continue making that claim.
+
+Replace it with honest configuration-level terminology, for example:
+
+`TEST_EXTERNAL_SERVICES_CONFIGURED_DISABLED=true`
+
+Update corresponding reason codes, messages, tests and evidence documentation.
+
+The evidence must state:
+
+- provider credentials are absent;
+- production/provider switches are disabled;
+- no runtime network sandbox has yet been proven;
+- DB-backed/application tests remain locked pending P0.1B.
+
+Do not implement a partial `undici.MockAgent` and call the complete network isolated. It would not cover `node:http`, `https`, raw sockets, DNS, WebSockets or every SDK.
+
+STAGE 7 — HARD BLOCK DB/APPLICATION TEST EXECUTION
+
+P0.1B has not been completed. No isolated test cluster, restricted role, server identity, TLS policy or runtime network boundary has been verified.
+
+Therefore:
+
+1. `test:unit` may run only the positive unit allowlist.
+2. Default `test` and `test:db` must continue routing through the preflight runner.
+3. The preflight runner must end with a hard fail-closed runtime gate before any real Vitest spawn.
+4. Add a clear reason code such as:
+
+   `DB_TEST_RUNTIME_NOT_AUTHORIZED`
+
+5. The message must state that P0.1B requires:
+   - owner-provisioned isolated test database/cluster;
+   - restricted non-production role;
+   - test-server identity verification;
+   - safe TLS and URL-parameter policy;
+   - runtime network/side-effect isolation;
+   - explicit owner authorization.
+
+6. The hard block must remain impossible to bypass using a normal environment variable.
+7. Do not add an environment flag that simply changes the hard block from true to false.
+8. Pure unit tests must exercise the preflight using injected fake spawn functions only.
+9. No real child Vitest process may be launched by `test` or `test:db` during this work order.
+
+This is intentional containment, not a regression.
+
+STAGE 8 — SAFE CLEANUP
+
+Clean exactly one generated run root after the child exits or spawn fails.
+
+Required safety invariants:
+
+1. Canonicalize the OS temporary parent.
+2. Inspect the generated root using `lstat`.
+3. Refuse cleanup if the root is a symbolic link.
+4. Require a directory.
+5. Canonicalize the generated root.
+6. Use `path.relative(canonicalTempParent, canonicalRunRoot)`.
+7. Reject cleanup when:
+   - the relative path is empty;
+   - it is absolute;
+   - it begins with `..`;
+   - it contains more than one path segment;
+   - its basename does not begin with the fixed safe prefix.
+8. Do not rely on:
+   - `startsWith()` containment;
+   - `includes(TEST_RUN_ID)`;
+   - an unresolved path;
+   - a parent-provided path.
+9. Delete only the single validated generated run root.
+10. If validation fails, refuse deletion and surface an explicit cleanup safety error.
+11. Cleanup must occur on:
+   - normal child close;
+   - non-zero exit;
+   - child error;
+   - synchronous spawn failure.
+12. Ensure cleanup executes at most once.
+
+Do not run destructive shell commands. Cleanup must use the narrowly validated Node filesystem path created by this process.
+
+Document the remaining local filesystem race limitations honestly; do not claim OS-level sandboxing.
+
+STAGE 9 — PURE TEST REQUIREMENTS
+
+Extend only the positively allowlisted test-infrastructure unit file.
+
+Tests must cover at least:
+
+Executable resolution:
+
+- malicious parent PATH is absent from the child;
+- bare `vitest` is never spawned;
+- canonical Node executable is used;
+- canonical JavaScript Vitest CLI is used;
+- CLI outside the canonical Vitest package root is rejected;
+- missing/invalid bin metadata fails closed;
+- shell remains false.
+
+Environment isolation:
+
+- parent HOME is absent;
+- parent TMPDIR/TMP/TEMP are absent;
+- parent XDG paths are absent;
+- generated HOME/temp/XDG paths remain beneath one run root;
+- unknown/future keys remain absent;
+- all known credentials remain absent;
+- preload, proxy and package-manager variables remain absent;
+- all production switches are disabled according to their real parsers;
+- environment key count and documentation are internally consistent.
+
+Cleanup:
+
+- valid generated root is accepted;
+- unrelated temporary sibling is rejected;
+- nested traversal is rejected;
+- symlink root is rejected;
+- wrong prefix is rejected;
+- cleanup is executed once;
+- spawn failure still invokes safe cleanup;
+- no path outside the generated root is deleted.
+
+Runtime lock:
+
+- `test`/`test:db` cannot reach a real spawn;
+- `DB_TEST_RUNTIME_NOT_AUTHORIZED` is returned;
+- changing ordinary environment values cannot bypass the hard block;
+- fake spawn sentinel remains untouched;
+- `test:unit` retains the single positive include.
+
+Terminology:
+
+- old declarative `TEST_EXTERNAL_SERVICES_MOCKED` claim is removed;
+- new configuration-disabled wording is accurate;
+- runtime network isolation remains labelled NOT_EXECUTED/UNPROVEN.
+
+Temporary test filesystem activity is permitted only inside uniquely generated test directories beneath the OS temporary directory. It must be cleaned by the verified helper.
+
+STAGE 10 — PERMITTED VERIFICATION
+
+Run only:
+
+1. API-server typecheck.
+2. The positive unit-test configuration containing only the test-infrastructure guard test.
+
+Do not run:
+
+- default `test`;
+- `test:db`;
+- any application test;
+- scanner tests;
+- full API suite;
+- database migrations;
+- application startup;
+- provider integrations;
+- deployment or workflow restart.
+
+Report separately:
+
+- files collected;
+- passed;
+- failed;
+- skipped;
+- timed out;
+- exit codes;
+- duration;
+- warnings/stderr;
+- temporary run-root cleanup result.
+
+STAGE 11 — DOCUMENTATION
+
+Update the existing P0.1 evidence documents honestly.
+
+Required labels:
+
+- `PURE_HELPER_TESTS`
+- `TRUSTED_EXECUTABLE_RESOLUTION`
+- `HOME_FILESYSTEM_ISOLATION`
+- `TEMP_FILESYSTEM_ISOLATION`
+- `CHILD_ENVIRONMENT_POLICY`
+- `EXTERNAL_PROVIDER_CONFIGURATION`
+- `EXTERNAL_NETWORK_ISOLATION`
+- `DB_STATIC_GUARD`
+- `DB_RUNTIME_ISOLATION`
+- `DB_APPLICATION_TESTS`
+- `PRODUCTION_DB_TOUCHED`
+- `EXTERNAL_SERVICE_CALLED`
+- `WORKFLOW_RESTARTED`
+- `DEPLOYED`
+
+Expected maximum status after this work:
+
+- local runner/environment containment may be PASS;
+- external network isolation remains NOT_EXECUTED;
+- DB runtime isolation remains NOT_EXECUTED;
+- DB/application tests remain BLOCKED_PENDING_P0_1B;
+- P0.1 overall remains PARTIAL;
+- P0.1A may be accepted if all local containment evidence passes.
+
+Do not state that the full DB suite is safe or runnable.
+
+STAGE 12 — FINAL REPORT
+
+Return a concise report containing:
+
+1. Baseline and final SHAs.
+2. Exact changed files.
+3. Automatic checkpoint disclosure.
+4. Implementation summary.
+5. Tests and counts.
+6. Typecheck result.
+7. Proof no real child process was launched by DB-test scripts.
+8. Proof no DB or external service was contacted.
+9. Proof no production/trading source changed.
+10. Final status table.
+11. P0.1B remaining prerequisites.
+12. Proposed commit message.
+
+Do not publish, deploy, restart, merge or push.
+
+STOP CONDITIONS
+
+Stop immediately if:
+
+- a production/trading file must be changed;
+- a real database connection occurs;
+- a real external call occurs;
+- default/application tests start running;
+- the hard runtime block is bypassed;
+- safe cleanup cannot be proven;
+- branch or baseline integrity is uncertain.
+
+Stop after the report and wait for owner review.
