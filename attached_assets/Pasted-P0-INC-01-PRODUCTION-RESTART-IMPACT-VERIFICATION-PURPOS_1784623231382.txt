@@ -1,0 +1,199 @@
+P0-INC-01 — PRODUCTION RESTART IMPACT VERIFICATION
+
+PURPOSE
+
+A production deployment/restart occurred under build ID:
+
+6467c8d3-918e-4ed2-a955-022b22338ce8
+
+The source tree did not change, but production processes, schedulers, Kite ticker and Telegram polling restarted. Determine whether this caused any durable trading/account mutation or external action.
+
+This is the final incident-verification step. Do not repeat the earlier P0.1 report.
+
+MODE: STRICTLY READ-ONLY
+
+Do not:
+
+- modify, create or delete project files;
+- stage, commit, checkpoint, merge, push or deploy;
+- restart or stop workflows/processes;
+- run tests, typecheck, builds or migrations;
+- import application modules;
+- call application APIs;
+- place, close, reconcile or modify any trade;
+- send Telegram messages;
+- call Kite, INDstocks/IndianAPI, Upstox, Apify or webhooks;
+- execute INSERT, UPDATE, DELETE, UPSERT, MERGE, CREATE, ALTER, DROP, TRUNCATE, VACUUM, REINDEX, CALL or any state-changing SQL;
+- print credentials, connection strings, tokens or cookies.
+
+If an automatic attachment checkpoint occurs, disclose it; do not amend or revert it.
+
+TIME WINDOWS
+
+Primary restart window:
+
+2026-07-20T18:20:00Z through 2026-07-20T20:30:00Z
+= 2026-07-20 23:50 IST through 2026-07-21 02:00 IST
+
+Also check from 2026-07-20T18:20:00Z through the current audit timestamp for any later consequence of the restart.
+
+STAGE 1 — DEPLOYMENT LOG IMPACT
+
+Using read-only deployment logs only, report timestamped evidence for:
+
+1. Every application boot/restart.
+2. Database connection attempts and health results.
+3. Scheduler initialization and first tick.
+4. Equity paper-trading scheduler activity.
+5. F&O paper-trading scheduler activity.
+6. Signal-generation sweeps.
+7. Any attempted or completed equity trade opening.
+8. Any attempted or completed F&O trade opening.
+9. Any trade close, force-close, reconciliation or orphan recovery.
+10. Paper-account balance/reconciliation activity.
+11. Kite authentication, ticker and REST activity.
+12. Telegram poll/send activity.
+13. INDstocks/IndianAPI, Upstox, Apify, webhook or email activity.
+14. Exceptions, retries, degraded/read-only mode transitions and safety-gate rejections.
+
+Differentiate clearly:
+
+- client initialized;
+- outbound call attempted;
+- outbound call succeeded;
+- action blocked before outbound call;
+- status unknown.
+
+Do not infer success solely from initialization.
+
+STAGE 2 — OPERATIONAL DATABASE READ-ONLY EVIDENCE
+
+A read-only database connection is authorized only for this incident check.
+
+Safety requirements:
+
+1. Use the database client directly; do not import application code.
+2. Do not echo or print DATABASE_URL.
+3. Force the session to read-only before evidence queries.
+4. Begin an explicit READ ONLY transaction.
+5. Prove `transaction_read_only = on` before querying business tables.
+6. Use SELECT statements only.
+7. Do not invoke stored procedures or application functions.
+8. Use a statement timeout.
+9. Roll back/close the read-only transaction after collection.
+10. If read-only mode cannot be proven, stop without querying business tables.
+
+First inspect static schemas to identify the exact existing tables and timestamp columns. Then query only existing relevant tables.
+
+At minimum, inspect evidence for:
+
+- equity paper trades;
+- F&O paper trades;
+- paper accounts;
+- capital-event journal;
+- account-reconciliation/audit records;
+- equity decision/reasoning records;
+- F&O decision/reasoning records;
+- option-signal history;
+- option-plan audit;
+- scheduler/run history;
+- Telegram delivery/outbox history;
+- broker-order/execution history;
+- system-mode or health-event history.
+
+For the primary restart window and the entire period since the first restart, return:
+
+- table name;
+- event type;
+- row count;
+- earliest timestamp;
+- latest timestamp;
+- identifiers required for audit;
+- source/strategy;
+- status;
+- whether it represents analysis only or a durable financial-state mutation.
+
+Do not expose secrets or full payloads.
+
+Specifically identify:
+
+- any new AUTO equity position;
+- any new AUTO F&O position;
+- any manual position;
+- any close or force-close;
+- any account balance change;
+- any capital-event insertion;
+- any reconciliation adjustment;
+- any broker order;
+- any Telegram message recorded as sent;
+- reasoning/signals produced outside valid NSE/BSE market sessions.
+
+STAGE 3 — C0 SAFETY-GATE CORRELATION
+
+Using static source and the deployment logs, establish:
+
+1. Whether equity C0 auto-open blocking was active in the deployed tree.
+2. Whether F&O C0 auto-open blocking was active.
+3. Whether broker execution was disabled.
+4. Whether exit-only paths remained active.
+5. Whether schedulers could still generate signals/reasoning outside market hours.
+6. Whether any path could write account/trade state before reaching the C0 gate.
+
+Give file/line references and corresponding runtime log evidence where available.
+
+STAGE 4 — VERDICT
+
+Return this concise table:
+
+DEPLOYMENT_OCCURRED
+PRODUCTION_PROCESSES_RESTARTED
+DATABASE_CONNECTED_BY_DEPLOYED_APP
+KITE_OUTBOUND_ATTEMPTED
+TELEGRAM_OUTBOUND_ATTEMPTED
+OTHER_PROVIDER_OUTBOUND_ATTEMPTED
+EQUITY_AUTO_OPEN_ATTEMPTED
+EQUITY_AUTO_OPEN_COMPLETED
+FNO_AUTO_OPEN_ATTEMPTED
+FNO_AUTO_OPEN_COMPLETED
+TRADE_CLOSE_COMPLETED
+BROKER_ORDER_CREATED
+PAPER_ACCOUNT_MUTATED
+CAPITAL_EVENT_CREATED
+RECONCILIATION_ADJUSTMENT_CREATED
+OUT_OF_SESSION_REASONING_CREATED
+OUT_OF_SESSION_TRADE_CREATED
+C0_EQUITY_BLOCK_ACTIVE
+C0_FNO_BLOCK_ACTIVE
+BROKER_EXECUTION_DISABLED
+INCIDENT_FINANCIAL_IMPACT
+
+Use only:
+
+- YES
+- NO
+- UNKNOWN
+- NOT_APPLICABLE
+
+For every YES or UNKNOWN, add one sentence of evidence/explanation.
+
+STOP CONDITIONS
+
+Stop and report CRITICAL immediately if:
+
+- read-only transaction mode cannot be proven;
+- any new out-of-session trade was opened;
+- any broker order was created;
+- any unexplained balance/capital mutation occurred;
+- C0 was not active;
+- broker execution was enabled.
+
+Do not repair, close, reconcile, delete or backfill anything.
+
+Final incident classification must be exactly one of:
+
+- DEPLOYMENT_CONFIRMED_NO_DURABLE_FINANCIAL_IMPACT
+- DEPLOYMENT_CONFIRMED_ANALYSIS_ONLY_WRITES
+- DEPLOYMENT_CONFIRMED_DURABLE_FINANCIAL_MUTATION
+- DEPLOYMENT_IMPACT_UNKNOWN
+
+Stop after the evidence report.
