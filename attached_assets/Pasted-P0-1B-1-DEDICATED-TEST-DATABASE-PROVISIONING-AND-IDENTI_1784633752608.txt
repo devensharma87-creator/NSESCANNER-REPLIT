@@ -1,0 +1,425 @@
+P0.1B-1 — DEDICATED TEST DATABASE PROVISIONING AND IDENTITY ATTESTATION
+
+OWNER AUTHORIZATION
+
+The owner authorizes creation of one dedicated, disposable PostgreSQL test database/cluster and one restricted test-runner role.
+
+This authorization applies only to a new test resource.
+
+It does not authorize modification, cloning, migration, restoration, deletion or repurposing of:
+
+- the current development database;
+- the production database;
+- any legacy Neon database;
+- any paper-trading database;
+- any database containing trading, ledger, signal, audit or user data.
+
+OBJECTIVE
+
+Provision and attest a third database environment used only for automated tests.
+
+This stage must:
+
+1. Identify the current database topology without exposing credentials.
+2. Create a new empty test-only resource if the platform supports it safely.
+3. Ensure it is not the development or production database.
+4. Create a restricted non-production test role.
+5. Create an immutable test-environment identity marker.
+6. store test credentials only in the development/test execution context;
+7. prove that production deployment cannot receive the test credentials;
+8. leave all DB/application tests hard-blocked.
+9. Run no application tests, migrations or trading code.
+
+This is provisioning and identity attestation only. Test execution is deferred to P0.1B-2.
+
+BRANCH AND CODE RULES
+
+Work only on:
+
+phase0/authorized-remediation-20260720
+
+Do not:
+
+- merge to main;
+- push;
+- publish or deploy;
+- restart workflows;
+- run application code;
+- run Vitest;
+- run typecheck unless source files are changed;
+- modify trading, signal, scheduler, provider, UI or production runtime code;
+- disable the current `DB_TEST_RUNTIME_NOT_AUTHORIZED` hard block;
+- add a normal environment-variable bypass for the hard block.
+
+PERMITTED EXTERNAL STATE CHANGE
+
+You may create only:
+
+- one new empty test-only PostgreSQL resource;
+- one owner/provisioning role if required by the provider;
+- one restricted test-runner role;
+- test-control schema/identity objects inside the new test database;
+- development/test-only secrets needed to access that new resource.
+
+Do not copy development or production data.
+
+Do not publish the application while creating the resource.
+
+STAGE 1 — BASELINE
+
+Before any external change, report:
+
+- current branch;
+- current HEAD;
+- main SHA;
+- Git status;
+- current P0.1A acceptance status;
+- whether any automatic checkpoint occurred;
+- confirmation that `DB_TEST_RUNTIME_NOT_AUTHORIZED` remains active.
+
+Stop if the branch is wrong, main moved unexpectedly or tracked production files contain unexplained changes.
+
+STAGE 2 — DATABASE TOPOLOGY INVENTORY
+
+Use read-only Replit database metadata/settings and static environment-name inspection.
+
+Do not print any connection string, password, token, certificate or secret.
+
+Identify separately:
+
+1. Editor/development database.
+2. Published production database.
+3. Any retained legacy Neon database.
+4. Any deployment-preview database.
+5. Whether Replit permits a third independent database in this project.
+6. Whether a separate Replit test app/remix is required.
+7. Whether an external isolated PostgreSQL project is required.
+
+For every identified database, report only:
+
+- provider: Replit Helium, Neon or other;
+- purpose;
+- environment;
+- PostgreSQL version if available;
+- database name redacted to a safe label;
+- host fingerprint/hash, not raw credentials;
+- whether Agent can mutate it;
+- whether production uses it;
+- whether it contains existing data;
+- whether it is eligible for destructive automated tests.
+
+Never print the raw hostname if Replit treats it as sensitive. A SHA-256 fingerprint of normalized host/port/database identity is sufficient for the report.
+
+Required eligibility result:
+
+- DEVELOPMENT: NOT_ELIGIBLE
+- PRODUCTION: NOT_ELIGIBLE
+- LEGACY/SHARED: NOT_ELIGIBLE
+- DEPLOYMENT_PREVIEW: eligible only if it is independently disposable and cannot affect production
+- NEW DEDICATED TEST RESOURCE: ELIGIBLE
+
+Do not infer that a different database name on the same production server is adequate isolation.
+
+STAGE 3 — PROVISIONING DECISION
+
+Preferred order:
+
+1. A new independent test database/cluster supported by Replit.
+2. A separate non-published Replit test app with its own development database, provided the test runner can safely operate there.
+3. A new dedicated external PostgreSQL test project/branch with no relationship to the operational database.
+
+Do not use:
+
+- the current development database;
+- the production database;
+- a new schema inside either operational database;
+- a new database on the same production cluster unless independent cluster isolation is proven;
+- a clone containing production or development rows;
+- a legacy shared Neon endpoint;
+- a local mock database presented as PostgreSQL-equivalent.
+
+If Replit Coder cannot create a genuinely independent resource through authorized tools, stop before provisioning and return exact owner UI instructions. Do not improvise.
+
+OWNER-UI STOP RESPONSE
+
+If an owner action is required, return:
+
+- provider/tool to open;
+- exact button/menu sequence;
+- safe resource name;
+- region recommendation;
+- PostgreSQL version;
+- whether to choose empty or cloned;
+- required networking setting;
+- required retention/expiry;
+- expected cost category;
+- exact secret names to create;
+- values the owner must not paste into chat;
+- how the owner should confirm completion without disclosing credentials.
+
+Then stop.
+
+STAGE 4 — NEW RESOURCE REQUIREMENTS
+
+If automated provisioning is safely available, create one resource named with a clearly test-only convention, for example:
+
+nsescanner-automated-test-20260721
+
+Requirements:
+
+- PostgreSQL 16 where supported;
+- empty database;
+- no copied schemas or rows;
+- no production backup/restore;
+- no development backup/restore;
+- closest practical region to the application;
+- lowest-cost test-appropriate configuration;
+- automatic pause/scale-to-zero if supported;
+- limited retention;
+- clearly tagged TEST_ONLY/DISPOSABLE;
+- no public exposure unless required for the test runner;
+- TLS required for any remote connection;
+- certificate verification enabled where supported.
+
+Do not delete the resource at the end of this stage.
+
+STAGE 5 — ROLE AND PRIVILEGE MODEL
+
+Inside the new test resource only, create:
+
+1. Provisioning/owner role, if provider-managed ownership is insufficient.
+2. Restricted runner role, preferably:
+
+   nsescanner_test_runner
+
+Runner role must be:
+
+- NOSUPERUSER;
+- NOCREATEDB;
+- NOCREATEROLE;
+- NOREPLICATION;
+- NOBYPASSRLS;
+- unable to access any other database;
+- unable to assume another role;
+- unable to read provider/system secrets;
+- unable to modify the identity marker;
+- allowed to connect only to the test database;
+- allowed to create/drop run-specific schemas inside that test database only;
+- allowed to run migrations and tests only inside run-specific test schemas.
+
+Apply safe session defaults where supported:
+
+- finite statement timeout;
+- finite lock timeout;
+- finite idle-in-transaction timeout;
+- explicit application name;
+- no unrestricted search path.
+
+Revoke unnecessary `PUBLIC` privileges.
+
+Report the resulting privilege booleans without printing passwords.
+
+STAGE 6 — IMMUTABLE TEST IDENTITY
+
+Inside the new test database only, create a protected control schema such as:
+
+test_control
+
+Create an identity table containing exactly one environment record with:
+
+- randomly generated immutable UUID;
+- environment class `AUTOMATED_TEST_ONLY`;
+- creation timestamp;
+- provider/resource identifier or safe fingerprint;
+- expected database name;
+- expected restricted role;
+- schema version;
+- owner-approved purpose.
+
+Requirements:
+
+- the restricted runner receives SELECT only on this identity object;
+- the restricted runner cannot INSERT, UPDATE, DELETE, TRUNCATE, ALTER or DROP it;
+- the marker is owned by the provisioning/provider owner;
+- no production/development identity or data is copied.
+
+Call the identity value:
+
+TEST_DB_IDENTITY_UUID
+
+Do not print its full value publicly. In reports, show only a safe short fingerprint.
+
+STAGE 7 — TEST-ONLY SECRET BOUNDARY
+
+Create/store only the following test-context values, using Replit’s development/test secret mechanism:
+
+- `TEST_DATABASE_URL`
+- `TEST_DB_IDENTITY_UUID`
+- `TEST_DB_EXPECTED_DATABASE`
+- `TEST_DB_EXPECTED_ROLE`
+- `TEST_DB_EXPECTED_HOST_FINGERPRINT`
+- `TEST_DB_EXPECTED_PORT`
+- `TEST_DB_TLS_POLICY`
+
+Requirements:
+
+1. Do not overwrite `DATABASE_URL`.
+2. Do not modify production deployment secrets.
+3. Do not place credentials in source files, attachments, logs, Git, memory documents or chat.
+4. Do not make `TEST_DATABASE_URL` available to the published production deployment.
+5. Do not expose the provisioning-owner credential to the test runner.
+6. Store only the restricted runner connection in `TEST_DATABASE_URL`.
+7. Confirm that production runtime environment cannot see these test-only keys.
+8. If Replit cannot guarantee editor-only/test-only secret separation, stop and report the limitation.
+
+Do not display secret values while proving their existence.
+
+STAGE 8 — READ-ONLY IDENTITY ATTESTATION
+
+After provisioning, a direct PostgreSQL connection to the new test resource is authorized solely for identity/privilege verification.
+
+Do not import application modules.
+
+Do not run migrations.
+
+Do not create application tables.
+
+Do not run tests.
+
+Using the restricted runner connection:
+
+1. Prove the connection targets the expected test database.
+2. Prove current role equals the expected runner role.
+3. Prove server/host fingerprint matches expected test identity.
+4. Prove port matches.
+5. Prove TLS state and policy.
+6. Read the protected identity marker.
+7. Prove identity UUID/fingerprint matches the expected value.
+8. Prove environment class is `AUTOMATED_TEST_ONLY`.
+9. Prove the role flags:
+   - not superuser;
+   - not create-role;
+   - not create-database;
+   - not replication;
+   - not bypass-RLS.
+10. Prove the runner cannot connect to operational databases.
+11. Prove the database contains no application tables or copied business rows.
+12. Prove only the intended test-control objects exist.
+13. Prove the runner cannot modify the identity table.
+
+For the final negative privilege check, use a transaction that is rolled back and target only a harmless test-control operation in the new test database. Do not touch any operational database.
+
+If safe negative verification cannot be designed without mutation risk, report it as unverified rather than improvising.
+
+STAGE 9 — STATIC CODE PREPARATION ONLY
+
+Do not remove the current DB-test hard block.
+
+You may update test-infrastructure documentation/configuration only if needed to record the new non-secret identity requirements.
+
+Do not embed:
+
+- URLs;
+- passwords;
+- raw hostnames;
+- certificates;
+- full identity UUIDs.
+
+If no code change is required, make no code change.
+
+Record these P0.1A residual items for P0.1B-2:
+
+1. Replace inherited LANG/LC values with deterministic validated constants.
+2. Inspect and document the actual parser/behaviour of:
+   `SWING_CASH_EXECUTION_MODE=paper_only`
+3. Determine whether `paper_only` can permit automatic state writes.
+4. Do not unlock tests until this is resolved.
+5. Implement strict URL, TLS, host, port, role and query-parameter validation.
+6. Implement runtime identity attestation before migrations/tests.
+7. Implement worker-level external-side-effect isolation or maintain an honest limitation label.
+
+STAGE 10 — NO TEST EXECUTION
+
+Do not run:
+
+- `test`;
+- `test:db`;
+- `test:unit`;
+- application tests;
+- migrations;
+- scanner tests;
+- API tests;
+- typecheck unless a TypeScript file changed;
+- application startup.
+
+This stage validates infrastructure only.
+
+STAGE 11 — FINAL REPORT
+
+Return a concise report containing:
+
+1. Baseline and final Git state.
+2. Whether provisioning was automatic or owner-assisted.
+3. Provider/resource type.
+4. Confirmation it is separate from development and production.
+5. Safe identity fingerprints.
+6. No-copy/empty-database proof.
+7. Restricted-role privilege table.
+8. TLS/network posture.
+9. Test-secret boundary proof.
+10. Identity-marker verification.
+11. Application table count.
+12. Whether any operational database was connected to or changed.
+13. Any external billing/resource implication.
+14. Exact files changed, if any.
+15. Automatic checkpoint disclosure.
+16. P0.1B-2 prerequisites.
+
+Final status table:
+
+DEDICATED_TEST_RESOURCE
+SEPARATE_FROM_DEVELOPMENT
+SEPARATE_FROM_PRODUCTION
+PRODUCTION_DATA_COPIED
+DEVELOPMENT_DATA_COPIED
+TEST_RESOURCE_EMPTY
+TEST_IDENTITY_MARKER
+RUNNER_ROLE_RESTRICTED
+RUNNER_ROLE_CROSS_DB_ACCESS
+REMOTE_TLS
+TEST_SECRET_EDITOR_ONLY
+TEST_SECRET_VISIBLE_TO_PRODUCTION
+APPLICATION_MIGRATIONS_RUN
+APPLICATION_TESTS_RUN
+PRODUCTION_DB_TOUCHED
+DEVELOPMENT_DB_TOUCHED
+EXTERNAL_SERVICE_CALLED
+WORKFLOW_RESTARTED
+DEPLOYED
+P0_1B_1_ACCEPTANCE
+P0_1_OVERALL
+
+Expected:
+
+- no operational database is modified;
+- no data is copied;
+- no tests or migrations run;
+- P0.1B-1 may be accepted only with a genuinely separate attested resource;
+- P0.1 overall remains partial until P0.1B-2 safely runs migrations and controlled tests.
+
+STOP CONDITIONS
+
+Stop immediately if:
+
+- only the current development or production DB is available;
+- a separate resource cannot be proven;
+- provisioning would copy operational data;
+- test secrets would enter production deployment;
+- restricted role privileges cannot be enforced;
+- TLS policy cannot be determined for a remote connection;
+- any connection unexpectedly reaches an operational DB;
+- any application migration or test begins;
+- any workflow restart/publish/deployment is requested;
+- credentials appear in output.
+
+Stop after the report and wait for owner review.
