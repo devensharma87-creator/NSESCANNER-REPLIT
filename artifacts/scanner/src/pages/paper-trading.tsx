@@ -325,19 +325,40 @@ const fmtDate = (iso: string) => {
   } catch { return iso; }
 };
 
-// Combined "DD MMM · HH:MM:SS" rendering — used wherever the trigger time
-// of a paper trade matters (open positions table). The user explicitly
-// asked for the trade-trigger time to be visible alongside the date.
+// Combined "DD MMM YYYY · HH:MM:SS IST" rendering — used wherever the trigger
+// time of a paper trade matters (open positions table). Forces IST so the
+// timestamp matches what's stored in the DB regardless of the browser locale.
 const fmtDateTime = (iso: string) => {
   try {
     const d = new Date(iso);
-    const date = d.toLocaleDateString("en-IN", { day: "2-digit", month: "short" });
+    const date = d.toLocaleDateString("en-IN", {
+      day: "2-digit", month: "short", year: "numeric",
+      timeZone: "Asia/Kolkata",
+    });
     const time = d.toLocaleTimeString("en-IN", {
       hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
+      timeZone: "Asia/Kolkata",
     });
-    return `${date} · ${time}`;
+    return `${date} · ${time} IST`;
   } catch { return iso; }
 };
+
+/**
+ * True when an ISO timestamp falls outside the NSE equity cash session
+ * (09:15–15:30 IST, Mon–Fri). Holiday calendar not checked client-side —
+ * this is a best-effort visual warning; the server-side gate is authoritative.
+ */
+function isOffSessionTimestamp(iso: string): boolean {
+  try {
+    const d = new Date(iso);
+    if (!isFinite(d.getTime())) return false;
+    const ist = new Date(d.getTime() + 5.5 * 60 * 60 * 1000);
+    const dow = ist.getUTCDay(); // 0=Sun, 6=Sat
+    if (dow === 0 || dow === 6) return true;
+    const mins = ist.getUTCHours() * 60 + ist.getUTCMinutes();
+    return mins < 9 * 60 + 15 || mins > 15 * 60 + 30;
+  } catch { return false; }
+}
 
 export default function PaperTrading() {
   const [segment, setSegment] = useState<Segment>("FNO");
@@ -1242,7 +1263,18 @@ function EqPositionRow({ p }: { p: OpenEqPosition }) {
       <td className={`py-2 pr-3 text-right tabular-nums ${dayTone}`}>
         {dayPnlPct >= 0 ? "+" : ""}{dayPnlPct.toFixed(2)}%
       </td>
-      <td className="py-2 pr-3 text-[12px] text-muted-foreground whitespace-nowrap">{fmtDateTime(p.openedAt)}</td>
+      <td className="py-2 pr-3 text-[12px] text-muted-foreground whitespace-nowrap">
+        <span>{fmtDateTime(p.openedAt)}</span>
+        {isOffSessionTimestamp(p.openedAt) && (
+          <Badge
+            variant="outline"
+            className="ml-1.5 text-[9px] px-1 py-0 border-orange-400/50 text-orange-400 align-middle"
+            title="Position opened outside the NSE equity session (09:15–15:30 IST, Mon–Fri). The auto-trader should not have opened this — the session gate fix prevents recurrence."
+          >
+            OFF-SESSION
+          </Badge>
+        )}
+      </td>
       <td className="py-2 pr-3 text-right">
         <Button
           size="sm"

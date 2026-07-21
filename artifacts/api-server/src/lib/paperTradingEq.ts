@@ -58,6 +58,7 @@ import type { SwingSignal } from "./swingSignals";
 import { computeSwingLevels } from "./swingSignals";
 import type { StockRow } from "@workspace/api-zod";
 import { checkLedgerReconciliationGate } from "./paperAccountReconciliation";
+import { computeMarketStatus } from "./marketEvents";
 
 function num(v: string | number | null | undefined): number {
   if (v == null) return 0;
@@ -211,6 +212,37 @@ export async function openPaperEquityTrade(
     )
     .limit(1);
   if (existing.length > 0) return existing[0]!;
+
+  // ─── Market session gate ─────────────────────────────────────────────────
+  // Block AUTO and SWING_STAGED_APPROVAL opens outside the NSE equity session
+  // (09:15–15:30 IST, Mon–Fri, non-holiday). MANUAL opens bypass this check
+  // so the owner can place override trades at any time (e.g. pre-market
+  // corrections, after-hours entry from a staged plan).
+  // Root-cause fix for invalid-session positions observed in production
+  // (2026-05-14 06:13, 2026-05-15 19:34, 2026-07-09 23:41, 2026-07-18 Sat…)
+  // — the scanner fires every 60s around the clock; without this gate every
+  // overnight tick that found STRONG_BUY candidates opened live positions.
+  const openSource = opts?.source ?? "AUTO";
+  if (openSource !== "MANUAL") {
+    const sessionStatus = computeMarketStatus(new Date());
+    if (sessionStatus !== "open") {
+      logger.info(
+        { symbol: signal.symbol, sessionStatus, source: openSource },
+        "Paper EQ skip: market session closed",
+      );
+      await recordEqDecision({
+        symbol: signal.symbol,
+        decision: "SKIP",
+        reason: "MARKET_CLOSED",
+        detail: `Market session is '${sessionStatus}' — equity opens are only permitted 09:15–15:30 IST on NSE trading days`,
+        signal: sigLabel,
+        score: signal.score,
+        entry: signal.entryPrice,
+        source: openSource,
+      });
+      return null;
+    }
+  }
 
   if (!(signal.entryPrice > 0)) {
     logger.info({ symbol: signal.symbol, entry: signal.entryPrice }, "Paper EQ skip: invalid entry");
@@ -1059,14 +1091,28 @@ export async function runEquityPaperTradingTick(
   // evaluator pass (cheap because the new row's LTP is by definition
   // its entry → no immediate exit unless ATR was zero, which we
   // already rejected upstream).
-  if (autoOpensEnabled) for (const s of signals) {
-    try {
-      await openPaperEquityTrade(s);
-    } catch (err) {
-      logger.warn(
-        { err: (err as Error).message, symbol: s.symbol },
-        "Paper EQ open failed for one signal, continuing",
+  if (autoOpensEnabled) {
+    // Belt-and-braces session gate: openPaperEquityTrade also enforces this
+    // internally for every non-MANUAL source, but checking here too avoids
+    // one DB audit-row write per signal when the market is closed — overnight
+    // ticks, weekends, and holidays all become a single log line instead.
+    const tickSession = computeMarketStatus(new Date());
+    if (tickSession !== "open") {
+      logger.info(
+        { sessionStatus: tickSession, signalCount: signals.length },
+        "Equity tick: market session closed — skipping auto-opens (mark-to-market still runs)",
       );
+    } else {
+      for (const s of signals) {
+        try {
+          await openPaperEquityTrade(s);
+        } catch (err) {
+          logger.warn(
+            { err: (err as Error).message, symbol: s.symbol },
+            "Paper EQ open failed for one signal, continuing",
+          );
+        }
+      }
     }
   }
   await evaluatePaperEquityTrades(scannerRows);

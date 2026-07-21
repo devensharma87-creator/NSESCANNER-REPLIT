@@ -41,6 +41,8 @@ export type EqAuditReason =
   /** Ledger drift detected or reconcile query failed; opens blocked by fail-closed gate. */
   | "LEDGER_RECONCILIATION_FAILED"
   | "LEDGER_RECONCILIATION_QUERY_ERROR"
+  /** Market session is closed (not 09:15–15:30 IST, or weekend/holiday). MANUAL source bypasses this. */
+  | "MARKET_CLOSED"
   // OPEN
   | "OPENED";
 
