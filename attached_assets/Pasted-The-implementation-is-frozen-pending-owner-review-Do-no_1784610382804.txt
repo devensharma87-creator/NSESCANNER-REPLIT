@@ -1,0 +1,145 @@
+The implementation is frozen pending owner review.
+
+Do not make further edits, run tests, access databases, restart, commit again, deploy, merge, push or begin P0.2.
+
+Provide a detailed read-only final report.
+
+Repository evidence
+Current branch.
+Starting SHA.
+Final HEAD SHA.
+main SHA.
+Latest four commits.
+git status --short --branch.
+Complete changed-file list and diff statistics from the starting SHA.
+Committed, staged, unstaged and untracked files separately.
+Exact corrective checkpoint SHA and message.
+All automatically committed attachments.
+Exact child-environment policy
+
+Provide the complete exported CHILD_PROCESS_ENV_ALLOWLIST.
+
+For every allowlisted key, explain:
+
+why it is necessary;
+whether it is inherited or generated;
+its security implications.
+
+Separately list every internally generated test key and exact value policy.
+
+Confirm that child construction starts from an empty object and does not copy the parent environment generally.
+
+Executable and filesystem risks
+
+State:
+
+exact spawned executable and arguments;
+whether executable resolution depends on inherited PATH;
+whether an absolute trusted Vitest executable is used;
+whether PATH manipulation could select another executable;
+whether HOME is inherited;
+whether HOME could expose .npmrc, .netrc, .pgpass, SSH, cloud or other credential files;
+whether child HOME is replaced by an isolated temporary directory;
+whether PWD, INIT_CWD, NODE_PATH, package-manager paths or config variables survive;
+whether temporary-directory paths are inherited.
+
+Use verdicts:
+
+CHILD_EXECUTABLE_RESOLUTION_RISK: PROVED_ABSENT | POSSIBLE | UNPROVED
+HOME_CREDENTIAL_FILE_RISK: PROVED_ABSENT | POSSIBLE | UNPROVED
+
+Do not fix anything during this report.
+
+Sensitive variables
+
+Prove the child drops:
+
+every current project secret identified in the static inventory;
+unknown/future keys;
+Kite encryption and mirror variables;
+Telegram, Upstox, IndianAPI, Indstocks, Apify and broker credentials;
+metrics/email/webhook secrets;
+ENV_FILE_PATH;
+NODE_OPTIONS and NODE_PATH;
+preload/loader/injection variables;
+uppercase and lowercase proxy variables;
+package-manager proxy variables;
+any database variable other than the validated test URL.
+
+State whether security depends on a secret denylist. It must not.
+
+Execution and scheduler switches
+
+List every switch inspected, its production parser/default behaviour, child value and resulting test behaviour, including:
+
+PAPER_TRADING_ENABLED;
+REPLIT_DEPLOYMENT;
+INDSTOCKS_ENABLED;
+CANDLE_WAREHOUSE_ENABLED;
+OPTION_SNAPSHOT_ENABLED;
+REASONING_WRITER_V2_ENABLED;
+PAPER_FO_COSTS_SHADOW_ENABLED;
+PAPER_FO_SHADOW_EXITS_ENABLED;
+FNO_SIGNAL_HYGIENE_V2;
+SWING_CASH_EXECUTION_MODE;
+LIVE_CASH_SWING_ORDER_ENABLED;
+SWING_SHADOW_DIAG_ENABLED;
+any scheduler, writer, alert or broker flag found.
+
+Do not claim a switch is disabled merely because its environment variable is absent; prove its absent/default semantics.
+
+Test evidence
+
+Provide:
+
+all 81 test names;
+first and final run separately;
+passed, failed, skipped and timed-out counts;
+exact TypeScript command and result;
+exact Vitest command and result;
+confirmation that only the positively allowlisted file executed;
+exact new tests for unknown keys, future secrets, preloads, proxies, operational DB values and fake spawn;
+confirmation no test used real environment values.
+Command and side-effect ledger
+
+List every command chronologically and classify it as:
+
+static read;
+file write;
+typecheck;
+pure test;
+potential application import;
+potential database/network contact;
+checkpoint trigger.
+
+Confirm whether any database, endpoint, socket, HTTP client, Kite, Telegram, broker or external provider was contacted.
+
+Evidence-document validity
+
+State exactly what changed in both P0.1 evidence documents and whether they distinguish:
+
+static child-environment construction;
+runtime database isolation;
+OS/container network isolation;
+application-module isolation;
+provider credential isolation.
+Mandatory verdicts
+
+Return:
+
+CHILD_ENV_POLICY
+UNKNOWN_SECRET_CHILD_LEAK
+NODE_PRELOAD_CHILD_RISK
+PROXY_ENV_CHILD_RISK
+CHILD_EXECUTABLE_RESOLUTION_RISK
+HOME_CREDENTIAL_FILE_RISK
+DEFAULT_TEST_FAIL_CLOSED
+OPERATIONAL_DATABASE_CHILD_LEAK
+EXTERNAL_NETWORK_RUNTIME_ISOLATION
+TEST_DATABASE_ISOLATION_RUNTIME_PROOF
+
+End exactly with:
+
+P0.1 STATIC IMPLEMENTATION: FROZEN — OWNER ACCEPTANCE REVIEW REQUIRED
+
+Wait for owner instructions.
