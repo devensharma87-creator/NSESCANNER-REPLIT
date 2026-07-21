@@ -210,6 +210,18 @@ export const FNO_BASELINE_GUARDRAILS = {
 } as const;
 
 /**
+ * F&O Standard (High-Conviction) tier late-entry cutoff.
+ *
+ * No new Standard-tier AUTO opens at or after this IST minute-of-day
+ * (15:25 = 15*60+25 = 925 — 5 minutes before regular-session close at 15:30 IST).
+ *
+ * This is the authoritative named constant for the inline guard in `openPaperTrade`
+ * (paperTradingFO.ts) and for the `computeTradeAdmission` session gate.
+ * BASELINE lane uses the tighter `FNO_BASELINE_GUARDRAILS.LATE_ENTRY_CUTOFF_IST_MIN` (14:45).
+ */
+export const FNO_STANDARD_LATE_ENTRY_CUTOFF_IST_MIN = 15 * 60 + 25;
+
+/**
  * Resolve effective per-trade risk fraction from confidence and tier.
  * Pure function — no DB I/O. Used at trade-open sizing.
  */

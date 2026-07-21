@@ -1,28 +1,60 @@
 /**
  * Fake-writer / callback orchestration tests for `computeTradeAdmission`.
  *
- * Design: the production control flow around `computeTradeAdmission` is exactly:
+ * Design: the production control flow around `computeTradeAdmission` is:
  *   result = computeTradeAdmission(ctx)
  *   if (!result.allowed) { onReject(result.reason); return; }
  *   onOpen();
  *
  * Exit callbacks are NOT gated by entry admission — they are always callable.
  *
- * These tests exercise that orchestration pattern with fake callbacks so the
- * logic is proven against every mandatory reason code WITHOUT any DB, broker,
- * scheduler, or schema change. Pure-function tests only.
+ * Tests cover all 22 spec-required cases from P0.2-acceptance-blockers-2026-07-21:
+ *   1  weekend               → MARKET_CLOSED_WEEKEND
+ *   2  official holiday      → MARKET_CLOSED_HOLIDAY
+ *   3  before 09:00 IST      → BEFORE_MARKET_SESSION
+ *   4  after 15:30 IST       → AFTER_MARKET_SESSION
+ *   5  pre-open (09:00–09:15)→ SPECIAL_SESSION_NOT_AUTHORIZED
+ *   6  calendar unavailable  → CALENDAR_UNAVAILABLE
+ *   7  invalid server time   → INVALID_SERVER_TIMESTAMP
+ *   8  quote from bad session→ QUOTE_OUTSIDE_SESSION
+ *   9  stale/non-grade quote → QUOTE_STALE_OR_NOT_TRADE_GRADE (authoritative policy)
+ *   10 incomplete context    → TRADE_ADMISSION_CONTEXT_INCOMPLETE
+ *   11 missing equity cutoff → ENTRY_CUTOFF_CONFIG_UNAVAILABLE
+ *   12 past configured cutoff→ ENTRY_CUTOFF_PASSED
+ *   13 BASELINE 14:45 boundary equality semantics
+ *   14 F&O Standard cutoff fail-closed when policy is null
+ *   15 BSE/SENSEX no calendar→ CALENDAR_UNAVAILABLE
+ *   16 rejected MANUAL after-hours: open=0, reject=1
+ *   17 rejected AUTO/staged: open=0
+ *   18 valid admission: open=1 exactly
+ *   19 exit callback independent after entry rejection
+ *   20 TIMESTAMP_AMBIGUOUS → distinct visible badge/view state
+ *   21 missing session provenance never renders as valid
+ *   22 generated response schema accepts and preserves all provenance fields
  *
- * All 12 mandatory reason codes must be reachable through real decision branches
- * (not mock overrides). Correction F, P0.2-acceptance-blockers-2026-07-21.
+ * Pure-function tests only. No DB, broker, scheduler, or schema change.
+ * All 12 mandatory reason codes reachable through real decision branches (no mocks).
  */
 import { describe, it, expect, beforeEach } from "vitest";
 import {
   computeTradeAdmission,
+  classifyStoredTimestamp,
   EQUITY_AUTO_ENTRY_CUTOFF,
   BSE_CALENDAR_VERIFIED,
-  TRADE_GRADE_MAX_AGE_SEC,
+  FNO_BASELINE_GUARDRAILS,
+  FNO_STANDARD_LATE_ENTRY_CUTOFF_IST_MIN,
   type TradeAdmissionContext,
 } from "./sessionAdmission";
+// Authoritative freshness policy source (not invented locally):
+// MODULE_REQUIREMENTS from marketData/requirements.ts:177
+//   fno.indexQuote: maxFreshnessSec: 120
+// Used in quote-freshness tests as the caller-supplied quoteMaxAgeSec.
+const AUTHORITATIVE_FNO_INDEX_QUOTE_MAX_AGE_SEC = 120;
+
+// ─── Re-exports needed from paperAccount (imported via sessionAdmission barrel) ──
+// FNO_BASELINE_GUARDRAILS and FNO_STANDARD_LATE_ENTRY_CUTOFF_IST_MIN are
+// re-exported from sessionAdmission.ts so tests import from one place.
+// (Verify constants have the expected values to catch accidental changes.)
 
 // ─── Fake-writer orchestration helper ────────────────────────────────────────
 // Mirrors the production entry-path control flow exactly.
@@ -46,18 +78,26 @@ function orchestrateOpen(
 
 /** Monday 2026-01-05 10:00 IST = 04:30 UTC — valid trading session open */
 const MARKET_OPEN = new Date("2026-01-05T04:30:00.000Z");
-/** Monday 2026-01-05 16:30 IST = 11:00 UTC — after regular session */
+/** Monday 2026-01-05 16:30 IST = 11:00 UTC — after regular session (15:30 IST) */
 const AFTER_HOURS = new Date("2026-01-05T11:00:00.000Z");
 /** Saturday 2026-01-03 10:00 IST = 04:30 UTC — weekend */
 const WEEKEND = new Date("2026-01-03T04:30:00.000Z");
-/** Monday 2026-01-26 10:00 IST = 04:30 UTC — Republic Day (NSE/BSE confirmed holiday) */
+/** Monday 2026-01-26 10:00 IST = 04:30 UTC — Republic Day (confirmed NSE/BSE holiday) */
 const REPUBLIC_DAY = new Date("2026-01-26T04:30:00.000Z");
-/** Monday 2026-01-05 07:30 IST = 02:00 UTC — before pre-open */
+/** Monday 2026-01-05 07:30 IST = 02:00 UTC — before 09:00 pre-open */
 const BEFORE_OPEN = new Date("2026-01-05T02:00:00.000Z");
 /** Monday 2026-01-05 09:05 IST = 03:35 UTC — pre-open auction window (09:00–09:15) */
 const PRE_OPEN = new Date("2026-01-05T03:35:00.000Z");
-/** Monday 2026-01-05 14:50 IST = 09:20 UTC — past 14:45 strategy cutoff */
+/** Monday 2026-01-05 14:50 IST = 09:20 UTC — past 14:45 BASELINE cutoff */
 const PAST_14_45_CUTOFF = new Date("2026-01-05T09:20:00.000Z");
+/** Monday 2026-01-05 14:44 IST = 09:14 UTC — one minute BEFORE 14:45 BASELINE cutoff */
+const BEFORE_14_45_CUTOFF = new Date("2026-01-05T09:14:00.000Z");
+/** Monday 2026-01-05 14:45 IST = 09:15 UTC — exactly AT the 14:45 BASELINE cutoff */
+const AT_14_45_CUTOFF = new Date("2026-01-05T09:15:00.000Z");
+/** Monday 2026-01-05 15:26 IST = 09:56 UTC — past 15:25 STANDARD cutoff */
+const PAST_15_25_CUTOFF = new Date("2026-01-05T09:56:00.000Z");
+/** Monday 2026-01-05 15:24 IST = 09:54 UTC — one minute BEFORE 15:25 STANDARD cutoff */
+const BEFORE_15_25_CUTOFF = new Date("2026-01-05T09:54:00.000Z");
 
 // ─── Shared context bases ─────────────────────────────────────────────────────
 
@@ -80,13 +120,18 @@ const BSE_FO: Pick<TradeAdmissionContext, "lane" | "segment" | "instrument"> = {
 };
 
 const CUTOFF_14_45: NonNullable<TradeAdmissionContext["entryCutoffPolicy"]> = {
-  istMinOfDay: 14 * 60 + 45,
-  policySource: "TEST_CUTOFF_14:45",
+  istMinOfDay: FNO_BASELINE_GUARDRAILS.LATE_ENTRY_CUTOFF_IST_MIN,
+  policySource: "FNO_BASELINE_GUARDRAILS.LATE_ENTRY_CUTOFF_IST_MIN",
+};
+
+const CUTOFF_15_25: NonNullable<TradeAdmissionContext["entryCutoffPolicy"]> = {
+  istMinOfDay: FNO_STANDARD_LATE_ENTRY_CUTOFF_IST_MIN,
+  policySource: "FNO_STANDARD_LATE_ENTRY_CUTOFF_IST_MIN",
 };
 
 // ─── Shared callback counters ─────────────────────────────────────────────────
 
-describe("computeTradeAdmission — fake-writer / callback orchestration", () => {
+describe("computeTradeAdmission — P0.2 spec-required tests (22 cases)", () => {
   let openCount: number;
   let rejectCount: number;
   let lastRejectReason: string | undefined;
@@ -100,9 +145,18 @@ describe("computeTradeAdmission — fake-writer / callback orchestration", () =>
   const onOpen = () => { openCount++; };
   const onReject = (r: string) => { rejectCount++; lastRejectReason = r; };
 
-  // ── Test 1: Weekend admission rejected ────────────────────────────────────
+  // ── Constant sanity (not a spec test, runs first) ─────────────────────────
 
-  it("1. Weekend: reject callback fires once with MARKET_CLOSED_WEEKEND; open callback never fires", () => {
+  it("CONSTANTS: FNO_BASELINE_GUARDRAILS.LATE_ENTRY_CUTOFF_IST_MIN = 885 (14:45), FNO_STANDARD_LATE_ENTRY_CUTOFF_IST_MIN = 925 (15:25)", () => {
+    expect(FNO_BASELINE_GUARDRAILS.LATE_ENTRY_CUTOFF_IST_MIN).toBe(885);
+    expect(FNO_STANDARD_LATE_ENTRY_CUTOFF_IST_MIN).toBe(925);
+    expect(BSE_CALENDAR_VERIFIED).toBe(false);
+    expect(EQUITY_AUTO_ENTRY_CUTOFF).toBeNull();
+  });
+
+  // ── Spec test 1: Weekend ──────────────────────────────────────────────────
+
+  it("1. weekend → MARKET_CLOSED_WEEKEND; open=0, reject=1", () => {
     orchestrateOpen(
       { ...NSE_EQ, serverTime: WEEKEND, source: "MANUAL" },
       onOpen,
@@ -113,9 +167,35 @@ describe("computeTradeAdmission — fake-writer / callback orchestration", () =>
     expect(lastRejectReason).toBe("MARKET_CLOSED_WEEKEND");
   });
 
-  // ── Test 2: After-hours MANUAL admission rejected ─────────────────────────
+  // ── Spec test 2: Official holiday ─────────────────────────────────────────
 
-  it("2. After-hours MANUAL: reject fires exactly once with AFTER_MARKET_SESSION; open never fires", () => {
+  it("2. official holiday (Republic Day 2026-01-26) → MARKET_CLOSED_HOLIDAY; open=0, reject=1", () => {
+    orchestrateOpen(
+      { ...NSE_EQ, serverTime: REPUBLIC_DAY, source: "MANUAL" },
+      onOpen,
+      onReject,
+    );
+    expect(openCount).toBe(0);
+    expect(rejectCount).toBe(1);
+    expect(lastRejectReason).toBe("MARKET_CLOSED_HOLIDAY");
+  });
+
+  // ── Spec test 3: Before market session ───────────────────────────────────
+
+  it("3. before 09:00 IST (07:30 IST) → BEFORE_MARKET_SESSION; open=0, reject=1", () => {
+    orchestrateOpen(
+      { ...NSE_EQ, serverTime: BEFORE_OPEN, source: "MANUAL" },
+      onOpen,
+      onReject,
+    );
+    expect(openCount).toBe(0);
+    expect(rejectCount).toBe(1);
+    expect(lastRejectReason).toBe("BEFORE_MARKET_SESSION");
+  });
+
+  // ── Spec test 4: After market session ────────────────────────────────────
+
+  it("4. after 15:30 IST (16:30 IST) MANUAL → AFTER_MARKET_SESSION; open=0, reject=1", () => {
     orchestrateOpen(
       { ...NSE_EQ, serverTime: AFTER_HOURS, source: "MANUAL" },
       onOpen,
@@ -126,89 +206,71 @@ describe("computeTradeAdmission — fake-writer / callback orchestration", () =>
     expect(lastRejectReason).toBe("AFTER_MARKET_SESSION");
   });
 
-  // ── Test 3: AUTO past strategy cutoff ────────────────────────────────────
+  // ── Spec test 5: Pre-open special session ────────────────────────────────
 
-  it("3. AUTO past 14:45 strategy cutoff: reject fires with ENTRY_CUTOFF_PASSED; open never fires", () => {
+  it("5. pre-open auction (09:05 IST, 09:00–09:15 window) → SPECIAL_SESSION_NOT_AUTHORIZED", () => {
     orchestrateOpen(
-      {
-        ...NSE_FO,
-        serverTime: PAST_14_45_CUTOFF,
-        source: "AUTO",
-        entryCutoffPolicy: CUTOFF_14_45,
-      },
+      { ...NSE_EQ, serverTime: PRE_OPEN, source: "MANUAL" },
       onOpen,
       onReject,
     );
     expect(openCount).toBe(0);
     expect(rejectCount).toBe(1);
-    expect(lastRejectReason).toBe("ENTRY_CUTOFF_PASSED");
+    expect(lastRejectReason).toBe("SPECIAL_SESSION_NOT_AUTHORIZED");
   });
 
-  // ── Test 4: Equity AUTO with null (not configured) cutoff ────────────────
+  // ── Spec test 6 (+ 15): BSE/SENSEX calendar unavailable ──────────────────
 
-  it("4. Equity AUTO with null cutoff policy: reject fires with ENTRY_CUTOFF_CONFIG_UNAVAILABLE; open never fires", () => {
+  it("6/15. BSE F&O (SENSEX) always → CALENDAR_UNAVAILABLE when BSE_CALENDAR_VERIFIED=false; open=0, reject=1", () => {
+    expect(BSE_CALENDAR_VERIFIED).toBe(false);
     orchestrateOpen(
       {
-        ...NSE_EQ,
+        ...BSE_FO,
         serverTime: MARKET_OPEN,
         source: "AUTO",
-        entryCutoffPolicy: null, // explicitly not configured
+        entryCutoffPolicy: CUTOFF_15_25,
       },
       onOpen,
       onReject,
     );
     expect(openCount).toBe(0);
     expect(rejectCount).toBe(1);
-    expect(lastRejectReason).toBe("ENTRY_CUTOFF_CONFIG_UNAVAILABLE");
-    // Confirm EQUITY_AUTO_ENTRY_CUTOFF is indeed null — this is not just a test value
-    expect(EQUITY_AUTO_ENTRY_CUTOFF).toBeNull();
+    expect(lastRejectReason).toBe("CALENDAR_UNAVAILABLE");
+    // Verify scope is clearly labeled as unverified (not silently using NSE calendar)
+    const result = computeTradeAdmission({
+      ...BSE_FO,
+      serverTime: MARKET_OPEN,
+      source: "AUTO",
+      entryCutoffPolicy: CUTOFF_15_25,
+    });
+    expect(result.allowed).toBe(false);
+    if (!result.allowed) {
+      expect(result.calendarScope).toBe("BSE_FO_UNVERIFIED");
+    }
   });
 
-  // ── Test 5: Non-trade-grade quote ────────────────────────────────────────
+  // ── Spec test 7: Invalid server timestamp ────────────────────────────────
 
-  it("5. Non-trade-grade quote: reject fires with QUOTE_STALE_OR_NOT_TRADE_GRADE; open never fires", () => {
+  it("7. NaN server timestamp → INVALID_SERVER_TIMESTAMP; open=0, reject=1", () => {
     orchestrateOpen(
-      {
-        ...NSE_EQ,
-        serverTime: MARKET_OPEN,
-        source: "MANUAL",
-        quoteIsTradeGrade: false,
-      },
+      { ...NSE_EQ, serverTime: new Date("not-a-date"), source: "MANUAL" },
       onOpen,
       onReject,
     );
     expect(openCount).toBe(0);
     expect(rejectCount).toBe(1);
-    expect(lastRejectReason).toBe("QUOTE_STALE_OR_NOT_TRADE_GRADE");
+    expect(lastRejectReason).toBe("INVALID_SERVER_TIMESTAMP");
   });
 
-  // ── Test 5b: Stale quote (exceeds TRADE_GRADE_MAX_AGE_SEC) ───────────────
+  // ── Spec test 8: Quote from unauthorized session ──────────────────────────
 
-  it("5b. Stale quote (age > TRADE_GRADE_MAX_AGE_SEC): reject fires with QUOTE_STALE_OR_NOT_TRADE_GRADE", () => {
+  it("8. after-hours quote timestamp during valid server time → QUOTE_OUTSIDE_SESSION", () => {
     orchestrateOpen(
       {
         ...NSE_EQ,
         serverTime: MARKET_OPEN,
         source: "MANUAL",
-        quoteAgeSec: TRADE_GRADE_MAX_AGE_SEC + 1,
-        quoteMaxAgeSec: TRADE_GRADE_MAX_AGE_SEC,
-      },
-      onOpen,
-      onReject,
-    );
-    expect(openCount).toBe(0);
-    expect(lastRejectReason).toBe("QUOTE_STALE_OR_NOT_TRADE_GRADE");
-  });
-
-  // ── Test 6: Quote from outside the session ────────────────────────────────
-
-  it("6. Quote timestamp from after-hours: reject fires with QUOTE_OUTSIDE_SESSION; open never fires", () => {
-    orchestrateOpen(
-      {
-        ...NSE_EQ,
-        serverTime: MARKET_OPEN,
-        source: "MANUAL",
-        quoteTimestamp: AFTER_HOURS.toISOString(), // after-hours quote
+        quoteTimestamp: AFTER_HOURS.toISOString(),
       },
       onOpen,
       onReject,
@@ -218,9 +280,58 @@ describe("computeTradeAdmission — fake-writer / callback orchestration", () =>
     expect(lastRejectReason).toBe("QUOTE_OUTSIDE_SESSION");
   });
 
-  // ── Test 7: Incomplete context ────────────────────────────────────────────
+  // ── Spec test 9: Stale / non-trade-grade quote using authoritative policy ─
 
-  it("7. Incomplete context (empty lane): reject fires with TRADE_ADMISSION_CONTEXT_INCOMPLETE; open never fires", () => {
+  it("9a. quoteIsTradeGrade=false → QUOTE_STALE_OR_NOT_TRADE_GRADE (regardless of age)", () => {
+    orchestrateOpen(
+      { ...NSE_EQ, serverTime: MARKET_OPEN, source: "MANUAL", quoteIsTradeGrade: false },
+      onOpen,
+      onReject,
+    );
+    expect(openCount).toBe(0);
+    expect(rejectCount).toBe(1);
+    expect(lastRejectReason).toBe("QUOTE_STALE_OR_NOT_TRADE_GRADE");
+  });
+
+  it("9b. stale quote using authoritative fno.indexQuote maxFreshnessSec=120 (requirements.ts:177) → QUOTE_STALE_OR_NOT_TRADE_GRADE", () => {
+    // Caller supplies the authoritative threshold — no invented default.
+    // Source: MODULE_REQUIREMENTS.fno.indexQuote.maxFreshnessSec = 120 (marketData/requirements.ts:177)
+    orchestrateOpen(
+      {
+        ...NSE_FO,
+        serverTime: MARKET_OPEN,
+        source: "AUTO",
+        entryCutoffPolicy: CUTOFF_15_25,
+        quoteAgeSec: AUTHORITATIVE_FNO_INDEX_QUOTE_MAX_AGE_SEC + 1,   // 121s
+        quoteMaxAgeSec: AUTHORITATIVE_FNO_INDEX_QUOTE_MAX_AGE_SEC,     // 120s (authoritative)
+      },
+      onOpen,
+      onReject,
+    );
+    expect(openCount).toBe(0);
+    expect(lastRejectReason).toBe("QUOTE_STALE_OR_NOT_TRADE_GRADE");
+  });
+
+  it("9c. quoteAgeSec within threshold (119s < 120s authoritative) → admitted when session is valid", () => {
+    orchestrateOpen(
+      {
+        ...NSE_FO,
+        serverTime: MARKET_OPEN,
+        source: "AUTO",
+        entryCutoffPolicy: CUTOFF_15_25,
+        quoteAgeSec: AUTHORITATIVE_FNO_INDEX_QUOTE_MAX_AGE_SEC - 1,   // 119s — fresh
+        quoteMaxAgeSec: AUTHORITATIVE_FNO_INDEX_QUOTE_MAX_AGE_SEC,     // 120s
+      },
+      onOpen,
+      onReject,
+    );
+    expect(openCount).toBe(1);
+    expect(rejectCount).toBe(0);
+  });
+
+  // ── Spec test 10: Incomplete mandatory context ────────────────────────────
+
+  it("10a. empty lane → TRADE_ADMISSION_CONTEXT_INCOMPLETE; open=0, reject=1", () => {
     orchestrateOpen(
       {
         lane: "" as "equity_cash",
@@ -237,11 +348,108 @@ describe("computeTradeAdmission — fake-writer / callback orchestration", () =>
     expect(lastRejectReason).toBe("TRADE_ADMISSION_CONTEXT_INCOMPLETE");
   });
 
-  // ── Test 8: Valid admission — open callback fires exactly once ────────────
-
-  it("8. Valid admission during market hours: open callback fires exactly once; reject never fires", () => {
+  it("10b. quoteAgeSec supplied without quoteMaxAgeSec → TRADE_ADMISSION_CONTEXT_INCOMPLETE (no invented default)", () => {
+    // Omitting quoteMaxAgeSec when quoteAgeSec is provided is an undecidable context.
+    // The gate must fail closed rather than apply any invented default threshold.
     orchestrateOpen(
-      { ...NSE_EQ, serverTime: MARKET_OPEN, source: "MANUAL" },
+      {
+        ...NSE_EQ,
+        serverTime: MARKET_OPEN,
+        source: "MANUAL",
+        quoteAgeSec: 200,
+        // quoteMaxAgeSec deliberately omitted — should not default to any invented value
+      },
+      onOpen,
+      onReject,
+    );
+    expect(openCount).toBe(0);
+    expect(rejectCount).toBe(1);
+    expect(lastRejectReason).toBe("TRADE_ADMISSION_CONTEXT_INCOMPLETE");
+  });
+
+  // ── Spec test 11: Missing equity AUTO cutoff ──────────────────────────────
+
+  it("11. equity AUTO with null cutoff (EQUITY_AUTO_ENTRY_CUTOFF=null) → ENTRY_CUTOFF_CONFIG_UNAVAILABLE", () => {
+    // EQUITY_AUTO_ENTRY_CUTOFF is null (no approved strategy cutoff configured).
+    // Exchange session close (15:30 IST) is NOT used as a fallback cutoff.
+    orchestrateOpen(
+      {
+        ...NSE_EQ,
+        serverTime: MARKET_OPEN,
+        source: "AUTO",
+        entryCutoffPolicy: null,
+      },
+      onOpen,
+      onReject,
+    );
+    expect(openCount).toBe(0);
+    expect(rejectCount).toBe(1);
+    expect(lastRejectReason).toBe("ENTRY_CUTOFF_CONFIG_UNAVAILABLE");
+    expect(EQUITY_AUTO_ENTRY_CUTOFF).toBeNull(); // constant confirmation
+  });
+
+  it("11b. SWING_STAGED_APPROVAL with null cutoff → ENTRY_CUTOFF_CONFIG_UNAVAILABLE (not exempt like MANUAL)", () => {
+    orchestrateOpen(
+      {
+        ...NSE_EQ,
+        serverTime: MARKET_OPEN,
+        source: "SWING_STAGED_APPROVAL",
+        entryCutoffPolicy: null,
+      },
+      onOpen,
+      onReject,
+    );
+    expect(openCount).toBe(0);
+    expect(lastRejectReason).toBe("ENTRY_CUTOFF_CONFIG_UNAVAILABLE");
+  });
+
+  // ── Spec test 12: Past configured cutoff ─────────────────────────────────
+
+  it("12. AUTO past 14:45 cutoff → ENTRY_CUTOFF_PASSED; open=0, reject=1", () => {
+    orchestrateOpen(
+      {
+        ...NSE_FO,
+        serverTime: PAST_14_45_CUTOFF,   // 14:50 IST
+        source: "AUTO",
+        entryCutoffPolicy: CUTOFF_14_45,
+      },
+      onOpen,
+      onReject,
+    );
+    expect(openCount).toBe(0);
+    expect(rejectCount).toBe(1);
+    expect(lastRejectReason).toBe("ENTRY_CUTOFF_PASSED");
+  });
+
+  // ── Spec test 13: BASELINE 14:45 boundary equality semantics ─────────────
+  // FNO_BASELINE_GUARDRAILS.LATE_ENTRY_CUTOFF_IST_MIN = 885
+  // Boundary: istMin >= cutoff → blocked. istMin < cutoff → allowed.
+
+  it("13a. BASELINE at exactly 14:45 IST (istMin=885 >= 885) → ENTRY_CUTOFF_PASSED (boundary closed)", () => {
+    // AT_14_45_CUTOFF = 14:45 IST = 09:15 UTC
+    orchestrateOpen(
+      {
+        ...NSE_FO,
+        serverTime: AT_14_45_CUTOFF,
+        source: "AUTO",
+        entryCutoffPolicy: CUTOFF_14_45,
+      },
+      onOpen,
+      onReject,
+    );
+    expect(openCount).toBe(0);
+    expect(lastRejectReason).toBe("ENTRY_CUTOFF_PASSED");
+  });
+
+  it("13b. BASELINE one minute BEFORE 14:45 IST (14:44, istMin=884 < 885) → admitted", () => {
+    // BEFORE_14_45_CUTOFF = 14:44 IST = 09:14 UTC
+    orchestrateOpen(
+      {
+        ...NSE_FO,
+        serverTime: BEFORE_14_45_CUTOFF,
+        source: "AUTO",
+        entryCutoffPolicy: CUTOFF_14_45,
+      },
       onOpen,
       onReject,
     );
@@ -249,13 +457,131 @@ describe("computeTradeAdmission — fake-writer / callback orchestration", () =>
     expect(rejectCount).toBe(0);
   });
 
-  // ── Test 9: Exit callback is invocable independently of entry rejection ───
+  // ── Spec test 14: F&O Standard cutoff behavior ────────────────────────────
 
-  it("9. Exit-only callback is invocable regardless of whether entry admission was rejected", () => {
+  it("14a. F&O Standard null cutoff policy → ENTRY_CUTOFF_CONFIG_UNAVAILABLE (fail closed)", () => {
+    // When the Standard cutoff policy is null, fail closed — do not use exchange
+    // close as a fallback.
+    orchestrateOpen(
+      {
+        ...NSE_FO,
+        serverTime: MARKET_OPEN,
+        source: "AUTO",
+        entryCutoffPolicy: null,
+      },
+      onOpen,
+      onReject,
+    );
+    expect(openCount).toBe(0);
+    expect(lastRejectReason).toBe("ENTRY_CUTOFF_CONFIG_UNAVAILABLE");
+  });
+
+  it("14b. F&O Standard at 15:24 IST (before FNO_STANDARD_LATE_ENTRY_CUTOFF_IST_MIN=925) → admitted", () => {
+    orchestrateOpen(
+      {
+        ...NSE_FO,
+        serverTime: BEFORE_15_25_CUTOFF,   // 15:24 IST
+        source: "AUTO",
+        entryCutoffPolicy: CUTOFF_15_25,
+      },
+      onOpen,
+      onReject,
+    );
+    expect(openCount).toBe(1);
+    expect(rejectCount).toBe(0);
+  });
+
+  it("14c. F&O Standard at 15:26 IST (past FNO_STANDARD_LATE_ENTRY_CUTOFF_IST_MIN=925) → ENTRY_CUTOFF_PASSED", () => {
+    orchestrateOpen(
+      {
+        ...NSE_FO,
+        serverTime: PAST_15_25_CUTOFF,     // 15:26 IST
+        source: "AUTO",
+        entryCutoffPolicy: CUTOFF_15_25,
+      },
+      onOpen,
+      onReject,
+    );
+    expect(openCount).toBe(0);
+    expect(lastRejectReason).toBe("ENTRY_CUTOFF_PASSED");
+  });
+
+  // ── Spec test 16: Rejected MANUAL after-hours: open=0, reject=1 ──────────
+  // (covered by test 4 — restated for explicitness per spec)
+
+  it("16. MANUAL after-hours open: durable-open callback fires 0 times; rejection callback fires exactly once", () => {
+    let durableOpenFired = 0;
+    let rejectionFired = 0;
+    let rejectionReason = "";
+
+    // Mimics the production pattern: gate → conditional writer call
+    const result = computeTradeAdmission({
+      ...NSE_EQ,
+      serverTime: AFTER_HOURS,
+      source: "MANUAL",
+    });
+    if (!result.allowed) {
+      rejectionFired++;
+      rejectionReason = result.reason;
+    } else {
+      durableOpenFired++;
+      // durable writer (DB INSERT) would be called here in production
+    }
+
+    expect(durableOpenFired).toBe(0);
+    expect(rejectionFired).toBe(1);
+    expect(rejectionReason).toBe("AFTER_MARKET_SESSION");
+  });
+
+  // ── Spec test 17: Rejected AUTO/staged: open=0 ───────────────────────────
+
+  it("17. rejected AUTO open (ENTRY_CUTOFF_CONFIG_UNAVAILABLE): open=0", () => {
+    orchestrateOpen(
+      {
+        ...NSE_EQ,
+        serverTime: MARKET_OPEN,
+        source: "AUTO",
+        entryCutoffPolicy: null,
+      },
+      onOpen,
+      onReject,
+    );
+    expect(openCount).toBe(0);
+    expect(rejectCount).toBe(1);
+  });
+
+  // ── Spec test 18: Valid admission: open=1 exactly ────────────────────────
+
+  it("18. valid NSE F&O admission with Standard cutoff: open fires exactly once; reject never fires", () => {
+    orchestrateOpen(
+      {
+        ...NSE_FO,
+        serverTime: MARKET_OPEN,
+        source: "AUTO",
+        entryCutoffPolicy: CUTOFF_15_25,
+      },
+      onOpen,
+      onReject,
+    );
+    expect(openCount).toBe(1);
+    expect(rejectCount).toBe(0);
+    // Verify calendarScope is NSE-labeled (not BSE or unverified)
+    const result = computeTradeAdmission({
+      ...NSE_FO,
+      serverTime: MARKET_OPEN,
+      source: "AUTO",
+      entryCutoffPolicy: CUTOFF_15_25,
+    });
+    expect(result.calendarScope).toBe("NSE_CURATED_2026");
+  });
+
+  // ── Spec test 19: Exit callback independent of entry rejection ────────────
+
+  it("19. exit-only callback is invocable regardless of whether entry admission was rejected", () => {
     let exitCount = 0;
     const fakeExit = () => { exitCount++; };
 
-    // Entry is rejected (after hours — admission gate fires AFTER_MARKET_SESSION)
+    // Entry is rejected (after hours)
     const admissionResult = computeTradeAdmission({
       ...NSE_EQ,
       serverTime: AFTER_HOURS,
@@ -263,86 +589,155 @@ describe("computeTradeAdmission — fake-writer / callback orchestration", () =>
     });
     expect(admissionResult.allowed).toBe(false);
 
-    // Exit is NOT guarded by entry admission; it is always callable
+    // Exit is NOT guarded by entry admission; always callable
     fakeExit();
 
-    expect(exitCount).toBe(1);   // exit always available
-    expect(openCount).toBe(0);   // entry callback was never invoked
+    expect(exitCount).toBe(1);
+    expect(openCount).toBe(0);
   });
 
-  // ── Test 10: TIMESTAMP_AMBIGUOUS maps to a distinct, visible UI state ─────
+  // ── Spec test 20: TIMESTAMP_AMBIGUOUS → distinct visible badge/view state ─
 
-  it("10. TIMESTAMP_AMBIGUOUS maps to a distinct badge text that is not VALID_SESSION, OFF_SESSION, or SESSION_UNKNOWN", () => {
-    // This test validates the frontend badge mapping contract: all four
-    // openedSessionValidity states must map to distinct visible strings.
+  it("20. TIMESTAMP_AMBIGUOUS maps to a non-empty, distinct badge text (not VALID_SESSION, OFF_SESSION, or SESSION_UNKNOWN)", () => {
+    // UI badge contract: four openedSessionValidity states → four distinct visible strings.
     const BADGE_MAP: Record<string, string> = {
-      VALID_SESSION: "",          // no badge rendered
-      OFF_SESSION: "OFF-SESSION",
-      SESSION_UNKNOWN: "SESSION?",
-      TIMESTAMP_AMBIGUOUS: "TIMESTAMP?", // Correction E: must be a distinct non-empty badge
+      VALID_SESSION:        "",              // no badge rendered
+      OFF_SESSION:          "OFF-SESSION",
+      SESSION_UNKNOWN:      "SESSION?",
+      TIMESTAMP_AMBIGUOUS:  "TIMESTAMP?",   // must be distinct and non-empty
     };
 
     expect(BADGE_MAP["TIMESTAMP_AMBIGUOUS"]).not.toBe("");
     expect(BADGE_MAP["TIMESTAMP_AMBIGUOUS"]).not.toBe(BADGE_MAP["VALID_SESSION"]);
     expect(BADGE_MAP["TIMESTAMP_AMBIGUOUS"]).not.toBe(BADGE_MAP["OFF_SESSION"]);
     expect(BADGE_MAP["TIMESTAMP_AMBIGUOUS"]).not.toBe(BADGE_MAP["SESSION_UNKNOWN"]);
-    // All four values are distinct
+    // All four are distinct
     expect(new Set(Object.values(BADGE_MAP)).size).toBe(4);
+
+    // classifyStoredTimestamp(null) → TIMESTAMP_AMBIGUOUS (not VALID_SESSION)
+    const classified = classifyStoredTimestamp(null);
+    expect(classified.openedSessionValidity).toBe("TIMESTAMP_AMBIGUOUS");
   });
 
-  // ── Test 11: All 12 mandatory reasons reachable through real branches ─────
+  // ── Spec test 21: Missing provenance never renders as valid ───────────────
 
-  it("11. All 12 mandatory reason codes are reachable through real computeTradeAdmission branches (no mocks)", () => {
+  it("21. missing/null session provenance never renders as valid — absence must not look like VALID_SESSION", () => {
+    // classifyStoredTimestamp(null): ambiguous timestamp must NOT classify as VALID_SESSION
+    const nullResult = classifyStoredTimestamp(null);
+    expect(nullResult.openedSessionValidity).not.toBe("VALID_SESSION");
+    expect(nullResult.openedSessionValidity).toBe("TIMESTAMP_AMBIGUOUS");
+    expect(nullResult.timestampConfidence).toBe("LOW");
+    expect(nullResult.openedAtIst).toBeNull();
+    // cutoffPolicyValidity must be UNKNOWN for all historical positions
+    expect(nullResult.cutoffPolicyValidity).toBe("UNKNOWN");
+
+    // classifyStoredTimestamp(invalid): same guarantee for unparseable timestamps
+    const invalidResult = classifyStoredTimestamp("not-a-date");
+    expect(invalidResult.openedSessionValidity).not.toBe("VALID_SESSION");
+    expect(invalidResult.timestampConfidence).toBe("LOW");
+
+    // A frontend rendering "no provenance data" must use the absence (openedSessionValidity
+    // is undefined/null from an old API version) as a non-valid state — here we verify the
+    // backend always produces a classified state, never silently omits the field.
+    const offSessionResult = classifyStoredTimestamp(new Date("2026-01-03T04:30:00.000Z").toISOString());
+    expect(offSessionResult.openedSessionValidity).not.toBe("VALID_SESSION");
+    // Weekend timestamp → OFF_SESSION (not ambiguous — timestamp is clear, session is closed)
+    expect(["OFF_SESSION", "SESSION_UNKNOWN"]).toContain(offSessionResult.openedSessionValidity);
+  });
+
+  // ── Spec test 22: Generated response schema accepts all provenance fields ──
+
+  it("22. generated response schema (GetPaperPositionsEqResponse from @workspace/api-zod) accepts and preserves all provenance fields", async () => {
+    // Dynamic import to avoid circular dep issues in the test runner.
+    const { GetPaperPositionsEqResponse } = await import("@workspace/api-zod");
+
+    // Use the exact field names from the generated Zod schema (GetPaperPositionsEqResponse).
+    // Non-optional fields: id, symbol, name, exchange, signalDate, signalTriggeredAt,
+    // qty, entryPrice, stopPrice, target1Price, target2Price, trailedToT1,
+    // capitalDeployed, lastPrice, unrealizedPnl, openedAt, lastEvaluatedAt, status.
+    // Provenance fields are all .nullish() (optional in schema, required by P0.2 UI contract).
+    const minimalPosition = {
+      id: "test-provenance-id",
+      symbol: "RELIANCE",
+      name: "Reliance Industries Ltd",
+      exchange: "NSE",
+      signalDate: "2026-01-05",
+      signalTriggeredAt: "2026-01-05T04:30:00.000Z",
+      qty: 10,
+      entryPrice: 2500,
+      stopPrice: 2400,
+      target1Price: 2600,
+      target2Price: 2700,
+      trailedToT1: false,
+      capitalDeployed: 25000,
+      lastPrice: 2550,
+      unrealizedPnl: 500,
+      openedAt: "2026-01-05T04:30:00.000Z",
+      lastEvaluatedAt: "2026-01-05T04:30:00.000Z",
+      status: "OPEN",
+      source: null,
+      stagedOrderId: null,
+      // All 7 provenance fields (P0.2 correction — all .nullish() in schema)
+      openedSessionValidity: "VALID_SESSION",
+      openedSessionReason: null,
+      openedAtIst: "10:00 05-Jan-2026",
+      calendarVersion: "NSE-2026-v1",
+      calendarScope: "NSE_CURATED_2026",
+      timestampConfidence: "HIGH",
+      cutoffPolicyValidity: "UNKNOWN",
+    };
+
+    const result = GetPaperPositionsEqResponse.safeParse({
+      positions: [minimalPosition],
+      generatedAt: new Date().toISOString(),
+    });
+
+    // All 7 provenance fields must parse without error
+    expect(result.success).toBe(true);
+    if (result.success) {
+      const pos = result.data.positions[0]!;
+      expect(pos.openedSessionValidity).toBe("VALID_SESSION");
+      expect(pos.openedSessionReason).toBeNull();
+      expect(pos.openedAtIst).toBe("10:00 05-Jan-2026");
+      expect(pos.calendarVersion).toBe("NSE-2026-v1");
+      expect(pos.calendarScope).toBe("NSE_CURATED_2026");
+      expect(pos.timestampConfidence).toBe("HIGH");
+      expect(pos.cutoffPolicyValidity).toBe("UNKNOWN");
+    }
+  });
+
+  // ── Supertest: all 12 mandatory codes reachable without mocks ────────────
+
+  it("SUPERTEST: all 12 mandatory reason codes reachable through real computeTradeAdmission branches (no mocks)", () => {
     const collected: string[] = [];
     const push = (ctx: TradeAdmissionContext) => {
       const r = computeTradeAdmission(ctx);
       collected.push(r.allowed ? "__ALLOWED__" : r.reason);
     };
 
-    // MARKET_CLOSED_WEEKEND → weekend date
+    // MARKET_CLOSED_WEEKEND
     push({ ...NSE_EQ, serverTime: WEEKEND, source: "MANUAL" });
-
-    // MARKET_CLOSED_HOLIDAY → Republic Day 2026-01-26 (confirmed NSE/BSE holiday)
+    // MARKET_CLOSED_HOLIDAY
     push({ ...NSE_EQ, serverTime: REPUBLIC_DAY, source: "MANUAL" });
-
-    // BEFORE_MARKET_SESSION → 07:30 IST (before 09:00 pre-open)
+    // BEFORE_MARKET_SESSION
     push({ ...NSE_EQ, serverTime: BEFORE_OPEN, source: "MANUAL" });
-
-    // AFTER_MARKET_SESSION → 16:30 IST
+    // AFTER_MARKET_SESSION
     push({ ...NSE_EQ, serverTime: AFTER_HOURS, source: "MANUAL" });
-
-    // ENTRY_CUTOFF_PASSED → 14:50 IST, configured 14:45 cutoff
-    push({
-      ...NSE_FO,
-      serverTime: PAST_14_45_CUTOFF,
-      source: "AUTO",
-      entryCutoffPolicy: CUTOFF_14_45,
-    });
-
-    // ENTRY_CUTOFF_CONFIG_UNAVAILABLE → AUTO + null cutoff
+    // ENTRY_CUTOFF_PASSED
+    push({ ...NSE_FO, serverTime: PAST_14_45_CUTOFF, source: "AUTO", entryCutoffPolicy: CUTOFF_14_45 });
+    // ENTRY_CUTOFF_CONFIG_UNAVAILABLE
     push({ ...NSE_EQ, serverTime: MARKET_OPEN, source: "AUTO", entryCutoffPolicy: null });
-
-    // SPECIAL_SESSION_NOT_AUTHORIZED → 09:05 IST pre-open
+    // SPECIAL_SESSION_NOT_AUTHORIZED
     push({ ...NSE_EQ, serverTime: PRE_OPEN, source: "MANUAL" });
-
-    // CALENDAR_UNAVAILABLE → BSE F&O + BSE_CALENDAR_VERIFIED=false
+    // CALENDAR_UNAVAILABLE
     push({ ...BSE_FO, serverTime: MARKET_OPEN, source: "AUTO", entryCutoffPolicy: undefined });
-
-    // INVALID_SERVER_TIMESTAMP → NaN Date
+    // INVALID_SERVER_TIMESTAMP
     push({ ...NSE_EQ, serverTime: new Date("not-a-date"), source: "MANUAL" });
-
-    // QUOTE_OUTSIDE_SESSION → after-hours quote timestamp on valid server time
-    push({
-      ...NSE_EQ,
-      serverTime: MARKET_OPEN,
-      source: "MANUAL",
-      quoteTimestamp: AFTER_HOURS.toISOString(),
-    });
-
-    // QUOTE_STALE_OR_NOT_TRADE_GRADE → quoteIsTradeGrade=false
+    // QUOTE_OUTSIDE_SESSION
+    push({ ...NSE_EQ, serverTime: MARKET_OPEN, source: "MANUAL", quoteTimestamp: AFTER_HOURS.toISOString() });
+    // QUOTE_STALE_OR_NOT_TRADE_GRADE
     push({ ...NSE_EQ, serverTime: MARKET_OPEN, source: "MANUAL", quoteIsTradeGrade: false });
-
-    // TRADE_ADMISSION_CONTEXT_INCOMPLETE → empty lane
+    // TRADE_ADMISSION_CONTEXT_INCOMPLETE
     push({ lane: "" as "equity_cash", segment: "", instrument: "", serverTime: MARKET_OPEN, source: "AUTO" });
 
     const EXPECTED = [
@@ -361,80 +756,23 @@ describe("computeTradeAdmission — fake-writer / callback orchestration", () =>
     ] as const;
 
     expect(collected).toEqual(EXPECTED);
-    // All 12 are distinct
     expect(new Set(collected).size).toBe(12);
   });
 
-  // ── Test 12: BSE F&O and NSE F&O use correct segment/calendar ────────────
+  // ── MANUAL source: cutoff not applicable ─────────────────────────────────
 
-  it("12a. NSE F&O (NIFTY) during market hours with cutoff passes admission and reports NSE_CURATED_2026 calendarScope", () => {
+  it("MANUAL past strategy cutoff: NOT blocked (owner-directed; only exchange session applies)", () => {
+    // 14:50 IST is past the 14:45 cutoff but the exchange is still open (until 15:30)
     const result = orchestrateOpen(
       {
         ...NSE_FO,
-        serverTime: MARKET_OPEN,
-        source: "AUTO",
-        entryCutoffPolicy: { istMinOfDay: 15 * 60 + 25, policySource: "FNO_STANDARD_CUTOFF_15:25" },
-      },
-      onOpen,
-      onReject,
-    );
-    expect(openCount).toBe(1);
-    expect(result.calendarScope).toBe("NSE_CURATED_2026");
-  });
-
-  it("12b. BSE F&O (SENSEX) always fails closed with CALENDAR_UNAVAILABLE when BSE_CALENDAR_VERIFIED=false", () => {
-    expect(BSE_CALENDAR_VERIFIED).toBe(false);
-    const result = orchestrateOpen(
-      {
-        ...BSE_FO,
-        serverTime: MARKET_OPEN,
-        source: "AUTO",
-        entryCutoffPolicy: { istMinOfDay: 15 * 60 + 25, policySource: "FNO_STANDARD_CUTOFF_15:25" },
-      },
-      onOpen,
-      onReject,
-    );
-    expect(openCount).toBe(0);
-    expect(result.allowed).toBe(false);
-    if (!result.allowed) {
-      expect(result.reason).toBe("CALENDAR_UNAVAILABLE");
-      expect(result.calendarScope).toBe("BSE_FO_UNVERIFIED");
-    }
-  });
-
-  it("12c. MANUAL source skips strategy cutoff even when entryCutoffPolicy is provided — exchange session is the only gate", () => {
-    const result = orchestrateOpen(
-      {
-        ...NSE_FO,
-        serverTime: MARKET_OPEN,
+        serverTime: PAST_14_45_CUTOFF,   // 14:50 IST — session open, past BASELINE cutoff
         source: "MANUAL",
-        entryCutoffPolicy: CUTOFF_14_45, // would block AUTO at this time, but not MANUAL
+        entryCutoffPolicy: CUTOFF_14_45, // would block AUTO — must be ignored for MANUAL
       },
       onOpen,
       onReject,
     );
-    // MARKET_OPEN is 10:00 IST, which is before the 14:45 cutoff, so AUTO would also pass.
-    // Use a time that is past the cutoff to prove MANUAL is not blocked by it:
-    expect(openCount + rejectCount).toBe(1); // exactly one callback fired
-    // (The specific outcome depends on whether MARKET_OPEN is before/after cutoff;
-    //  the important invariant is tested in test 12d below.)
-    expect(result).toBeDefined();
-  });
-
-  it("12d. MANUAL source past the strategy cutoff is NOT blocked by ENTRY_CUTOFF_PASSED — owner-directed opens", () => {
-    // PAST_14_45_CUTOFF = 14:50 IST — past the 14:45 cutoff
-    // AUTO would be blocked; MANUAL must be allowed (session is still open until 15:30)
-    const result = orchestrateOpen(
-      {
-        ...NSE_FO,
-        serverTime: PAST_14_45_CUTOFF,
-        source: "MANUAL",
-        entryCutoffPolicy: CUTOFF_14_45,
-      },
-      onOpen,
-      onReject,
-    );
-    // MANUAL source: cutoff check skipped; session is open at 14:50 IST
     expect(openCount).toBe(1);
     expect(rejectCount).toBe(0);
     expect(result.allowed).toBe(true);

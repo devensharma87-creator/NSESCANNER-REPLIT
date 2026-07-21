@@ -37,6 +37,7 @@
  *     any value where `isFinite(d.getTime())` is true.
  */
 import { getMarketStatusDetail } from "./marketEvents";
+export { FNO_BASELINE_GUARDRAILS, FNO_STANDARD_LATE_ENTRY_CUTOFF_IST_MIN } from "./paperAccount";
 
 // ─── Calendar version ────────────────────────────────────────────────────────
 
@@ -57,16 +58,6 @@ export const CALENDAR_VERSION = "NSE-2026-v1";
  * Set to true and add `getBseMarketStatusDetail` when a verified BSE calendar ships.
  */
 export const BSE_CALENDAR_VERIFIED = false;
-
-// ─── Authoritative freshness threshold ───────────────────────────────────────
-
-/**
- * Maximum quote age (seconds) for a quote to be considered trade-grade.
- * Matches `MARKETDATA_FRESHNESS_BUDGET_SEC` default from `marketData/policy.ts:71`
- * (envInt default = 90s). Reused by `computeTradeAdmission` for
- * QUOTE_STALE_OR_NOT_TRADE_GRADE checks. Do not invent a different value.
- */
-export const TRADE_GRADE_MAX_AGE_SEC = 90;
 
 // ─── Entry cutoff configuration ───────────────────────────────────────────────
 
@@ -220,14 +211,21 @@ export interface TradeAdmissionContext {
   quoteIsTradeGrade?: boolean | null;
   /**
    * Age of the quote in seconds at the time of the open attempt.
-   * When provided alongside quoteMaxAgeSec (or TRADE_GRADE_MAX_AGE_SEC as default),
-   * fires QUOTE_STALE_OR_NOT_TRADE_GRADE when exceeded.
+   * When provided, `quoteMaxAgeSec` MUST also be supplied — no default is applied.
+   * Fires QUOTE_STALE_OR_NOT_TRADE_GRADE when quoteAgeSec > quoteMaxAgeSec.
    */
   quoteAgeSec?: number | null;
   /**
-   * Maximum quote age (seconds) for this call to be trade-grade.
-   * Defaults to TRADE_GRADE_MAX_AGE_SEC (90s = MARKETDATA_FRESHNESS_BUDGET_SEC default).
-   * Do not invent a different value without an authoritative policy source.
+   * Maximum acceptable quote age in seconds for this admission check.
+   * REQUIRED when `quoteAgeSec` is supplied — omitting it when age is provided
+   * causes `TRADE_ADMISSION_CONTEXT_INCOMPLETE` (fail-closed; no invented default).
+   *
+   * Use the authoritative per-lane/dataType values from `MODULE_REQUIREMENTS`
+   * in `marketData/requirements.ts`:
+   *   - fno.indexQuote: 120 s   (requirements.ts:177)
+   *   - watchlist.quote: 120 s  (requirements.ts:189)
+   *   - portfolio.quote: 120 s  (requirements.ts:192)
+   *   - fno.intradayCandles: 900 s (requirements.ts:178)
    */
   quoteMaxAgeSec?: number | null;
 }
@@ -487,20 +485,39 @@ export function computeTradeAdmission(ctx: TradeAdmissionContext): TradeAdmissio
   }
 
   // ── 7. Quote freshness / trade-grade check ──────────────────────────────────
-  // Reuses the authoritative freshness threshold (TRADE_GRADE_MAX_AGE_SEC = 90s,
-  // matching MARKETDATA_FRESHNESS_BUDGET_SEC). Caller may override via quoteMaxAgeSec.
-  const effectiveMaxAgeSec = ctx.quoteMaxAgeSec ?? TRADE_GRADE_MAX_AGE_SEC;
-  const quoteAgeStale =
-    ctx.quoteAgeSec != null &&
-    isFinite(ctx.quoteAgeSec) &&
-    isFinite(effectiveMaxAgeSec) &&
-    ctx.quoteAgeSec > effectiveMaxAgeSec;
+  // No default threshold is applied here. The caller MUST supply quoteMaxAgeSec
+  // from the authoritative per-lane values in MODULE_REQUIREMENTS
+  // (marketData/requirements.ts). Providing quoteAgeSec without quoteMaxAgeSec
+  // fails closed with TRADE_ADMISSION_CONTEXT_INCOMPLETE — an undecidable
+  // freshness check is treated as a mandatory context gap.
+  const quoteAgeProvided = ctx.quoteAgeSec != null && isFinite(ctx.quoteAgeSec);
+  const maxAgeProvided =
+    ctx.quoteMaxAgeSec != null && isFinite(ctx.quoteMaxAgeSec) && ctx.quoteMaxAgeSec > 0;
+
+  if (quoteAgeProvided && !maxAgeProvided) {
+    return {
+      allowed: false,
+      reason: "TRADE_ADMISSION_CONTEXT_INCOMPLETE",
+      detail: `quoteAgeSec (${ctx.quoteAgeSec}s) supplied without a valid quoteMaxAgeSec — caller must provide the authoritative freshness threshold from MODULE_REQUIREMENTS (marketData/requirements.ts); instrument=${ctx.instrument}`,
+      openedSessionValidity: "VALID_SESSION",
+      cutoffPolicyValidity,
+      openedAtIst: msd.serverIst,
+      calendarVersion: CALENDAR_VERSION,
+      calendarScope,
+      timestampConfidence: "HIGH",
+    };
+  }
+
   const quoteNotGrade = ctx.quoteIsTradeGrade === false;
+  const quoteAgeStale =
+    quoteAgeProvided &&
+    maxAgeProvided &&
+    ctx.quoteAgeSec! > ctx.quoteMaxAgeSec!;
 
   if (quoteNotGrade || quoteAgeStale) {
     const why = quoteNotGrade
       ? "quote is not trade-grade (quoteIsTradeGrade=false)"
-      : `quote is stale (${ctx.quoteAgeSec}s > ${effectiveMaxAgeSec}s threshold from TRADE_GRADE_MAX_AGE_SEC)`;
+      : `quote is stale (${ctx.quoteAgeSec}s > ${ctx.quoteMaxAgeSec}s threshold from MODULE_REQUIREMENTS)`;
     return {
       allowed: false,
       reason: "QUOTE_STALE_OR_NOT_TRADE_GRADE",

@@ -47,6 +47,7 @@ import {
   FNO_RISK,
   FNO_BASELINE_RISK,
   FNO_BASELINE_GUARDRAILS,
+  FNO_STANDARD_LATE_ENTRY_CUTOFF_IST_MIN,
   FNO_LIQUIDITY,
   PAPER_FIXED_LOTS,
   POST_STOP_COOLDOWN,
@@ -432,8 +433,8 @@ export async function openPaperTrade(input: LifecycleHookInput): Promise<PaperTr
             policySource: "FNO_BASELINE_GUARDRAILS.LATE_ENTRY_CUTOFF_IST_MIN",
           }
         : {
-            istMinOfDay: 15 * 60 + 25,
-            policySource: "FNO_STANDARD_CUTOFF_15:25",
+            istMinOfDay: FNO_STANDARD_LATE_ENTRY_CUTOFF_IST_MIN,
+            policySource: "FNO_STANDARD_LATE_ENTRY_CUTOFF_IST_MIN",
           };
     const admission = computeTradeAdmission({
       lane: isBse ? "bse_fo" : "nse_fo",
