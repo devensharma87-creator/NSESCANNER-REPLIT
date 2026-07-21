@@ -95,7 +95,7 @@ import {
   getYearlyReport as getEqYearlyReport,
 } from "../lib/paperReportsEq";
 import { forceClosePaperEquityTrade, openManualPaperEquityTrade } from "../lib/paperTradingEq";
-import { computeTradeAdmission, classifyStoredTimestamp } from "../lib/sessionAdmission";
+import { computePreliminaryAdmission, classifyStoredTimestamp } from "../lib/sessionAdmission";
 import { computeLifecycleSummary } from "../lib/paperEqLifecycleSummary";
 import { listEqAudit, summarizeEqAudit, getEqEventsSince } from "../lib/paperEqAudit";
 import { getAllScannedRows } from "../lib/fullNseScanner";
@@ -1718,7 +1718,7 @@ router.post("/paper/positions/eq/manual", requireOwner, async (req, res, next) =
     // P0.2-correction-1: session gate applies to ALL sources including MANUAL.
     // Check here (before the durable writer) so the UI gets a structured,
     // actionable 422 instead of a generic 409 from the writer's null return.
-    const sessionCheck = computeTradeAdmission({
+    const sessionCheck = computePreliminaryAdmission({
       lane: "equity_cash",
       segment: "NSE_EQ",
       instrument: symbol,

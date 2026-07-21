@@ -33,7 +33,7 @@ import {
 import type { PaperTradeFoRow } from "@workspace/db";
 import { and, eq, sql } from "drizzle-orm";
 import { isPaperAutoTradingEnabled } from "./paperAutoTradeFlag";
-import { computeTradeAdmission, type EntryAdmissionCutoffPolicy } from "./sessionAdmission";
+import { computePreliminaryAdmission, computeFinalExecutionAdmission, type EntryAdmissionCutoffPolicy } from "./sessionAdmission";
 import { alertFnoTradeableSignal, alertFnoExitSignal } from "./fnoSignalAlerts";
 import { isSignalHygieneV2Enabled } from "./signalHygieneFlag";
 import {
@@ -436,7 +436,7 @@ export async function openPaperTrade(input: LifecycleHookInput): Promise<PaperTr
             istMinOfDay: FNO_STANDARD_LATE_ENTRY_CUTOFF_IST_MIN,
             policySource: "FNO_STANDARD_LATE_ENTRY_CUTOFF_IST_MIN",
           };
-    const admission = computeTradeAdmission({
+    const phaseA = computePreliminaryAdmission({
       lane: isBse ? "bse_fo" : "nse_fo",
       segment: isBse ? "BSE_FO" : "NSE_FO",
       instrument: fnoIndex || "UNKNOWN_FNO",
@@ -444,16 +444,16 @@ export async function openPaperTrade(input: LifecycleHookInput): Promise<PaperTr
       source: "AUTO",
       entryCutoffPolicy: fnoEntryCutoff,
     });
-    if (!admission.allowed) {
+    if (!phaseA.allowed) {
       logger.info(
         {
-          reason: admission.reason,
-          detail: admission.detail,
+          reason: phaseA.reason,
+          detail: phaseA.detail,
           lane: isBse ? "bse_fo" : "nse_fo",
           instrument: fnoIndex,
           tier: fnoTier,
         },
-        "Paper FO skip: session admission rejected",
+        "Paper FO skip: Phase A session admission rejected",
       );
       return null;
     }
@@ -919,6 +919,51 @@ export async function openPaperTrade(input: LifecycleHookInput): Promise<PaperTr
         }
         return null;
       }
+    }
+  }
+
+  // ── Phase B — Final execution admission ────────────────────────────────────
+  // Evaluated after the option-chain fetch (lines above) and before the
+  // durable insert. The chain fetch that runs for liquidity validation is
+  // also the source of the option-premium quote metadata used here.
+  // SOURCE: MODULE_REQUIREMENTS.fno.optionChain.maxFreshnessSec = 300 (requirements.ts:180)
+  {
+    const foBse = indexSymbol.toUpperCase() === "SENSEX";
+    const foEntryCutoff: EntryAdmissionCutoffPolicy =
+      tier === "BASELINE"
+        ? { istMinOfDay: FNO_BASELINE_GUARDRAILS.LATE_ENTRY_CUTOFF_IST_MIN, policySource: "FNO_BASELINE_GUARDRAILS.LATE_ENTRY_CUTOFF_IST_MIN" }
+        : { istMinOfDay: FNO_STANDARD_LATE_ENTRY_CUTOFF_IST_MIN, policySource: "FNO_STANDARD_LATE_ENTRY_CUTOFF_IST_MIN" };
+    const finalFoAdmission = computeFinalExecutionAdmission({
+      lane: foBse ? "bse_fo" : "nse_fo",
+      segment: foBse ? "BSE_FO" : "NSE_FO",
+      instrument: indexSymbol.toUpperCase() || "UNKNOWN_FNO",
+      serverTime: new Date(),
+      source: "AUTO",
+      entryCutoffPolicy: foEntryCutoff,
+      // The option-chain premium quote: fetched synchronously above (quoteAgeSec ≈ 0).
+      // quoteIsTradeGrade = chain was successfully fetched and returned non-null.
+      // Limitation: optionEntry comes from signal.optionLtp (cached at signal-generation
+      // time); the chain here is for liquidity validation. The chain fetch IS the
+      // authoritative option-premium source available in this lane.
+      quoteProvenance: "kite_option_chain",
+      quoteIsTradeGrade: chainFetchOk && chain !== null,
+      quoteAgeSec: 0,
+      quoteMaxAgeSec: 300,
+    });
+    if (!finalFoAdmission.allowed) {
+      if (recordSkip("PAPER_RISK_GUARD_BLOCKED")) {
+        logger.info(
+          {
+            indexSymbol,
+            setupKey,
+            reason: finalFoAdmission.reason,
+            detail: finalFoAdmission.detail,
+            quoteProvenance: finalFoAdmission.quoteProvenance,
+          },
+          "Paper FO skip: Phase B final execution admission rejected",
+        );
+      }
+      return null;
     }
   }
 

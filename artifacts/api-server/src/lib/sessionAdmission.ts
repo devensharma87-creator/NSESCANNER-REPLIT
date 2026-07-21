@@ -277,6 +277,291 @@ export type TradeAdmissionResult =
 /** @deprecated Use TradeAdmissionResult. Retained for compatibility. */
 export type SessionAdmissionResult = TradeAdmissionResult;
 
+// ─── Phase A — Preliminary admission ─────────────────────────────────────────
+
+/**
+ * Phase A admission context — session and policy fields only.
+ *
+ * May be checked before market data is fetched. A preliminary result
+ * (PreliminaryAdmissionResult) must NOT authorize a durable insert or fill.
+ * Phase B (computeFinalExecutionAdmission) must also pass before any
+ * durable open may occur.
+ */
+export interface PreliminaryAdmissionContext {
+  lane: "equity_cash" | "nse_fo" | "bse_fo";
+  segment: string;
+  instrument: string;
+  serverTime: Date;
+  source: "AUTO" | "MANUAL" | "SWING_STAGED_APPROVAL";
+  entryCutoffPolicy?: EntryAdmissionCutoffPolicy | null;
+}
+
+/**
+ * Phase A result — marked phase: "PRELIMINARY".
+ * The phase discriminant prevents this result from being used where a
+ * FinalExecutionAdmissionResult is required at the durable-insert boundary.
+ */
+export type PreliminaryAdmissionResult =
+  | {
+      phase: "PRELIMINARY";
+      allowed: true;
+      openedSessionValidity: "VALID_SESSION";
+      cutoffPolicyValidity: CutoffPolicyValidity;
+      openedAtIst: string;
+      calendarVersion: string;
+      calendarScope: string;
+      timestampConfidence: "HIGH";
+    }
+  | {
+      phase: "PRELIMINARY";
+      allowed: false;
+      reason: EqSessionAdmissionReason;
+      detail: string;
+      openedSessionValidity: EqOpenedSessionValidity;
+      cutoffPolicyValidity: CutoffPolicyValidity;
+      openedAtIst?: string;
+      calendarVersion: string;
+      calendarScope: string;
+      timestampConfidence: "HIGH" | "LOW";
+    };
+
+/**
+ * Phase A gate — preliminary session/policy check.
+ *
+ * May run before any market data is fetched. Checks exchange calendar,
+ * server timestamp, entry cutoff policy, and instrument identity.
+ *
+ * A preliminary result (phase: "PRELIMINARY") must not authorize a durable
+ * insert. After Phase A passes, callers should fetch the fill-price quote
+ * and then call computeFinalExecutionAdmission (Phase B) immediately before
+ * the durable insert.
+ */
+export function computePreliminaryAdmission(ctx: PreliminaryAdmissionContext): PreliminaryAdmissionResult {
+  const base = computeTradeAdmission({ ...ctx });
+  if (base.allowed) {
+    return {
+      phase: "PRELIMINARY",
+      allowed: true,
+      openedSessionValidity: base.openedSessionValidity,
+      cutoffPolicyValidity: base.cutoffPolicyValidity,
+      openedAtIst: base.openedAtIst,
+      calendarVersion: base.calendarVersion,
+      calendarScope: base.calendarScope,
+      timestampConfidence: base.timestampConfidence,
+    };
+  }
+  return {
+    phase: "PRELIMINARY",
+    allowed: false,
+    reason: base.reason,
+    detail: base.detail,
+    openedSessionValidity: base.openedSessionValidity,
+    cutoffPolicyValidity: base.cutoffPolicyValidity,
+    openedAtIst: base.openedAtIst,
+    calendarVersion: base.calendarVersion,
+    calendarScope: base.calendarScope,
+    timestampConfidence: base.timestampConfidence,
+  };
+}
+
+// ─── Phase B — Final execution admission ─────────────────────────────────────
+
+/**
+ * Authoritative maximum acceptable quote age in seconds for NSE/BSE F&O
+ * option-chain/premium fills.
+ *
+ * Source: MODULE_REQUIREMENTS.fno.optionChain.maxFreshnessSec (requirements.ts:180).
+ * F&O Phase B callers must supply quoteMaxAgeSec >= this value — using the
+ * more restrictive index-quote policy (120 s) for an option-chain fill is
+ * a policy mismatch and causes TRADE_ADMISSION_CONTEXT_INCOMPLETE.
+ */
+export const FNO_OPTION_CHAIN_MAX_AGE_SEC = 300;
+
+/**
+ * Phase B final execution admission context.
+ *
+ * Must be evaluated after the actual fill-price quote has been fetched and
+ * immediately before the durable insert / open callback. All quote fields
+ * are required — an absent or invalid field causes TRADE_ADMISSION_CONTEXT_INCOMPLETE.
+ *
+ * No lane may proceed to a durable open solely on a PreliminaryAdmissionResult.
+ */
+export interface FinalExecutionAdmissionContext {
+  lane: "equity_cash" | "nse_fo" | "bse_fo";
+  segment: string;
+  instrument: string;
+  serverTime: Date;
+  source: "AUTO" | "MANUAL" | "SWING_STAGED_APPROVAL";
+  entryCutoffPolicy?: EntryAdmissionCutoffPolicy | null;
+  /**
+   * Human-readable identity of the actual fill-price quote source.
+   * Examples: "kite_option_chain", "kite_scanner_ltp", "scanner_kite".
+   * Must be non-empty — absent provenance causes TRADE_ADMISSION_CONTEXT_INCOMPLETE.
+   */
+  quoteProvenance: string;
+  /**
+   * Whether the fill-price source is authoritative / trade-grade.
+   * false → QUOTE_STALE_OR_NOT_TRADE_GRADE regardless of age.
+   */
+  quoteIsTradeGrade: boolean;
+  /**
+   * Age of the fill-price quote in seconds at the time of the open attempt.
+   * Must be finite — NaN / ±Infinity → TRADE_ADMISSION_CONTEXT_INCOMPLETE.
+   */
+  quoteAgeSec: number;
+  /**
+   * Authoritative maximum acceptable age for this fill-price source.
+   * Must be a positive finite number from MODULE_REQUIREMENTS.
+   * Canonical values:
+   *   fno.optionChain: 300 s  (requirements.ts:180) — use for F&O lanes
+   *   watchlist.quote: 120 s  (requirements.ts:189) — use for equity MANUAL fills
+   * For F&O lanes (nse_fo / bse_fo), must be >= FNO_OPTION_CHAIN_MAX_AGE_SEC (300).
+   * Supplying the stricter index-quote policy (120 s) for an option-chain fill is
+   * a policy mismatch and causes TRADE_ADMISSION_CONTEXT_INCOMPLETE.
+   */
+  quoteMaxAgeSec: number;
+  /**
+   * Optional quote timestamp for session validation.
+   * When provided, QUOTE_OUTSIDE_SESSION is returned if the quote is from an
+   * unauthorized session time.
+   */
+  quoteTimestamp?: string | null;
+}
+
+/**
+ * Phase B result — marked phase: "FINAL_EXECUTION".
+ * Only a FinalExecutionAdmissionResult with allowed: true may authorize a
+ * durable insert. The phase discriminant prevents PreliminaryAdmissionResult
+ * from being accepted at the durable-insert boundary.
+ */
+export type FinalExecutionAdmissionResult =
+  | {
+      phase: "FINAL_EXECUTION";
+      allowed: true;
+      openedSessionValidity: "VALID_SESSION";
+      cutoffPolicyValidity: CutoffPolicyValidity;
+      openedAtIst: string;
+      calendarVersion: string;
+      calendarScope: string;
+      timestampConfidence: "HIGH";
+      quoteProvenance: string;
+    }
+  | {
+      phase: "FINAL_EXECUTION";
+      allowed: false;
+      reason: EqSessionAdmissionReason;
+      detail: string;
+      openedSessionValidity: EqOpenedSessionValidity;
+      cutoffPolicyValidity: CutoffPolicyValidity;
+      openedAtIst?: string;
+      calendarVersion: string;
+      calendarScope: string;
+      timestampConfidence: "HIGH" | "LOW";
+      quoteProvenance: string;
+    };
+
+/**
+ * Phase B gate — final execution admission.
+ *
+ * Must be called after the actual fill-price quote has been fetched and
+ * immediately before the durable insert / open callback. All quote fields
+ * are mandatory — absent/invalid fields cause TRADE_ADMISSION_CONTEXT_INCOMPLETE.
+ *
+ * F&O lane enforcement: for nse_fo / bse_fo, quoteMaxAgeSec must be >=
+ * FNO_OPTION_CHAIN_MAX_AGE_SEC (300 s). Using an index-quote policy (120 s)
+ * for an option-chain fill is a policy mismatch → TRADE_ADMISSION_CONTEXT_INCOMPLETE.
+ *
+ * Session and policy are re-evaluated to defend against clock changes or time
+ * elapsed since Phase A. Fail-closed on all ambiguous cases.
+ *
+ * Only a FinalExecutionAdmissionResult with allowed: true may authorize a
+ * durable insert. Callers must NOT pass a PreliminaryAdmissionResult here.
+ */
+export function computeFinalExecutionAdmission(ctx: FinalExecutionAdmissionContext): FinalExecutionAdmissionResult {
+  const provenance = ctx.quoteProvenance || "UNKNOWN";
+
+  // ── 1. Mandatory quote field validation ───────────────────────────────────
+  if (
+    !ctx.quoteProvenance ||
+    typeof ctx.quoteIsTradeGrade !== "boolean" ||
+    typeof ctx.quoteAgeSec !== "number" || !isFinite(ctx.quoteAgeSec) ||
+    typeof ctx.quoteMaxAgeSec !== "number" || !isFinite(ctx.quoteMaxAgeSec) || ctx.quoteMaxAgeSec <= 0
+  ) {
+    return {
+      phase: "FINAL_EXECUTION",
+      allowed: false,
+      reason: "TRADE_ADMISSION_CONTEXT_INCOMPLETE",
+      detail: `Phase B mandatory quote fields absent or invalid — quoteProvenance="${provenance}", quoteIsTradeGrade=${ctx.quoteIsTradeGrade}, quoteAgeSec=${ctx.quoteAgeSec}, quoteMaxAgeSec=${ctx.quoteMaxAgeSec}; instrument=${ctx.instrument}`,
+      openedSessionValidity: "TIMESTAMP_AMBIGUOUS",
+      cutoffPolicyValidity: "UNKNOWN",
+      calendarVersion: CALENDAR_VERSION,
+      calendarScope: "NONE",
+      timestampConfidence: "LOW",
+      quoteProvenance: provenance,
+    };
+  }
+
+  // ── 2. F&O lane: enforce option-chain policy minimum ──────────────────────
+  // Index-quote maxAge (120 s) cannot authorize option-chain/premium fills —
+  // quoteMaxAgeSec must be >= FNO_OPTION_CHAIN_MAX_AGE_SEC (300 s).
+  if ((ctx.lane === "nse_fo" || ctx.lane === "bse_fo") && ctx.quoteMaxAgeSec < FNO_OPTION_CHAIN_MAX_AGE_SEC) {
+    return {
+      phase: "FINAL_EXECUTION",
+      allowed: false,
+      reason: "TRADE_ADMISSION_CONTEXT_INCOMPLETE",
+      detail: `F&O final admission requires quoteMaxAgeSec >= ${FNO_OPTION_CHAIN_MAX_AGE_SEC}s (authoritative: MODULE_REQUIREMENTS.fno.optionChain, requirements.ts:180); caller supplied ${ctx.quoteMaxAgeSec}s — this matches an index-quote policy and cannot authorize an option-premium fill; instrument=${ctx.instrument}, quoteProvenance=${provenance}`,
+      openedSessionValidity: "TIMESTAMP_AMBIGUOUS",
+      cutoffPolicyValidity: "UNKNOWN",
+      calendarVersion: CALENDAR_VERSION,
+      calendarScope: ctx.lane === "bse_fo" ? "BSE_FO_UNVERIFIED" : "NSE_CURATED_2026",
+      timestampConfidence: "HIGH",
+      quoteProvenance: provenance,
+    };
+  }
+
+  // ── 3. Delegate session/policy + quote freshness to canonical gate ─────────
+  const base = computeTradeAdmission({
+    lane: ctx.lane,
+    segment: ctx.segment,
+    instrument: ctx.instrument,
+    serverTime: ctx.serverTime,
+    source: ctx.source,
+    entryCutoffPolicy: ctx.entryCutoffPolicy,
+    quoteTimestamp: ctx.quoteTimestamp,
+    quoteIsTradeGrade: ctx.quoteIsTradeGrade,
+    quoteAgeSec: ctx.quoteAgeSec,
+    quoteMaxAgeSec: ctx.quoteMaxAgeSec,
+  });
+
+  if (base.allowed) {
+    return {
+      phase: "FINAL_EXECUTION",
+      allowed: true,
+      openedSessionValidity: base.openedSessionValidity,
+      cutoffPolicyValidity: base.cutoffPolicyValidity,
+      openedAtIst: base.openedAtIst,
+      calendarVersion: base.calendarVersion,
+      calendarScope: base.calendarScope,
+      timestampConfidence: base.timestampConfidence,
+      quoteProvenance: provenance,
+    };
+  }
+
+  return {
+    phase: "FINAL_EXECUTION",
+    allowed: false,
+    reason: base.reason,
+    detail: base.detail,
+    openedSessionValidity: base.openedSessionValidity,
+    cutoffPolicyValidity: base.cutoffPolicyValidity,
+    openedAtIst: base.openedAtIst,
+    calendarVersion: base.calendarVersion,
+    calendarScope: base.calendarScope,
+    timestampConfidence: base.timestampConfidence,
+    quoteProvenance: provenance,
+  };
+}
+
 // ─── Canonical segment-aware admission gate ───────────────────────────────────
 
 /**

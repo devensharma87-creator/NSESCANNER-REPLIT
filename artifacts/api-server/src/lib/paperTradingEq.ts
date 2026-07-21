@@ -58,7 +58,7 @@ import type { SwingSignal } from "./swingSignals";
 import { computeSwingLevels } from "./swingSignals";
 import type { StockRow } from "@workspace/api-zod";
 import { checkLedgerReconciliationGate } from "./paperAccountReconciliation";
-import { computeTradeAdmission, EQUITY_AUTO_ENTRY_CUTOFF } from "./sessionAdmission";
+import { computePreliminaryAdmission, computeFinalExecutionAdmission, EQUITY_AUTO_ENTRY_CUTOFF } from "./sessionAdmission";
 
 function num(v: string | number | null | undefined): number {
   if (v == null) return 0;
@@ -192,7 +192,26 @@ export function ensurePaperEqProvenanceColumns(): Promise<void> {
  */
 export async function openPaperEquityTrade(
   signal: SwingSignal,
-  opts?: { qtyOverride?: number; source?: "AUTO" | "MANUAL" | "SWING_STAGED_APPROVAL"; signalLabel?: string; stagedOrderId?: string | null },
+  opts?: {
+    qtyOverride?: number;
+    source?: "AUTO" | "MANUAL" | "SWING_STAGED_APPROVAL";
+    signalLabel?: string;
+    stagedOrderId?: string | null;
+    /**
+     * Phase B final execution quote context.
+     * Required for MANUAL opens. Absent or invalid context fails closed with
+     * TRADE_ADMISSION_CONTEXT_INCOMPLETE. AUTO/STAGED lanes never reach Phase B
+     * today (EQUITY_AUTO_ENTRY_CUTOFF=null fires first), but Phase B is wired
+     * so that configuring a cutoff later cannot silently bypass quote validation.
+     */
+    finalExecutionQuoteContext?: {
+      quoteProvenance: string;
+      quoteIsTradeGrade: boolean;
+      quoteAgeSec: number;
+      quoteMaxAgeSec: number;
+      quoteTimestamp?: string | null;
+    } | null;
+  },
 ): Promise<PaperTradeEqRow | null> {
   const sigLabel = opts?.signalLabel ?? "STRONG_BUY";
   const today = signal.signalDate;
@@ -230,7 +249,7 @@ export async function openPaperEquityTrade(
   // session gate. The route layer also pre-checks the session for MANUAL buys
   // and returns a structured 422 before this writer is even called.
   {
-    const admission = computeTradeAdmission({
+    const phaseA = computePreliminaryAdmission({
       lane: "equity_cash",
       segment: "NSE_EQ",
       instrument: signal.symbol,
@@ -240,16 +259,16 @@ export async function openPaperEquityTrade(
       // ENTRY_CUTOFF_CONFIG_UNAVAILABLE. MANUAL source skips the cutoff check.
       entryCutoffPolicy: EQUITY_AUTO_ENTRY_CUTOFF,
     });
-    if (!admission.allowed) {
+    if (!phaseA.allowed) {
       logger.info(
-        { symbol: signal.symbol, reason: admission.reason, detail: admission.detail, source: openSource },
-        "Paper EQ skip: session admission rejected",
+        { symbol: signal.symbol, reason: phaseA.reason, detail: phaseA.detail, source: openSource },
+        "Paper EQ skip: Phase A session admission rejected",
       );
       await recordEqDecision({
         symbol: signal.symbol,
         decision: "SKIP",
-        reason: admission.reason,
-        detail: admission.detail,
+        reason: phaseA.reason,
+        detail: phaseA.detail,
         signal: sigLabel,
         score: signal.score,
         entry: signal.entryPrice,
@@ -555,6 +574,53 @@ export async function openPaperEquityTrade(
           entry: signal.entryPrice, stop: signal.stopPrice, qty, source: opts?.source ?? "AUTO",
         });
         return null;
+      }
+
+      // ── Phase B — Final execution admission ─────────────────────────────
+      // Must pass immediately before the durable insert. All quote fields are
+      // mandatory — absent/invalid context fails closed with
+      // TRADE_ADMISSION_CONTEXT_INCOMPLETE. AUTO/STAGED lanes are currently
+      // blocked earlier by ENTRY_CUTOFF_CONFIG_UNAVAILABLE (Phase A), but
+      // Phase B is wired here so configuring a cutoff later cannot silently
+      // bypass quote-context validation.
+      {
+        const fxCtx = opts?.finalExecutionQuoteContext;
+        const fxAdmission = computeFinalExecutionAdmission({
+          lane: "equity_cash",
+          segment: "NSE_EQ",
+          instrument: signal.symbol,
+          serverTime: new Date(),
+          source: openSource as "AUTO" | "MANUAL" | "SWING_STAGED_APPROVAL",
+          entryCutoffPolicy: EQUITY_AUTO_ENTRY_CUTOFF,
+          quoteProvenance: fxCtx?.quoteProvenance ?? "",
+          quoteIsTradeGrade: fxCtx?.quoteIsTradeGrade ?? false,
+          quoteAgeSec: fxCtx?.quoteAgeSec ?? NaN,
+          quoteMaxAgeSec: fxCtx?.quoteMaxAgeSec ?? 0,
+          quoteTimestamp: fxCtx?.quoteTimestamp,
+        });
+        if (!fxAdmission.allowed) {
+          logger.info(
+            {
+              symbol: signal.symbol,
+              reason: fxAdmission.reason,
+              detail: fxAdmission.detail,
+              source: openSource,
+              quoteProvenance: fxAdmission.quoteProvenance,
+            },
+            "Paper EQ skip: Phase B final execution admission rejected",
+          );
+          await recordEqDecision({
+            symbol: signal.symbol,
+            decision: "SKIP",
+            reason: fxAdmission.reason,
+            detail: fxAdmission.detail,
+            signal: sigLabel,
+            score: signal.score,
+            entry: signal.entryPrice,
+            source: opts?.source ?? "AUTO",
+          });
+          return null;
+        }
       }
 
       const now = signal.triggeredAt;
@@ -880,14 +946,48 @@ export async function openManualPaperEquityTrade(
     levelsSource: "yahoo",
     levelsWarnings: [],
   };
+  // ── Phase B quote context — extract from scanner row provenance ────────────
+  // SOURCE: MODULE_REQUIREMENTS.watchlist.quote.maxFreshnessSec = 120 (requirements.ts:189)
+  // If provenance is missing or insufficient, return a structured rejection
+  // before calling the durable writer — do not fill with an unverified quote.
+  const prov = row.provenance;
+  if (!prov) {
+    return {
+      row: null,
+      reason: "Quote provenance unavailable — scanner row has no provenance metadata. Cannot open with unverified fill price.",
+    };
+  }
+  const rawQuoteAgeSec = prov.freshnessSec != null
+    ? prov.freshnessSec
+    : prov.asOf != null
+      ? Math.round(Date.now() / 1000 - prov.asOf)
+      : null;
+  if (rawQuoteAgeSec == null) {
+    return {
+      row: null,
+      reason: "Quote age cannot be determined — provenance has no freshnessSec or asOf timestamp. Cannot open without verified quote freshness.",
+    };
+  }
+  const quoteIsTradeGrade = prov.sourceProvider === "kite"
+    && !prov.notForTradeDecisions
+    && prov.isStale !== true;
+  const finalExecutionQuoteContext = {
+    quoteProvenance: `scanner_${prov.sourceProvider ?? "unknown"}`,
+    quoteIsTradeGrade,
+    quoteAgeSec: rawQuoteAgeSec,
+    quoteMaxAgeSec: 120,
+    quoteTimestamp: row.quote.updatedAt instanceof Date ? row.quote.updatedAt.toISOString() : (row.quote.updatedAt ?? null),
+  };
+
   logger.info(
-    { symbol: row.symbol, entry: entryPrice, stop: stopPrice, t1: target1Price, t2: target2Price, qtyOverride: opts?.qty ?? null },
+    { symbol: row.symbol, entry: entryPrice, stop: stopPrice, t1: target1Price, t2: target2Price, qtyOverride: opts?.qty ?? null, quoteProvenance: finalExecutionQuoteContext.quoteProvenance, quoteIsTradeGrade },
     "Paper EQ manual buy: attempting open",
   );
   const opened = await openPaperEquityTrade(signal, {
     qtyOverride: opts?.qty,
     source: "MANUAL",
     signalLabel: row.recommendation.signal,
+    finalExecutionQuoteContext,
   });
   if (!opened) {
     return {
@@ -1113,7 +1213,7 @@ export async function runEquityPaperTradingTick(
     // become a single log line instead. This path is AUTO-only; MANUAL opens
     // go through the route handler which pre-checks the session before calling
     // openManualPaperEquityTrade → openPaperEquityTrade.
-    const tickAdmission = computeTradeAdmission({
+    const tickAdmission = computePreliminaryAdmission({
       lane: "equity_cash",
       segment: "NSE_EQ",
       instrument: "EQUITY_TICK_BELT_BRACES",

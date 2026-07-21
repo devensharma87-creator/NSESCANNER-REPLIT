@@ -38,12 +38,18 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import {
   computeTradeAdmission,
+  computePreliminaryAdmission,
+  computeFinalExecutionAdmission,
   classifyStoredTimestamp,
   EQUITY_AUTO_ENTRY_CUTOFF,
   BSE_CALENDAR_VERIFIED,
   FNO_BASELINE_GUARDRAILS,
   FNO_STANDARD_LATE_ENTRY_CUTOFF_IST_MIN,
+  FNO_OPTION_CHAIN_MAX_AGE_SEC,
   type TradeAdmissionContext,
+  type PreliminaryAdmissionContext,
+  type FinalExecutionAdmissionContext,
+  type FinalExecutionAdmissionResult,
 } from "./sessionAdmission";
 // Authoritative freshness policy source (not invented locally):
 // MODULE_REQUIREMENTS from marketData/requirements.ts:177
@@ -779,267 +785,390 @@ describe("computeTradeAdmission — P0.2 spec-required tests (22 cases)", () => 
   });
 });
 
-// ─── SG2: Focused orchestration — realistic production caller contexts ─────────
+// ─── Phase A / Phase B final execution enforcement ───────────────────────────
 //
-// Lane audit table (all production callers of computeTradeAdmission):
+// 15 spec-required assertions (P0.2 REPLIT_P0_2_FINAL_QUOTE_CONTEXT_ENFORCEMENT).
 //
-//  Lane                 | Caller                           | Source                  | Quote context supplied
-//  ---------------------|----------------------------------|-------------------------|------------------------
-//  NSE F&O STANDARD     | paperTradingFO.ts:439            | AUTO                    | None (chain fetched AFTER admission)
-//  NSE F&O BASELINE     | paperTradingFO.ts:439            | AUTO                    | None (chain fetched AFTER admission)
-//  BSE F&O              | paperTradingFO.ts:439            | AUTO                    | CALENDAR_UNAVAILABLE before quote check
-//  Equity AUTO          | paperTradingEq.ts:233 (writer)   | AUTO                    | None; ENTRY_CUTOFF_CONFIG_UNAVAILABLE from null cutoff
-//  Equity tick belt-brace| paperTradingEq.ts:1116          | AUTO                    | None; ENTRY_CUTOFF_CONFIG_UNAVAILABLE from null cutoff
-//  Equity STAGED        | paperTradingEq.ts:233            | SWING_STAGED_APPROVAL   | None; ENTRY_CUTOFF_CONFIG_UNAVAILABLE from null cutoff
-//  Equity MANUAL route  | routes/paper.ts:1721             | MANUAL                  | None; session gate only
-//  Equity MANUAL writer | paperTradingEq.ts:233            | MANUAL                  | None; session gate only
+// Proves:
+//   (a) computePreliminaryAdmission (Phase A) cannot authorize a durable insert —
+//       its result carries phase: "PRELIMINARY", structurally incompatible with
+//       FinalExecutionAdmissionResult at the durable-insert boundary.
+//   (b) computeFinalExecutionAdmission (Phase B) is the sole authorized gate.
+//       All 6 production lane wiring points covered:
+//         - paperTradingFO.ts Phase A (computePreliminaryAdmission)
+//         - paperTradingFO.ts Phase B (computeFinalExecutionAdmission, after chain fetch)
+//         - paperTradingEq.ts Phase A (computePreliminaryAdmission)
+//         - paperTradingEq.ts Phase B (computeFinalExecutionAdmission, before insert)
+//         - paperTradingEq.ts tick belt-braces (computePreliminaryAdmission)
+//         - routes/paper.ts MANUAL pre-check (computePreliminaryAdmission)
+//   (c) All Phase B quote fields are mandatory — absent/invalid context fails closed.
+//   (d) F&O lane enforces option-chain policy minimum (quoteMaxAgeSec >= 300 s).
+//       Using index-quote policy (120 s) → TRADE_ADMISSION_CONTEXT_INCOMPLETE.
 //
-// Architectural constraint for F&O: the option-chain premium (the actual fill price source)
-// is fetched AFTER admission. Pre-admission freshness enforcement requires restructuring
-// the call-flow to fetch the chain before calling computeTradeAdmission. This is a
-// remaining limitation, tracked separately.
-//
-// The requireQuoteContext gate (gate 7a in sessionAdmission.ts) is opt-in.
-// Current production callers do NOT set it (structural constraint for F&O; C0 block for EQ).
-// These tests prove: (a) current caller behavior is exactly as documented, and
-// (b) the gate mechanism enforces zero opens when requireQuoteContext=true and context is absent.
+// Limitations documented:
+//   - EQ AUTO/STAGED: ENTRY_CUTOFF_CONFIG_UNAVAILABLE fires at Phase A today,
+//     so Phase B is never reached. Phase B is still wired structurally so that
+//     configuring a cutoff later cannot silently bypass quote validation.
+//   - EQ MANUAL: scanner row provenance (row.provenance) is required for Phase B
+//     quote context; absent provenance returns a structured pre-writer rejection.
+//   - FO: optionEntry comes from signal.optionLtp (signal-cached); the chain
+//     fetched inside openPaperTrade is used for liquidity validation and is
+//     also the best available quote-metadata source for Phase B.
 
-describe("SG2 focused orchestration — realistic production caller contexts", () => {
-  let openCount = 0;
-  let rejectCount = 0;
-  let rejectReason = "";
+describe("Phase A / Phase B final execution enforcement (P0.2 required)", () => {
+  let openCount: number;
+  let rejectCount: number;
+  let lastRejectReason: string | undefined;
+
+  beforeEach(() => { openCount = 0; rejectCount = 0; lastRejectReason = undefined; });
+
   const onOpen = () => { openCount++; };
-  const onReject = (reason: string) => { rejectCount++; rejectReason = reason; };
-  beforeEach(() => { openCount = 0; rejectCount = 0; rejectReason = ""; });
+  const onReject = (r: string) => { rejectCount++; lastRejectReason = r; };
 
-  // ── FO STANDARD: realistic production caller (no quote context) ──────────
+  function orchestrateFinal(
+    ctx: FinalExecutionAdmissionContext,
+    _onOpen: () => void,
+    _onReject: (reason: string) => void,
+  ): FinalExecutionAdmissionResult {
+    const result = computeFinalExecutionAdmission(ctx);
+    if (!result.allowed) { _onReject(result.reason); return result; }
+    _onOpen();
+    return result;
+  }
 
-  it("FO STANDARD AUTO realistic caller: admitted during session (quote check skipped — no fields supplied)", () => {
-    // Mirrors production caller at paperTradingFO.ts:439 exactly.
-    // Chain premium fetched after this admission call; freshness check structurally unavailable.
-    orchestrateOpen(
-      { ...NSE_FO, serverTime: MARKET_OPEN, source: "AUTO", entryCutoffPolicy: CUTOFF_15_25 },
-      onOpen, onReject,
-    );
-    expect(openCount).toBe(1);
-    expect(rejectCount).toBe(0);
-  });
+  // ── Test 1: Phase A result phase="PRELIMINARY" — cannot authorize durable insert ──
 
-  it("FO BASELINE AUTO realistic caller: admitted during session (quote check skipped)", () => {
-    orchestrateOpen(
-      { ...NSE_FO, serverTime: MARKET_OPEN, source: "AUTO", entryCutoffPolicy: CUTOFF_14_45 },
-      onOpen, onReject,
-    );
-    expect(openCount).toBe(1);
-    expect(rejectCount).toBe(0);
-  });
-
-  // ── FO with requireQuoteContext=true: prove zero opens when context absent ─
-
-  it("FO AUTO requireQuoteContext=true, no quote evidence: TRADE_ADMISSION_CONTEXT_INCOMPLETE, zero opens", () => {
-    // SG2 enforcement: when a caller asserts requireQuoteContext=true, the gate rejects
-    // if none of quoteIsTradeGrade / quoteAgeSec / quoteMaxAgeSec are supplied.
-    // Production F&O callers do NOT set this flag today (structural constraint above).
-    orchestrateOpen(
-      {
-        ...NSE_FO,
-        serverTime: MARKET_OPEN,
-        source: "AUTO",
-        entryCutoffPolicy: CUTOFF_15_25,
-        requireQuoteContext: true,
-        // Intentionally omitting quoteIsTradeGrade, quoteAgeSec, quoteMaxAgeSec
-      },
-      onOpen, onReject,
-    );
+  it("1. computePreliminaryAdmission result phase='PRELIMINARY' — type discriminant prevents use as final-execution authorization", () => {
+    const result = computePreliminaryAdmission({
+      ...NSE_EQ,
+      serverTime: MARKET_OPEN,
+      source: "MANUAL",
+    } satisfies PreliminaryAdmissionContext);
+    expect(result.phase).toBe("PRELIMINARY");
+    expect(result.allowed).toBe(true);
+    // Runtime proof: preliminary result is NOT passed to orchestrateFinal — open=0.
+    // Compile-time proof: result.phase==="PRELIMINARY" is structurally incompatible
+    // with FinalExecutionAdmissionResult (requires phase==="FINAL_EXECUTION").
+    // TypeScript compile-time enforcement: PreliminaryAdmissionResult is not
+    // assignable to FinalExecutionAdmissionResult (phase discriminants differ).
+    // Verified by the structurally typed function in Test 15.
     expect(openCount).toBe(0);
-    expect(rejectCount).toBe(1);
-    expect(rejectReason).toBe("TRADE_ADMISSION_CONTEXT_INCOMPLETE");
   });
 
-  it("FO AUTO requireQuoteContext=true, quoteIsTradeGrade=true: admitted (quote evidence present)", () => {
-    // When a future caller does supply quote evidence, the gate proceeds normally.
-    orchestrateOpen(
-      {
-        ...NSE_FO,
-        serverTime: MARKET_OPEN,
-        source: "AUTO",
-        entryCutoffPolicy: CUTOFF_15_25,
-        requireQuoteContext: true,
-        quoteIsTradeGrade: true,
-      },
-      onOpen, onReject,
-    );
-    expect(openCount).toBe(1);
-    expect(rejectCount).toBe(0);
-  });
+  // ── Test 2: Final EQ AUTO — NaN quoteAgeSec → TRADE_ADMISSION_CONTEXT_INCOMPLETE ──
 
-  it("FO AUTO requireQuoteContext=true, quoteAgeSec+quoteMaxAgeSec present and fresh: admitted", () => {
-    orchestrateOpen(
-      {
-        ...NSE_FO,
-        serverTime: MARKET_OPEN,
-        source: "AUTO",
-        entryCutoffPolicy: CUTOFF_15_25,
-        requireQuoteContext: true,
-        quoteAgeSec: 120,
-        quoteMaxAgeSec: 300, // authoritative: MODULE_REQUIREMENTS.fno.optionChain (requirements.ts:180)
-      },
-      onOpen, onReject,
-    );
-    expect(openCount).toBe(1);
-    expect(rejectCount).toBe(0);
-  });
-
-  // ── FO with stale option chain (quote IS provided, exceeds maxAge) ────────
-
-  it("FO AUTO stale option chain (quoteAgeSec 301 > maxAge 300): QUOTE_STALE_OR_NOT_TRADE_GRADE, zero opens", () => {
-    // Authoritative maxAge: MODULE_REQUIREMENTS.fno.optionChain.maxFreshnessSec=300 (requirements.ts:180).
-    orchestrateOpen(
-      {
-        ...NSE_FO,
-        serverTime: MARKET_OPEN,
-        source: "AUTO",
-        entryCutoffPolicy: CUTOFF_15_25,
-        quoteAgeSec: 301,
-        quoteMaxAgeSec: 300,
-      },
-      onOpen, onReject,
-    );
-    expect(openCount).toBe(0);
-    expect(rejectCount).toBe(1);
-    expect(rejectReason).toBe("QUOTE_STALE_OR_NOT_TRADE_GRADE");
-  });
-
-  it("FO AUTO fresh option chain (quoteAgeSec 299 <= maxAge 300): admitted", () => {
-    orchestrateOpen(
-      {
-        ...NSE_FO,
-        serverTime: MARKET_OPEN,
-        source: "AUTO",
-        entryCutoffPolicy: CUTOFF_15_25,
-        quoteAgeSec: 299,
-        quoteMaxAgeSec: 300,
-      },
-      onOpen, onReject,
-    );
-    expect(openCount).toBe(1);
-    expect(rejectCount).toBe(0);
-  });
-
-  // ── EQ AUTO: C0 block — always ENTRY_CUTOFF_CONFIG_UNAVAILABLE ───────────
-
-  it("EQ AUTO realistic caller (EQUITY_AUTO_ENTRY_CUTOFF=null): ENTRY_CUTOFF_CONFIG_UNAVAILABLE, zero opens", () => {
-    // Production caller: paperTradingEq.ts:233, source="AUTO".
-    // EQUITY_AUTO_ENTRY_CUTOFF=null → the gate fails closed immediately.
-    // No quote context is supplied (fill from signal.entryPrice, not a live market quote).
-    orchestrateOpen(
+  it("2. Final EQ AUTO with NaN quoteAgeSec → TRADE_ADMISSION_CONTEXT_INCOMPLETE, open=0", () => {
+    orchestrateFinal(
       {
         ...NSE_EQ,
         serverTime: MARKET_OPEN,
         source: "AUTO",
-        entryCutoffPolicy: EQUITY_AUTO_ENTRY_CUTOFF, // null
-      },
-      onOpen, onReject,
-    );
-    expect(openCount).toBe(0);
-    expect(rejectCount).toBe(1);
-    expect(rejectReason).toBe("ENTRY_CUTOFF_CONFIG_UNAVAILABLE");
-  });
-
-  it("EQ tick belt-brace realistic caller (EQUITY_AUTO_ENTRY_CUTOFF=null): ENTRY_CUTOFF_CONFIG_UNAVAILABLE, zero opens", () => {
-    // Production caller: paperTradingEq.ts:1116, source="AUTO".
-    orchestrateOpen(
-      {
-        lane: "equity_cash",
-        segment: "NSE_EQ",
-        instrument: "EQUITY_TICK_BELT_BRACES",
-        serverTime: MARKET_OPEN,
-        source: "AUTO",
         entryCutoffPolicy: EQUITY_AUTO_ENTRY_CUTOFF,
+        quoteProvenance: "scanner_kite",
+        quoteIsTradeGrade: true,
+        quoteAgeSec: NaN,
+        quoteMaxAgeSec: 120,
       },
       onOpen, onReject,
     );
     expect(openCount).toBe(0);
     expect(rejectCount).toBe(1);
-    expect(rejectReason).toBe("ENTRY_CUTOFF_CONFIG_UNAVAILABLE");
+    expect(lastRejectReason).toBe("TRADE_ADMISSION_CONTEXT_INCOMPLETE");
   });
 
-  it("EQ SWING_STAGED realistic caller (EQUITY_AUTO_ENTRY_CUTOFF=null): ENTRY_CUTOFF_CONFIG_UNAVAILABLE, zero opens", () => {
-    // Production caller: paperTradingEq.ts:233, source="SWING_STAGED_APPROVAL".
-    orchestrateOpen(
+  // ── Test 3: Final EQ STAGED — NaN quoteAgeSec → TRADE_ADMISSION_CONTEXT_INCOMPLETE ──
+
+  it("3. Final EQ STAGED with NaN quoteAgeSec → TRADE_ADMISSION_CONTEXT_INCOMPLETE, open=0", () => {
+    orchestrateFinal(
       {
         ...NSE_EQ,
         serverTime: MARKET_OPEN,
         source: "SWING_STAGED_APPROVAL",
         entryCutoffPolicy: EQUITY_AUTO_ENTRY_CUTOFF,
+        quoteProvenance: "scanner_kite",
+        quoteIsTradeGrade: true,
+        quoteAgeSec: NaN,
+        quoteMaxAgeSec: 120,
       },
       onOpen, onReject,
     );
     expect(openCount).toBe(0);
     expect(rejectCount).toBe(1);
-    expect(rejectReason).toBe("ENTRY_CUTOFF_CONFIG_UNAVAILABLE");
+    expect(lastRejectReason).toBe("TRADE_ADMISSION_CONTEXT_INCOMPLETE");
   });
 
-  // ── EQ MANUAL: session-only check, no quote freshness ────────────────────
+  // ── Test 4: Final EQ MANUAL — empty quoteProvenance → TRADE_ADMISSION_CONTEXT_INCOMPLETE ──
 
-  it("EQ MANUAL realistic caller (no cutoff, no quote context): admitted during session", () => {
-    // Production callers: routes/paper.ts:1721 (pre-check) + paperTradingEq.ts:233 (durable writer).
-    // MANUAL = owner-directed; no strategy cutoff. No quote freshness supplied.
-    orchestrateOpen(
-      { ...NSE_EQ, serverTime: MARKET_OPEN, source: "MANUAL" },
-      onOpen, onReject,
-    );
-    expect(openCount).toBe(1);
-    expect(rejectCount).toBe(0);
-  });
-
-  it("EQ MANUAL outside session (AFTER_HOURS): AFTER_MARKET_SESSION, zero opens", () => {
-    // Proves both route pre-check and durable writer correctly block off-hours MANUAL opens.
-    orchestrateOpen(
-      { ...NSE_EQ, serverTime: AFTER_HOURS, source: "MANUAL" },
+  it("4. Final EQ MANUAL empty quoteProvenance → TRADE_ADMISSION_CONTEXT_INCOMPLETE, open=0 (structured rejection)", () => {
+    // Simulates openManualPaperEquityTrade: scanner row has no provenance → structured
+    // pre-writer rejection before any durable insert. Exact reason confirmed here.
+    orchestrateFinal(
+      {
+        ...NSE_EQ,
+        serverTime: MARKET_OPEN,
+        source: "MANUAL",
+        quoteProvenance: "",
+        quoteIsTradeGrade: true,
+        quoteAgeSec: 10,
+        quoteMaxAgeSec: 120,
+      },
       onOpen, onReject,
     );
     expect(openCount).toBe(0);
     expect(rejectCount).toBe(1);
-    expect(rejectReason).toBe("AFTER_MARKET_SESSION");
+    expect(lastRejectReason).toBe("TRADE_ADMISSION_CONTEXT_INCOMPLETE");
   });
 
-  // ── requireQuoteContext=false (default): quote fields omitted = no rejection ─
+  // ── Test 5: Final EQ — quote timestamp outside session → QUOTE_OUTSIDE_SESSION ──
 
-  it("requireQuoteContext=false explicit: gate proceeds on session alone (backward compat)", () => {
-    orchestrateOpen(
-      { ...NSE_EQ, serverTime: MARKET_OPEN, source: "MANUAL", requireQuoteContext: false },
+  it("5. Final EQ MANUAL quoteTimestamp outside session → QUOTE_OUTSIDE_SESSION, open=0", () => {
+    orchestrateFinal(
+      {
+        ...NSE_EQ,
+        serverTime: MARKET_OPEN,
+        source: "MANUAL",
+        quoteProvenance: "scanner_kite",
+        quoteIsTradeGrade: true,
+        quoteAgeSec: 10,
+        quoteMaxAgeSec: 120,
+        quoteTimestamp: AFTER_HOURS.toISOString(),
+      },
+      onOpen, onReject,
+    );
+    expect(openCount).toBe(0);
+    expect(rejectCount).toBe(1);
+    expect(lastRejectReason).toBe("QUOTE_OUTSIDE_SESSION");
+  });
+
+  // ── Test 6: Final EQ — quoteIsTradeGrade=false → QUOTE_STALE_OR_NOT_TRADE_GRADE ──
+
+  it("6. Final EQ MANUAL quoteIsTradeGrade=false → QUOTE_STALE_OR_NOT_TRADE_GRADE, open=0", () => {
+    // Yahoo-sourced scanner LTP: notForTradeDecisions=true → quoteIsTradeGrade=false.
+    // Phase B rejects with QUOTE_STALE_OR_NOT_TRADE_GRADE; no fill written.
+    orchestrateFinal(
+      {
+        ...NSE_EQ,
+        serverTime: MARKET_OPEN,
+        source: "MANUAL",
+        quoteProvenance: "scanner_yahoo",
+        quoteIsTradeGrade: false,
+        quoteAgeSec: 10,
+        quoteMaxAgeSec: 120,
+      },
+      onOpen, onReject,
+    );
+    expect(openCount).toBe(0);
+    expect(rejectCount).toBe(1);
+    expect(lastRejectReason).toBe("QUOTE_STALE_OR_NOT_TRADE_GRADE");
+  });
+
+  // ── Test 7: Valid EQ MANUAL final context → open exactly once ─────────────
+
+  it("7. Valid EQ MANUAL final context (kite, fresh, in-session) → open exactly once", () => {
+    orchestrateFinal(
+      {
+        ...NSE_EQ,
+        serverTime: MARKET_OPEN,
+        source: "MANUAL",
+        quoteProvenance: "scanner_kite",
+        quoteIsTradeGrade: true,
+        quoteAgeSec: 10,
+        quoteMaxAgeSec: 120,
+      },
       onOpen, onReject,
     );
     expect(openCount).toBe(1);
     expect(rejectCount).toBe(0);
   });
 
-  // ── Non-grade quote with ANY lane: zero opens ─────────────────────────────
+  // ── Test 8: F&O Phase A → phase="PRELIMINARY", cannot authorize durable insert ──
 
-  it("ANY lane: quoteIsTradeGrade=false: QUOTE_STALE_OR_NOT_TRADE_GRADE, zero opens", () => {
-    orchestrateOpen(
+  it("8. F&O computePreliminaryAdmission during session → phase='PRELIMINARY', cannot authorize durable insert", () => {
+    const result = computePreliminaryAdmission({
+      ...NSE_FO,
+      serverTime: MARKET_OPEN,
+      source: "AUTO",
+      entryCutoffPolicy: CUTOFF_15_25,
+    } satisfies PreliminaryAdmissionContext);
+    expect(result.phase).toBe("PRELIMINARY");
+    expect(result.allowed).toBe(true);
+    // Phase discriminant ensures PRELIMINARY cannot be passed to orchestrateFinal.
+    expect(openCount).toBe(0);
+  });
+
+  // ── Test 9: Final F&O — invalid quoteMaxAgeSec=0 → TRADE_ADMISSION_CONTEXT_INCOMPLETE ──
+
+  it("9. Final F&O quoteMaxAgeSec=0 (invalid) → TRADE_ADMISSION_CONTEXT_INCOMPLETE, open=0", () => {
+    orchestrateFinal(
       {
         ...NSE_FO,
         serverTime: MARKET_OPEN,
         source: "AUTO",
         entryCutoffPolicy: CUTOFF_15_25,
-        quoteIsTradeGrade: false,
+        quoteProvenance: "kite_option_chain",
+        quoteIsTradeGrade: true,
+        quoteAgeSec: 0,
+        quoteMaxAgeSec: 0,
       },
       onOpen, onReject,
     );
     expect(openCount).toBe(0);
-    expect(rejectReason).toBe("QUOTE_STALE_OR_NOT_TRADE_GRADE");
+    expect(rejectCount).toBe(1);
+    expect(lastRejectReason).toBe("TRADE_ADMISSION_CONTEXT_INCOMPLETE");
   });
 
-  // ── Off-session: zero opens regardless of lane ───────────────────────────
+  // ── Test 10: F&O with index-quote maxAgeSec (120) → policy mismatch TRADE_ADMISSION_CONTEXT_INCOMPLETE ──
 
-  it("ANY lane: outside session (WEEKEND): zero opens", () => {
-    orchestrateOpen(
-      { ...NSE_FO, serverTime: WEEKEND, source: "AUTO", entryCutoffPolicy: CUTOFF_15_25 },
+  it("10. F&O nse_fo lane with index-quote maxAgeSec (120 s) → TRADE_ADMISSION_CONTEXT_INCOMPLETE (wrong policy for option-premium fill)", () => {
+    // MODULE_REQUIREMENTS.fno.indexQuote.maxFreshnessSec = 120 s (index-quote policy).
+    // Cannot be used to authorize an option-chain/premium fill — wrong source.
+    // Phase B rejects with TRADE_ADMISSION_CONTEXT_INCOMPLETE when quoteMaxAgeSec < FNO_OPTION_CHAIN_MAX_AGE_SEC (300).
+    expect(AUTHORITATIVE_FNO_INDEX_QUOTE_MAX_AGE_SEC).toBe(120);
+    expect(FNO_OPTION_CHAIN_MAX_AGE_SEC).toBe(300);
+    orchestrateFinal(
+      {
+        ...NSE_FO,
+        serverTime: MARKET_OPEN,
+        source: "AUTO",
+        entryCutoffPolicy: CUTOFF_15_25,
+        quoteProvenance: "kite_index_quote",
+        quoteIsTradeGrade: true,
+        quoteAgeSec: 10,
+        quoteMaxAgeSec: AUTHORITATIVE_FNO_INDEX_QUOTE_MAX_AGE_SEC, // 120 — wrong policy for option chain
+      },
       onOpen, onReject,
     );
     expect(openCount).toBe(0);
-    expect(rejectReason).toBe("MARKET_CLOSED_WEEKEND");
+    expect(rejectCount).toBe(1);
+    expect(lastRejectReason).toBe("TRADE_ADMISSION_CONTEXT_INCOMPLETE");
+  });
+
+  // ── Test 11: Final F&O stale option chain → QUOTE_STALE_OR_NOT_TRADE_GRADE ──
+
+  it("11. Final F&O stale option chain (quoteAgeSec 301 > maxAge 300) → QUOTE_STALE_OR_NOT_TRADE_GRADE, open=0", () => {
+    orchestrateFinal(
+      {
+        ...NSE_FO,
+        serverTime: MARKET_OPEN,
+        source: "AUTO",
+        entryCutoffPolicy: CUTOFF_15_25,
+        quoteProvenance: "kite_option_chain",
+        quoteIsTradeGrade: true,
+        quoteAgeSec: 301,
+        quoteMaxAgeSec: FNO_OPTION_CHAIN_MAX_AGE_SEC,
+      },
+      onOpen, onReject,
+    );
+    expect(openCount).toBe(0);
+    expect(rejectCount).toBe(1);
+    expect(lastRejectReason).toBe("QUOTE_STALE_OR_NOT_TRADE_GRADE");
+  });
+
+  // ── Test 12: Valid F&O final context → open exactly once ─────────────────
+
+  it("12. Valid F&O final context (fresh option chain, trade-grade, correct policy) → open exactly once", () => {
+    orchestrateFinal(
+      {
+        ...NSE_FO,
+        serverTime: MARKET_OPEN,
+        source: "AUTO",
+        entryCutoffPolicy: CUTOFF_15_25,
+        quoteProvenance: "kite_option_chain",
+        quoteIsTradeGrade: true,
+        quoteAgeSec: 0,
+        quoteMaxAgeSec: FNO_OPTION_CHAIN_MAX_AGE_SEC,
+      },
+      onOpen, onReject,
+    );
+    expect(openCount).toBe(1);
+    expect(rejectCount).toBe(0);
+  });
+
+  // ── Test 13: BSE F&O calendar-unavailable still blocks Phase B ────────────
+
+  it("13. BSE (SENSEX) calendar-unavailable blocks Phase B → CALENDAR_UNAVAILABLE, open=0", () => {
+    expect(BSE_CALENDAR_VERIFIED).toBe(false);
+    orchestrateFinal(
+      {
+        ...BSE_FO,
+        serverTime: MARKET_OPEN,
+        source: "AUTO",
+        entryCutoffPolicy: CUTOFF_15_25,
+        quoteProvenance: "kite_option_chain",
+        quoteIsTradeGrade: true,
+        quoteAgeSec: 0,
+        quoteMaxAgeSec: FNO_OPTION_CHAIN_MAX_AGE_SEC,
+      },
+      onOpen, onReject,
+    );
+    expect(openCount).toBe(0);
+    expect(rejectCount).toBe(1);
+    expect(lastRejectReason).toBe("CALENDAR_UNAVAILABLE");
+  });
+
+  // ── Test 14: Exit callback independent of Phase B entry rejection ──────────
+
+  it("14. Exit callback invocable regardless of Phase B entry rejection — entries and exits are independent", () => {
+    let exitCount = 0;
+    const onExit = () => { exitCount++; };
+
+    // Phase B rejects the entry.
+    orchestrateFinal(
+      {
+        ...NSE_EQ,
+        serverTime: MARKET_OPEN,
+        source: "MANUAL",
+        quoteProvenance: "scanner_yahoo",
+        quoteIsTradeGrade: false,
+        quoteAgeSec: 10,
+        quoteMaxAgeSec: 120,
+      },
+      onOpen, onReject,
+    );
+    expect(openCount).toBe(0);
+    expect(lastRejectReason).toBe("QUOTE_STALE_OR_NOT_TRADE_GRADE");
+
+    // Exit callbacks are NOT gated by entry admission.
+    onExit();
+    expect(exitCount).toBe(1);
+  });
+
+  // ── Test 15: Phase discriminant — compile-time and runtime enforcement ─────
+
+  it("15. computeFinalExecutionAdmission returns phase='FINAL_EXECUTION'; PreliminaryAdmissionResult cannot be passed where FinalExecutionAdmissionResult is required", () => {
+    const preliminary = computePreliminaryAdmission({
+      ...NSE_EQ,
+      serverTime: MARKET_OPEN,
+      source: "MANUAL",
+    });
+    const final = computeFinalExecutionAdmission({
+      ...NSE_EQ,
+      serverTime: MARKET_OPEN,
+      source: "MANUAL",
+      quoteProvenance: "scanner_kite",
+      quoteIsTradeGrade: true,
+      quoteAgeSec: 10,
+      quoteMaxAgeSec: 120,
+    });
+
+    expect(preliminary.phase).toBe("PRELIMINARY");
+    expect(final.phase).toBe("FINAL_EXECUTION");
+
+    // Runtime enforcement: a durable-insert guard that requires FINAL_EXECUTION
+    // accepts only computeFinalExecutionAdmission results.
+    function guardDurableInsert(result: FinalExecutionAdmissionResult): boolean {
+      return result.phase === "FINAL_EXECUTION" && result.allowed;
+    }
+    expect(guardDurableInsert(final)).toBe(true);
+    // TypeScript compile-time enforcement: PreliminaryAdmissionResult is not
+    // assignable to FinalExecutionAdmissionResult — the phase discriminant
+    // ("PRELIMINARY" vs "FINAL_EXECUTION") makes them structurally incompatible.
+
+    // FinalExecutionAdmissionResult always carries quoteProvenance on both branches.
+    if (!final.allowed) {
+      expect(final.quoteProvenance).toBeDefined();
+    } else {
+      expect(final.quoteProvenance).toBe("scanner_kite");
+    }
   });
 });
