@@ -215,9 +215,16 @@ export const FNO_BASELINE_GUARDRAILS = {
  * No new Standard-tier AUTO opens at or after this IST minute-of-day
  * (15:25 = 15*60+25 = 925 — 5 minutes before regular-session close at 15:30 IST).
  *
- * This is the authoritative named constant for the inline guard in `openPaperTrade`
- * (paperTradingFO.ts) and for the `computeTradeAdmission` session gate.
- * BASELINE lane uses the tighter `FNO_BASELINE_GUARDRAILS.LATE_ENTRY_CUTOFF_IST_MIN` (14:45).
+ * **Owner-approved provenance**: this value pre-dates the P0.2 correction series.
+ * First introduced in the codebase at commit 3204520 ("Improve paper trading risk
+ * management and entry accuracy"). Explicitly documented in `docs/paper-trader-architecture.md`
+ * in the paragraph describing `FNO_BASELINE_RISK`/`FNO_BASELINE_GUARDRAILS`:
+ * "14:45 IST late-entry cutoff vs 15:25 for HC" — Reviewer-amended 2026-05-11.c.
+ *
+ * The rationale is "10 min before square-off" (NSE regular session closes at 15:30 IST).
+ * Do NOT change this value without a corresponding update to that architecture doc.
+ *
+ * BASELINE lane uses the tighter `FNO_BASELINE_GUARDRAILS.LATE_ENTRY_CUTOFF_IST_MIN` (885 = 14:45).
  */
 export const FNO_STANDARD_LATE_ENTRY_CUTOFF_IST_MIN = 15 * 60 + 25;
 

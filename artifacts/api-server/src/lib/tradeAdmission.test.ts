@@ -778,3 +778,268 @@ describe("computeTradeAdmission — P0.2 spec-required tests (22 cases)", () => 
     expect(result.allowed).toBe(true);
   });
 });
+
+// ─── SG2: Focused orchestration — realistic production caller contexts ─────────
+//
+// Lane audit table (all production callers of computeTradeAdmission):
+//
+//  Lane                 | Caller                           | Source                  | Quote context supplied
+//  ---------------------|----------------------------------|-------------------------|------------------------
+//  NSE F&O STANDARD     | paperTradingFO.ts:439            | AUTO                    | None (chain fetched AFTER admission)
+//  NSE F&O BASELINE     | paperTradingFO.ts:439            | AUTO                    | None (chain fetched AFTER admission)
+//  BSE F&O              | paperTradingFO.ts:439            | AUTO                    | CALENDAR_UNAVAILABLE before quote check
+//  Equity AUTO          | paperTradingEq.ts:233 (writer)   | AUTO                    | None; ENTRY_CUTOFF_CONFIG_UNAVAILABLE from null cutoff
+//  Equity tick belt-brace| paperTradingEq.ts:1116          | AUTO                    | None; ENTRY_CUTOFF_CONFIG_UNAVAILABLE from null cutoff
+//  Equity STAGED        | paperTradingEq.ts:233            | SWING_STAGED_APPROVAL   | None; ENTRY_CUTOFF_CONFIG_UNAVAILABLE from null cutoff
+//  Equity MANUAL route  | routes/paper.ts:1721             | MANUAL                  | None; session gate only
+//  Equity MANUAL writer | paperTradingEq.ts:233            | MANUAL                  | None; session gate only
+//
+// Architectural constraint for F&O: the option-chain premium (the actual fill price source)
+// is fetched AFTER admission. Pre-admission freshness enforcement requires restructuring
+// the call-flow to fetch the chain before calling computeTradeAdmission. This is a
+// remaining limitation, tracked separately.
+//
+// The requireQuoteContext gate (gate 7a in sessionAdmission.ts) is opt-in.
+// Current production callers do NOT set it (structural constraint for F&O; C0 block for EQ).
+// These tests prove: (a) current caller behavior is exactly as documented, and
+// (b) the gate mechanism enforces zero opens when requireQuoteContext=true and context is absent.
+
+describe("SG2 focused orchestration — realistic production caller contexts", () => {
+  let openCount = 0;
+  let rejectCount = 0;
+  let rejectReason = "";
+  const onOpen = () => { openCount++; };
+  const onReject = (reason: string) => { rejectCount++; rejectReason = reason; };
+  beforeEach(() => { openCount = 0; rejectCount = 0; rejectReason = ""; });
+
+  // ── FO STANDARD: realistic production caller (no quote context) ──────────
+
+  it("FO STANDARD AUTO realistic caller: admitted during session (quote check skipped — no fields supplied)", () => {
+    // Mirrors production caller at paperTradingFO.ts:439 exactly.
+    // Chain premium fetched after this admission call; freshness check structurally unavailable.
+    orchestrateOpen(
+      { ...NSE_FO, serverTime: MARKET_OPEN, source: "AUTO", entryCutoffPolicy: CUTOFF_15_25 },
+      onOpen, onReject,
+    );
+    expect(openCount).toBe(1);
+    expect(rejectCount).toBe(0);
+  });
+
+  it("FO BASELINE AUTO realistic caller: admitted during session (quote check skipped)", () => {
+    orchestrateOpen(
+      { ...NSE_FO, serverTime: MARKET_OPEN, source: "AUTO", entryCutoffPolicy: CUTOFF_14_45 },
+      onOpen, onReject,
+    );
+    expect(openCount).toBe(1);
+    expect(rejectCount).toBe(0);
+  });
+
+  // ── FO with requireQuoteContext=true: prove zero opens when context absent ─
+
+  it("FO AUTO requireQuoteContext=true, no quote evidence: TRADE_ADMISSION_CONTEXT_INCOMPLETE, zero opens", () => {
+    // SG2 enforcement: when a caller asserts requireQuoteContext=true, the gate rejects
+    // if none of quoteIsTradeGrade / quoteAgeSec / quoteMaxAgeSec are supplied.
+    // Production F&O callers do NOT set this flag today (structural constraint above).
+    orchestrateOpen(
+      {
+        ...NSE_FO,
+        serverTime: MARKET_OPEN,
+        source: "AUTO",
+        entryCutoffPolicy: CUTOFF_15_25,
+        requireQuoteContext: true,
+        // Intentionally omitting quoteIsTradeGrade, quoteAgeSec, quoteMaxAgeSec
+      },
+      onOpen, onReject,
+    );
+    expect(openCount).toBe(0);
+    expect(rejectCount).toBe(1);
+    expect(rejectReason).toBe("TRADE_ADMISSION_CONTEXT_INCOMPLETE");
+  });
+
+  it("FO AUTO requireQuoteContext=true, quoteIsTradeGrade=true: admitted (quote evidence present)", () => {
+    // When a future caller does supply quote evidence, the gate proceeds normally.
+    orchestrateOpen(
+      {
+        ...NSE_FO,
+        serverTime: MARKET_OPEN,
+        source: "AUTO",
+        entryCutoffPolicy: CUTOFF_15_25,
+        requireQuoteContext: true,
+        quoteIsTradeGrade: true,
+      },
+      onOpen, onReject,
+    );
+    expect(openCount).toBe(1);
+    expect(rejectCount).toBe(0);
+  });
+
+  it("FO AUTO requireQuoteContext=true, quoteAgeSec+quoteMaxAgeSec present and fresh: admitted", () => {
+    orchestrateOpen(
+      {
+        ...NSE_FO,
+        serverTime: MARKET_OPEN,
+        source: "AUTO",
+        entryCutoffPolicy: CUTOFF_15_25,
+        requireQuoteContext: true,
+        quoteAgeSec: 120,
+        quoteMaxAgeSec: 300, // authoritative: MODULE_REQUIREMENTS.fno.optionChain (requirements.ts:180)
+      },
+      onOpen, onReject,
+    );
+    expect(openCount).toBe(1);
+    expect(rejectCount).toBe(0);
+  });
+
+  // ── FO with stale option chain (quote IS provided, exceeds maxAge) ────────
+
+  it("FO AUTO stale option chain (quoteAgeSec 301 > maxAge 300): QUOTE_STALE_OR_NOT_TRADE_GRADE, zero opens", () => {
+    // Authoritative maxAge: MODULE_REQUIREMENTS.fno.optionChain.maxFreshnessSec=300 (requirements.ts:180).
+    orchestrateOpen(
+      {
+        ...NSE_FO,
+        serverTime: MARKET_OPEN,
+        source: "AUTO",
+        entryCutoffPolicy: CUTOFF_15_25,
+        quoteAgeSec: 301,
+        quoteMaxAgeSec: 300,
+      },
+      onOpen, onReject,
+    );
+    expect(openCount).toBe(0);
+    expect(rejectCount).toBe(1);
+    expect(rejectReason).toBe("QUOTE_STALE_OR_NOT_TRADE_GRADE");
+  });
+
+  it("FO AUTO fresh option chain (quoteAgeSec 299 <= maxAge 300): admitted", () => {
+    orchestrateOpen(
+      {
+        ...NSE_FO,
+        serverTime: MARKET_OPEN,
+        source: "AUTO",
+        entryCutoffPolicy: CUTOFF_15_25,
+        quoteAgeSec: 299,
+        quoteMaxAgeSec: 300,
+      },
+      onOpen, onReject,
+    );
+    expect(openCount).toBe(1);
+    expect(rejectCount).toBe(0);
+  });
+
+  // ── EQ AUTO: C0 block — always ENTRY_CUTOFF_CONFIG_UNAVAILABLE ───────────
+
+  it("EQ AUTO realistic caller (EQUITY_AUTO_ENTRY_CUTOFF=null): ENTRY_CUTOFF_CONFIG_UNAVAILABLE, zero opens", () => {
+    // Production caller: paperTradingEq.ts:233, source="AUTO".
+    // EQUITY_AUTO_ENTRY_CUTOFF=null → the gate fails closed immediately.
+    // No quote context is supplied (fill from signal.entryPrice, not a live market quote).
+    orchestrateOpen(
+      {
+        ...NSE_EQ,
+        serverTime: MARKET_OPEN,
+        source: "AUTO",
+        entryCutoffPolicy: EQUITY_AUTO_ENTRY_CUTOFF, // null
+      },
+      onOpen, onReject,
+    );
+    expect(openCount).toBe(0);
+    expect(rejectCount).toBe(1);
+    expect(rejectReason).toBe("ENTRY_CUTOFF_CONFIG_UNAVAILABLE");
+  });
+
+  it("EQ tick belt-brace realistic caller (EQUITY_AUTO_ENTRY_CUTOFF=null): ENTRY_CUTOFF_CONFIG_UNAVAILABLE, zero opens", () => {
+    // Production caller: paperTradingEq.ts:1116, source="AUTO".
+    orchestrateOpen(
+      {
+        lane: "equity_cash",
+        segment: "NSE_EQ",
+        instrument: "EQUITY_TICK_BELT_BRACES",
+        serverTime: MARKET_OPEN,
+        source: "AUTO",
+        entryCutoffPolicy: EQUITY_AUTO_ENTRY_CUTOFF,
+      },
+      onOpen, onReject,
+    );
+    expect(openCount).toBe(0);
+    expect(rejectCount).toBe(1);
+    expect(rejectReason).toBe("ENTRY_CUTOFF_CONFIG_UNAVAILABLE");
+  });
+
+  it("EQ SWING_STAGED realistic caller (EQUITY_AUTO_ENTRY_CUTOFF=null): ENTRY_CUTOFF_CONFIG_UNAVAILABLE, zero opens", () => {
+    // Production caller: paperTradingEq.ts:233, source="SWING_STAGED_APPROVAL".
+    orchestrateOpen(
+      {
+        ...NSE_EQ,
+        serverTime: MARKET_OPEN,
+        source: "SWING_STAGED_APPROVAL",
+        entryCutoffPolicy: EQUITY_AUTO_ENTRY_CUTOFF,
+      },
+      onOpen, onReject,
+    );
+    expect(openCount).toBe(0);
+    expect(rejectCount).toBe(1);
+    expect(rejectReason).toBe("ENTRY_CUTOFF_CONFIG_UNAVAILABLE");
+  });
+
+  // ── EQ MANUAL: session-only check, no quote freshness ────────────────────
+
+  it("EQ MANUAL realistic caller (no cutoff, no quote context): admitted during session", () => {
+    // Production callers: routes/paper.ts:1721 (pre-check) + paperTradingEq.ts:233 (durable writer).
+    // MANUAL = owner-directed; no strategy cutoff. No quote freshness supplied.
+    orchestrateOpen(
+      { ...NSE_EQ, serverTime: MARKET_OPEN, source: "MANUAL" },
+      onOpen, onReject,
+    );
+    expect(openCount).toBe(1);
+    expect(rejectCount).toBe(0);
+  });
+
+  it("EQ MANUAL outside session (AFTER_HOURS): AFTER_MARKET_SESSION, zero opens", () => {
+    // Proves both route pre-check and durable writer correctly block off-hours MANUAL opens.
+    orchestrateOpen(
+      { ...NSE_EQ, serverTime: AFTER_HOURS, source: "MANUAL" },
+      onOpen, onReject,
+    );
+    expect(openCount).toBe(0);
+    expect(rejectCount).toBe(1);
+    expect(rejectReason).toBe("AFTER_MARKET_SESSION");
+  });
+
+  // ── requireQuoteContext=false (default): quote fields omitted = no rejection ─
+
+  it("requireQuoteContext=false explicit: gate proceeds on session alone (backward compat)", () => {
+    orchestrateOpen(
+      { ...NSE_EQ, serverTime: MARKET_OPEN, source: "MANUAL", requireQuoteContext: false },
+      onOpen, onReject,
+    );
+    expect(openCount).toBe(1);
+    expect(rejectCount).toBe(0);
+  });
+
+  // ── Non-grade quote with ANY lane: zero opens ─────────────────────────────
+
+  it("ANY lane: quoteIsTradeGrade=false: QUOTE_STALE_OR_NOT_TRADE_GRADE, zero opens", () => {
+    orchestrateOpen(
+      {
+        ...NSE_FO,
+        serverTime: MARKET_OPEN,
+        source: "AUTO",
+        entryCutoffPolicy: CUTOFF_15_25,
+        quoteIsTradeGrade: false,
+      },
+      onOpen, onReject,
+    );
+    expect(openCount).toBe(0);
+    expect(rejectReason).toBe("QUOTE_STALE_OR_NOT_TRADE_GRADE");
+  });
+
+  // ── Off-session: zero opens regardless of lane ───────────────────────────
+
+  it("ANY lane: outside session (WEEKEND): zero opens", () => {
+    orchestrateOpen(
+      { ...NSE_FO, serverTime: WEEKEND, source: "AUTO", entryCutoffPolicy: CUTOFF_15_25 },
+      onOpen, onReject,
+    );
+    expect(openCount).toBe(0);
+    expect(rejectReason).toBe("MARKET_CLOSED_WEEKEND");
+  });
+});

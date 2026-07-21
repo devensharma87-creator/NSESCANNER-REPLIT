@@ -226,8 +226,27 @@ export interface TradeAdmissionContext {
    *   - watchlist.quote: 120 s  (requirements.ts:189)
    *   - portfolio.quote: 120 s  (requirements.ts:192)
    *   - fno.intradayCandles: 900 s (requirements.ts:178)
+   *   - fno.optionChain: 300 s  (requirements.ts:180)
    */
   quoteMaxAgeSec?: number | null;
+  /**
+   * Opt-in strict quote-context enforcement.
+   *
+   * When `true`, ALL of the following must be present for the gate to proceed:
+   * either `quoteIsTradeGrade === true` OR (`quoteAgeSec` + `quoteMaxAgeSec` both finite
+   * and age within threshold). If none of the three quote fields are supplied, the
+   * gate fails closed with `TRADE_ADMISSION_CONTEXT_INCOMPLETE`.
+   *
+   * Default `false` (not set): quote fields are optional — the check is skipped when
+   * none are supplied. Use `true` for callers whose fill depends on a market quote and
+   * whose quote-freshness source is known at admission time.
+   *
+   * Architectural constraint: for F&O AUTO lanes the option-chain premium is fetched
+   * AFTER admission, making pre-admission freshness enforcement structurally unavailable
+   * at this gate. Those callers must NOT set `requireQuoteContext: true` until the
+   * call-flow is restructured (remaining limitation, tracked separately).
+   */
+  requireQuoteContext?: boolean;
 }
 
 // ─── Admission result ─────────────────────────────────────────────────────────
@@ -490,6 +509,36 @@ export function computeTradeAdmission(ctx: TradeAdmissionContext): TradeAdmissio
   // (marketData/requirements.ts). Providing quoteAgeSec without quoteMaxAgeSec
   // fails closed with TRADE_ADMISSION_CONTEXT_INCOMPLETE — an undecidable
   // freshness check is treated as a mandatory context gap.
+
+  // ── 7a. Opt-in strict quote-context enforcement (requireQuoteContext) ────────
+  // When ctx.requireQuoteContext === true, at least one of the three quote fields
+  // must be present for the gate to proceed. If none are supplied, fail closed.
+  // This prevents a silent bypass for callers that explicitly declare their fill
+  // depends on a market quote (and whose quote source is known at admission time).
+  //
+  // Architectural note: F&O AUTO callers do NOT set requireQuoteContext=true because
+  // the option-chain premium is fetched AFTER admission; restructuring that call-flow
+  // is a remaining limitation. See TradeAdmissionContext.requireQuoteContext JSDoc.
+  if (ctx.requireQuoteContext === true) {
+    const hasAnyQuoteEvidence =
+      ctx.quoteIsTradeGrade != null ||
+      (ctx.quoteAgeSec != null && isFinite(ctx.quoteAgeSec)) ||
+      (ctx.quoteMaxAgeSec != null && isFinite(ctx.quoteMaxAgeSec) && ctx.quoteMaxAgeSec > 0);
+    if (!hasAnyQuoteEvidence) {
+      return {
+        allowed: false,
+        reason: "TRADE_ADMISSION_CONTEXT_INCOMPLETE",
+        detail: `requireQuoteContext=true but no quote evidence supplied (quoteIsTradeGrade, quoteAgeSec, quoteMaxAgeSec are all absent) — caller must provide quote freshness/trade-grade evidence from MODULE_REQUIREMENTS (marketData/requirements.ts); instrument=${ctx.instrument}`,
+        openedSessionValidity: "VALID_SESSION",
+        cutoffPolicyValidity,
+        openedAtIst: msd.serverIst,
+        calendarVersion: CALENDAR_VERSION,
+        calendarScope,
+        timestampConfidence: "HIGH",
+      };
+    }
+  }
+
   const quoteAgeProvided = ctx.quoteAgeSec != null && isFinite(ctx.quoteAgeSec);
   const maxAgeProvided =
     ctx.quoteMaxAgeSec != null && isFinite(ctx.quoteMaxAgeSec) && ctx.quoteMaxAgeSec > 0;

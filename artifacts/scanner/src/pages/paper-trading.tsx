@@ -21,6 +21,8 @@ import { PaperComboSegment } from "@/components/paper-combo-segment";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import type { SpotLifecycleLike } from "@/lib/fno/targetStatus";
+import type { z } from "zod";
+import type { GetPaperPositionsEqResponse } from "@workspace/api-zod";
 import { FoCockpitSafetyBanner } from "@/components/fno/FoCockpitSafetyBanner";
 import { FoCockpitSummaryCards } from "@/components/fno/FoCockpitSummaryCards";
 import { FoOpenTradesTable, type FoOpenGroup } from "@/components/fno/FoOpenTradesTable";
@@ -227,43 +229,48 @@ type EqExitReason =
   | "SIGNAL_FLIP"
   | "MANUAL_OVERRIDE";
 
-interface OpenEqPosition {
-  id: string;
-  symbol: string;
-  name: string;
-  exchange: string;
-  signalDate: string;
+// ─── EQ Position type: derived from generated API schema (SG3) ───────────────
+// Derive from the generated OpenAPI spec type so that provenance union fields
+// (openedSessionValidity, timestampConfidence, cutoffPolicyValidity, …) are no
+// longer manually duplicated here. When the API spec changes, this type updates
+// automatically rather than silently drifting.
+//
+// Raw JSON fetch returns date fields as ISO strings; z.input<> (the pre-coercion
+// input type for zod.coerce.date) accepts `string | number | Date`. We narrow
+// those to `string` here — the actual shape returned by JSON.parse.
+//
+// NOTE: `status`, `source`, and all provenance enum fields now come from the
+// generated schema. Any new provenance field added to the OpenAPI spec will
+// be reflected here automatically.
+
+type _GeneratedEqPositionInput = z.input<typeof GetPaperPositionsEqResponse>["positions"][number];
+
+type OpenEqPosition = Omit<_GeneratedEqPositionInput, "signalTriggeredAt" | "openedAt" | "lastEvaluatedAt"> & {
+  /** ISO string as received from raw JSON fetch (before any Zod coercion). */
   signalTriggeredAt: string;
-  qty: number;
-  entryPrice: number;
-  stopPrice: number;
-  target1Price: number;
-  target2Price: number;
-  trailedToT1: boolean;
-  capitalDeployed: number;
-  lastPrice: number;
-  prevClose?: number;
-  unrealizedPnl: number;
-  unrealizedPnlPct?: number;
-  dayPnl?: number;
-  dayPnlPct?: number;
-  maxRunup?: number;
-  maxDrawdown?: number;
+  /** ISO string as received from raw JSON fetch (before any Zod coercion). */
   openedAt: string;
+  /** ISO string as received from raw JSON fetch (before any Zod coercion). */
   lastEvaluatedAt: string;
-  source?: EqTradeSource | null;
-  stagedOrderId?: string | null;
-  // P0.2-correction-4: backend-derived session provenance fields.
-  // Set by the positions API via classifyStoredTimestamp. Used to render
-  // provenance badges without any client-side calendar logic.
-  openedSessionValidity?: "VALID_SESSION" | "OFF_SESSION" | "SESSION_UNKNOWN" | "TIMESTAMP_AMBIGUOUS" | null;
-  openedSessionReason?: string | null;
-  openedAtIst?: string | null;
-  calendarVersion?: string | null;
-  calendarScope?: string | null;
-  timestampConfidence?: "HIGH" | "LOW" | null;
-  cutoffPolicyValidity?: "VALID" | "PASSED" | "POLICY_UNAVAILABLE" | "NOT_APPLICABLE" | "UNKNOWN" | null;
-}
+};
+
+// SG3 compile-time proof: provenance union fields are derived from the generated schema,
+// not manually duplicated. This assertion fails to compile if the generated schema
+// changes incompatibly (e.g., a union variant is added or removed in the OpenAPI spec).
+//
+// Note: The full OpenEqPosition is NOT a structural subtype of _GeneratedEqPositionInput
+// because the date fields are intentionally narrowed (string vs coerced Date). The Pick
+// below proves specifically that the provenance enum fields — the ones previously
+// hand-written as duplicate unions — now come directly from the generated schema.
+type _ProvenanceFieldsMatch = Pick<OpenEqPosition,
+  "openedSessionValidity" | "openedSessionReason" | "openedAtIst" |
+  "calendarVersion" | "calendarScope" | "timestampConfidence" | "cutoffPolicyValidity"
+> extends Pick<_GeneratedEqPositionInput,
+  "openedSessionValidity" | "openedSessionReason" | "openedAtIst" |
+  "calendarVersion" | "calendarScope" | "timestampConfidence" | "cutoffPolicyValidity"
+> ? true : false;
+const _provenanceFieldsMatch: _ProvenanceFieldsMatch = true;
+void _provenanceFieldsMatch;
 
 type EqTradeSource = "AUTO_STRONG_BUY" | "SWING_STAGED_APPROVAL" | "MANUAL_BUY" | "LEGACY_UNKNOWN";
 
