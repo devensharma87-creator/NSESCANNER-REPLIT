@@ -95,6 +95,7 @@ import {
   getYearlyReport as getEqYearlyReport,
 } from "../lib/paperReportsEq";
 import { forceClosePaperEquityTrade, openManualPaperEquityTrade } from "../lib/paperTradingEq";
+import { computeEquitySessionAdmission, classifyStoredTimestamp } from "../lib/sessionAdmission";
 import { computeLifecycleSummary } from "../lib/paperEqLifecycleSummary";
 import { listEqAudit, summarizeEqAudit, getEqEventsSince } from "../lib/paperEqAudit";
 import { getAllScannedRows } from "../lib/fullNseScanner";
@@ -1647,7 +1648,18 @@ router.get("/paper/positions/eq", requireOwner, async (_req, res, next) => {
       positions: rows.map(r => toEqOpenPosition(r, prevCloseMap.get(r.symbol))),
       generatedAt: new Date().toISOString(),
     });
-    return res.json(data);
+    // P0.2-correction-4: augment each position with backend-derived session
+    // provenance so the frontend can render provenance badges without any
+    // client-side calendar logic. These fields are NOT in the generated Zod
+    // schema (no codegen for display-only fields) so they are spread after
+    // the parse. `rows[i]` is safe here — parse preserves the insertion order.
+    return res.json({
+      ...data,
+      positions: data.positions.map((p, i) => ({
+        ...p,
+        ...classifyStoredTimestamp(rows[i]!.openedAt.toISOString()),
+      })),
+    });
   } catch (err) {
     return next(err);
   }
@@ -1706,6 +1718,21 @@ router.post("/paper/positions/eq/manual", requireOwner, async (req, res, next) =
     if (!row) {
       return res.status(404).json({
         error: `Symbol ${symbol} not found in current scanner cache. Wait for the next scan or check the spelling.`,
+      });
+    }
+    // P0.2-correction-1: session gate applies to ALL sources including MANUAL.
+    // Check here (before the durable writer) so the UI gets a structured,
+    // actionable 422 instead of a generic 409 from the writer's null return.
+    const sessionCheck = computeEquitySessionAdmission(new Date());
+    if (!sessionCheck.allowed) {
+      return res.status(422).json({
+        error: `Equity paper buy rejected — market session gate (${sessionCheck.reason}): ${sessionCheck.detail}`,
+        sessionRejection: {
+          reason: sessionCheck.reason,
+          detail: sessionCheck.detail,
+          openedSessionValidity: sessionCheck.openedSessionValidity,
+          calendarVersion: sessionCheck.calendarVersion,
+        },
       });
     }
     const result = await openManualPaperEquityTrade(row, { qty });

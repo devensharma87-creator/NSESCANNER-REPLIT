@@ -253,6 +253,14 @@ interface OpenEqPosition {
   lastEvaluatedAt: string;
   source?: EqTradeSource | null;
   stagedOrderId?: string | null;
+  // P0.2-correction-4: backend-derived session provenance fields.
+  // Set by the positions API via classifyStoredTimestamp. Used to render
+  // provenance badges without any client-side calendar logic.
+  openedSessionValidity?: "VALID_SESSION" | "OFF_SESSION" | "SESSION_UNKNOWN" | "TIMESTAMP_AMBIGUOUS" | null;
+  openedSessionReason?: string | null;
+  openedAtIst?: string | null;
+  calendarVersion?: string | null;
+  timestampConfidence?: "HIGH" | "LOW" | null;
 }
 
 type EqTradeSource = "AUTO_STRONG_BUY" | "SWING_STAGED_APPROVAL" | "MANUAL_BUY" | "LEGACY_UNKNOWN";
@@ -343,22 +351,11 @@ const fmtDateTime = (iso: string) => {
   } catch { return iso; }
 };
 
-/**
- * True when an ISO timestamp falls outside the NSE equity cash session
- * (09:15–15:30 IST, Mon–Fri). Holiday calendar not checked client-side —
- * this is a best-effort visual warning; the server-side gate is authoritative.
- */
-function isOffSessionTimestamp(iso: string): boolean {
-  try {
-    const d = new Date(iso);
-    if (!isFinite(d.getTime())) return false;
-    const ist = new Date(d.getTime() + 5.5 * 60 * 60 * 1000);
-    const dow = ist.getUTCDay(); // 0=Sun, 6=Sat
-    if (dow === 0 || dow === 6) return true;
-    const mins = ist.getUTCHours() * 60 + ist.getUTCMinutes();
-    return mins < 9 * 60 + 15 || mins > 15 * 60 + 30;
-  } catch { return false; }
-}
+// P0.2-correction-4: isOffSessionTimestamp() removed. Session validity is now
+// a backend-derived field (`openedSessionValidity`) on each position, set by
+// the positions API via classifyStoredTimestamp(). This eliminates client-side
+// calendar guessing (which had no holiday check) and makes the badge
+// authoritative. See sessionAdmission.ts on the server.
 
 export default function PaperTrading() {
   const [segment, setSegment] = useState<Segment>("FNO");
@@ -478,6 +475,17 @@ const SKIP_TONE: Record<string, string> = {
   INVALID_ENTRY: "text-rose-300 border-rose-500/40 bg-rose-500/10",
   INVALID_RISK: "text-rose-300 border-rose-500/40 bg-rose-500/10",
   OPENED: "text-emerald-300 border-emerald-500/40 bg-emerald-500/10",
+  // P0.2 structured session codes (same orange tone as the legacy MARKET_CLOSED)
+  MARKET_CLOSED: "text-orange-300 border-orange-500/40 bg-orange-500/10",
+  MARKET_CLOSED_WEEKEND: "text-orange-300 border-orange-500/40 bg-orange-500/10",
+  MARKET_CLOSED_HOLIDAY: "text-orange-300 border-orange-500/40 bg-orange-500/10",
+  BEFORE_MARKET_SESSION: "text-orange-300 border-orange-500/40 bg-orange-500/10",
+  AFTER_MARKET_SESSION: "text-orange-300 border-orange-500/40 bg-orange-500/10",
+  ENTRY_CUTOFF_PASSED: "text-orange-300 border-orange-500/40 bg-orange-500/10",
+  SPECIAL_SESSION_NOT_AUTHORIZED: "text-orange-300 border-orange-500/40 bg-orange-500/10",
+  CALENDAR_UNAVAILABLE: "text-slate-300 border-slate-500/30 bg-slate-500/10",
+  INVALID_SERVER_TIMESTAMP: "text-slate-300 border-slate-500/30 bg-slate-500/10",
+  TRADE_ADMISSION_CONTEXT_INCOMPLETE: "text-slate-300 border-slate-500/30 bg-slate-500/10",
 };
 
 /**
@@ -1265,13 +1273,22 @@ function EqPositionRow({ p }: { p: OpenEqPosition }) {
       </td>
       <td className="py-2 pr-3 text-[12px] text-muted-foreground whitespace-nowrap">
         <span>{fmtDateTime(p.openedAt)}</span>
-        {isOffSessionTimestamp(p.openedAt) && (
+        {p.openedSessionValidity === "OFF_SESSION" && (
           <Badge
             variant="outline"
             className="ml-1.5 text-[9px] px-1 py-0 border-orange-400/50 text-orange-400 align-middle"
-            title="Position opened outside the NSE equity session (09:15–15:30 IST, Mon–Fri). The auto-trader should not have opened this — the session gate fix prevents recurrence."
+            title={`Position opened outside the NSE equity session (09:15–15:30 IST, Mon–Fri).${p.openedSessionReason ? ` Reason: ${p.openedSessionReason}.` : ""} The session gate fix prevents recurrence.`}
           >
             OFF-SESSION
+          </Badge>
+        )}
+        {p.openedSessionValidity === "SESSION_UNKNOWN" && (
+          <Badge
+            variant="outline"
+            className="ml-1.5 text-[9px] px-1 py-0 border-slate-400/50 text-slate-400 align-middle"
+            title="Session status could not be determined for this position's open timestamp."
+          >
+            SESSION?
           </Badge>
         )}
       </td>

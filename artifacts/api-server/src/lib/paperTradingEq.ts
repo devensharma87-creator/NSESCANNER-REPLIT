@@ -58,7 +58,7 @@ import type { SwingSignal } from "./swingSignals";
 import { computeSwingLevels } from "./swingSignals";
 import type { StockRow } from "@workspace/api-zod";
 import { checkLedgerReconciliationGate } from "./paperAccountReconciliation";
-import { computeMarketStatus } from "./marketEvents";
+import { computeEquitySessionAdmission } from "./sessionAdmission";
 
 function num(v: string | number | null | undefined): number {
   if (v == null) return 0;
@@ -223,18 +223,24 @@ export async function openPaperEquityTrade(
   // — the scanner fires every 60s around the clock; without this gate every
   // overnight tick that found STRONG_BUY candidates opened live positions.
   const openSource = opts?.source ?? "AUTO";
-  if (openSource !== "MANUAL") {
-    const sessionStatus = computeMarketStatus(new Date());
-    if (sessionStatus !== "open") {
+  // P0.2-correction-1: ALL sources (AUTO, MANUAL, SWING_STAGED_APPROVAL) are
+  // subject to the session gate. The previous `if (openSource !== "MANUAL")`
+  // bypass that allowed after-hours/weekend MANUAL opens has been removed.
+  // Manual closes (forceClosePaperEquityTrade) are unaffected — they have no
+  // session gate. The route layer also pre-checks the session for MANUAL buys
+  // and returns a structured 422 before this writer is even called.
+  {
+    const admission = computeEquitySessionAdmission(new Date());
+    if (!admission.allowed) {
       logger.info(
-        { symbol: signal.symbol, sessionStatus, source: openSource },
-        "Paper EQ skip: market session closed",
+        { symbol: signal.symbol, reason: admission.reason, detail: admission.detail, source: openSource },
+        "Paper EQ skip: session admission rejected",
       );
       await recordEqDecision({
         symbol: signal.symbol,
         decision: "SKIP",
-        reason: "MARKET_CLOSED",
-        detail: `Market session is '${sessionStatus}' — equity opens are only permitted 09:15–15:30 IST on NSE trading days`,
+        reason: admission.reason,
+        detail: admission.detail,
         signal: sigLabel,
         score: signal.score,
         entry: signal.entryPrice,
@@ -1093,14 +1099,16 @@ export async function runEquityPaperTradingTick(
   // already rejected upstream).
   if (autoOpensEnabled) {
     // Belt-and-braces session gate: openPaperEquityTrade also enforces this
-    // internally for every non-MANUAL source, but checking here too avoids
-    // one DB audit-row write per signal when the market is closed — overnight
-    // ticks, weekends, and holidays all become a single log line instead.
-    const tickSession = computeMarketStatus(new Date());
-    if (tickSession !== "open") {
+    // for ALL sources, but checking here too avoids one DB audit-row write per
+    // signal on closed sessions — overnight ticks, weekends, and holidays all
+    // become a single log line instead. This path is AUTO-only; MANUAL opens
+    // go through the route handler which pre-checks the session before calling
+    // openManualPaperEquityTrade → openPaperEquityTrade.
+    const tickAdmission = computeEquitySessionAdmission(new Date());
+    if (!tickAdmission.allowed) {
       logger.info(
-        { sessionStatus: tickSession, signalCount: signals.length },
-        "Equity tick: market session closed — skipping auto-opens (mark-to-market still runs)",
+        { reason: tickAdmission.reason, signalCount: signals.length },
+        "Equity tick: session closed — skipping auto-opens (mark-to-market still runs)",
       );
     } else {
       for (const s of signals) {

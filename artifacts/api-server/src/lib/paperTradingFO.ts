@@ -33,6 +33,7 @@ import {
 import type { PaperTradeFoRow } from "@workspace/db";
 import { and, eq, sql } from "drizzle-orm";
 import { isPaperAutoTradingEnabled } from "./paperAutoTradeFlag";
+import { computeEquitySessionAdmission } from "./sessionAdmission";
 import { alertFnoTradeableSignal, alertFnoExitSignal } from "./fnoSignalAlerts";
 import { isSignalHygieneV2Enabled } from "./signalHygieneFlag";
 import {
@@ -411,6 +412,20 @@ export async function openPaperTrade(input: LifecycleHookInput): Promise<PaperTr
       logger.warn(
         { segment: "FNO", reason: reconcGate.reason, driftAmount: reconcGate.driftAmount },
         "openPaperTrade: ledger reconciliation gate blocked open (fail-closed)",
+      );
+      return null;
+    }
+  }
+  // Session admission gate — defense-in-depth for when C0 is lifted.
+  // Uses the same NSE equity-session logic (09:15–15:30 IST, Mon–Fri,
+  // non-holiday) shared with the equity gate. Does NOT change signal scoring,
+  // confluence, expiry rules, sizing, or exits.
+  {
+    const admission = computeEquitySessionAdmission(new Date());
+    if (!admission.allowed) {
+      logger.info(
+        { reason: admission.reason, detail: admission.detail },
+        "Paper FO skip: session admission rejected",
       );
       return null;
     }

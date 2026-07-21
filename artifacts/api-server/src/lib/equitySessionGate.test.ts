@@ -11,14 +11,19 @@
  *   - DELHIVERY opened 2026-07-01 14:55:01 IST              (valid)
  *   - ABB opened 2026-06-29 15:12:03 IST                    (valid, near close)
  *
- * `computeMarketStatus` is the pure gate function used inside
- * `openPaperEquityTrade`. Tests here verify it returns the expected status
- * for each real-world timestamp that was misclassified pre-fix.
+ * Section 1: `computeMarketStatus` legacy gate (pre-P0.2 reference tests).
+ * Section 2: P0.2 focused corrections — structured reason codes, MANUAL-bypass
+ *            removal, ABB validity confirmation, positions augmentation contract.
  *
  * No DB access, no mocks, no side effects.
  */
 import { describe, it, expect } from "vitest";
 import { computeMarketStatus } from "./marketEvents";
+import {
+  computeEquitySessionAdmission,
+  classifyStoredTimestamp,
+  CALENDAR_VERSION,
+} from "./sessionAdmission";
 
 /** Convert an IST wall-clock string to a UTC Date (IST = UTC+05:30). */
 function istToUtc(istDatetimeStr: string): Date {
@@ -126,5 +131,134 @@ describe("computeMarketStatus — equity session gate", () => {
   // ── Before market opens (before 09:00 IST) ──────────────────────────────
   it("returns closed before 09:00 IST on a weekday", () => {
     expect(computeMarketStatus(istToUtc("2026-07-07 08:59:59"))).toBe("closed");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Section 2: P0.2 focused corrections (2026-07-21)
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("P0.2 corrections — computeEquitySessionAdmission structured reason codes", () => {
+  // ── P0.2-correction-1: MANUAL bypass removed ────────────────────────────
+  it("rejects a Saturday MANUAL open (DLF pattern) — no source-based bypass", () => {
+    const r = computeEquitySessionAdmission(istToUtc("2026-07-18 16:00:28"));
+    expect(r.allowed).toBe(false);
+    if (!r.allowed) {
+      expect(r.reason).toBe("MARKET_CLOSED_WEEKEND");
+      expect(r.openedSessionValidity).toBe("OFF_SESSION");
+    }
+  });
+
+  it("rejects an after-hours MANUAL open (GRASIM/EXIDEIND/TITAN pattern)", () => {
+    const r = computeEquitySessionAdmission(istToUtc("2026-07-09 23:41:35"));
+    expect(r.allowed).toBe(false);
+    if (!r.allowed) expect(r.reason).toBe("AFTER_MARKET_SESSION");
+  });
+
+  it("rejects a before-session MANUAL open (ASIANPAINT/GRASIM pattern)", () => {
+    const r = computeEquitySessionAdmission(istToUtc("2026-05-14 06:13:32"));
+    expect(r.allowed).toBe(false);
+    if (!r.allowed) expect(r.reason).toBe("BEFORE_MARKET_SESSION");
+  });
+
+  // ── ABB 2026-06-29 15:12 IST → confirmed VALID (not a false positive) ───
+  it("ABB 2026-06-29 15:12:03 IST → VALID_SESSION (was a legitimate open)", () => {
+    const r = computeEquitySessionAdmission(istToUtc("2026-06-29 15:12:03"));
+    expect(r.allowed).toBe(true);
+    expect(r.openedSessionValidity).toBe("VALID_SESSION");
+    expect(r.calendarVersion).toBe(CALENDAR_VERSION);
+    expect(r.timestampConfidence).toBe("HIGH");
+  });
+
+  // ── Structured reason field on every rejection ───────────────────────────
+  it("reason field present on after-hours rejection (AFTER_MARKET_SESSION)", () => {
+    const r = computeEquitySessionAdmission(istToUtc("2026-07-14 19:02:54"));
+    expect(r.allowed).toBe(false);
+    if (!r.allowed) {
+      expect(r.reason).toMatch(/^(AFTER_MARKET_SESSION|MARKET_CLOSED_WEEKEND|MARKET_CLOSED_HOLIDAY|BEFORE_MARKET_SESSION|SPECIAL_SESSION_NOT_AUTHORIZED|INVALID_SERVER_TIMESTAMP|CALENDAR_UNAVAILABLE|TRADE_ADMISSION_CONTEXT_INCOMPLETE|ENTRY_CUTOFF_PASSED)$/);
+      expect(typeof r.detail).toBe("string");
+      expect(r.detail.length).toBeGreaterThan(10);
+    }
+  });
+
+  // ── pre-open returns SPECIAL_SESSION_NOT_AUTHORIZED (not BEFORE_SESSION) ─
+  it("09:08 IST pre-open → SPECIAL_SESSION_NOT_AUTHORIZED (distinct from BEFORE_MARKET_SESSION)", () => {
+    const r = computeEquitySessionAdmission(istToUtc("2026-07-07 09:08:00"));
+    expect(r.allowed).toBe(false);
+    if (!r.allowed) expect(r.reason).toBe("SPECIAL_SESSION_NOT_AUTHORIZED");
+  });
+
+  // ── calendarVersion carried on both allowed and rejected results ─────────
+  it("calendarVersion is set on an allowed result", () => {
+    const r = computeEquitySessionAdmission(istToUtc("2026-07-07 12:00:00"));
+    expect(r.calendarVersion).toBe(CALENDAR_VERSION);
+  });
+
+  it("calendarVersion is set on a rejected result", () => {
+    const r = computeEquitySessionAdmission(istToUtc("2026-07-18 16:00:28"));
+    expect(r.calendarVersion).toBe(CALENDAR_VERSION);
+  });
+});
+
+describe("P0.2 corrections — classifyStoredTimestamp (positions augmentation contract)", () => {
+  // ── 5 forensic invalid production positions ──────────────────────────────
+  it("GRASIM/EXIDEIND/TITAN 2026-07-09T18:11:35Z → OFF_SESSION / AFTER_MARKET_SESSION", () => {
+    const r = classifyStoredTimestamp("2026-07-09T18:11:35.000Z");
+    expect(r.openedSessionValidity).toBe("OFF_SESSION");
+    expect(r.openedSessionReason).toBe("AFTER_MARKET_SESSION");
+    expect(r.openedAtIst).not.toBeNull();
+    expect(r.timestampConfidence).toBe("HIGH");
+  });
+
+  it("DLF 2026-07-18T10:30:28Z → OFF_SESSION / MARKET_CLOSED_WEEKEND", () => {
+    const r = classifyStoredTimestamp("2026-07-18T10:30:28.000Z");
+    expect(r.openedSessionValidity).toBe("OFF_SESSION");
+    expect(r.openedSessionReason).toBe("MARKET_CLOSED_WEEKEND");
+  });
+
+  it("ADANIGREEN 2026-07-14T13:32:54Z → OFF_SESSION / AFTER_MARKET_SESSION", () => {
+    const r = classifyStoredTimestamp("2026-07-14T13:32:54.000Z");
+    expect(r.openedSessionValidity).toBe("OFF_SESSION");
+    expect(r.openedSessionReason).toBe("AFTER_MARKET_SESSION");
+  });
+
+  it("ASIANPAINT 2026-05-14T00:43:32Z → OFF_SESSION / BEFORE_MARKET_SESSION", () => {
+    const r = classifyStoredTimestamp("2026-05-14T00:43:32.000Z");
+    expect(r.openedSessionValidity).toBe("OFF_SESSION");
+    expect(r.openedSessionReason).toBe("BEFORE_MARKET_SESSION");
+  });
+
+  it("GMRINFRA 2026-05-31T10:08:22Z (15:38 IST Sun) → OFF_SESSION / MARKET_CLOSED_WEEKEND", () => {
+    const r = classifyStoredTimestamp("2026-05-31T10:08:22.000Z");
+    expect(r.openedSessionValidity).toBe("OFF_SESSION");
+    expect(r.openedSessionReason).toBe("MARKET_CLOSED_WEEKEND");
+  });
+
+  // ── ABB is VALID_SESSION, not a false positive ───────────────────────────
+  it("ABB 2026-06-29T09:42:03Z (15:12 IST Mon) → VALID_SESSION", () => {
+    const r = classifyStoredTimestamp("2026-06-29T09:42:03.000Z");
+    expect(r.openedSessionValidity).toBe("VALID_SESSION");
+    expect(r.openedSessionReason).toBeNull();
+    expect(r.calendarVersion).toBe(CALENDAR_VERSION);
+  });
+
+  // ── null / invalid inputs ────────────────────────────────────────────────
+  it("null → TIMESTAMP_AMBIGUOUS / INVALID_SERVER_TIMESTAMP", () => {
+    const r = classifyStoredTimestamp(null);
+    expect(r.openedSessionValidity).toBe("TIMESTAMP_AMBIGUOUS");
+    expect(r.openedSessionReason).toBe("INVALID_SERVER_TIMESTAMP");
+    expect(r.openedAtIst).toBeNull();
+    expect(r.timestampConfidence).toBe("LOW");
+  });
+
+  it("undefined → TIMESTAMP_AMBIGUOUS", () => {
+    const r = classifyStoredTimestamp(undefined);
+    expect(r.openedSessionValidity).toBe("TIMESTAMP_AMBIGUOUS");
+  });
+
+  it("invalid ISO → TIMESTAMP_AMBIGUOUS", () => {
+    const r = classifyStoredTimestamp("not-a-date");
+    expect(r.openedSessionValidity).toBe("TIMESTAMP_AMBIGUOUS");
+    expect(r.openedSessionReason).toBe("INVALID_SERVER_TIMESTAMP");
   });
 });

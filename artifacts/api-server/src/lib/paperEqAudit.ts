@@ -22,7 +22,7 @@ import { desc, gt, sql } from "drizzle-orm";
 import { logger } from "./logger";
 
 export type EqAuditReason =
-  // SKIP reasons (one per skip site in paperTradingEq.ts)
+  // ── Non-session SKIP reasons (one per skip site in paperTradingEq.ts) ──────
   | "INVALID_ENTRY"
   | "INVALID_RISK"
   | "STOP_SANITY"
@@ -41,9 +41,33 @@ export type EqAuditReason =
   /** Ledger drift detected or reconcile query failed; opens blocked by fail-closed gate. */
   | "LEDGER_RECONCILIATION_FAILED"
   | "LEDGER_RECONCILIATION_QUERY_ERROR"
-  /** Market session is closed (not 09:15–15:30 IST, or weekend/holiday). MANUAL source bypasses this. */
+  // ── Session admission reasons (P0.2 structured codes) ────────────────────
+  /** Blocked — clock is on Saturday or Sunday. */
+  | "MARKET_CLOSED_WEEKEND"
+  /** Blocked — date is an NSE trading holiday. */
+  | "MARKET_CLOSED_HOLIDAY"
+  /** Blocked — clock is before 09:15 IST. */
+  | "BEFORE_MARKET_SESSION"
+  /** Blocked — clock is after 15:30 IST. */
+  | "AFTER_MARKET_SESSION"
+  /** Blocked — equity entry cutoff has passed (reserved; not yet fired for equity). */
+  | "ENTRY_CUTOFF_PASSED"
+  /** Blocked — pre-open auction (09:00–09:15 IST) is not authorized for opens. */
+  | "SPECIAL_SESSION_NOT_AUTHORIZED"
+  /** Blocked — calendar data unavailable or status UNKNOWN. */
+  | "CALENDAR_UNAVAILABLE"
+  /** Blocked — server clock is invalid (non-finite). */
+  | "INVALID_SERVER_TIMESTAMP"
+  /** Informational — stored quote timestamp is outside the session. */
+  | "QUOTE_OUTSIDE_SESSION"
+  /** Informational — stored quote is stale or not authoritative. */
+  | "QUOTE_STALE_OR_NOT_TRADE_GRADE"
+  /** Fail-closed — admission context incomplete or inconsistent. */
+  | "TRADE_ADMISSION_CONTEXT_INCOMPLETE"
+  // ── Legacy alias (pre-P0.2 rows only — do not write new rows with this) ──
+  /** @deprecated Written by the pre-P0.2 gate. New rows use the structured codes above. */
   | "MARKET_CLOSED"
-  // OPEN
+  // ── OPEN ─────────────────────────────────────────────────────────────────
   | "OPENED";
 
 export type EqEventType =
