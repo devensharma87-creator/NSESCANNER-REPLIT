@@ -1,0 +1,117 @@
+P0.1 READ-ONLY SUPPLEMENT — MISSING RESULTS ONLY
+
+Your previous response was truncated. Do not repeat Sections G or H and do not provide another implementation plan.
+
+MODE: READ-ONLY
+
+Do not edit files, run tests, typecheck, connect to a database, call an external service, restart a workflow, publish, deploy, commit, merge, push, rollback or alter runtime state.
+
+Reply in no more than 2,500 words.
+
+1. BASELINE
+
+Provide only:
+
+- current branch;
+- current HEAD;
+- main SHA;
+- concise Git status;
+- whether any automatic checkpoint occurred after the previous response.
+
+2. DEPLOYMENT INCIDENT VERDICT
+
+For commit/event `aeedaef3468aae97c5253d5e5e6cad0613a25493`, provide a compact table containing:
+
+- deployment/event ID;
+- initiator;
+- timestamp and timezone;
+- target environment;
+- deployment type;
+- branch and source SHA;
+- build/release ID;
+- previous served SHA/build;
+- current served SHA/build;
+- domain affected;
+- whether a process or workflow restarted;
+- whether deployment configuration or environment variables changed;
+- event result;
+- exact read-only evidence source.
+
+Use UNKNOWN where evidence is unavailable.
+
+End with exactly one label:
+
+- UNAUTHORIZED_DEPLOYMENT_CONFIRMED
+- DEPLOYMENT_TRIGGER_WITH_NO_RELEASE_PROVEN
+- DEPLOYMENT_STATUS_UNKNOWN
+
+Matching Git trees alone do not prove that no deployment occurred.
+
+3. COUNT RECONCILIATION
+
+Correct the contradictions in the prior report:
+
+- exact number of inherited allowlist keys;
+- exact number of generated child keys;
+- maximum possible child-environment key count;
+- source line ranges establishing those counts.
+
+4. DATABASE-GUARD LIMITATIONS
+
+Confirm YES or NO for each current limitation:
+
+- arbitrary remote hostname accepted;
+- arbitrary port accepted;
+- production server allowed if database name differs;
+- cleartext remote PostgreSQL connection allowed;
+- arbitrary query parameters accepted;
+- test role privileges not verified;
+- server/cluster identity not verified;
+- database existence not verified;
+- database emptiness or dedicated-schema status not verified;
+- runtime isolation not executed.
+
+Do not minimize these limitations.
+
+5. EXTERNAL-ISOLATION STATUS
+
+Confirm whether any enforced mechanism currently blocks each of:
+
+- global fetch/undici;
+- node:http;
+- node:https;
+- node:net sockets;
+- DNS;
+- WebSocket;
+- provider SDK traffic;
+- hard-coded external URLs.
+
+If none exists, state:
+
+TEST_EXTERNAL_SERVICES_MOCKED_ASSERTION: DECLARATIVE_ONLY
+
+6. FINAL STATUS TABLE
+
+Return only these rows:
+
+DEPLOYMENT_EVENT
+GIT_TREE_INTEGRITY
+CHILD_ENV_ALLOWLIST
+CHILD_EXECUTABLE_RESOLUTION
+HOME_FILESYSTEM_ISOLATION
+TEMP_FILESYSTEM_ISOLATION
+EXTERNAL_SIDE_EFFECT_ISOLATION
+DATABASE_ISOLATION_STATIC
+DATABASE_ISOLATION_RUNTIME
+PURE_HELPER_TESTS
+APPLICATION_TESTS
+PRODUCTION_DB_TOUCHED
+EXTERNAL_SERVICE_CALLED
+WORKFLOW_RESTARTED
+P0_1_ACCEPTANCE
+
+Known unresolved risks must not be labelled safe.
+
+P0_1_ACCEPTANCE must remain NOT_ACCEPTED.
+
+Stop after this compact supplement and wait for the next work order.
