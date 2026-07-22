@@ -59,6 +59,7 @@ import { computeSwingLevels } from "./swingSignals";
 import type { StockRow } from "@workspace/api-zod";
 import { checkLedgerReconciliationGate } from "./paperAccountReconciliation";
 import { computePreliminaryAdmission, computeFinalExecutionAdmission, EQUITY_AUTO_ENTRY_CUTOFF } from "./sessionAdmission";
+import { buildEquityFillEvidence, type EquityFillEvidence, type ValidatedFillEvidence } from "./equityFillEvidence";
 
 function num(v: string | number | null | undefined): number {
   if (v == null) return 0;
@@ -198,24 +199,21 @@ export async function openPaperEquityTrade(
     signalLabel?: string;
     stagedOrderId?: string | null;
     /**
-     * Phase B final execution quote context.
+     * Phase B final execution quote context (P0.2 Corrections 1–4).
      * Required for MANUAL opens. Absent or invalid context fails closed with
      * TRADE_ADMISSION_CONTEXT_INCOMPLETE. AUTO/STAGED lanes never reach Phase B
      * today (EQUITY_AUTO_ENTRY_CUTOFF=null fires first), but Phase B is wired
      * so that configuring a cutoff later cannot silently bypass quote validation.
+     *
+     * Build with: `buildEquityFillEvidence(row)` — price and timestamp are taken
+     * from the same row.quote object so they are inseparably from the same
+     * upstream Kite event. `decisionTime` is the captured clock reading at the
+     * moment of the open attempt; Phase B derives quote age from
+     * (decisionTime − equityFillEvidence.providerQuoteTimestamp) internally.
      */
     finalExecutionQuoteContext?: {
-      quoteProvenance: string;
-      quoteIsTradeGrade: boolean;
-      quoteAgeSec: number;
-      quoteMaxAgeSec: number;
-      quoteTimestamp?: string | null;
-      /**
-       * Captured decision instant — passed as serverTime to Phase B so the
-       * quote-age computation and the session check share the exact same clock
-       * reading (P0.2 Correction 1). Falls back to new Date() if absent.
-       */
-      serverTime?: Date;
+      decisionTime: Date;
+      equityFillEvidence: EquityFillEvidence | null;
     } | null;
   },
 ): Promise<PaperTradeEqRow | null> {
@@ -589,22 +587,22 @@ export async function openPaperEquityTrade(
       // blocked earlier by ENTRY_CUTOFF_CONFIG_UNAVAILABLE (Phase A), but
       // Phase B is wired here so configuring a cutoff later cannot silently
       // bypass quote-context validation.
+      //
+      // P0.2 Corrections 1–4: Phase B now requires a canonical EquityFillEvidence
+      // object. Quote age is derived internally from (decisionTime − ev.providerQuoteTimestamp)
+      // — the caller no longer supplies a pre-computed age. On success, validatedFill.price
+      // is the Phase-B-approved fill price and must be used for entryPrice/lastPrice below.
+      let validatedFill: ValidatedFillEvidence | null = null;
       {
         const fxCtx = opts?.finalExecutionQuoteContext;
         const fxAdmission = computeFinalExecutionAdmission({
           lane: "equity_cash",
           segment: "NSE_EQ",
           instrument: signal.symbol,
-          // Use the captured decision time when available so Phase B session
-          // check shares the same instant as the quote-age computation (P0.2 C1).
-          serverTime: fxCtx?.serverTime ?? new Date(),
+          decisionTime: fxCtx?.decisionTime ?? new Date(),
           source: openSource as "AUTO" | "MANUAL" | "SWING_STAGED_APPROVAL",
           entryCutoffPolicy: EQUITY_AUTO_ENTRY_CUTOFF,
-          quoteProvenance: fxCtx?.quoteProvenance ?? "",
-          quoteIsTradeGrade: fxCtx?.quoteIsTradeGrade ?? false,
-          quoteAgeSec: fxCtx?.quoteAgeSec ?? NaN,
-          quoteMaxAgeSec: fxCtx?.quoteMaxAgeSec ?? 0,
-          quoteTimestamp: fxCtx?.quoteTimestamp,
+          equityFillEvidence: fxCtx?.equityFillEvidence ?? null,
         });
         if (!fxAdmission.allowed) {
           logger.info(
@@ -629,7 +627,22 @@ export async function openPaperEquityTrade(
           });
           return null;
         }
+        validatedFill = fxAdmission.validatedFill;
       }
+
+      // Phase B must have passed above; validatedFill is non-null here.
+      // The guard below is unreachable in normal execution but narrows the type.
+      if (!validatedFill) return null;
+
+      // P0.2 Correction 4: entryPrice/lastPrice MUST come from validatedFill.price
+      // (Phase-B-approved fill price from EquityFillEvidence), NOT from
+      // signal.entryPrice. signal.entryPrice is the signal-generation-time scanner
+      // price; validatedFill.price is the execution-time Kite event price from
+      // the same upstream event as providerQuoteTimestamp. These may differ.
+      const fillPrice = validatedFill.price;
+      // openedAt/lastEvaluatedAt use the Phase-B decision instant (the clock
+      // reading shared with quote-age derivation), not signal.triggeredAt.
+      const fillDecisionTime = validatedFill.decisionTime;
 
       const now = signal.triggeredAt;
       const inserted = await tx
@@ -641,15 +654,15 @@ export async function openPaperEquityTrade(
           signalDate: today,
           signalTriggeredAt: now,
           qty,
-          entryPrice: toDbNumeric(signal.entryPrice, 4),
+          entryPrice: toDbNumeric(fillPrice, 4),
           stopPrice: toDbNumeric(signal.stopPrice, 4),
           target1Price: toDbNumeric(signal.target1Price, 4),
           target2Price: toDbNumeric(signal.target2Price, 4),
           trailedToT1: 0,
           capitalDeployed: toDbNumeric(capitalDeployed, 2),
-          lastPrice: toDbNumeric(signal.entryPrice, 4),
-          lastEvaluatedAt: now,
-          openedAt: now,
+          lastPrice: toDbNumeric(fillPrice, 4),
+          lastEvaluatedAt: fillDecisionTime,
+          openedAt: fillDecisionTime,
           status: "OPEN",
           source: mapWriteSourceToProvenance(opts?.source),
           // B.8 provenance tag — stamped on every new row so consumers
@@ -954,57 +967,29 @@ export async function openManualPaperEquityTrade(
     levelsSource: "yahoo",
     levelsWarnings: [],
   };
-  // ── Phase B quote context — execution-time age from upstream Kite event ts ─
-  // P0.2 Correction 1: quote age must be measured at the durable-open attempt,
-  // NOT at scanner-row construction time. `prov.freshnessSec` is staleness at
-  // scan build and can underestimate real age by the scanner refresh interval
-  // (~60 s), silently permitting a quote that has crossed the 120 s budget.
-  //
-  // `row.quote.updatedAt` = new Date(kq.ts) in fullNseScanner.ts — kq.ts is
-  // Kite's own exchange/feed event timestamp on the quote object. It is the
-  // same kq whose price (kq.last_price) is the modeled fill price. These are
-  // inseparable: validating the timestamp proves the fill price is from the
-  // same upstream event.
+  // ── Phase B quote context (P0.2 Corrections 1–4) ─────────────────────────
+  // Build canonical EquityFillEvidence from the scanner row. This bundles
+  // fill price (kq.last_price) and provider quote timestamp (new Date(kq.ts))
+  // from the same row.quote object so they are inseparably from the same
+  // upstream Kite event. Phase B derives quote age internally from
+  // (decisionTime − ev.providerQuoteTimestamp); no pre-computed age needed.
   //
   // SOURCE: MODULE_REQUIREMENTS.watchlist.quote.maxFreshnessSec = 120 (requirements.ts:189)
   const decisionTime = new Date();
-  const prov = row.provenance;
-  if (!prov) {
+  const equityFillEvidence = buildEquityFillEvidence(row);
+  if (!equityFillEvidence) {
     return {
       row: null,
-      reason: "Quote provenance unavailable — scanner row has no provenance metadata. Cannot open with unverified fill price.",
+      reason: "Cannot build fill evidence from scanner row — price must be a positive number and quote timestamp (row.quote.updatedAt) must be a valid finite Date. Ensure the scanner row has Kite provenance with a valid kq.ts event timestamp.",
     };
   }
-  // The Kite event timestamp must be a valid, non-future Date. No clock-skew
-  // tolerance: a future or invalid timestamp indicates corrupted data.
-  const quoteTs = row.quote.updatedAt instanceof Date ? row.quote.updatedAt : null;
-  if (!quoteTs || !isFinite(quoteTs.getTime())) {
-    return {
-      row: null,
-      reason: "Quote timestamp (row.quote.updatedAt) is missing or not a valid Date — cannot compute execution-time freshness for fill validation.",
-    };
-  }
-  const rawQuoteAgeSec = (decisionTime.getTime() - quoteTs.getTime()) / 1000;
-  if (rawQuoteAgeSec < 0) {
-    return {
-      row: null,
-      reason: `Quote timestamp (${quoteTs.toISOString()}) is in the future relative to decision time (${decisionTime.toISOString()}) — no clock-skew tolerance; fill freshness cannot be validated.`,
-    };
-  }
-  const quoteIsTradeGrade = prov.sourceProvider === "kite"
-    && !prov.notForTradeDecisions
-    && prov.isStale !== true;
   const finalExecutionQuoteContext = {
-    quoteProvenance: `scanner_${prov.sourceProvider ?? "unknown"}`,
-    quoteIsTradeGrade,
-    quoteAgeSec: rawQuoteAgeSec,          // execution-time age: decisionTime − Kite event ts
-    quoteMaxAgeSec: 120,                  // MODULE_REQUIREMENTS.watchlist.quote.maxFreshnessSec
-    quoteTimestamp: quoteTs.toISOString(), // upstream Kite event timestamp (kq.ts)
-    serverTime: decisionTime,             // shared decision instant for Phase B session check
+    decisionTime,
+    equityFillEvidence,
   };
 
   logger.info(
-    { symbol: row.symbol, entry: entryPrice, stop: stopPrice, t1: target1Price, t2: target2Price, qtyOverride: opts?.qty ?? null, quoteProvenance: finalExecutionQuoteContext.quoteProvenance, quoteIsTradeGrade },
+    { symbol: row.symbol, entry: entryPrice, stop: stopPrice, t1: target1Price, t2: target2Price, qtyOverride: opts?.qty ?? null, provider: equityFillEvidence.providerIdentity, priceSourceKind: equityFillEvidence.priceSourceKind },
     "Paper EQ manual buy: attempting open",
   );
   const opened = await openPaperEquityTrade(signal, {

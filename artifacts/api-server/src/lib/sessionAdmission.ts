@@ -38,6 +38,15 @@
  */
 import { getMarketStatusDetail } from "./marketEvents";
 export { FNO_BASELINE_GUARDRAILS, FNO_STANDARD_LATE_ENTRY_CUTOFF_IST_MIN } from "./paperAccount";
+export {
+  buildEquityFillEvidence,
+  resolveFreshnessPolicy,
+  EQUITY_FRESHNESS_POLICY,
+  type EquityFillEvidence,
+  type ValidatedFillEvidence,
+  type StockRowForEvidence,
+} from "./equityFillEvidence";
+import { resolveFreshnessPolicy, type EquityFillEvidence, type ValidatedFillEvidence } from "./equityFillEvidence";
 
 // ─── Calendar version ────────────────────────────────────────────────────────
 
@@ -378,11 +387,17 @@ export function computePreliminaryAdmission(ctx: PreliminaryAdmissionContext): P
 export const FNO_OPTION_CHAIN_MAX_AGE_SEC = 300;
 
 /**
- * Phase B final execution admission context.
+ * Phase B final execution admission context (P0.2 Corrections 1–4, 2026-07-22).
  *
- * Must be evaluated after the actual fill-price quote has been fetched and
- * immediately before the durable insert / open callback. All quote fields
- * are required — an absent or invalid field causes TRADE_ADMISSION_CONTEXT_INCOMPLETE.
+ * Must be evaluated with a canonical EquityFillEvidence object immediately
+ * before the durable insert / open callback. The evidence object bundles fill
+ * price, provider quote timestamp, and source provenance inseparably — callers
+ * cannot supply price from one source and timestamp from another.
+ *
+ * For F&O lanes (nse_fo / bse_fo): always fails closed with
+ * TRADE_ADMISSION_CONTEXT_INCOMPLETE because the Kite REST option-chain
+ * response (KiteQuote) provides no per-contract or response-level exchange /
+ * provider event timestamp. Pass equityFillEvidence: undefined or null.
  *
  * No lane may proceed to a durable open solely on a PreliminaryAdmissionResult.
  */
@@ -390,46 +405,25 @@ export interface FinalExecutionAdmissionContext {
   lane: "equity_cash" | "nse_fo" | "bse_fo";
   segment: string;
   instrument: string;
-  serverTime: Date;
+  /**
+   * Captured decision instant — shared by Phase B session check and the
+   * internal quote-age derivation (P0.2 Correction 1). Must be the same
+   * clock reading used to fetch the fill-price quote.
+   */
+  decisionTime: Date;
   source: "AUTO" | "MANUAL" | "SWING_STAGED_APPROVAL";
   entryCutoffPolicy?: EntryAdmissionCutoffPolicy | null;
   /**
-   * Human-readable identity of the actual fill-price quote source.
-   * Examples: "kite_option_chain", "kite_scanner_ltp", "scanner_kite".
-   * Must be non-empty — absent provenance causes TRADE_ADMISSION_CONTEXT_INCOMPLETE.
+   * Canonical fill-evidence bundle for equity_cash lanes.
+   * Built by `buildEquityFillEvidence(row)` — price and providerQuoteTimestamp
+   * are taken from the same row.quote object so they are inseparably from the
+   * same upstream Kite event (kq.last_price and kq.ts).
+   *
+   * null / undefined → TRADE_ADMISSION_CONTEXT_INCOMPLETE.
+   * For F&O lanes: always omit (pass null or undefined); F&O fails before
+   * this field is evaluated.
    */
-  quoteProvenance: string;
-  /**
-   * Whether the fill-price source is authoritative / trade-grade.
-   * false → QUOTE_STALE_OR_NOT_TRADE_GRADE regardless of age.
-   */
-  quoteIsTradeGrade: boolean;
-  /**
-   * Age of the fill-price quote in seconds at the time of the open attempt.
-   * Must be finite — NaN / ±Infinity → TRADE_ADMISSION_CONTEXT_INCOMPLETE.
-   * Must be non-negative — negative values mean quoteTimestamp is in the future
-   * (clock skew or corrupted data); no tolerance → TRADE_ADMISSION_CONTEXT_INCOMPLETE.
-   * For F&O lanes: must be > 0 — exactly 0 is a fetch-receipt-time proxy and is
-   * explicitly prohibited; pass NaN when no provider event timestamp is available.
-   */
-  quoteAgeSec: number;
-  /**
-   * Authoritative maximum acceptable age for this fill-price source.
-   * Must be a positive finite number from MODULE_REQUIREMENTS.
-   * Canonical values:
-   *   fno.optionChain: 300 s  (requirements.ts:180) — use for F&O lanes
-   *   watchlist.quote: 120 s  (requirements.ts:189) — use for equity MANUAL fills
-   * For F&O lanes (nse_fo / bse_fo), must be >= FNO_OPTION_CHAIN_MAX_AGE_SEC (300).
-   * Supplying the stricter index-quote policy (120 s) for an option-chain fill is
-   * a policy mismatch and causes TRADE_ADMISSION_CONTEXT_INCOMPLETE.
-   */
-  quoteMaxAgeSec: number;
-  /**
-   * Optional quote timestamp for session validation.
-   * When provided, QUOTE_OUTSIDE_SESSION is returned if the quote is from an
-   * unauthorized session time.
-   */
-  quoteTimestamp?: string | null;
+  equityFillEvidence?: EquityFillEvidence | null;
 }
 
 /**
@@ -437,11 +431,17 @@ export interface FinalExecutionAdmissionContext {
  * Only a FinalExecutionAdmissionResult with allowed: true may authorize a
  * durable insert. The phase discriminant prevents PreliminaryAdmissionResult
  * from being accepted at the durable-insert boundary.
+ *
+ * On allowed: true, `validatedFill` carries the Phase-B-approved price and
+ * instrument. The durable writer MUST use validatedFill.price — not the
+ * original signal.entryPrice or any other source — for entryPrice/lastPrice.
  */
 export type FinalExecutionAdmissionResult =
   | {
       phase: "FINAL_EXECUTION";
       allowed: true;
+      /** Validated fill evidence — durable writer must use validatedFill.price. */
+      validatedFill: ValidatedFillEvidence;
       openedSessionValidity: "VALID_SESSION";
       cutoffPolicyValidity: CutoffPolicyValidity;
       openedAtIst: string;
@@ -465,102 +465,162 @@ export type FinalExecutionAdmissionResult =
     };
 
 /**
- * Phase B gate — final execution admission.
+ * Phase B gate — final execution admission (P0.2 Corrections 1–4, 2026-07-22).
  *
- * Must be called after the actual fill-price quote has been fetched and
- * immediately before the durable insert / open callback. All quote fields
- * are mandatory — absent/invalid fields cause TRADE_ADMISSION_CONTEXT_INCOMPLETE.
+ * Equity (equity_cash) lane:
+ *   Requires a canonical EquityFillEvidence object. Phase B derives quote age
+ *   internally from (ctx.decisionTime − ev.providerQuoteTimestamp) — the caller
+ *   no longer supplies a pre-computed age (Correction 1). Price, timestamp, and
+ *   provenance are validated together from the inseparable evidence bundle
+ *   (Correction 2). On success, returns ValidatedFillEvidence in the allowed
+ *   result — the durable writer must use validatedFill.price (Correction 4).
  *
- * F&O lane enforcement: for nse_fo / bse_fo, quoteMaxAgeSec must be >=
- * FNO_OPTION_CHAIN_MAX_AGE_SEC (300 s). Using an index-quote policy (120 s)
- * for an option-chain fill is a policy mismatch → TRADE_ADMISSION_CONTEXT_INCOMPLETE.
+ * F&O lanes (nse_fo / bse_fo):
+ *   Always fail closed with TRADE_ADMISSION_CONTEXT_INCOMPLETE. The Kite REST
+ *   option-chain response (KiteQuote) provides no per-contract or response-level
+ *   exchange / provider event timestamp — there is no authoritative basis for
+ *   fill-price validation. F&O signals, chain analysis, risk guards, and all
+ *   exit paths are unaffected; only the durable open is blocked.
  *
- * Session and policy are re-evaluated to defend against clock changes or time
- * elapsed since Phase A. Fail-closed on all ambiguous cases.
+ * Session and cutoff policy are re-evaluated to defend against clock drift or
+ * time elapsed since Phase A. Fail-closed on all ambiguous cases.
  *
  * Only a FinalExecutionAdmissionResult with allowed: true may authorize a
  * durable insert. Callers must NOT pass a PreliminaryAdmissionResult here.
  */
 export function computeFinalExecutionAdmission(ctx: FinalExecutionAdmissionContext): FinalExecutionAdmissionResult {
-  const provenance = ctx.quoteProvenance || "UNKNOWN";
-
-  // ── 1. Mandatory quote field validation ───────────────────────────────────
-  if (
-    !ctx.quoteProvenance ||
-    typeof ctx.quoteIsTradeGrade !== "boolean" ||
-    typeof ctx.quoteAgeSec !== "number" || !isFinite(ctx.quoteAgeSec) || ctx.quoteAgeSec < 0 ||
-    typeof ctx.quoteMaxAgeSec !== "number" || !isFinite(ctx.quoteMaxAgeSec) || ctx.quoteMaxAgeSec <= 0
-  ) {
+  // ── Internal reject helpers ────────────────────────────────────────────────
+  function rejectIncomplete(
+    detail: string,
+    calendarScope = "NSE_CURATED_2026",
+    quoteProvenance = "MISSING",
+  ): FinalExecutionAdmissionResult {
     return {
       phase: "FINAL_EXECUTION",
       allowed: false,
       reason: "TRADE_ADMISSION_CONTEXT_INCOMPLETE",
-      detail: `Phase B mandatory quote fields absent or invalid — quoteProvenance="${provenance}", quoteIsTradeGrade=${ctx.quoteIsTradeGrade}, quoteAgeSec=${ctx.quoteAgeSec} (NaN/±Inf = missing timestamp; negative = future timestamp, no clock-skew tolerance), quoteMaxAgeSec=${ctx.quoteMaxAgeSec}; instrument=${ctx.instrument}`,
+      detail,
       openedSessionValidity: "TIMESTAMP_AMBIGUOUS",
       cutoffPolicyValidity: "UNKNOWN",
       calendarVersion: CALENDAR_VERSION,
-      calendarScope: "NONE",
+      calendarScope,
       timestampConfidence: "LOW",
-      quoteProvenance: provenance,
+      quoteProvenance,
     };
   }
 
-  // ── 2. F&O lane: enforce option-chain policy minimum + reject proxy age=0 ──
-  // Index-quote maxAge (120 s) cannot authorize option-chain/premium fills —
-  // quoteMaxAgeSec must be >= FNO_OPTION_CHAIN_MAX_AGE_SEC (300 s).
-  if ((ctx.lane === "nse_fo" || ctx.lane === "bse_fo") && ctx.quoteMaxAgeSec < FNO_OPTION_CHAIN_MAX_AGE_SEC) {
+  // ── 1. F&O lanes: always fail closed — no trusted per-premium event ts ──────
+  // The Kite REST option-chain response (KiteQuote) has no ts/timestamp field.
+  // OcResponse.generatedAt is a server-build timestamp, not a Kite/exchange
+  // event time. Without EquityFillEvidence, there is no authoritative basis for
+  // fill-price validation. F&O durable opens fail closed until a provider with
+  // adequate per-contract event timestamps is integrated.
+  if (ctx.lane === "nse_fo" || ctx.lane === "bse_fo") {
+    return rejectIncomplete(
+      `F&O final admission: no trusted per-premium event timestamp — the Kite REST option-chain response (KiteQuote) provides no per-contract or response-level exchange/provider event timestamp (no ts/timestamp field; OcResponse.generatedAt is server-build time, not a Kite/exchange event time). F&O durable opens fail closed until a provider with adequate per-contract event timestamps is integrated. F&O signals, chain analysis, risk guards, and all exit paths are unaffected. instrument=${ctx.instrument}`,
+      ctx.lane === "bse_fo" ? "BSE_FO_UNVERIFIED" : "NSE_CURATED_2026",
+      "fno_no_provider_timestamp",
+    );
+  }
+
+  // ── 2. Equity lane: require canonical fill evidence ────────────────────────
+  const ev = ctx.equityFillEvidence ?? null;
+  if (ev === null) {
+    return rejectIncomplete(
+      `Equity Phase B requires a canonical EquityFillEvidence object (built via buildEquityFillEvidence); none supplied. AUTO and SWING_STAGED_APPROVAL lanes are currently blocked earlier by ENTRY_CUTOFF_CONFIG_UNAVAILABLE (Phase A) so they should not reach Phase B without evidence. instrument=${ctx.instrument}`,
+    );
+  }
+
+  // ── 3. Validate evidence price ─────────────────────────────────────────────
+  if (!(ev.price > 0)) {
+    return rejectIncomplete(
+      `EquityFillEvidence has invalid price ${ev.price} — cannot authorize a durable open with a non-positive fill price; instrument=${ctx.instrument}`,
+    );
+  }
+
+  // ── 4. Validate provider quote timestamp ───────────────────────────────────
+  const providerTs = ev.providerQuoteTimestamp;
+  if (!(providerTs instanceof Date) || !isFinite(providerTs.getTime())) {
+    return rejectIncomplete(
+      `EquityFillEvidence.providerQuoteTimestamp is not a valid finite Date — cannot derive execution-time quote age; instrument=${ctx.instrument}`,
+    );
+  }
+
+  // ── 5. Derive age internally (Correction 1: never caller-supplied) ─────────
+  const computedAgeSec = (ctx.decisionTime.getTime() - providerTs.getTime()) / 1000;
+  if (computedAgeSec < 0) {
+    return rejectIncomplete(
+      `Provider quote timestamp (${providerTs.toISOString()}) is in the future relative to decision time (${ctx.decisionTime.toISOString()}) — no clock-skew tolerance; fill freshness cannot be validated; instrument=${ctx.instrument}`,
+    );
+  }
+
+  // ── 6. Resolve freshness policy from the evidence policy identifier ─────────
+  const policyMaxAgeSec = resolveFreshnessPolicy(ev.freshnessPolicyId);
+  if (policyMaxAgeSec === null) {
+    return rejectIncomplete(
+      `Unknown freshness policy identifier "${ev.freshnessPolicyId}" — not registered in EQUITY_FRESHNESS_POLICY; instrument=${ctx.instrument}`,
+    );
+  }
+
+  // ── 7. Derive trade-grade status from evidence fields ──────────────────────
+  const provenance = ev.providerIdentity;
+  const tradeGrade =
+    ev.sourceTrustTier === "authoritative" &&
+    !ev.notForTradeDecisions &&
+    ev.isStale !== true;
+
+  if (!tradeGrade) {
     return {
       phase: "FINAL_EXECUTION",
       allowed: false,
-      reason: "TRADE_ADMISSION_CONTEXT_INCOMPLETE",
-      detail: `F&O final admission requires quoteMaxAgeSec >= ${FNO_OPTION_CHAIN_MAX_AGE_SEC}s (authoritative: MODULE_REQUIREMENTS.fno.optionChain, requirements.ts:180); caller supplied ${ctx.quoteMaxAgeSec}s — this matches an index-quote policy and cannot authorize an option-premium fill; instrument=${ctx.instrument}, quoteProvenance=${provenance}`,
+      reason: "QUOTE_STALE_OR_NOT_TRADE_GRADE",
+      detail: `Evidence source is not trade-grade: trustTier=${ev.sourceTrustTier}, notForTradeDecisions=${ev.notForTradeDecisions}, isStale=${ev.isStale}; provider=${provenance}; instrument=${ctx.instrument}`,
       openedSessionValidity: "TIMESTAMP_AMBIGUOUS",
       cutoffPolicyValidity: "UNKNOWN",
       calendarVersion: CALENDAR_VERSION,
-      calendarScope: ctx.lane === "bse_fo" ? "BSE_FO_UNVERIFIED" : "NSE_CURATED_2026",
+      calendarScope: "NSE_CURATED_2026",
       timestampConfidence: "HIGH",
       quoteProvenance: provenance,
     };
   }
-  // F&O lane: reject quoteAgeSec=0 (fetch-receipt-time proxy).
-  // The Kite REST option-chain response (KiteQuote) provides no per-contract or
-  // response-level exchange/provider event timestamp — the KiteQuote interface
-  // has no ts/timestamp field. quoteAgeSec=0 indicates the caller is using the
-  // chain fetch-receipt time as a proxy, which is explicitly prohibited (P0.2 C2).
-  // Pass quoteAgeSec=NaN when no provider event timestamp is available.
-  if ((ctx.lane === "nse_fo" || ctx.lane === "bse_fo") && ctx.quoteAgeSec === 0) {
-    return {
-      phase: "FINAL_EXECUTION",
-      allowed: false,
-      reason: "TRADE_ADMISSION_CONTEXT_INCOMPLETE",
-      detail: `F&O final admission: quoteAgeSec=0 is a fetch-receipt-time proxy, not a provider/exchange event timestamp; the Kite option-chain response (KiteQuote) carries no per-contract or response-level event time — supply a proven per-contract timestamp or pass quoteAgeSec=NaN to fail closed; instrument=${ctx.instrument}, quoteProvenance=${provenance}`,
-      openedSessionValidity: "TIMESTAMP_AMBIGUOUS",
-      cutoffPolicyValidity: "UNKNOWN",
-      calendarVersion: CALENDAR_VERSION,
-      calendarScope: ctx.lane === "bse_fo" ? "BSE_FO_UNVERIFIED" : "NSE_CURATED_2026",
-      timestampConfidence: "LOW",
-      quoteProvenance: provenance,
-    };
+
+  // ── 8. Validate symbol identity ────────────────────────────────────────────
+  if (ev.instrument !== ctx.instrument) {
+    return rejectIncomplete(
+      `Symbol mismatch: EquityFillEvidence.instrument="${ev.instrument}" does not match ctx.instrument="${ctx.instrument}" — cannot cross-authorize evidence for a different instrument`,
+      "NSE_CURATED_2026",
+      provenance,
+    );
   }
 
-  // ── 3. Delegate session/policy + quote freshness to canonical gate ─────────
+  // ── 9. Delegate session / cutoff / freshness to canonical gate ─────────────
   const base = computeTradeAdmission({
     lane: ctx.lane,
     segment: ctx.segment,
     instrument: ctx.instrument,
-    serverTime: ctx.serverTime,
+    serverTime: ctx.decisionTime,
     source: ctx.source,
     entryCutoffPolicy: ctx.entryCutoffPolicy,
-    quoteTimestamp: ctx.quoteTimestamp,
-    quoteIsTradeGrade: ctx.quoteIsTradeGrade,
-    quoteAgeSec: ctx.quoteAgeSec,
-    quoteMaxAgeSec: ctx.quoteMaxAgeSec,
+    quoteTimestamp: providerTs.toISOString(),
+    quoteIsTradeGrade: true,
+    quoteAgeSec: computedAgeSec,
+    quoteMaxAgeSec: policyMaxAgeSec,
   });
 
   if (base.allowed) {
     return {
       phase: "FINAL_EXECUTION",
       allowed: true,
+      validatedFill: {
+        price: ev.price,
+        instrument: ev.instrument,
+        providerTimestamp: providerTs,
+        decisionTime: ctx.decisionTime,
+        computedAgeSec,
+        provider: provenance,
+        policyId: ev.freshnessPolicyId,
+        policyMaxAgeSec,
+      },
       openedSessionValidity: base.openedSessionValidity,
       cutoffPolicyValidity: base.cutoffPolicyValidity,
       openedAtIst: base.openedAtIst,

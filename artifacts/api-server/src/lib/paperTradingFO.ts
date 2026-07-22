@@ -937,27 +937,16 @@ export async function openPaperTrade(input: LifecycleHookInput): Promise<PaperTr
       lane: foBse ? "bse_fo" : "nse_fo",
       segment: foBse ? "BSE_FO" : "NSE_FO",
       instrument: indexSymbol.toUpperCase() || "UNKNOWN_FNO",
-      serverTime: new Date(),
+      decisionTime: new Date(),
       source: "AUTO",
-      entryCutoffPolicy: foEntryCutoff,
-      // P0.2 Correction 2: The Kite REST option-chain response (KiteQuote) provides
-      // NO per-contract or response-level exchange/provider event timestamp —
-      // the KiteQuote interface has no ts/timestamp field.
-      // OcResponse.generatedAt is a server-build timestamp, not a Kite/exchange
-      // event time. quoteAgeSec=0 (fetch-receipt proxy) is explicitly prohibited
-      // as a substitute for a provider event timestamp.
-      //
-      // Consequence: F&O durable opens fail closed with TRADE_ADMISSION_CONTEXT_INCOMPLETE
-      // until a provider with adequate per-contract event timestamp is integrated.
-      // The fill premium (optionEntry = signal.optionLtp) is from signal-generation
-      // time — a different instant from the chain fetch. Without a proven event
-      // timestamp, Phase B cannot validate that the fill premium is current.
-      //
-      // F&O signals, liquidity gates, C0 hard-block, and all exit paths are unaffected.
-      quoteProvenance: "kite_option_chain_no_event_ts",
-      quoteIsTradeGrade: false,  // no per-contract event timestamp → not trade-grade for fill validation
-      quoteAgeSec: NaN,          // no Kite exchange/provider event timestamp available
-      quoteMaxAgeSec: 300,       // policy: MODULE_REQUIREMENTS.fno.optionChain (requirements.ts:180)
+      // P0.2 Corrections 1–4: F&O always fails closed with TRADE_ADMISSION_CONTEXT_INCOMPLETE.
+      // The Kite REST option-chain response (KiteQuote) provides NO per-contract or
+      // response-level exchange/provider event timestamp (KiteQuote has no ts/timestamp
+      // field; OcResponse.generatedAt is server-build time, not a Kite/exchange event time).
+      // Without a canonical EquityFillEvidence object, Phase B cannot validate that the
+      // fill premium is from a proven, current exchange event.
+      // F&O signals, liquidity gates, risk guards, and all exit paths are unaffected;
+      // only the durable open is blocked until an adequate per-contract timestamp is available.
     });
     if (!finalFoAdmission.allowed) {
       if (recordSkip("PAPER_RISK_GUARD_BLOCKED")) {
