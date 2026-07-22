@@ -1,0 +1,118 @@
+Task: P0.2 Deployment Stop-Gate Correction — Read-Only, No Code Changes
+
+Do not modify code, commit, deploy, restart, change environment variables, call providers, place orders or mutate any database.
+
+Correct the pre-deployment closure report using static source, Git/deployment metadata and explicitly authorized read-only queries only.
+
+1. Safe rollback verification
+
+Do not use e0a9267 unless static proof shows it contains all required containment.
+
+Report:
+
+current production deployment SHA;
+exact full SHA of the previously proven containment deployment;
+whether each candidate contains:
+EQUITY_AUTO_OPEN_C0_BLOCKED = true;
+FNO_AUTO_OPEN_C0_BLOCKED = true;
+disabled broker order placement;
+preserved exit paths;
+selected safe rollback SHA and evidence.
+
+The rollback target must retain containment. If no safe rollback SHA can be proven, report:
+
+SAFE_ROLLBACK_SHA = UNKNOWN
+
+and mark deployment not ready.
+
+2. Deployment settings correction
+
+The deployment plan must require:
+
+PAPER_TRADING_ENABLED=false
+EQUITY_AUTO_OPEN_C0_BLOCKED=true
+FNO_AUTO_OPEN_C0_BLOCKED=true
+BROKER_EXECUTION=false
+
+Use the actual broker-execution environment variable or master switch found in source. Do not invent its name.
+
+PAPER_TRADING_ENABLED=true is prohibited during initial P0.2 rollout.
+
+3. Global broker-execution proof
+
+Search the complete repository for every broker order-placement path, including Kite placeOrder, modifyOrder, cancelOrder and any wrapper/facade.
+
+Return:
+
+Order path	File/function	Master gate	Current production state	Reachable?
+
+Do not call any broker API.
+
+4. Correct ledger classification
+
+Correct these rules:
+
+NSE regular session: 09:15–15:30 IST;
+09:04 is off-session;
+18 July 2026 is Saturday/non-trading day;
+writer_version alone cannot prove P0.2 validation for a row created before P0.2;
+zero P&L does not make an unproven fill valid;
+contradictory 15:29-open versus 15:20-exit evidence must be UNKNOWN pending proof.
+
+Reissue the development ledger inventory with corrected classifications.
+
+Do not modify any row.
+
+Use only:
+
+KEEP_VALID when validity is positively proven;
+ANNOTATE_INVALID;
+EXCLUDE_FROM_OFFICIAL_PNL;
+OWNER_REVIEW_REQUIRED;
+UNKNOWN.
+5. Production ledger status
+
+State explicitly:
+
+DEV_LEDGER_INVENTORIED = TRUE
+PRODUCTION_LEDGER_INVENTORIED = FALSE or UNKNOWN
+
+Do not claim the production ledger is inventoried from development data.
+
+If the owner-authorized read-only production connection is already available, query only the required paper-trade tables without mutation and report production separately. Otherwise report UNKNOWN and stop.
+
+6. Exact smoke endpoints
+
+Derive every endpoint from registered route source and report:
+
+Check	Exact route	Authentication	Expected result	Failure action
+
+Include the exact environment-diagnostics route, health route, Equity positions route, F&O positions route, daily-analysis status and option-snapshot diagnostics.
+
+Do not call production endpoints in this task.
+
+7. Correct final labels
+
+Return:
+
+FINAL_SHA_RECORDED
+CURRENT_PRODUCTION_SHA
+SAFE_ROLLBACK_SHA
+ROLLBACK_PRESERVES_C0
+PAPER_TRADING_DEPLOYMENT_SETTING
+GLOBAL_BROKER_EXECUTION_GATE
+C0_EQUITY
+C0_FNO
+DEV_LEDGER_INVENTORIED
+PRODUCTION_LEDGER_INVENTORIED
+LEDGER_SESSION_CLASSIFICATION_CORRECTED
+SMOKE_ENDPOINTS_SOURCE_VERIFIED
+HISTORICAL_ROWS_MODIFIED
+DEPLOYMENT_READY
+DEPLOYED
+
+Until every deployment stop gate is proven, finish with:
+
+P0_2_CODE_ACCEPTED_DEPLOYMENT_NOT_READY
+
+Stop after the corrected report.
