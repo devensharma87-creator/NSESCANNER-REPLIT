@@ -31,6 +31,7 @@ PAPER_FO_SHADOW_EXITS_ENABLED = "1"
 [userenv.production]
 PAPER_TRADING_ENABLED = "false"
 LIVE_CASH_SWING_ORDER_ENABLED = "false"
+SWING_CASH_EXECUTION_MODE = "paper_only"
 
 [nix]
 channel = "stable-25_05"
