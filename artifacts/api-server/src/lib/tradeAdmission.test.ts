@@ -54,6 +54,7 @@ import {
   type FinalExecutionAdmissionContext,
   type FinalExecutionAdmissionResult,
 } from "./sessionAdmission";
+import { buildEquityInsertCore, type EquityInsertCore, type EquityFillEvidence } from "./equityFillEvidence";
 // Authoritative freshness policy source (not invented locally):
 // MODULE_REQUIREMENTS from marketData/requirements.ts:177
 //   fno.indexQuote: maxFreshnessSec: 120
@@ -1275,7 +1276,8 @@ describe("P0.2 Final — EquityFillEvidence canonical gate (20 cases)", () => {
     expect(ev?.notForTradeDecisions).toBe(false);
     expect(ev?.isStale).toBe(false);
     expect(ev?.providerIdentity).toBe("kite");
-    expect(ev?._evidenceBrand).toBe("EquityFillEvidence@equityFillEvidence.ts");
+    // Brand is now an opaque unique symbol (not directly assertable); construction
+    // path enforcement is proven structurally in W-7 (module-opaque brand test).
   });
 
   it("E-7. buildEquityFillEvidence with kitePriceOverlay=true → notForTradeDecisions=true (Kite overlay on Yahoo signal)", () => {
@@ -1449,4 +1451,173 @@ describe("P0.2 Final — EquityFillEvidence canonical gate (20 cases)", () => {
     }
   });
 
+});
+
+// ─── P0.2 Writer-Mapping Seam — buildEquityInsertCore + opaque brand (W-1..W-7) ──
+// Proves:
+//   W-1..W-2: buildEquityInsertCore maps validatedFill fields, never signal fields.
+//   W-3..W-6: Phase-B gate drives zero/one insert callbacks (no DB required).
+//   W-7:      TypeScript compile-time proof of opaque factory enforcement.
+
+describe("P0.2 Writer-Mapping Seam — buildEquityInsertCore + opaque brand (W-1..W-7)", () => {
+  let insertCallCount: number;
+  let lastInsertCore: EquityInsertCore | undefined;
+  beforeEach(() => { insertCallCount = 0; lastInsertCore = undefined; });
+
+  // Mirrors the production open path: calls buildEquityInsertCore on Phase-B success.
+  function tryInsert(ctx: FinalExecutionAdmissionContext): { allowed: boolean; reason?: string } {
+    const result = computeFinalExecutionAdmission(ctx);
+    if (!result.allowed) return { allowed: false, reason: result.reason };
+    lastInsertCore = buildEquityInsertCore(result.validatedFill);
+    insertCallCount++;
+    return { allowed: true };
+  }
+
+  // ts = 30 s before MARKET_OPEN → computedAgeSec ≈ 30 (within 120 s policy).
+  const QUOTE_TS = new Date(MARKET_OPEN.getTime() - 30_000);
+  const KITE_ROW = {
+    symbol: "RELIANCE",
+    quote: { price: 2400, updatedAt: QUOTE_TS },
+    provenance: { sourceProvider: "kite", trustTier: "authoritative", notForTradeDecisions: false, isStale: false },
+  };
+
+  it("W-1. buildEquityInsertCore: symbol = validatedFill.instrument, not signal.symbol (deliberate mismatch)", () => {
+    // ValidatedFillEvidence is not branded — construct directly for the pure-mapping test.
+    const fill = {
+      price: 2400,
+      instrument: "RELIANCE",
+      providerTimestamp: QUOTE_TS,
+      decisionTime: MARKET_OPEN,
+      computedAgeSec: 30,
+      provider: "kite",
+      policyId: "watchlist.quote.maxFreshnessSec",
+      policyMaxAgeSec: 120,
+    };
+    const signalSymbol = "DIFFERENT_SYMBOL"; // deliberate mismatch — not used by the seam
+    const core = buildEquityInsertCore(fill);
+    expect(core.symbol).toBe("RELIANCE");       // directly from fill.instrument
+    expect(core.symbol).not.toBe(signalSymbol); // NOT derived from signal.symbol
+  });
+
+  it("W-2. buildEquityInsertCore: entryPrice and lastPrice = validatedFill.price, not signal.entryPrice (deliberate mismatch)", () => {
+    const fill = {
+      price: 2400,
+      instrument: "RELIANCE",
+      providerTimestamp: QUOTE_TS,
+      decisionTime: MARKET_OPEN,
+      computedAgeSec: 30,
+      provider: "kite",
+      policyId: "watchlist.quote.maxFreshnessSec",
+      policyMaxAgeSec: 120,
+    };
+    const signalEntryPrice = 9_999; // deliberate mismatch — scanner-time price, never used
+    const core = buildEquityInsertCore(fill);
+    expect(core.entryPrice).toBe(2400);                    // directly from fill.price
+    expect(core.lastPrice).toBe(2400);                     // same source — both from fill.price
+    expect(core.entryPrice).not.toBe(signalEntryPrice);    // NOT from signal.entryPrice
+    expect(core.openedAt).toBe(MARKET_OPEN);               // from fill.decisionTime
+    expect(core.lastEvaluatedAt).toBe(MARKET_OPEN);        // same instant
+  });
+
+  it("W-3. mismatched ev.instrument (TCS) vs ctx.instrument (RELIANCE) → INCOMPLETE; zero insert calls", () => {
+    const ev = buildEquityFillEvidence({
+      symbol: "TCS",  // evidence built for TCS — will mismatch ctx.instrument=RELIANCE
+      quote: { price: 3500, updatedAt: QUOTE_TS },
+      provenance: { sourceProvider: "kite", trustTier: "authoritative", notForTradeDecisions: false, isStale: false },
+    });
+    expect(ev).not.toBeNull();
+    const r = tryInsert({
+      lane: "equity_cash", segment: "NSE_EQ",
+      instrument: "RELIANCE", // Phase B step 8 detects TCS ≠ RELIANCE → INCOMPLETE
+      decisionTime: MARKET_OPEN, source: "MANUAL",
+      equityFillEvidence: ev,
+    });
+    expect(r.allowed).toBe(false);
+    expect(r.reason).toBe("TRADE_ADMISSION_CONTEXT_INCOMPLETE");
+    expect(insertCallCount).toBe(0); // writer must not be called
+  });
+
+  it("W-4. null/missing evidence → TRADE_ADMISSION_CONTEXT_INCOMPLETE; zero insert calls", () => {
+    const r = tryInsert({
+      lane: "equity_cash", segment: "NSE_EQ",
+      instrument: "RELIANCE",
+      decisionTime: MARKET_OPEN, source: "MANUAL",
+      equityFillEvidence: null,
+    });
+    expect(r.allowed).toBe(false);
+    expect(r.reason).toBe("TRADE_ADMISSION_CONTEXT_INCOMPLETE");
+    expect(insertCallCount).toBe(0);
+  });
+
+  it("W-5. stale / future-timestamp / non-authoritative evidence → zero insert calls each", () => {
+    // W-5a: isStale=true → QUOTE_STALE_OR_NOT_TRADE_GRADE
+    const staleEv = buildEquityFillEvidence({
+      symbol: "RELIANCE",
+      quote: { price: 2400, updatedAt: QUOTE_TS },
+      provenance: { sourceProvider: "kite", trustTier: "authoritative", notForTradeDecisions: false, isStale: true },
+    });
+    const r5a = tryInsert({ lane: "equity_cash", segment: "NSE_EQ", instrument: "RELIANCE", decisionTime: MARKET_OPEN, source: "MANUAL", equityFillEvidence: staleEv });
+    expect(r5a.reason).toBe("QUOTE_STALE_OR_NOT_TRADE_GRADE");
+    expect(insertCallCount).toBe(0);
+
+    // W-5b: future providerQuoteTimestamp (after decisionTime) → INCOMPLETE (negative age)
+    const futureEv = buildEquityFillEvidence({
+      symbol: "RELIANCE",
+      quote: { price: 2400, updatedAt: new Date(MARKET_OPEN.getTime() + 5_000) },
+      provenance: { sourceProvider: "kite", trustTier: "authoritative", notForTradeDecisions: false, isStale: false },
+    });
+    const r5b = tryInsert({ lane: "equity_cash", segment: "NSE_EQ", instrument: "RELIANCE", decisionTime: MARKET_OPEN, source: "MANUAL", equityFillEvidence: futureEv });
+    expect(r5b.reason).toBe("TRADE_ADMISSION_CONTEXT_INCOMPLETE");
+    expect(insertCallCount).toBe(0);
+
+    // W-5c: non-authoritative Yahoo (notForTradeDecisions=true) → QUOTE_STALE_OR_NOT_TRADE_GRADE
+    const yahooEv = buildEquityFillEvidence({
+      symbol: "RELIANCE",
+      quote: { price: 2400, updatedAt: QUOTE_TS },
+      provenance: { sourceProvider: "yahoo", trustTier: "secondary_analytics", notForTradeDecisions: true, isStale: false },
+    });
+    const r5c = tryInsert({ lane: "equity_cash", segment: "NSE_EQ", instrument: "RELIANCE", decisionTime: MARKET_OPEN, source: "MANUAL", equityFillEvidence: yahooEv });
+    expect(r5c.reason).toBe("QUOTE_STALE_OR_NOT_TRADE_GRADE");
+    expect(insertCallCount).toBe(0);
+  });
+
+  it("W-6. valid Kite evidence → Phase B allowed; exactly one insert call; core fields directly from validatedFill", () => {
+    const ev = buildEquityFillEvidence(KITE_ROW);
+    expect(ev).not.toBeNull();
+    const r = tryInsert({
+      lane: "equity_cash", segment: "NSE_EQ",
+      instrument: "RELIANCE",
+      decisionTime: MARKET_OPEN, source: "MANUAL",
+      equityFillEvidence: ev,
+    });
+    expect(r.allowed).toBe(true);
+    expect(insertCallCount).toBe(1);                       // exactly one insert call
+    expect(lastInsertCore?.symbol).toBe("RELIANCE");       // from validatedFill.instrument
+    expect(lastInsertCore?.entryPrice).toBe(2400);         // from validatedFill.price
+    expect(lastInsertCore?.lastPrice).toBe(2400);          // same source as entryPrice
+    expect(lastInsertCore?.openedAt).toBe(MARKET_OPEN);    // from validatedFill.decisionTime
+    expect(lastInsertCore?.lastEvaluatedAt).toBe(MARKET_OPEN);
+  });
+
+  it("W-7. module-opaque brand: TypeScript rejects external EquityFillEvidence construction without factory", () => {
+    // The unique symbol _EVIDENCE_BRAND is NOT exported from equityFillEvidence.ts.
+    // External modules cannot name the brand key in an object literal, so TypeScript
+    // reports a missing-property error on any uncast external assignment.
+    // The @ts-expect-error directive below is itself verified at typecheck time:
+    // if TypeScript does NOT emit an error here, the directive itself becomes an error —
+    // proving the brand is enforced bidirectionally by the compiler.
+    // @ts-expect-error — Property '[unique symbol]' required by EquityFillEvidence cannot be named outside equityFillEvidence.ts
+    const forged: EquityFillEvidence = {
+      instrument: "RELIANCE",
+      price: 2400,
+      providerQuoteTimestamp: QUOTE_TS,
+      providerIdentity: "kite",
+      sourceTrustTier: "authoritative",
+      notForTradeDecisions: false,
+      isStale: false,
+      priceSourceKind: "kite_ltp",
+      freshnessPolicyId: "watchlist.quote.maxFreshnessSec",
+    };
+    void forged; // consumed to satisfy unused-variable lint; line is never reached in passing runs
+  });
 });

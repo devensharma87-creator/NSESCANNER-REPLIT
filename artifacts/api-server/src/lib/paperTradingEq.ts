@@ -648,7 +648,10 @@ export async function openPaperEquityTrade(
       const inserted = await tx
         .insert(paperTradeEqTable)
         .values({
-          symbol: signal.symbol,
+          // P0.2 Correction 3: symbol comes directly from validatedFill.instrument —
+          // NOT from signal.symbol. Phase B step 8 enforces ev.instrument===ctx.instrument,
+          // so validatedFill.instrument is the Phase-B-verified instrument identity.
+          symbol: validatedFill.instrument,
           name: signal.name,
           exchange: signal.exchange,
           signalDate: today,

@@ -1,0 +1,53 @@
+Apply only the remaining P0.2 equity structural corrections below. Preserve F&O fail-closed behavior exactly and do not modify paperTradingFO.ts.
+
+In the durable equity insert, replace:
+symbol: signal.symbol
+
+with:
+
+symbol: validatedFill.instrument
+
+The durable writer must directly use both validatedFill.instrument and validatedFill.price. Do not rely on transitive equality with signal.symbol.
+
+Replace the publicly forgeable string _evidenceBrand with a module-private opaque brand using an unexported unique symbol. Only buildEquityFillEvidence() may create valid EquityFillEvidence.
+Add a pure writer-mapping seam or helper, if required, so tests can prove the actual values prepared for insertion without accessing a database.
+Add focused tests proving:
+signal.entryPrice deliberately differs from validatedFill.price, but inserted entryPrice and lastPrice use only validatedFill.price;
+the inserted symbol comes directly from validatedFill.instrument;
+mismatched evidence instrument is rejected before the writer callback;
+missing, stale, future, invalid and non-authoritative evidence produces zero writer callbacks;
+valid Kite evidence produces exactly one writer callback;
+outside modules cannot normally construct EquityFillEvidence without the factory;
+internally derived age remains unchanged.
+Do not claim that validatedFill.provider is stored in the existing source column. That column records opening origin—MANUAL/AUTO/STAGED—not market-data provider. Do not add a schema migration in this task. Report:
+
+EQUITY_PROVIDER_PROVENANCE_PERSISTED = NOT_IMPLEMENTED
+
+Treat durable provider/timestamp audit persistence as a separate follow-up unless an existing appropriate audit/metadata field already exists.
+
+Prove from source that both original containment constants remain unchanged:
+EQUITY_AUTO_OPEN_C0_BLOCKED
+FNO_AUTO_OPEN_C0_BLOCKED
+
+Do not substitute entry-cutoff or Phase-B rejection for this proof.
+
+Do not modify F&O logic, restart workflows, access databases, call providers, inspect live logs, deploy, publish, push or modify historical positions.
+Run only the already-authorized focused pure tests and typecheck. Return exact commands and captured counts. Do not speculate about unavailable earlier commands; report them as UNKNOWN.
+
+Finish with:
+
+EQUITY_TIMESTAMP_DERIVED_AGE
+EQUITY_VALIDATED_PRICE_DIRECTLY_INSERTED
+EQUITY_VALIDATED_SYMBOL_DIRECTLY_INSERTED
+EQUITY_EVIDENCE_OPAQUE_FACTORY_ONLY
+ARBITRARY_AGE_BYPASS_ABSENT
+EQUITY_PROVIDER_PROVENANCE_PERSISTED
+FNO_FAIL_CLOSED_PRESERVED
+ORIGINAL_C0_EQUITY
+ORIGINAL_C0_FNO
+BROKER_EXECUTION
+HISTORICAL_ROWS_MODIFIED
+DEPLOYED
+INSTRUCTION_DEVIATIONS
+
+Stop after the evidence report.

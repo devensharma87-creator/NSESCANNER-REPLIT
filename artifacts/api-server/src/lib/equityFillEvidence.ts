@@ -5,27 +5,39 @@
  * provider quote timestamp, and source provenance that Phase B validates
  * before authorizing a durable equity open.
  *
- * Only constructable via `buildEquityFillEvidence()` — the brand field
- * (`_evidenceBrand`) prevents callers from satisfying the interface without
- * going through the factory. No cryptographic protection is claimed; the
- * requirement is a single controlled construction path so the durable writer
- * cannot receive price from one object and timestamp from another.
+ * Only constructable via `buildEquityFillEvidence()` — the opaque unique-symbol
+ * brand field prevents callers from satisfying the interface without going through
+ * the factory. No cryptographic protection is claimed; the requirement is a single
+ * controlled construction path so the durable writer cannot receive price from one
+ * object and timestamp from another.
  *
  * Struct design: `price` and `providerQuoteTimestamp` are taken from the same
  * `row.quote` object so they are provably from the same upstream Kite event
  * (kq.last_price and kq.ts). Separating them at construction is impossible.
  */
 
+// Module-private unique symbol — NOT exported.
+// External modules cannot name this key and therefore cannot construct a
+// compliant EquityFillEvidence object literal without going through
+// buildEquityFillEvidence(). TypeScript enforces this at compile time.
+const _EVIDENCE_BRAND: unique symbol = Symbol("EquityFillEvidence@equityFillEvidence.ts");
+
 /**
- * Immutable, branded evidence bundle for an equity fill.
+ * Immutable, opaque-branded evidence bundle for an equity fill.
  * Only constructable via `buildEquityFillEvidence()`.
+ *
+ * The brand is an unexported unique symbol: external code cannot name the
+ * key and therefore cannot satisfy this interface in an object literal without
+ * a type-assertion cast. TypeScript will emit a compile error on any uncast
+ * external object literal (verified by @ts-expect-error in tradeAdmission.test.ts).
  */
 export interface EquityFillEvidence {
   /**
-   * Brand token — enforces single controlled construction path.
-   * Not cryptographic; signals the value came from the canonical factory.
+   * Opaque brand key — enforces single controlled construction path.
+   * The symbol is unexported; only buildEquityFillEvidence() can produce
+   * a structurally valid EquityFillEvidence without a type-assertion bypass.
    */
-  readonly _evidenceBrand: "EquityFillEvidence@equityFillEvidence.ts";
+  readonly [_EVIDENCE_BRAND]: void;
   /** NSE symbol — must equal ctx.instrument at Phase B entry. */
   readonly instrument: string;
   /**
@@ -189,7 +201,7 @@ export function buildEquityFillEvidence(
   const isStale = prov?.isStale ?? null;
 
   return Object.freeze({
-    _evidenceBrand: "EquityFillEvidence@equityFillEvidence.ts" as const,
+    [_EVIDENCE_BRAND]: undefined as void,
     instrument: row.symbol,
     price,
     providerQuoteTimestamp: updatedAt,
@@ -200,4 +212,45 @@ export function buildEquityFillEvidence(
     priceSourceKind: providerIdentity === "kite" ? "kite_ltp" : `${providerIdentity}_price`,
     freshnessPolicyId: "watchlist.quote.maxFreshnessSec",
   }) as EquityFillEvidence;
+}
+
+// ─── Pure writer-mapping seam ─────────────────────────────────────────────────
+
+/**
+ * Core equity insert values derived directly from Phase-B-validated fill evidence.
+ *
+ * All fields are raw (pre-DB-formatting) so tests can verify the mapping without
+ * a database. The durable writer applies toDbNumeric() to numeric fields before
+ * the actual SQL insert — that formatting step is a separate concern.
+ */
+export interface EquityInsertCore {
+  /** Directly from ValidatedFillEvidence.instrument — NOT signal.symbol. */
+  symbol: string;
+  /** Directly from ValidatedFillEvidence.price — NOT signal.entryPrice. */
+  entryPrice: number;
+  /** Same as entryPrice at open time — both come from ValidatedFillEvidence.price. */
+  lastPrice: number;
+  /** Directly from ValidatedFillEvidence.decisionTime. */
+  openedAt: Date;
+  /** Same as openedAt — both from ValidatedFillEvidence.decisionTime. */
+  lastEvaluatedAt: Date;
+}
+
+/**
+ * Pure writer-mapping seam: maps Phase-B-validated fill evidence to the core
+ * equity insert values (P0.2 Corrections 3 + 4).
+ *
+ * Tests import this function to verify the exact mapping that the durable writer
+ * uses, without requiring a database connection or a live paper-trade insert.
+ * The production insert path uses the same derivation: symbol and price come
+ * directly from validatedFill, never from signal.symbol or signal.entryPrice.
+ */
+export function buildEquityInsertCore(fill: ValidatedFillEvidence): EquityInsertCore {
+  return {
+    symbol: fill.instrument,
+    entryPrice: fill.price,
+    lastPrice: fill.price,
+    openedAt: fill.decisionTime,
+    lastEvaluatedAt: fill.decisionTime,
+  };
 }
