@@ -407,6 +407,10 @@ export interface FinalExecutionAdmissionContext {
   /**
    * Age of the fill-price quote in seconds at the time of the open attempt.
    * Must be finite — NaN / ±Infinity → TRADE_ADMISSION_CONTEXT_INCOMPLETE.
+   * Must be non-negative — negative values mean quoteTimestamp is in the future
+   * (clock skew or corrupted data); no tolerance → TRADE_ADMISSION_CONTEXT_INCOMPLETE.
+   * For F&O lanes: must be > 0 — exactly 0 is a fetch-receipt-time proxy and is
+   * explicitly prohibited; pass NaN when no provider event timestamp is available.
    */
   quoteAgeSec: number;
   /**
@@ -484,14 +488,14 @@ export function computeFinalExecutionAdmission(ctx: FinalExecutionAdmissionConte
   if (
     !ctx.quoteProvenance ||
     typeof ctx.quoteIsTradeGrade !== "boolean" ||
-    typeof ctx.quoteAgeSec !== "number" || !isFinite(ctx.quoteAgeSec) ||
+    typeof ctx.quoteAgeSec !== "number" || !isFinite(ctx.quoteAgeSec) || ctx.quoteAgeSec < 0 ||
     typeof ctx.quoteMaxAgeSec !== "number" || !isFinite(ctx.quoteMaxAgeSec) || ctx.quoteMaxAgeSec <= 0
   ) {
     return {
       phase: "FINAL_EXECUTION",
       allowed: false,
       reason: "TRADE_ADMISSION_CONTEXT_INCOMPLETE",
-      detail: `Phase B mandatory quote fields absent or invalid — quoteProvenance="${provenance}", quoteIsTradeGrade=${ctx.quoteIsTradeGrade}, quoteAgeSec=${ctx.quoteAgeSec}, quoteMaxAgeSec=${ctx.quoteMaxAgeSec}; instrument=${ctx.instrument}`,
+      detail: `Phase B mandatory quote fields absent or invalid — quoteProvenance="${provenance}", quoteIsTradeGrade=${ctx.quoteIsTradeGrade}, quoteAgeSec=${ctx.quoteAgeSec} (NaN/±Inf = missing timestamp; negative = future timestamp, no clock-skew tolerance), quoteMaxAgeSec=${ctx.quoteMaxAgeSec}; instrument=${ctx.instrument}`,
       openedSessionValidity: "TIMESTAMP_AMBIGUOUS",
       cutoffPolicyValidity: "UNKNOWN",
       calendarVersion: CALENDAR_VERSION,
@@ -501,7 +505,7 @@ export function computeFinalExecutionAdmission(ctx: FinalExecutionAdmissionConte
     };
   }
 
-  // ── 2. F&O lane: enforce option-chain policy minimum ──────────────────────
+  // ── 2. F&O lane: enforce option-chain policy minimum + reject proxy age=0 ──
   // Index-quote maxAge (120 s) cannot authorize option-chain/premium fills —
   // quoteMaxAgeSec must be >= FNO_OPTION_CHAIN_MAX_AGE_SEC (300 s).
   if ((ctx.lane === "nse_fo" || ctx.lane === "bse_fo") && ctx.quoteMaxAgeSec < FNO_OPTION_CHAIN_MAX_AGE_SEC) {
@@ -515,6 +519,26 @@ export function computeFinalExecutionAdmission(ctx: FinalExecutionAdmissionConte
       calendarVersion: CALENDAR_VERSION,
       calendarScope: ctx.lane === "bse_fo" ? "BSE_FO_UNVERIFIED" : "NSE_CURATED_2026",
       timestampConfidence: "HIGH",
+      quoteProvenance: provenance,
+    };
+  }
+  // F&O lane: reject quoteAgeSec=0 (fetch-receipt-time proxy).
+  // The Kite REST option-chain response (KiteQuote) provides no per-contract or
+  // response-level exchange/provider event timestamp — the KiteQuote interface
+  // has no ts/timestamp field. quoteAgeSec=0 indicates the caller is using the
+  // chain fetch-receipt time as a proxy, which is explicitly prohibited (P0.2 C2).
+  // Pass quoteAgeSec=NaN when no provider event timestamp is available.
+  if ((ctx.lane === "nse_fo" || ctx.lane === "bse_fo") && ctx.quoteAgeSec === 0) {
+    return {
+      phase: "FINAL_EXECUTION",
+      allowed: false,
+      reason: "TRADE_ADMISSION_CONTEXT_INCOMPLETE",
+      detail: `F&O final admission: quoteAgeSec=0 is a fetch-receipt-time proxy, not a provider/exchange event timestamp; the Kite option-chain response (KiteQuote) carries no per-contract or response-level event time — supply a proven per-contract timestamp or pass quoteAgeSec=NaN to fail closed; instrument=${ctx.instrument}, quoteProvenance=${provenance}`,
+      openedSessionValidity: "TIMESTAMP_AMBIGUOUS",
+      cutoffPolicyValidity: "UNKNOWN",
+      calendarVersion: CALENDAR_VERSION,
+      calendarScope: ctx.lane === "bse_fo" ? "BSE_FO_UNVERIFIED" : "NSE_CURATED_2026",
+      timestampConfidence: "LOW",
       quoteProvenance: provenance,
     };
   }

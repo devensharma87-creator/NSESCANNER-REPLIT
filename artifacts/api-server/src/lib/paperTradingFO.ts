@@ -940,15 +940,24 @@ export async function openPaperTrade(input: LifecycleHookInput): Promise<PaperTr
       serverTime: new Date(),
       source: "AUTO",
       entryCutoffPolicy: foEntryCutoff,
-      // The option-chain premium quote: fetched synchronously above (quoteAgeSec ≈ 0).
-      // quoteIsTradeGrade = chain was successfully fetched and returned non-null.
-      // Limitation: optionEntry comes from signal.optionLtp (cached at signal-generation
-      // time); the chain here is for liquidity validation. The chain fetch IS the
-      // authoritative option-premium source available in this lane.
-      quoteProvenance: "kite_option_chain",
-      quoteIsTradeGrade: chainFetchOk && chain !== null,
-      quoteAgeSec: 0,
-      quoteMaxAgeSec: 300,
+      // P0.2 Correction 2: The Kite REST option-chain response (KiteQuote) provides
+      // NO per-contract or response-level exchange/provider event timestamp —
+      // the KiteQuote interface has no ts/timestamp field.
+      // OcResponse.generatedAt is a server-build timestamp, not a Kite/exchange
+      // event time. quoteAgeSec=0 (fetch-receipt proxy) is explicitly prohibited
+      // as a substitute for a provider event timestamp.
+      //
+      // Consequence: F&O durable opens fail closed with TRADE_ADMISSION_CONTEXT_INCOMPLETE
+      // until a provider with adequate per-contract event timestamp is integrated.
+      // The fill premium (optionEntry = signal.optionLtp) is from signal-generation
+      // time — a different instant from the chain fetch. Without a proven event
+      // timestamp, Phase B cannot validate that the fill premium is current.
+      //
+      // F&O signals, liquidity gates, C0 hard-block, and all exit paths are unaffected.
+      quoteProvenance: "kite_option_chain_no_event_ts",
+      quoteIsTradeGrade: false,  // no per-contract event timestamp → not trade-grade for fill validation
+      quoteAgeSec: NaN,          // no Kite exchange/provider event timestamp available
+      quoteMaxAgeSec: 300,       // policy: MODULE_REQUIREMENTS.fno.optionChain (requirements.ts:180)
     });
     if (!finalFoAdmission.allowed) {
       if (recordSkip("PAPER_RISK_GUARD_BLOCKED")) {

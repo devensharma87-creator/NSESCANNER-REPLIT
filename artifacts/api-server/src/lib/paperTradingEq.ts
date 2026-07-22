@@ -210,6 +210,12 @@ export async function openPaperEquityTrade(
       quoteAgeSec: number;
       quoteMaxAgeSec: number;
       quoteTimestamp?: string | null;
+      /**
+       * Captured decision instant — passed as serverTime to Phase B so the
+       * quote-age computation and the session check share the exact same clock
+       * reading (P0.2 Correction 1). Falls back to new Date() if absent.
+       */
+      serverTime?: Date;
     } | null;
   },
 ): Promise<PaperTradeEqRow | null> {
@@ -589,7 +595,9 @@ export async function openPaperEquityTrade(
           lane: "equity_cash",
           segment: "NSE_EQ",
           instrument: signal.symbol,
-          serverTime: new Date(),
+          // Use the captured decision time when available so Phase B session
+          // check shares the same instant as the quote-age computation (P0.2 C1).
+          serverTime: fxCtx?.serverTime ?? new Date(),
           source: openSource as "AUTO" | "MANUAL" | "SWING_STAGED_APPROVAL",
           entryCutoffPolicy: EQUITY_AUTO_ENTRY_CUTOFF,
           quoteProvenance: fxCtx?.quoteProvenance ?? "",
@@ -946,10 +954,20 @@ export async function openManualPaperEquityTrade(
     levelsSource: "yahoo",
     levelsWarnings: [],
   };
-  // ── Phase B quote context — extract from scanner row provenance ────────────
+  // ── Phase B quote context — execution-time age from upstream Kite event ts ─
+  // P0.2 Correction 1: quote age must be measured at the durable-open attempt,
+  // NOT at scanner-row construction time. `prov.freshnessSec` is staleness at
+  // scan build and can underestimate real age by the scanner refresh interval
+  // (~60 s), silently permitting a quote that has crossed the 120 s budget.
+  //
+  // `row.quote.updatedAt` = new Date(kq.ts) in fullNseScanner.ts — kq.ts is
+  // Kite's own exchange/feed event timestamp on the quote object. It is the
+  // same kq whose price (kq.last_price) is the modeled fill price. These are
+  // inseparable: validating the timestamp proves the fill price is from the
+  // same upstream event.
+  //
   // SOURCE: MODULE_REQUIREMENTS.watchlist.quote.maxFreshnessSec = 120 (requirements.ts:189)
-  // If provenance is missing or insufficient, return a structured rejection
-  // before calling the durable writer — do not fill with an unverified quote.
+  const decisionTime = new Date();
   const prov = row.provenance;
   if (!prov) {
     return {
@@ -957,15 +975,20 @@ export async function openManualPaperEquityTrade(
       reason: "Quote provenance unavailable — scanner row has no provenance metadata. Cannot open with unverified fill price.",
     };
   }
-  const rawQuoteAgeSec = prov.freshnessSec != null
-    ? prov.freshnessSec
-    : prov.asOf != null
-      ? Math.round(Date.now() / 1000 - prov.asOf)
-      : null;
-  if (rawQuoteAgeSec == null) {
+  // The Kite event timestamp must be a valid, non-future Date. No clock-skew
+  // tolerance: a future or invalid timestamp indicates corrupted data.
+  const quoteTs = row.quote.updatedAt instanceof Date ? row.quote.updatedAt : null;
+  if (!quoteTs || !isFinite(quoteTs.getTime())) {
     return {
       row: null,
-      reason: "Quote age cannot be determined — provenance has no freshnessSec or asOf timestamp. Cannot open without verified quote freshness.",
+      reason: "Quote timestamp (row.quote.updatedAt) is missing or not a valid Date — cannot compute execution-time freshness for fill validation.",
+    };
+  }
+  const rawQuoteAgeSec = (decisionTime.getTime() - quoteTs.getTime()) / 1000;
+  if (rawQuoteAgeSec < 0) {
+    return {
+      row: null,
+      reason: `Quote timestamp (${quoteTs.toISOString()}) is in the future relative to decision time (${decisionTime.toISOString()}) — no clock-skew tolerance; fill freshness cannot be validated.`,
     };
   }
   const quoteIsTradeGrade = prov.sourceProvider === "kite"
@@ -974,9 +997,10 @@ export async function openManualPaperEquityTrade(
   const finalExecutionQuoteContext = {
     quoteProvenance: `scanner_${prov.sourceProvider ?? "unknown"}`,
     quoteIsTradeGrade,
-    quoteAgeSec: rawQuoteAgeSec,
-    quoteMaxAgeSec: 120,
-    quoteTimestamp: row.quote.updatedAt instanceof Date ? row.quote.updatedAt.toISOString() : (row.quote.updatedAt ?? null),
+    quoteAgeSec: rawQuoteAgeSec,          // execution-time age: decisionTime − Kite event ts
+    quoteMaxAgeSec: 120,                  // MODULE_REQUIREMENTS.watchlist.quote.maxFreshnessSec
+    quoteTimestamp: quoteTs.toISOString(), // upstream Kite event timestamp (kq.ts)
+    serverTime: decisionTime,             // shared decision instant for Phase B session check
   };
 
   logger.info(

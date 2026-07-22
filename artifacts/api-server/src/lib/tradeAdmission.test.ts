@@ -1067,6 +1067,8 @@ describe("Phase A / Phase B final execution enforcement (P0.2 required)", () => 
   // ── Test 12: Valid F&O final context → open exactly once ─────────────────
 
   it("12. Valid F&O final context (fresh option chain, trade-grade, correct policy) → open exactly once", () => {
+    // Note: quoteAgeSec must be > 0 for F&O lanes (P0.2 C2: age=0 is a
+    // fetch-receipt-time proxy and is explicitly rejected). Use 5s (fresh).
     orchestrateFinal(
       {
         ...NSE_FO,
@@ -1075,7 +1077,7 @@ describe("Phase A / Phase B final execution enforcement (P0.2 required)", () => 
         entryCutoffPolicy: CUTOFF_15_25,
         quoteProvenance: "kite_option_chain",
         quoteIsTradeGrade: true,
-        quoteAgeSec: 0,
+        quoteAgeSec: 5,    // >0 required; 5s = fresh chain (P0.2 C2: age=0 prohibited)
         quoteMaxAgeSec: FNO_OPTION_CHAIN_MAX_AGE_SEC,
       },
       onOpen, onReject,
@@ -1088,6 +1090,9 @@ describe("Phase A / Phase B final execution enforcement (P0.2 required)", () => 
 
   it("13. BSE (SENSEX) calendar-unavailable blocks Phase B → CALENDAR_UNAVAILABLE, open=0", () => {
     expect(BSE_CALENDAR_VERIFIED).toBe(false);
+    // Note: quoteAgeSec must be > 0 for F&O lanes (P0.2 C2: age=0 is a
+    // fetch-receipt-time proxy). Use 5s so the request reaches the BSE
+    // calendar check (step 3) and returns CALENDAR_UNAVAILABLE.
     orchestrateFinal(
       {
         ...BSE_FO,
@@ -1096,7 +1101,7 @@ describe("Phase A / Phase B final execution enforcement (P0.2 required)", () => 
         entryCutoffPolicy: CUTOFF_15_25,
         quoteProvenance: "kite_option_chain",
         quoteIsTradeGrade: true,
-        quoteAgeSec: 0,
+        quoteAgeSec: 5,    // >0 required; reaches BSE calendar check (P0.2 C2: age=0 prohibited)
         quoteMaxAgeSec: FNO_OPTION_CHAIN_MAX_AGE_SEC,
       },
       onOpen, onReject,
@@ -1170,5 +1175,265 @@ describe("Phase A / Phase B final execution enforcement (P0.2 required)", () => 
     } else {
       expect(final.quoteProvenance).toBe("scanner_kite");
     }
+  });
+});
+
+// ─── P0.2 Correction 1 & 2 — execution-time fill-price provenance ────────────
+
+describe("P0.2 Correction 1 & 2 — execution-time fill-price provenance (14 cases)", () => {
+  let openCount: number;
+  let rejectCount: number;
+  let lastRejectReason: string | undefined;
+  beforeEach(() => { openCount = 0; rejectCount = 0; lastRejectReason = undefined; });
+  const onOpen   = () => { openCount++; };
+  const onReject = (r: string) => { rejectCount++; lastRejectReason = r; };
+
+  function orchestrateFinal(
+    ctx: FinalExecutionAdmissionContext,
+    _onOpen: () => void,
+    _onReject: (reason: string) => void,
+  ): FinalExecutionAdmissionResult {
+    const result = computeFinalExecutionAdmission(ctx);
+    if (!result.allowed) { _onReject(result.reason); return result; }
+    _onOpen();
+    return result;
+  }
+
+  // ─── Correction 1: Equity execution-time age ─────────────────────────────
+
+  it("C1-1. scan-build age 100s (within limit), decision-time age 130s (> 120s) → QUOTE_STALE_OR_NOT_TRADE_GRADE, open=0", () => {
+    // Demonstrates the correction: prov.freshnessSec=100 (old) would pass;
+    // execution-time quoteAgeSec=130 (new) correctly rejects.
+    orchestrateFinal({
+      ...NSE_EQ,
+      serverTime: MARKET_OPEN,
+      source: "MANUAL",
+      quoteProvenance: "scanner_kite",
+      quoteIsTradeGrade: true,
+      quoteAgeSec: 130,     // execution-time age — 130s > 120s limit
+      quoteMaxAgeSec: 120,  // MODULE_REQUIREMENTS.watchlist.quote (requirements.ts:189)
+    }, onOpen, onReject);
+    expect(openCount).toBe(0);
+    expect(rejectCount).toBe(1);
+    expect(lastRejectReason).toBe("QUOTE_STALE_OR_NOT_TRADE_GRADE");
+  });
+
+  it("C1-2. decision-time age 119s < 120s limit → admitted, open=1", () => {
+    orchestrateFinal({
+      ...NSE_EQ,
+      serverTime: MARKET_OPEN,
+      source: "MANUAL",
+      quoteProvenance: "scanner_kite",
+      quoteIsTradeGrade: true,
+      quoteAgeSec: 119,
+      quoteMaxAgeSec: 120,
+    }, onOpen, onReject);
+    expect(openCount).toBe(1);
+    expect(rejectCount).toBe(0);
+  });
+
+  it("C1-3. boundary: quoteAgeSec === quoteMaxAgeSec=120 (strictly-greater check: 120 > 120 is false) → admitted, open=1", () => {
+    // Repository uses ctx.quoteAgeSec! > ctx.quoteMaxAgeSec! (sessionAdmission.ts).
+    // Exactly equal is NOT stale: 120 > 120 = false → admitted.
+    orchestrateFinal({
+      ...NSE_EQ,
+      serverTime: MARKET_OPEN,
+      source: "MANUAL",
+      quoteProvenance: "scanner_kite",
+      quoteIsTradeGrade: true,
+      quoteAgeSec: 120,
+      quoteMaxAgeSec: 120,
+    }, onOpen, onReject);
+    expect(openCount).toBe(1);
+    expect(rejectCount).toBe(0);
+  });
+
+  it("C1-4. smallest unit beyond boundary: quoteAgeSec=120.001 (1 ms) > quoteMaxAgeSec=120 → QUOTE_STALE_OR_NOT_TRADE_GRADE, open=0", () => {
+    orchestrateFinal({
+      ...NSE_EQ,
+      serverTime: MARKET_OPEN,
+      source: "MANUAL",
+      quoteProvenance: "scanner_kite",
+      quoteIsTradeGrade: true,
+      quoteAgeSec: 120.001,  // one millisecond beyond 120 s boundary
+      quoteMaxAgeSec: 120,
+    }, onOpen, onReject);
+    expect(openCount).toBe(0);
+    expect(rejectCount).toBe(1);
+    expect(lastRejectReason).toBe("QUOTE_STALE_OR_NOT_TRADE_GRADE");
+  });
+
+  it("C1-5. negative quoteAgeSec (future timestamp — no clock-skew tolerance) → TRADE_ADMISSION_CONTEXT_INCOMPLETE, open=0", () => {
+    // decisionTime − quoteTimestamp < 0 means the quote is from the future.
+    // Phase B step 1 rejects this unconditionally (P0.2 C1).
+    orchestrateFinal({
+      ...NSE_EQ,
+      serverTime: MARKET_OPEN,
+      source: "MANUAL",
+      quoteProvenance: "scanner_kite",
+      quoteIsTradeGrade: true,
+      quoteAgeSec: -5,      // negative = quoteTimestamp is in the future
+      quoteMaxAgeSec: 120,
+    }, onOpen, onReject);
+    expect(openCount).toBe(0);
+    expect(rejectCount).toBe(1);
+    expect(lastRejectReason).toBe("TRADE_ADMISSION_CONTEXT_INCOMPLETE");
+  });
+
+  it("C1-6. invalid quoteTimestamp string → QUOTE_OUTSIDE_SESSION, open=0", () => {
+    orchestrateFinal({
+      ...NSE_EQ,
+      serverTime: MARKET_OPEN,
+      source: "MANUAL",
+      quoteProvenance: "scanner_kite",
+      quoteIsTradeGrade: true,
+      quoteAgeSec: 10,
+      quoteMaxAgeSec: 120,
+      quoteTimestamp: "not-a-date",
+    }, onOpen, onReject);
+    expect(openCount).toBe(0);
+    expect(rejectCount).toBe(1);
+    expect(lastRejectReason).toBe("QUOTE_OUTSIDE_SESSION");
+  });
+
+  it("C1-7. Yahoo / notForTradeDecisions (quoteIsTradeGrade=false) → QUOTE_STALE_OR_NOT_TRADE_GRADE, open=0", () => {
+    // Covers Yahoo, overlay-kite, stale, and notForTradeDecisions: all yield
+    // quoteIsTradeGrade=false → QUOTE_STALE_OR_NOT_TRADE_GRADE.
+    orchestrateFinal({
+      ...NSE_EQ,
+      serverTime: MARKET_OPEN,
+      source: "MANUAL",
+      quoteProvenance: "scanner_yahoo",
+      quoteIsTradeGrade: false,
+      quoteAgeSec: 10,
+      quoteMaxAgeSec: 120,
+    }, onOpen, onReject);
+    expect(openCount).toBe(0);
+    expect(rejectCount).toBe(1);
+    expect(lastRejectReason).toBe("QUOTE_STALE_OR_NOT_TRADE_GRADE");
+  });
+
+  it("C1-8. valid current Kite quote (quoteAgeSec=10, trade-grade, in-session timestamp) → open=1", () => {
+    // MARKET_OPEN = 2026-01-05 10:00 IST — valid session timestamp.
+    orchestrateFinal({
+      ...NSE_EQ,
+      serverTime: MARKET_OPEN,
+      source: "MANUAL",
+      quoteProvenance: "scanner_kite",
+      quoteIsTradeGrade: true,
+      quoteAgeSec: 10,
+      quoteMaxAgeSec: 120,
+      quoteTimestamp: MARKET_OPEN.toISOString(),
+    }, onOpen, onReject);
+    expect(openCount).toBe(1);
+    expect(rejectCount).toBe(0);
+  });
+
+  it("C1-9. manual Close invocable: exit callback fires regardless of Phase B entry rejection", () => {
+    // forceClosePaperEquityTrade has no admission gate. This verifies exits
+    // are never blocked by Phase B (exit callback fires independent of entry).
+    let exitCount = 0;
+    const onExit = () => { exitCount++; };
+    orchestrateFinal({
+      ...NSE_EQ,
+      serverTime: MARKET_OPEN,
+      source: "MANUAL",
+      quoteProvenance: "scanner_kite",
+      quoteIsTradeGrade: false,  // entry blocked
+      quoteAgeSec: 10,
+      quoteMaxAgeSec: 120,
+    }, onOpen, onReject);
+    expect(openCount).toBe(0);
+    onExit(); // exit is always available
+    expect(exitCount).toBe(1);
+  });
+
+  // ─── Correction 2: F&O fail-closed (no provider event timestamp) ───────────
+
+  it("C2-1. F&O NaN quoteAgeSec (no Kite chain event timestamp) → TRADE_ADMISSION_CONTEXT_INCOMPLETE, open=0", () => {
+    // P0.2 C2 new behavior: Kite chain has no per-contract event timestamp.
+    // NaN is the correct representation. Phase B step 1 fails closed.
+    orchestrateFinal({
+      ...NSE_FO,
+      serverTime: MARKET_OPEN,
+      source: "AUTO",
+      entryCutoffPolicy: CUTOFF_15_25,
+      quoteProvenance: "kite_option_chain_no_event_ts",
+      quoteIsTradeGrade: false,
+      quoteAgeSec: NaN,
+      quoteMaxAgeSec: 300,
+    }, onOpen, onReject);
+    expect(openCount).toBe(0);
+    expect(rejectCount).toBe(1);
+    expect(lastRejectReason).toBe("TRADE_ADMISSION_CONTEXT_INCOMPLETE");
+  });
+
+  it("C2-2. F&O quoteAgeSec=0 (fetch-receipt-time proxy, explicitly prohibited) → TRADE_ADMISSION_CONTEXT_INCOMPLETE, open=0", () => {
+    // The old code passed quoteAgeSec=0 as a proxy for "just fetched".
+    // Phase B step 2 now rejects this for all F&O lanes, even with trade-grade=true.
+    orchestrateFinal({
+      ...NSE_FO,
+      serverTime: MARKET_OPEN,
+      source: "AUTO",
+      entryCutoffPolicy: CUTOFF_15_25,
+      quoteProvenance: "kite_option_chain",
+      quoteIsTradeGrade: true,   // even trade-grade=true cannot rescue age=0 for F&O
+      quoteAgeSec: 0,
+      quoteMaxAgeSec: 300,
+    }, onOpen, onReject);
+    expect(openCount).toBe(0);
+    expect(rejectCount).toBe(1);
+    expect(lastRejectReason).toBe("TRADE_ADMISSION_CONTEXT_INCOMPLETE");
+  });
+
+  it("C2-3. BSE F&O quoteAgeSec=0 (fetch-receipt proxy) → TRADE_ADMISSION_CONTEXT_INCOMPLETE, open=0", () => {
+    // The proxy-age rejection applies to bse_fo as well as nse_fo.
+    orchestrateFinal({
+      ...BSE_FO,
+      serverTime: MARKET_OPEN,
+      source: "AUTO",
+      entryCutoffPolicy: CUTOFF_15_25,
+      quoteProvenance: "kite_option_chain",
+      quoteIsTradeGrade: true,
+      quoteAgeSec: 0,
+      quoteMaxAgeSec: 300,
+    }, onOpen, onReject);
+    expect(openCount).toBe(0);
+    expect(rejectCount).toBe(1);
+    expect(lastRejectReason).toBe("TRADE_ADMISSION_CONTEXT_INCOMPLETE");
+  });
+
+  it("C2-4. F&O cutoff gate survives correction 2: hypothetical valid quoteAgeSec=1 past 15:25 → ENTRY_CUTOFF_PASSED", () => {
+    // Regression: the cutoff check (step 3) is still reachable when quoteAgeSec
+    // is finite and > 0. Correction 2 does not mask the cutoff gate.
+    orchestrateFinal({
+      ...NSE_FO,
+      serverTime: PAST_15_25_CUTOFF,
+      source: "AUTO",
+      entryCutoffPolicy: CUTOFF_15_25,
+      quoteProvenance: "kite_option_chain_hypothetical",
+      quoteIsTradeGrade: true,
+      quoteAgeSec: 1,        // hypothetical valid non-zero age (not a real Kite path today)
+      quoteMaxAgeSec: 300,
+    }, onOpen, onReject);
+    expect(openCount).toBe(0);
+    expect(rejectCount).toBe(1);
+    expect(lastRejectReason).toBe("ENTRY_CUTOFF_PASSED");
+  });
+
+  it("C2-5. F&O BASELINE cutoff survives: hypothetical valid quoteAgeSec=1 past 14:45 → ENTRY_CUTOFF_PASSED", () => {
+    orchestrateFinal({
+      ...NSE_FO,
+      serverTime: PAST_14_45_CUTOFF,
+      source: "AUTO",
+      entryCutoffPolicy: CUTOFF_14_45,
+      quoteProvenance: "kite_option_chain_hypothetical",
+      quoteIsTradeGrade: true,
+      quoteAgeSec: 1,
+      quoteMaxAgeSec: 300,
+    }, onOpen, onReject);
+    expect(openCount).toBe(0);
+    expect(rejectCount).toBe(1);
+    expect(lastRejectReason).toBe("ENTRY_CUTOFF_PASSED");
   });
 });
