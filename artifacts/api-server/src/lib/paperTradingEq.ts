@@ -59,7 +59,7 @@ import { computeSwingLevels } from "./swingSignals";
 import type { StockRow } from "@workspace/api-zod";
 import { checkLedgerReconciliationGate } from "./paperAccountReconciliation";
 import { computePreliminaryAdmission, computeFinalExecutionAdmission, EQUITY_AUTO_ENTRY_CUTOFF } from "./sessionAdmission";
-import { buildEquityFillEvidence, type EquityFillEvidence, type ValidatedFillEvidence } from "./equityFillEvidence";
+import { buildEquityFillEvidence, buildEquityInsertCore, type EquityFillEvidence, type ValidatedFillEvidence } from "./equityFillEvidence";
 
 function num(v: string | number | null | undefined): number {
   if (v == null) return 0;
@@ -634,38 +634,31 @@ export async function openPaperEquityTrade(
       // The guard below is unreachable in normal execution but narrows the type.
       if (!validatedFill) return null;
 
-      // P0.2 Correction 4: entryPrice/lastPrice MUST come from validatedFill.price
-      // (Phase-B-approved fill price from EquityFillEvidence), NOT from
-      // signal.entryPrice. signal.entryPrice is the signal-generation-time scanner
-      // price; validatedFill.price is the execution-time Kite event price from
-      // the same upstream event as providerQuoteTimestamp. These may differ.
-      const fillPrice = validatedFill.price;
-      // openedAt/lastEvaluatedAt use the Phase-B decision instant (the clock
-      // reading shared with quote-age derivation), not signal.triggeredAt.
-      const fillDecisionTime = validatedFill.decisionTime;
+      // P0.2 Corrections 3+4 (integration): buildEquityInsertCore is the single
+      // mapping seam for the five validated-fill fields. W-1, W-2, W-6 exercise
+      // this same function — not a parallel copy — so writer and tests share one
+      // code path.
+      const insertCore = buildEquityInsertCore(validatedFill);
 
       const now = signal.triggeredAt;
       const inserted = await tx
         .insert(paperTradeEqTable)
         .values({
-          // P0.2 Correction 3: symbol comes directly from validatedFill.instrument —
-          // NOT from signal.symbol. Phase B step 8 enforces ev.instrument===ctx.instrument,
-          // so validatedFill.instrument is the Phase-B-verified instrument identity.
-          symbol: validatedFill.instrument,
+          symbol: insertCore.symbol,                          // validatedFill.instrument (Phase-B verified)
           name: signal.name,
           exchange: signal.exchange,
           signalDate: today,
           signalTriggeredAt: now,
           qty,
-          entryPrice: toDbNumeric(fillPrice, 4),
+          entryPrice: toDbNumeric(insertCore.entryPrice, 4), // validatedFill.price
           stopPrice: toDbNumeric(signal.stopPrice, 4),
           target1Price: toDbNumeric(signal.target1Price, 4),
           target2Price: toDbNumeric(signal.target2Price, 4),
           trailedToT1: 0,
           capitalDeployed: toDbNumeric(capitalDeployed, 2),
-          lastPrice: toDbNumeric(fillPrice, 4),
-          lastEvaluatedAt: fillDecisionTime,
-          openedAt: fillDecisionTime,
+          lastPrice: toDbNumeric(insertCore.lastPrice, 4),   // validatedFill.price
+          lastEvaluatedAt: insertCore.lastEvaluatedAt,       // validatedFill.decisionTime
+          openedAt: insertCore.openedAt,                     // validatedFill.decisionTime
           status: "OPEN",
           source: mapWriteSourceToProvenance(opts?.source),
           // B.8 provenance tag — stamped on every new row so consumers
