@@ -15,8 +15,10 @@
 import { describe, it, expect } from "vitest";
 import {
   computeEquitySessionAdmission,
+  computePreliminaryAdmission,
   classifyStoredTimestamp,
   CALENDAR_VERSION,
+  BSE_CALENDAR_VERIFIED,
 } from "./sessionAdmission";
 
 function ist(str: string): Date {
@@ -330,5 +332,96 @@ describe("classifyStoredTimestamp", () => {
       const r = classifyStoredTimestamp(iso);
       expect(r.calendarVersion).toBe(CALENDAR_VERSION);
     }
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Calendar correction — NSE Circular NSE/CMTR/71775 (2026-07-22)
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("NSE/CMTR/71775 calendar correction", () => {
+  describe("May 28 (Buddha Purnima) — must be rejected as a holiday", () => {
+    it("2026-05-28 11:00:00 IST (Thursday, in-session time) → MARKET_CLOSED_HOLIDAY", () => {
+      const r = computeEquitySessionAdmission(ist("2026-05-28 11:00:00"));
+      expect(r.allowed).toBe(false);
+      if (!r.allowed) {
+        expect(r.reason).toBe("MARKET_CLOSED_HOLIDAY");
+        expect(r.openedSessionValidity).toBe("OFF_SESSION");
+      }
+    });
+  });
+
+  describe("June 26 (Muharram, corrected date) — must be rejected as a holiday", () => {
+    it("2026-06-26 12:00:00 IST (Friday, in-session time) → MARKET_CLOSED_HOLIDAY", () => {
+      const r = computeEquitySessionAdmission(ist("2026-06-26 12:00:00"));
+      expect(r.allowed).toBe(false);
+      if (!r.allowed) {
+        expect(r.reason).toBe("MARKET_CLOSED_HOLIDAY");
+        expect(r.openedSessionValidity).toBe("OFF_SESSION");
+      }
+    });
+  });
+
+  describe("June 25 — must NOT be rejected as a holiday (normal Thursday)", () => {
+    it("2026-06-25 12:00:00 IST (Thursday, in-session time) → VALID_SESSION", () => {
+      const r = computeEquitySessionAdmission(ist("2026-06-25 12:00:00"));
+      expect(r.allowed).toBe(true);
+      if (r.allowed) {
+        expect(r.openedSessionValidity).toBe("VALID_SESSION");
+      }
+    });
+
+    it("2026-06-25 is not classified as OFF_SESSION by classifyStoredTimestamp", () => {
+      const r = classifyStoredTimestamp("2026-06-25T06:30:00.000Z"); // 12:00 IST
+      expect(r.openedSessionValidity).toBe("VALID_SESSION");
+      expect(r.openedSessionReason).toBeNull();
+    });
+  });
+
+  describe("Weekends remain rejected", () => {
+    it("Saturday 2026-06-27 11:00:00 IST → MARKET_CLOSED_WEEKEND", () => {
+      const r = computeEquitySessionAdmission(ist("2026-06-27 11:00:00"));
+      expect(r.allowed).toBe(false);
+      if (!r.allowed) expect(r.reason).toBe("MARKET_CLOSED_WEEKEND");
+    });
+
+    it("Sunday 2026-06-28 11:00:00 IST → MARKET_CLOSED_WEEKEND", () => {
+      const r = computeEquitySessionAdmission(ist("2026-06-28 11:00:00"));
+      expect(r.allowed).toBe(false);
+      if (!r.allowed) expect(r.reason).toBe("MARKET_CLOSED_WEEKEND");
+    });
+  });
+
+  describe("BSE remains fail-closed (BSE_CALENDAR_VERIFIED = false)", () => {
+    it("BSE_CALENDAR_VERIFIED is false", () => {
+      expect(BSE_CALENDAR_VERIFIED).toBe(false);
+    });
+
+    it("bse_fo lane on a valid NSE session day → CALENDAR_UNAVAILABLE", () => {
+      const r = computePreliminaryAdmission({
+        lane: "bse_fo",
+        segment: "BSE_FO",
+        instrument: "SENSEX",
+        serverTime: ist("2026-06-25 12:00:00"),
+        source: "AUTO",
+      });
+      expect(r.allowed).toBe(false);
+      if (!r.allowed) {
+        expect(r.reason).toBe("CALENDAR_UNAVAILABLE");
+        expect(r.calendarVersion).toBe(CALENDAR_VERSION);
+      }
+    });
+  });
+
+  describe("Valid NSE session admission still succeeds", () => {
+    it("2026-06-25 12:00:00 IST (normal weekday, non-holiday) → allowed", () => {
+      const r = computeEquitySessionAdmission(ist("2026-06-25 12:00:00"));
+      expect(r.allowed).toBe(true);
+      expect(r.calendarVersion).toBe(CALENDAR_VERSION);
+    });
+
+    it("CALENDAR_VERSION is NSE-2026-v2 after the calendar correction", () => {
+      expect(CALENDAR_VERSION).toBe("NSE-2026-v2");
+    });
   });
 });

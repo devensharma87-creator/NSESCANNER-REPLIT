@@ -54,7 +54,7 @@ import { resolveFreshnessPolicy, type EquityFillEvidence, type ValidatedFillEvid
  * Monotonic version tag for the NSE holiday calendar in `marketEvents.ts`.
  * Bump when the holiday list is updated.
  */
-export const CALENDAR_VERSION = "NSE-2026-v1";
+export const CALENDAR_VERSION = "NSE-2026-v2";
 
 /**
  * Whether a separately-verified BSE holiday calendar is available.

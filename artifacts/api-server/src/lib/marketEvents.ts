@@ -39,23 +39,25 @@ export interface EconomicEvent {
  * ─────────────────────────────────────────────────────────────────────── */
 
 // --- Curated 2026 NSE/BSE holidays (published by NSE annually) ---
-// Source: NSE 2026 trading holiday list (Equity segment).
+// Source: NSE Circular NSE/CMTR/71775 — official 2026 weekday trading holidays
+// (15 dates, equity segment). Updated from prior placeholder list 2026-07-22.
+// June 25 is a normal Thursday and is NOT a holiday.
 const NSE_HOLIDAYS_2026: MarketHoliday[] = [
-  { date: "2026-01-26", name: "Republic Day",         exchange: "NSE/BSE", region: "IN" },
-  { date: "2026-02-19", name: "Mahashivratri",        exchange: "NSE/BSE", region: "IN" },
-  { date: "2026-03-03", name: "Holi",                 exchange: "NSE/BSE", region: "IN" },
-  { date: "2026-03-21", name: "Eid-ul-Fitr",          exchange: "NSE/BSE", region: "IN" },
-  { date: "2026-04-03", name: "Good Friday",          exchange: "NSE/BSE", region: "IN" },
-  { date: "2026-04-14", name: "Dr. B.R. Ambedkar Jayanti", exchange: "NSE/BSE", region: "IN" },
-  { date: "2026-05-01", name: "Maharashtra Day",      exchange: "NSE/BSE", region: "IN" },
-  { date: "2026-06-25", name: "Muharram",             exchange: "NSE/BSE", region: "IN" },
-  { date: "2026-08-15", name: "Independence Day",     exchange: "NSE/BSE", region: "IN" },
-  { date: "2026-08-27", name: "Ganesh Chaturthi",     exchange: "NSE/BSE", region: "IN" },
-  { date: "2026-10-02", name: "Mahatma Gandhi Jayanti", exchange: "NSE/BSE", region: "IN" },
-  { date: "2026-10-21", name: "Diwali — Laxmi Pujan (Muhurat trading at 6:15 PM)", exchange: "NSE/BSE", region: "IN" },
-  { date: "2026-10-22", name: "Diwali Balipratipada", exchange: "NSE/BSE", region: "IN" },
-  { date: "2026-11-25", name: "Guru Nanak Jayanti",   exchange: "NSE/BSE", region: "IN" },
-  { date: "2026-12-25", name: "Christmas",            exchange: "NSE/BSE", region: "IN" },
+  { date: "2026-01-26", name: "Republic Day",                 exchange: "NSE/BSE", region: "IN" },
+  { date: "2026-03-03", name: "Holi",                         exchange: "NSE/BSE", region: "IN" },
+  { date: "2026-03-26", name: "Shri Ram Navami",              exchange: "NSE/BSE", region: "IN" },
+  { date: "2026-03-31", name: "Id-ul-Fitr (Eid)",             exchange: "NSE/BSE", region: "IN" },
+  { date: "2026-04-03", name: "Good Friday",                  exchange: "NSE/BSE", region: "IN" },
+  { date: "2026-04-14", name: "Dr. B.R. Ambedkar Jayanti",   exchange: "NSE/BSE", region: "IN" },
+  { date: "2026-05-01", name: "Maharashtra Day",              exchange: "NSE/BSE", region: "IN" },
+  { date: "2026-05-28", name: "Buddha Purnima",               exchange: "NSE/BSE", region: "IN" },
+  { date: "2026-06-26", name: "Muharram",                     exchange: "NSE/BSE", region: "IN" },
+  { date: "2026-09-14", name: "Milad-un-Nabi",                exchange: "NSE/BSE", region: "IN" },
+  { date: "2026-10-02", name: "Mahatma Gandhi Jayanti",       exchange: "NSE/BSE", region: "IN" },
+  { date: "2026-10-20", name: "Diwali — Laxmi Pujan",         exchange: "NSE/BSE", region: "IN" },
+  { date: "2026-11-10", name: "Diwali Balipratipada",         exchange: "NSE/BSE", region: "IN" },
+  { date: "2026-11-24", name: "Guru Nanak Jayanti",           exchange: "NSE/BSE", region: "IN" },
+  { date: "2026-12-25", name: "Christmas",                    exchange: "NSE/BSE", region: "IN" },
 ];
 
 // --- Provisional 2027 NSE/BSE holidays (best-effort projection from prior years' patterns).
