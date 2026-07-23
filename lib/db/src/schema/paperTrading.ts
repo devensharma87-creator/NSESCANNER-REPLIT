@@ -391,6 +391,47 @@ export const paperTradeEqTable = pgTable(
     chargesCalculatedAt: timestamp("charges_calculated_at", { withTimezone: true }),
     netPnl: numeric("net_pnl", { precision: 18, scale: 2 }),
     chargesStatus: text("charges_status"),
+
+    // ── P0.3 fill evidence (additive 2026-07-23, nullable — legacy rows have no evidence) ──
+    /**
+     * Provider identity at admission time (e.g. "kite"). NULL on all rows
+     * written before P0.3 — never backfilled.
+     * Source: ValidatedFillEvidence.provider.
+     */
+    fillProvider: text("fill_provider"),
+    /**
+     * Kite feed event timestamp at fill time. NULL on pre-P0.3 rows.
+     * Source: ValidatedFillEvidence.providerTimestamp
+     *         = EquityFillEvidence.providerQuoteTimestamp = new Date(kq.ts).
+     */
+    fillProviderTs: timestamp("fill_provider_ts", { withTimezone: true }),
+    /**
+     * Decision instant captured at open-attempt time. NULL on pre-P0.3 rows.
+     * Source: ValidatedFillEvidence.decisionTime (FinalExecutionAdmissionContext.decisionTime).
+     */
+    fillDecisionTime: timestamp("fill_decision_time", { withTimezone: true }),
+    /**
+     * Computed quote age in seconds: (decisionTime − providerTimestamp) / 1000.
+     * Derived internally by Phase B; never caller-supplied. NULL on pre-P0.3 rows.
+     * Source: ValidatedFillEvidence.computedAgeSec.
+     */
+    fillComputedAgeSec: numeric("fill_computed_age_sec", { precision: 10, scale: 3 }),
+    /**
+     * Freshness-policy identifier used at admission time. NULL on pre-P0.3 rows.
+     * Source: ValidatedFillEvidence.policyId (e.g. "watchlist.quote.maxFreshnessSec").
+     */
+    fillPolicyId: text("fill_policy_id"),
+    /**
+     * Maximum acceptable quote age (seconds) for the applied policy. NULL on pre-P0.3 rows.
+     * Source: ValidatedFillEvidence.policyMaxAgeSec.
+     */
+    fillPolicyMaxAgeSec: numeric("fill_policy_max_age_sec", { precision: 10, scale: 3 }),
+    /**
+     * Evidence-schema version — bumped when the persisted contract changes.
+     * Current: "v1". NULL on pre-P0.3 rows. Never backfilled.
+     * Source: FILL_EVIDENCE_VERSION from equityFillEvidence.ts.
+     */
+    fillEvidenceVersion: text("fill_evidence_version"),
   },
   (t) => ({
     // One open trade per symbol per IST day.

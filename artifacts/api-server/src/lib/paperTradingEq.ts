@@ -59,7 +59,7 @@ import { computeSwingLevels } from "./swingSignals";
 import type { StockRow } from "@workspace/api-zod";
 import { checkLedgerReconciliationGate } from "./paperAccountReconciliation";
 import { computePreliminaryAdmission, computeFinalExecutionAdmission, EQUITY_AUTO_ENTRY_CUTOFF } from "./sessionAdmission";
-import { buildEquityFillEvidence, buildEquityInsertCore, type EquityFillEvidence, type ValidatedFillEvidence } from "./equityFillEvidence";
+import { buildEquityFillEvidence, buildEquityInsertCore, buildEvidencePersistenceSnapshot, type EquityFillEvidence, type ValidatedFillEvidence } from "./equityFillEvidence";
 
 function num(v: string | number | null | undefined): number {
   if (v == null) return 0;
@@ -176,6 +176,58 @@ export function ensurePaperEqProvenanceColumns(): Promise<void> {
   return paperEqProvenanceMigrationPromise;
 }
 
+// ---------------------------------------------------------------------------
+// P0.3 fill-evidence column migration (additive 2026-07-23)
+// ---------------------------------------------------------------------------
+
+/**
+ * Add the seven P0.3 fill-evidence columns to `paper_trade_eq` if they do not
+ * already exist. All columns are nullable so legacy rows (pre-P0.3) remain
+ * readable without any backfill — backfilling would require reconstructing
+ * evidence from a second quote, which is explicitly forbidden.
+ *
+ * Mirrors the proven `applyPaperEqProvenanceColumns` pattern:
+ * raw `ALTER TABLE … ADD COLUMN IF NOT EXISTS` — NEVER `drizzle-kit push`,
+ * which wants to drop out-of-schema tables in this DB.
+ */
+export async function applyPaperEqEvidenceColumns(): Promise<void> {
+  await db.execute(sql`
+    ALTER TABLE paper_trade_eq
+      ADD COLUMN IF NOT EXISTS fill_provider TEXT,
+      ADD COLUMN IF NOT EXISTS fill_provider_ts TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS fill_decision_time TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS fill_computed_age_sec NUMERIC(10,3),
+      ADD COLUMN IF NOT EXISTS fill_policy_id TEXT,
+      ADD COLUMN IF NOT EXISTS fill_policy_max_age_sec NUMERIC(10,3),
+      ADD COLUMN IF NOT EXISTS fill_evidence_version TEXT
+  `);
+}
+
+let paperEqEvidenceMigrationPromise: Promise<void> | null = null;
+
+/**
+ * Memoized, idempotent schema-ready gate for the P0.3 evidence columns.
+ * First caller triggers the migration; every subsequent caller (this process
+ * lifetime) awaits the same resolved promise. On failure the promise is
+ * cleared so a later call can retry — a transient DB blip should not
+ * permanently wedge equity paper trading.
+ */
+export function ensurePaperEqEvidenceColumns(): Promise<void> {
+  if (!paperEqEvidenceMigrationPromise) {
+    paperEqEvidenceMigrationPromise = applyPaperEqEvidenceColumns().catch(
+      (err: unknown) => {
+        paperEqEvidenceMigrationPromise = null;
+        logger.warn(
+          { err: err instanceof Error ? err.message : String(err) },
+          "paper eq evidence: schema column migration failed, will retry on next check",
+        );
+        throw err;
+      },
+    );
+  }
+  return paperEqEvidenceMigrationPromise;
+}
+
 /**
  * Try to open a paper equity trade for the given SwingSignal. Returns
  * the inserted row on success, or null with a logged reason on every
@@ -221,6 +273,7 @@ export async function openPaperEquityTrade(
   const today = signal.signalDate;
 
   await ensurePaperEqProvenanceColumns();
+  await ensurePaperEqEvidenceColumns();
 
   // Pre-check (lock-free): if a row already exists for this symbol+day,
   // bail out before grabbing the account lock.
@@ -639,6 +692,11 @@ export async function openPaperEquityTrade(
       // this same function — not a parallel copy — so writer and tests share one
       // code path.
       const insertCore = buildEquityInsertCore(validatedFill);
+      // P0.3 — snapshot all seven evidence fields from the same validatedFill
+      // object; they are written atomically in the INSERT below. There is no
+      // separate UPDATE after commit — a rollback removes both the trade row
+      // and its evidence in a single operation.
+      const evidenceSnapshot = buildEvidencePersistenceSnapshot(validatedFill);
 
       const now = signal.triggeredAt;
       const inserted = await tx
@@ -664,6 +722,15 @@ export async function openPaperEquityTrade(
           // B.8 provenance tag — stamped on every new row so consumers
           // can distinguish pre-B.8 legacy rows (NULL).
           writerVersion: CURRENT_WRITER_VERSION,
+          // P0.3 fill evidence — all 7 fields committed atomically in this
+          // INSERT; they are null on every pre-P0.3 legacy row (no backfill).
+          fillProvider: evidenceSnapshot.fillProvider,
+          fillProviderTs: evidenceSnapshot.fillProviderTs,
+          fillDecisionTime: evidenceSnapshot.fillDecisionTime,
+          fillComputedAgeSec: toDbNumeric(evidenceSnapshot.fillComputedAgeSec, 3),
+          fillPolicyId: evidenceSnapshot.fillPolicyId,
+          fillPolicyMaxAgeSec: toDbNumeric(evidenceSnapshot.fillPolicyMaxAgeSec, 3),
+          fillEvidenceVersion: evidenceSnapshot.fillEvidenceVersion,
         })
         .onConflictDoNothing()
         .returning();
@@ -901,6 +968,7 @@ export async function openManualPaperEquityTrade(
 ): Promise<{ row: PaperTradeEqRow | null; reason: string | null }> {
   const today = istDateKey();
   await ensurePaperEqProvenanceColumns();
+  await ensurePaperEqEvidenceColumns();
   // Same-day duplicate guard. The DB has a UNIQUE (symbol, signalDate)
   // index and openPaperEquityTrade short-circuits to the existing row
   // on a hit — but it returns that row regardless of status, which the

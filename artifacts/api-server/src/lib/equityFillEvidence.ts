@@ -254,3 +254,73 @@ export function buildEquityInsertCore(fill: ValidatedFillEvidence): EquityInsert
     lastEvaluatedAt: fill.decisionTime,
   };
 }
+
+// ─── P0.3 — Durable evidence persistence (2026-07-23) ────────────────────────
+
+/**
+ * Current schema version for the persisted fill-evidence snapshot.
+ * Bump this constant (e.g. "v2") whenever the shape of EvidencePersistenceSnapshot
+ * changes — not when ValidatedFillEvidence gains new fields that are not persisted.
+ */
+export const FILL_EVIDENCE_VERSION = "v1" as const;
+
+/**
+ * Canonical persisted evidence snapshot derived from a Phase-B-validated fill.
+ * All fields originate from the single ValidatedFillEvidence returned by
+ * computeFinalExecutionAdmission — no reconstruction from a second quote, cache,
+ * or request time is permitted.
+ *
+ * Transfer type for the pure writer-mapping seam:
+ *   ValidatedFillEvidence → EvidencePersistenceSnapshot → DB columns
+ * Tests verify the mapping via buildEvidencePersistenceSnapshot without a DB.
+ */
+export interface EvidencePersistenceSnapshot {
+  /** Provider identity (e.g. "kite"). Source: ValidatedFillEvidence.provider. */
+  fillProvider: string;
+  /** Kite feed event timestamp. Source: ValidatedFillEvidence.providerTimestamp. */
+  fillProviderTs: Date;
+  /** Decision instant. Source: ValidatedFillEvidence.decisionTime. */
+  fillDecisionTime: Date;
+  /**
+   * Computed quote age in seconds: (decisionTime − providerTimestamp) / 1000.
+   * Source: ValidatedFillEvidence.computedAgeSec (derived internally by Phase B,
+   * never caller-supplied).
+   */
+  fillComputedAgeSec: number;
+  /** Freshness-policy identifier. Source: ValidatedFillEvidence.policyId. */
+  fillPolicyId: string;
+  /** Maximum acceptable quote age (seconds). Source: ValidatedFillEvidence.policyMaxAgeSec. */
+  fillPolicyMaxAgeSec: number;
+  /**
+   * Evidence-schema version. Always FILL_EVIDENCE_VERSION at insert time;
+   * NULL on legacy rows that predate P0.3.
+   */
+  fillEvidenceVersion: typeof FILL_EVIDENCE_VERSION;
+}
+
+/**
+ * Pure writer-mapping seam: maps Phase-B-validated fill evidence to the
+ * persisted evidence snapshot (P0.3 Durable Evidence Persistence, 2026-07-23).
+ *
+ * Every field is read directly from the single `fill` object — no external
+ * source, no second quote, no reconstruction from request time.
+ * The evidence version is stamped from the module-level constant
+ * FILL_EVIDENCE_VERSION, never from the caller.
+ *
+ * Pure (no I/O, no DB). The production insert path passes its output to the
+ * tx.insert() call in openPaperEquityTrade; tests import this function to
+ * verify the mapping contract without a database connection.
+ */
+export function buildEvidencePersistenceSnapshot(
+  fill: ValidatedFillEvidence,
+): EvidencePersistenceSnapshot {
+  return {
+    fillProvider: fill.provider,
+    fillProviderTs: fill.providerTimestamp,
+    fillDecisionTime: fill.decisionTime,
+    fillComputedAgeSec: fill.computedAgeSec,
+    fillPolicyId: fill.policyId,
+    fillPolicyMaxAgeSec: fill.policyMaxAgeSec,
+    fillEvidenceVersion: FILL_EVIDENCE_VERSION,
+  };
+}
