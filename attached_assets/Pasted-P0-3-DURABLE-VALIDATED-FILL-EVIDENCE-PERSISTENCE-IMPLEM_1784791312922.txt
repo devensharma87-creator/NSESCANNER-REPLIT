@@ -1,0 +1,375 @@
+P0.3 — DURABLE VALIDATED-FILL EVIDENCE PERSISTENCE
+IMPLEMENTATION, TESTS, AND RELEASE EVIDENCE ONLY
+
+Act simultaneously as:
+
+1. Senior technical architect
+2. Production release auditor
+3. Market-data integrity specialist
+4. Quantitative market analyst
+5. Professional full-time trader experienced in execution quality, stale-price risk, slippage, and audit trails
+
+CURRENT VERIFIED BASELINE
+
+P0.2 is DEPLOYED AND CLOSED.
+
+Production SHA:
+e7ae078368ff076e3f2d27322b353397327ab2e5
+
+Rollback SHA:
+533ff05fd0992288a5d4cd50f1a019c8de8787fb
+
+Verified production controls:
+
+- autoTradingEnabled=false
+- Equity C0 auto-open gate is active
+- F&O C0 auto-open gate is active
+- Real broker execution is disabled
+- Production health check passed
+- Zero new equity or F&O rows appeared during the P0.2 deployment
+- Production inventory is 43 equity rows and 28 F&O rows
+- Historical ledger dispositions are approved and closed
+- P0.2 must not be reopened or re-litigated
+
+OBJECTIVE
+
+Persist, durably and atomically, the exact ValidatedFillEvidence used to create every newly admitted manual equity paper trade.
+
+The persisted evidence must prove:
+
+- which market-data provider supplied the price;
+- which provider timestamp was validated;
+- when the admission decision was made;
+- the internally computed quote age;
+- the exact validated price and symbol used;
+- which freshness policy and evidence version were applied;
+- that the persisted evidence and inserted trade came from the same validated object.
+
+This is an auditability and evidence-persistence phase only. It must not change trading strategy, admission thresholds, market-data policy, position sizing, or execution enablement.
+
+NON-NEGOTIABLE SAFETY RESTRICTIONS
+
+Do not:
+
+- publish or deploy;
+- merge to main;
+- restart production;
+- change production environment variables;
+- write to any development or production business database;
+- modify historical trade rows;
+- fabricate or backfill historical provider evidence;
+- submit broker orders;
+- enable live trading;
+- enable equity AUTO or STAGED entry;
+- enable F&O entry;
+- weaken any C0 gate;
+- substitute Yahoo data for trade-grade Kite data;
+- introduce caller-supplied quoteAgeSec;
+- use database insertion time as the provider quote timestamp;
+- use scanner-build time, API response time, or decision time as the provider timestamp;
+- set quote age to zero when the actual provider timestamp is unavailable;
+- add new strategy logic, thresholds, indicators, P25 logic, lot-sizing logic, or capital-ledger changes;
+- modify Pine import, drawing tools, chart libraries, or unrelated UI functionality.
+
+If trustworthy provider timestamp evidence is unavailable, fail closed. Report the blocker; never infer or manufacture evidence.
+
+PHASE 1 — READ-ONLY DISCOVERY
+
+Before editing anything, inspect and report:
+
+1. Current branch, HEAD, main SHA, merge base, and working-tree status.
+2. Every call site that constructs, returns, consumes, or stores ValidatedFillEvidence.
+3. The exact object used by the final equity trade-insertion path.
+4. Current equity trade and paper-equity audit schemas.
+5. Existing database migration conventions.
+6. Whether paper_trade_eq, paper_eq_audit, or another existing append-only audit structure is the smallest correct persistence location.
+7. Transaction boundaries around equity trade insertion and audit insertion.
+8. Read/API/UI consumers that would encounter nullable legacy fields.
+9. Existing test-database isolation controls.
+10. All existing C0 and broker-execution gates.
+
+Stop and report before implementation if:
+
+- the working tree contains unrelated changes;
+- the target branch does not contain production SHA e7ae078 as an ancestor;
+- the exact ValidatedFillEvidence object cannot be followed to the insertion boundary;
+- database changes cannot be prepared without connecting to a business database;
+- the repository’s authoritative schema or migration mechanism cannot be identified.
+
+PHASE 2 — REQUIRED DATA CONTRACT
+
+Define one canonical persisted evidence snapshot derived directly from ValidatedFillEvidence.
+
+At minimum, preserve:
+
+- provider identity;
+- provider quote/event timestamp;
+- admission decision timestamp;
+- computed quote age in seconds or milliseconds, following existing units;
+- validated fill price;
+- validated instrument or symbol;
+- source/origin lane, where already available;
+- freshness policy identifier;
+- policy maximum permitted age;
+- evidence/schema version;
+- optional validation reason/status if supported by the existing model.
+
+Use established repository naming and timestamp conventions.
+
+The provider timestamp must remain the actual trade-grade Kite quote event timestamp, such as the value originating from new Date(kq.ts), after normal validation.
+
+The quote age must remain internally derived:
+
+decisionTime - providerQuoteTimestamp
+
+It must never become an independently trusted caller input.
+
+Do not persist entire raw provider responses, credentials, access tokens, account identifiers, or unnecessary market payloads.
+
+PHASE 3 — STORAGE DESIGN
+
+Implement the smallest auditable additive design consistent with the repository.
+
+Requirements:
+
+1. Schema changes must be additive.
+2. Legacy rows may remain null because their evidence was not historically recorded.
+3. Do not create false historical values or run a backfill.
+4. Newly admitted manual equity rows must not be written without complete validated evidence.
+5. The trade row and its audit evidence must be written atomically in the same transaction.
+6. Any failure to persist the evidence must roll back the trade insertion.
+7. Persisted price, symbol, provider timestamp, and decision timestamp must originate from the exact ValidatedFillEvidence instance used by admission.
+8. Do not reconstruct evidence later from another quote, cache, request, or database timestamp.
+9. Reads of historical legacy rows must continue to work safely.
+10. If evidence is exposed through an API, update the source specification and regenerate clients through the normal code-generation workflow. Do not manually edit generated files.
+11. If API exposure is not required for this phase, avoid unrelated API/codegen churn.
+
+Database columns may be nullable for legacy compatibility, but the new insertion path must enforce complete evidence at the application boundary.
+
+Prepare migration source files only. Do not execute migrations against any development or production business database.
+
+PHASE 4 — LANE POLICY
+
+Equity MANUAL:
+
+- May insert only after successful Phase-B validation.
+- Must persist the complete evidence snapshot atomically with the trade.
+
+Equity AUTO and STAGED:
+
+- Must remain blocked by the existing C0 control.
+- Do not add an entry cutoff or enable these lanes.
+
+NSE F&O and BSE F&O:
+
+- Must remain fail-closed.
+- Do not use chain-fetch time as a premium timestamp.
+- Do not set quoteAgeSec=0.
+- Do not create a new F&O strategy or admission path.
+
+BSE calendar handling:
+
+- Must remain fail-closed while the calendar is unverified.
+
+Yahoo:
+
+- May remain delayed/analytics-only.
+- Must never supply or validate a trade fill.
+
+PHASE 5 — TEST REQUIREMENTS
+
+Add focused tests proving all of the following:
+
+1. The persisted snapshot maps directly from the exact ValidatedFillEvidence object.
+2. Provider identity is persisted correctly.
+3. Provider timestamp is the validated Kite event timestamp.
+4. Decision time is persisted independently of provider time.
+5. Quote age equals decisionTime minus providerQuoteTimestamp.
+6. Persisted price exactly equals validatedFill.price.
+7. Persisted symbol exactly equals validatedFill.symbol or the canonical validated instrument.
+8. Freshness policy ID, maximum age, and evidence version are retained.
+9. Trade and evidence writes occur in one transaction.
+10. Evidence-write failure produces zero trade rows.
+11. Missing evidence produces zero trade rows.
+12. Stale Kite evidence produces zero trade rows.
+13. Future-skewed timestamps produce zero trade rows.
+14. Invalid prices produce zero trade rows.
+15. Symbol mismatches produce zero trade rows.
+16. Yahoo evidence produces zero trade rows.
+17. A caller cannot override computed quote age.
+18. A caller cannot substitute a second price or timestamp after validation.
+19. Legacy rows with null evidence remain readable and are clearly treated as legacy/unknown.
+20. No historical row is updated or backfilled.
+21. Equity AUTO and STAGED remain blocked.
+22. F&O remains fail-closed.
+23. BSE calendar remains unavailable/fail-closed.
+24. Real broker execution remains disabled.
+25. Existing P0.2 tests continue to pass.
+
+Use pure/unit tests where possible.
+
+Do not connect tests to a development or production business database. Any database integration test may run only through the repository’s dedicated test-database guard. The test must hard-fail if the target resembles production or the normal development business database.
+
+PHASE 6 — PROFESSIONAL TRADING-RISK REVIEW
+
+As a professional trader and market analyst, explicitly assess:
+
+- stale quote risk;
+- price/timestamp mismatches;
+- symbol contamination;
+- provider substitution;
+- future-clock skew;
+- slippage attribution;
+- whether a later auditor can reproduce why a fill was accepted;
+- whether the design could accidentally make delayed Yahoo prices trade-eligible;
+- whether any lane could open a position without durable evidence.
+
+For every identified risk, cite the exact preventive code path and test.
+
+Do not change strategy rules during this review.
+
+PHASE 7 — VERIFICATION
+
+Run:
+
+1. Focused tests for the new persistence contract.
+2. The complete P0.2 session/admission/fill-evidence test set.
+3. Relevant API-server unit tests.
+4. Shared-library typecheck.
+5. API-server TypeScript typecheck.
+6. Schema/migration validation that does not require a business-database connection.
+7. Code generation only if the authoritative API specification changed.
+8. git diff --check.
+9. git status --short.
+10. A complete production-to-target diff inventory.
+
+Do not describe a timeout as a pass. Re-run timed-out verification in smaller valid groups.
+
+PHASE 8 — AUDITOR’S FINAL REPORT
+
+Return one concise but complete report containing:
+
+A. Baseline identity
+
+- starting SHA;
+- final SHA;
+- branch;
+- merge-base evidence;
+- working-tree state.
+
+B. Design
+
+- selected persistence location;
+- reason it is the smallest correct design;
+- exact persisted fields;
+- exact transaction boundary;
+- legacy-row behavior.
+
+C. Data lineage
+
+Show the complete chain:
+
+Kite provider event
+→ provider timestamp validation
+→ ValidatedFillEvidence
+→ admission result
+→ transactional persistence
+→ trade row/audit evidence
+
+Cite exact files, functions, and line numbers.
+
+D. Files changed
+
+Classify every changed file as:
+
+- implementation;
+- schema;
+- migration;
+- test;
+- API specification;
+- generated output;
+- documentation.
+
+Explain every unrelated-looking change. There should be none.
+
+E. Test and typecheck evidence
+
+For each command provide:
+
+- exact command;
+- exit code;
+- passed/failed count;
+- any skipped tests;
+- any warnings.
+
+F. Database safety
+
+State explicitly:
+
+- migration executed against business DB: YES/NO;
+- historical rows modified: count;
+- development business rows modified: count;
+- production rows modified: count;
+- backfill performed: YES/NO.
+
+All must be zero/NO for this task.
+
+G. Trading safety
+
+Report:
+
+- equity manual admission state;
+- equity AUTO/STAGED state;
+- F&O state;
+- BSE calendar state;
+- Yahoo trade eligibility;
+- broker execution state;
+- C0-equity state;
+- C0-F&O state.
+
+H. Residual risks
+
+Only list genuine unresolved risks. Do not create speculative follow-up work outside this phase.
+
+MANDATORY FINAL LABELS
+
+FINAL_SHA=
+P0_2_STATUS=DEPLOYED_AND_CLOSED
+EQUITY_PROVIDER_PROVENANCE_PERSISTED=
+PROVIDER_QUOTE_TIMESTAMP_PERSISTED=
+DECISION_TIME_PERSISTED=
+COMPUTED_QUOTE_AGE_PERSISTED=
+VALIDATED_PRICE_AND_SYMBOL_PERSISTED=
+FRESHNESS_POLICY_PERSISTED=
+ATOMIC_WITH_TRADE_INSERT=
+LEGACY_ROWS_BACKFILLED=FALSE
+LEGACY_ROWS_MODIFIED=0
+BUSINESS_DB_MUTATIONS=0
+EQUITY_AUTO_STAGED_C0=BLOCKED
+FNO_C0=BLOCKED
+YAHOO_TRADE_ELIGIBLE=FALSE
+BROKER_EXECUTION=DISABLED
+DEPLOYED=NO
+PUBLISHED=NO
+
+End with exactly one of:
+
+P0_3_IMPLEMENTED_NOT_DEPLOYED
+
+or
+
+P0_3_BLOCKED: <specific evidence-backed reason>
+
+DEFINITION OF DONE
+
+This phase is complete only when:
+
+- every new admitted manual equity trade durably records the exact validated provider evidence used for its fill;
+- persistence is atomic with trade insertion;
+- no caller-controlled age or reconstructed timestamp is trusted;
+- legacy history remains unchanged;
+- all tests and typechecks pass;
+- AUTO/STAGED equity, F&O, Yahoo trading, and broker execution remain blocked;
+- no deployment, publication, environment change, or business-database mutation has occurred.
+
+Do not expand the task after satisfying this definition of done.
