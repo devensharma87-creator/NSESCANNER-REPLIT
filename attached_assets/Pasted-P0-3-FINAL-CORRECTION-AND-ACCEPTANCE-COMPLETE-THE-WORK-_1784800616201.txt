@@ -1,0 +1,466 @@
+P0.3 FINAL CORRECTION AND ACCEPTANCE — COMPLETE THE WORK, DO NOT DEPLOY
+
+Act as a senior backend engineer, PostgreSQL migration specialist, trading-system safety engineer and independent release auditor.
+
+This is the final P0.3 corrective task. Resolve the remaining defects completely and provide reliable evidence. Do not merely rewrite the report or relabel failed evidence as passed.
+
+VERIFIED PRODUCTION BASELINE
+
+Production/origin main SHA:
+e7ae078368ff076e3f2d27322b353397327ab2e5
+
+The latest P0.3 corrective work exists only locally and must remain unpushed and undeployed until acceptance.
+
+CURRENT ACCEPTED WORK
+
+Preserve these corrections:
+
+- Runtime ALTER TABLE logic has been removed.
+- Schema preflight is read-only.
+- Seven evidence-column definitions are verified.
+- Controlled owner-run migration source exists.
+- Operational DATABASE_URL is rejected by the test guard.
+- Pure and regression test suites are green.
+- Development DB schema mutation has been disclosed.
+- No production migration or deployment has occurred.
+
+REMAINING DEFECTS
+
+1. No dedicated test database exists, so PostgreSQL integration proof is incomplete.
+2. Equity AUTO/STAGED C0 claims are incorrect:
+   - ENTRY_CUTOFF_PASSED is a cutoff rule, not the hard C0 kill switch.
+   - One test reports AUTO allowed=true before cutoff.
+3. F&O fail-closed evidence was incorrectly labelled as independent F&O C0 proof.
+4. The DDL incident report contains paper_trace_eq versus paper_trade_eq inconsistency.
+5. The corrective working tree is uncommitted and has no final SHA.
+6. Production non-contact and database fingerprints are incomplete.
+
+NON-NEGOTIABLE RESTRICTIONS
+
+Do not:
+
+- push to origin/main;
+- publish or deploy;
+- execute the production migration;
+- modify the development business database;
+- drop the seven development columns;
+- modify historical rows;
+- use DATABASE_URL for tests;
+- weaken test isolation;
+- reintroduce runtime DDL;
+- expose credentials or connection strings;
+- enable broker execution;
+- start Upstox, IndianAPI or Yahoo-removal work;
+- change strategy thresholds, indicators, P25, position sizing or unrelated logic.
+
+A local corrective commit is allowed. No remote push is allowed.
+
+TASK 1 — DETERMINE THE ACTUAL C0 ARCHITECTURE
+
+Search the complete repository for the real hard controls, including but not limited to:
+
+- EQUITY_AUTO_OPEN_C0_BLOCKED
+- FNO_AUTO_OPEN_C0_BLOCKED
+- C0_EQUITY
+- C0_FNO
+- auto-open disable constants
+- entry-lane kill switches
+- all AUTO, STAGED, nse_fo and bse_fo insertion paths
+
+Produce a complete call-path map:
+
+request/scheduler
+→ admission
+→ C0 gate
+→ evidence validation
+→ transaction
+→ INSERT
+
+For each lane identify:
+
+- exact gate constant/function;
+- exact source file and line;
+- whether it is called;
+- whether it executes before INSERT;
+- exact rejection reason;
+- whether zero insertion calls are guaranteed.
+
+Do not confuse these controls:
+
+- entry cutoff;
+- missing evidence;
+- stale quote;
+- calendar unavailable;
+- strategy rejection;
+- C0 hard kill switch.
+
+TASK 2 — FIX C0 ENFORCEMENT IF NECESSARY
+
+Required permanent safety state:
+
+- Manual equity may proceed only with valid P0.2/P0.3 evidence.
+- Equity AUTO must be hard-blocked by C0.
+- Equity STAGED/AUTO-open execution must be hard-blocked by C0.
+- NSE F&O automatic opening must be hard-blocked by C0.
+- BSE F&O automatic opening must be hard-blocked by C0.
+- Broker execution must remain disabled.
+
+If the C0 constants exist but are not enforced on every high-level writer path, make the smallest necessary correction.
+
+Requirements:
+
+1. C0 must execute before any insert or broker call.
+2. C0 must not depend on cutoff time.
+3. C0 must not depend on evidence being absent.
+4. Valid session, valid cutoff and valid evidence must still result in a C0 block.
+5. C0 rejection must produce zero insertion calls.
+6. C0 rejection must produce zero broker calls.
+7. Manual equity must not be accidentally blocked.
+8. Do not change trading strategy logic.
+
+Use clear, stable reason codes such as the existing repository-standard C0 reason. Do not invent a second competing reason if one already exists.
+
+TASK 3 — ADD REAL C0 TESTS
+
+Add focused high-level tests—not only computeFinalExecutionAdmission unit tests.
+
+Required test matrix:
+
+A. Equity AUTO
+
+- Valid NSE session.
+- Cutoff not passed.
+- Valid authoritative Kite evidence.
+- Valid price and symbol.
+- Expected: blocked specifically by equity C0.
+- Insert callback count: zero.
+
+B. Equity STAGED/AUTO-open execution
+
+- Valid session.
+- Valid staged approval.
+- Cutoff not passed.
+- Valid Kite evidence.
+- Expected: blocked specifically by equity C0.
+- Insert callback count: zero.
+
+C. Manual equity control case
+
+- Same valid session/evidence.
+- Source MANUAL.
+- Expected: C0 does not block it.
+- Normal P0.2/P0.3 admission continues.
+
+D. NSE F&O
+
+- Otherwise valid context.
+- Expected: blocked specifically by F&O C0.
+- Insert callback count: zero.
+- Broker-call count: zero.
+
+E. BSE F&O
+
+- Otherwise valid context where possible.
+- Expected: blocked by F&O C0 before execution.
+- Also retain independent calendar-unavailable/fail-closed testing.
+- Insert callback count: zero.
+
+F. Independent secondary protections
+
+Retain separate tests for:
+
+- entry cutoff passed;
+- missing F&O premium timestamp;
+- stale evidence;
+- future timestamp;
+- Yahoo evidence;
+- symbol mismatch;
+- invalid price;
+- unverified BSE calendar.
+
+The tests must prove which gate blocked the operation. Passing because an earlier unrelated gate failed is not acceptable.
+
+TASK 4 — CORRECT THE DATABASE-INCIDENT RECORD
+
+Resolve this discrepancy:
+
+The previous report listed:
+
+ALTER TABLE paper_trace_eq
+ADD COLUMN fill_policy_max_age_sec ...
+
+but also claimed all seven columns exist on paper_trade_eq.
+
+Using read-only evidence only:
+
+1. Recover the exact SQL executed if logs/history are available.
+2. Determine whether paper_trace_eq was a report typo.
+3. Check whether paper_trace_eq exists.
+4. Check which table actually contains fill_policy_max_age_sec.
+5. Report the exact result.
+
+Do not alter either table.
+
+Final disclosure must state one of:
+
+DDL_REPORT_TYPO_CONFIRMED=TRUE
+
+or
+
+DDL_TARGET_DISCREPANCY_UNRESOLVED=TRUE
+
+Never silently correct the report without evidence.
+
+TASK 5 — COMPLETE DATABASE IDENTITY EVIDENCE
+
+Without exposing credentials, produce stable fingerprints for:
+
+- operational development database;
+- dedicated test database, if present;
+- production database, using already available read-only configuration/evidence only.
+
+A fingerprint may be a SHA-256 hash derived from non-secret target identity components. Do not output connection URLs or passwords.
+
+For each report:
+
+- environment classification;
+- database name;
+- schema;
+- redacted role;
+- host fingerprint;
+- isolation relationship.
+
+Do not connect to production merely to create evidence unless a pre-existing authorised read-only method exists.
+
+Git SHA difference alone is not proof that production DB was not contacted.
+
+TASK 6 — DEDICATED TEST DATABASE GATE
+
+Check whether all of these are present:
+
+- TEST_DATABASE_URL
+- TEST_DB_ISOLATION_CONFIRMED=true
+- TEST_RUN_ID
+- isolation guard returns ok=true
+
+Never use DATABASE_URL as fallback.
+
+IF A DEDICATED TEST DATABASE EXISTS
+
+Only after the guard passes, DDL/DML is authorised against that dedicated test database.
+
+Then:
+
+1. Apply the P0.3 migration to the dedicated test DB.
+2. Run successful persistence round-trip.
+3. Run atomic rollback test.
+4. Run legacy-null read test.
+5. Run numeric(10,3) precision test.
+6. Run timestamptz round-trip test.
+7. Run rejection zero-row tests.
+8. Clean test fixtures through the approved harness.
+9. Report exact test-DB mutation counts.
+
+IF NO DEDICATED TEST DATABASE EXISTS
+
+Do not provision a chargeable external resource without owner authorisation.
+
+Do not use development or production.
+
+Complete every non-DB task and report exactly:
+
+TEST_DATABASE_URL_PRESENT=FALSE
+P0_3_INTEGRATION_TESTS=BLOCKED_DEDICATED_TEST_DATABASE_REQUIRED
+ATOMIC_ROLLBACK_PROVEN=FALSE
+LEGACY_NULL_READ_PROVEN=FALSE
+
+Also provide one concise OWNER ACTION section explaining exactly what the owner must create or configure. Do not pretend that skipped tests passed.
+
+TASK 7 — REQUIRED INTEGRATION TESTS
+
+When an authorised dedicated test database becomes available, prove:
+
+1. Successful manual equity insertion persists:
+   - symbol;
+   - entry price;
+   - provider;
+   - provider timestamp;
+   - decision time;
+   - computed age;
+   - policy ID;
+   - policy maximum age;
+   - evidence version.
+
+2. All values originate from one ValidatedFillEvidence instance.
+
+3. Forced transaction failure commits:
+   - zero trade rows;
+   - zero partial evidence rows.
+
+4. Legacy row with all seven fields null:
+   - remains readable;
+   - is not assigned invented provenance;
+   - is not backfilled.
+
+5. PostgreSQL round-trip preserves:
+   - timestamp meaning;
+   - numeric precision and scale;
+   - nullable fields;
+   - evidence version.
+
+6. Rejected inputs commit zero rows:
+   - null evidence;
+   - stale evidence;
+   - future timestamp;
+   - Yahoo evidence;
+   - symbol mismatch;
+   - invalid price;
+   - AUTO C0;
+   - STAGED C0;
+   - NSE F&O C0;
+   - BSE F&O C0.
+
+TASK 8 — MIGRATION SAFETY
+
+Do not execute the production migration.
+
+Verify the runbook includes:
+
+- explicit target-identity preflight;
+- owner confirmation;
+- schema-qualified public.paper_trade_eq;
+- transaction;
+- lock_timeout;
+- statement_timeout;
+- pre-migration inventory;
+- seven idempotent additive columns;
+- post-migration type verification;
+- application deployment only after migration success;
+- fail-closed behaviour when schema is missing;
+- manual rollback-impact explanation;
+- no automatic DROP COLUMN.
+
+The application must contain no runtime ALTER/CREATE/DROP path for P0.3.
+
+TASK 9 — VERIFICATION
+
+Run and report exact command, exit code, pass/fail/skip counts and warnings for:
+
+- fillEvidencePersistence.test.ts
+- schemaPreflightVerifier.test.ts
+- paperTradingEqProvenance.test.ts
+- tradeAdmission.test.ts
+- equitySessionGate.test.ts
+- sessionAdmission.test.ts
+- dbTestGuard.test.ts
+- new high-level C0 tests
+- P0.3 integration tests if authorised
+- API-server typecheck
+- shared-library typecheck
+- full workspace typecheck
+- git diff --check
+- repository-wide runtime-DDL search
+
+Do not count skipped integration tests as passed.
+
+TASK 10 — CREATE AN IMMUTABLE LOCAL CHECKPOINT
+
+After all authorised corrections:
+
+1. Review the complete diff.
+2. Confirm no unrelated files changed.
+3. Create one local corrective commit.
+4. Do not push.
+5. Report:
+   - starting SHA;
+   - final SHA;
+   - branch;
+   - origin/main SHA;
+   - ahead/behind count;
+   - git status --short;
+   - complete changed-file list.
+
+If attached prompt files remain untracked, report them separately. Do not include them accidentally unless they are intentional project evidence.
+
+TASK 11 — FINAL UNTRUNCATED REPORT
+
+Return a complete report containing:
+
+A. Actual C0 architecture  
+B. C0 fixes, if required  
+C. Exact gate-test results  
+D. Runtime-DDL proof  
+E. Migration readiness  
+F. Database-incident correction  
+G. Database fingerprints  
+H. Test-isolation evidence  
+I. Integration results or exact blocker  
+J. Git identity  
+K. Production identity  
+L. Residual blockers  
+M. Mandatory labels
+
+MANDATORY LABELS
+
+FINAL_SHA=
+HEAD_SHA=
+ORIGIN_MAIN_SHA=e7ae078368ff076e3f2d27322b353397327ab2e5
+PRODUCTION_SHA=e7ae078368ff076e3f2d27322b353397327ab2e5
+
+RUNTIME_DDL_PRESENT=FALSE
+SCHEMA_PREFLIGHT_READ_ONLY=TRUE
+SCHEMA_PREFLIGHT_EXACT_TYPES_VERIFIED=
+CONTROLLED_MIGRATION_SOURCE_READY=
+PRODUCTION_MIGRATION_EXECUTED=FALSE
+
+DEVELOPMENT_DB_SCHEMA_ALREADY_MUTATED=TRUE
+DDL_REPORT_TYPO_CONFIRMED=
+DDL_TARGET_DISCREPANCY_UNRESOLVED=
+CORRECTION_PASS_ADDITIONAL_DB_MUTATIONS=0
+PRODUCTION_DB_MUTATIONS=0
+HISTORICAL_ROWS_MODIFIED=0
+
+TEST_DATABASE_URL_PRESENT=
+TEST_DB_ISOLATION_PROVEN=
+P0_3_PURE_TESTS=
+P0_3_INTEGRATION_TESTS=
+ATOMIC_ROLLBACK_PROVEN=
+LEGACY_NULL_READ_PROVEN=
+
+EQUITY_AUTO_C0=
+EQUITY_STAGED_C0=
+MANUAL_EQUITY_C0_UNAFFECTED=
+NSE_FNO_C0=
+BSE_FNO_C0=
+NSE_FNO_FAIL_CLOSED=
+BSE_FNO_FAIL_CLOSED=
+YAHOO_TRADE_ELIGIBLE=FALSE
+BROKER_EXECUTION=DISABLED
+
+PUSHED=NO
+PUBLISHED=NO
+DEPLOYED=NO
+
+ACCEPTANCE RULE
+
+End with exactly one:
+
+P0_3_ACCEPTED_NOT_DEPLOYED
+
+or
+
+P0_3_BLOCKED: <specific evidence-backed reason>
+
+P0_3_ACCEPTED_NOT_DEPLOYED is permitted only if:
+
+- actual C0 kill switches are proven;
+- all code and typechecks pass;
+- runtime DDL is absent;
+- the final checkpoint is committed;
+- dedicated PostgreSQL integration tests pass.
+
+If the dedicated test database is unavailable, the only permitted ending is:
+
+P0_3_BLOCKED: DEDICATED_TEST_DATABASE_REQUIRED
+
+Do not start Upstox, IndianAPI or Yahoo-removal implementation after completing this task.

@@ -375,6 +375,21 @@ export async function openPaperEquityTrade(
   const sigLabel = opts?.signalLabel ?? "STRONG_BUY";
   const today = signal.signalDate;
 
+  // C0 — P0-02: Non-MANUAL equity auto-open hard-blocked.
+  // This in-function gate catches SWING_STAGED_APPROVAL and any future caller
+  // that bypasses the outer check in runEquityPaperTradingTick. It executes
+  // before ensurePaperEqProvenanceColumns — the first DB access — so the
+  // block is provably independent of DB state, session, cutoff, or evidence.
+  // MANUAL opens are intentionally exempt: the owner may place override trades
+  // from the UI at any time. There is no broker execution path to block here.
+  if ((opts?.source ?? "AUTO") !== "MANUAL" && EQUITY_AUTO_OPEN_C0_BLOCKED) {
+    logger.info(
+      { source: opts?.source ?? "AUTO", symbol: signal.symbol },
+      "openPaperEquityTrade: C0 hard-block — non-MANUAL open rejected before any DB access",
+    );
+    return null;
+  }
+
   await ensurePaperEqProvenanceColumns();
   await assertPaperEqEvidenceColumnsPresent();
 
@@ -1367,7 +1382,7 @@ export async function evaluatePaperEquityTrades(
 // signals in source), fill price uses historical-open not trigger-time price.
 // Lift ONLY after M2b provenance + fill-price audit passes and sector-gate is
 // wired to authoritative symbol-sector mapping.
-const EQUITY_AUTO_OPEN_C0_BLOCKED = true;
+export const EQUITY_AUTO_OPEN_C0_BLOCKED = true;
 
 export async function runEquityPaperTradingTick(
   scannerRows: readonly StockRow[],
