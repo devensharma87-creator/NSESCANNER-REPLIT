@@ -1,0 +1,46 @@
+Do not:
+
+- publish or deploy;
+- merge to main;
+- restart production;
+- change production environment variables;
+- write to any development or production business database;
+- modify historical trade rows;
+- fabricate or backfill historical provider evidence;
+- submit broker orders;
+- enable live trading;
+- enable equity AUTO or STAGED entry;
+- enable F&O entry;
+- weaken any C0 gate;
+- substitute Yahoo data for trade-grade Kite data;
+- introduce caller-supplied quoteAgeSec;
+- use database insertion time as the provider quote timestamp;
+- use scanner-build time, API response time, or decision time as the provider timestamp;
+- set quote age to zero when the actual provider timestamp is unavailable;
+- add new strategy logic, thresholds, indicators, P25 logic, lot-sizing logic, or capital-ledger changes;
+- modify Pine import, drawing tools, chart libraries, or unrelated UI functionality.
+
+If trustworthy provider timestamp evidence is unavailable, fail closed. Report the blocker; never infer or manufacture evidence.
+
+PHASE 1 — READ-ONLY DISCOVERY
+
+Before editing anything, inspect and report:
+
+1. Current branch, HEAD, main SHA, merge base, and working-tree status.
+2. Every call site that constructs, returns, consumes, or stores ValidatedFillEvidence.
+3. The exact object used by the final equity trade-insertion path.
+4. Current equity trade and paper-equity audit schemas.
+5. Existing database migration conventions.
+6. Whether paper_trade_eq, paper_eq_audit, or another existing append-only audit structure is the smallest correct persistence location.
+7. Transaction boundaries around equity trade insertion and audit insertion.
+8. Read/API/UI consumers that would encounter nullable legacy fields.
+9. Existing test-database isolation controls.
+10. All existing C0 and broker-execution gates.
+
+Stop and report before implementation if:
+
+- the working tree contains unrelated changes;
+- the target branch does not contain production SHA e7ae078 as an ancestor;
+- the exact ValidatedFillEvidence object cannot be followed to the insertion boundary;
+- database changes cannot be prepared without connecting to a business database;
+- the repository’s authoritative schema or migration mechanism cannot be identified.
