@@ -2,6 +2,7 @@ import { afterAll, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import { db, pool, paperTradeEqTable, paperEqAuditTable } from "@workspace/db";
 import { applyPaperEqProvenanceColumns, mapWriteSourceToProvenance } from "./paperTradingEq";
+import { checkDbTestIsolation } from "../test-infra/dbTestGuard";
 
 /**
  * Checkpoint 2 (2026-07-03) — source-stamping + backfill regression tests.
@@ -46,8 +47,18 @@ describe("mapWriteSourceToProvenance (pure write-path mapping)", () => {
   });
 });
 
-const dbAvailable = Boolean(process.env.DATABASE_URL && !process.env.DATABASE_URL.includes("dummy"));
-const describeDb = dbAvailable ? describe : describe.skip;
+// DB-backed tests require a dedicated isolated test database validated by the
+// P0.1 isolation guard. Using DATABASE_URL (the operational dev/prod database)
+// as a fallback is explicitly forbidden. If TEST_DATABASE_URL is not set, or
+// does not pass the guard, the live-DB suite is skipped and the reason is logged.
+const isolationResult = checkDbTestIsolation(process.env as Record<string, string | undefined>);
+if (!isolationResult.ok) {
+  // Log once so CI output explains why the DB suite was skipped.
+  console.warn(
+    `[paperTradingEqProvenance] DB-backed tests SKIPPED — isolation guard: ${isolationResult.code}: ${isolationResult.reason}`,
+  );
+}
+const describeDb = isolationResult.ok ? describe : describe.skip;
 
 async function cleanup(symbol: string): Promise<void> {
   await db.delete(paperEqAuditTable).where(eq(paperEqAuditTable.symbol, symbol));

@@ -177,55 +177,62 @@ export function ensurePaperEqProvenanceColumns(): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
-// P0.3 fill-evidence column migration (additive 2026-07-23)
+// P0.3 fill-evidence schema-readiness check (2026-07-23)
 // ---------------------------------------------------------------------------
+//
+// The seven fill-evidence columns must be present BEFORE the application
+// starts serving trade requests. They are NOT created by the application at
+// runtime. To add them, run the controlled owner-run migration:
+//
+//   docs/migrations/paper_trade_eq_fill_evidence.sql
+//
+// The INSERT in openPaperEquityTrade() references all seven columns via the
+// Drizzle schema. If any column is absent the INSERT fails with a PostgreSQL
+// "column does not exist" error (fail closed). For an earlier, diagnostic-
+// rich failure, call assertPaperEqEvidenceColumnsPresent() at start-up.
+
+const EVIDENCE_COLUMNS = [
+  "fill_provider",
+  "fill_provider_ts",
+  "fill_decision_time",
+  "fill_computed_age_sec",
+  "fill_policy_id",
+  "fill_policy_max_age_sec",
+  "fill_evidence_version",
+] as const;
+
+let evidenceColumnsVerified = false;
 
 /**
- * Add the seven P0.3 fill-evidence columns to `paper_trade_eq` if they do not
- * already exist. All columns are nullable so legacy rows (pre-P0.3) remain
- * readable without any backfill — backfilling would require reconstructing
- * evidence from a second quote, which is explicitly forbidden.
+ * Read-only pre-flight: confirms all seven P0.3 fill-evidence columns are
+ * present on `paper_trade_eq`. Throws with a diagnostic pointing to the
+ * migration file if any are missing. Never creates or alters columns.
  *
- * Mirrors the proven `applyPaperEqProvenanceColumns` pattern:
- * raw `ALTER TABLE … ADD COLUMN IF NOT EXISTS` — NEVER `drizzle-kit push`,
- * which wants to drop out-of-schema tables in this DB.
+ * Caches a successful check for the process lifetime (one DB round-trip).
+ * On failure the cache is not set so the next call re-checks.
  */
-export async function applyPaperEqEvidenceColumns(): Promise<void> {
-  await db.execute(sql`
-    ALTER TABLE paper_trade_eq
-      ADD COLUMN IF NOT EXISTS fill_provider TEXT,
-      ADD COLUMN IF NOT EXISTS fill_provider_ts TIMESTAMPTZ,
-      ADD COLUMN IF NOT EXISTS fill_decision_time TIMESTAMPTZ,
-      ADD COLUMN IF NOT EXISTS fill_computed_age_sec NUMERIC(10,3),
-      ADD COLUMN IF NOT EXISTS fill_policy_id TEXT,
-      ADD COLUMN IF NOT EXISTS fill_policy_max_age_sec NUMERIC(10,3),
-      ADD COLUMN IF NOT EXISTS fill_evidence_version TEXT
+export async function assertPaperEqEvidenceColumnsPresent(): Promise<void> {
+  if (evidenceColumnsVerified) return;
+  const result = await db.execute<{ column_name: string }>(sql`
+    SELECT column_name
+    FROM information_schema.columns
+    WHERE table_name = 'paper_trade_eq'
+      AND column_name IN (
+        'fill_provider', 'fill_provider_ts', 'fill_decision_time',
+        'fill_computed_age_sec', 'fill_policy_id', 'fill_policy_max_age_sec',
+        'fill_evidence_version'
+      )
   `);
-}
-
-let paperEqEvidenceMigrationPromise: Promise<void> | null = null;
-
-/**
- * Memoized, idempotent schema-ready gate for the P0.3 evidence columns.
- * First caller triggers the migration; every subsequent caller (this process
- * lifetime) awaits the same resolved promise. On failure the promise is
- * cleared so a later call can retry — a transient DB blip should not
- * permanently wedge equity paper trading.
- */
-export function ensurePaperEqEvidenceColumns(): Promise<void> {
-  if (!paperEqEvidenceMigrationPromise) {
-    paperEqEvidenceMigrationPromise = applyPaperEqEvidenceColumns().catch(
-      (err: unknown) => {
-        paperEqEvidenceMigrationPromise = null;
-        logger.warn(
-          { err: err instanceof Error ? err.message : String(err) },
-          "paper eq evidence: schema column migration failed, will retry on next check",
-        );
-        throw err;
-      },
+  const found = new Set(result.rows.map((r) => r.column_name));
+  const missing = EVIDENCE_COLUMNS.filter((c) => !found.has(c));
+  if (missing.length > 0) {
+    throw new Error(
+      `P0.3 schema not migrated — paper_trade_eq is missing evidence columns: ${missing.join(", ")}. ` +
+        `Run the controlled migration at docs/migrations/paper_trade_eq_fill_evidence.sql ` +
+        `using the owner-run procedure documented in that file.`,
     );
   }
-  return paperEqEvidenceMigrationPromise;
+  evidenceColumnsVerified = true;
 }
 
 /**
@@ -273,7 +280,7 @@ export async function openPaperEquityTrade(
   const today = signal.signalDate;
 
   await ensurePaperEqProvenanceColumns();
-  await ensurePaperEqEvidenceColumns();
+  await assertPaperEqEvidenceColumnsPresent();
 
   // Pre-check (lock-free): if a row already exists for this symbol+day,
   // bail out before grabbing the account lock.
@@ -968,7 +975,7 @@ export async function openManualPaperEquityTrade(
 ): Promise<{ row: PaperTradeEqRow | null; reason: string | null }> {
   const today = istDateKey();
   await ensurePaperEqProvenanceColumns();
-  await ensurePaperEqEvidenceColumns();
+  await assertPaperEqEvidenceColumnsPresent();
   // Same-day duplicate guard. The DB has a UNIQUE (symbol, signalDate)
   // index and openPaperEquityTrade short-circuits to the existing row
   // on a hit — but it returns that row regardless of status, which the

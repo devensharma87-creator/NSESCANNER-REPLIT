@@ -1,0 +1,209 @@
+P0.3 CORRECTIVE PASS — RELEASE BLOCKERS ONLY
+
+Do not start any new feature, provider integration, Upstox work, IndianAPI work, Yahoo-removal work or unrelated refactoring.
+
+Current checkpoint:
+cd3df71477444354694c34869f7a369a37f102d5
+
+Verified production/origin baseline:
+e7ae078368ff076e3f2d27322b353397327ab2e5
+
+The P0.3 evidence-persistence design is directionally correct, but release acceptance is rejected because runtime DDL, an unauthorised development-database schema mutation, insufficient test isolation and incomplete evidence remain.
+
+ABSOLUTE RESTRICTIONS
+
+- Do not push to origin/main.
+- Do not publish or deploy.
+- Do not change production.
+- Do not execute any additional DDL or DML against development or production business databases.
+- Do not drop or reverse the columns already added to the development database.
+- Do not rewrite, reset or destroy checkpoint cd3df71.
+- Do not alter historical trade rows.
+- Do not change environment variables.
+- Do not enable Equity AUTO/STAGED, F&O or broker execution.
+- Do not begin Kite/Upstox/IndianAPI/Yahoo-removal work.
+- Do not claim BUSINESS_DB_MUTATIONS=0 for the complete P0.3 attempt: development schema DDL already occurred and must be disclosed honestly.
+
+TASK 1 — REMOVE RUNTIME DDL
+
+Remove application-controlled schema mutation from all normal runtime paths.
+
+Specifically inspect and remove:
+
+- applyPaperEqEvidenceColumns()
+- ensurePaperEqEvidenceColumns()
+- calls from openPaperEquityTrade()
+- calls from openManualPaperEquityTrade()
+- any startup, request, trade or health-check path capable of issuing ALTER TABLE
+
+No trade request or application startup may create or modify database columns.
+
+Search the complete repository for:
+
+- ALTER TABLE paper_trade_eq
+- ADD COLUMN
+- applyPaperEqEvidenceColumns
+- ensurePaperEqEvidenceColumns
+- equivalent dynamic DDL
+
+Report every match and its disposition.
+
+If required columns are absent, application behaviour must fail closed with a clear schema-readiness diagnostic. It must never repair the schema automatically.
+
+TASK 2 — ESTABLISH THE CONTROLLED MIGRATION
+
+Read the repository’s real migration conventions and determine the authoritative migration mechanism.
+
+Requirements:
+
+- Keep the seven additive nullable columns.
+- Create a proper version-controlled migration in the authoritative migration location.
+- Make it idempotent only if that matches repository conventions.
+- Do not execute the migration in this task.
+- Do not describe a documentation file under docs/migrations as authoritative unless repository tooling actually executes it.
+- If no authoritative migration runner exists, provide:
+  1. reviewed migration SQL;
+  2. a controlled owner-run deployment procedure;
+  3. a schema preflight check;
+  4. a rollback-impact explanation.
+
+Do not invent a lazy runtime migration as a substitute.
+
+TASK 3 — READ-ONLY DEVELOPMENT-DB INCIDENT DISCLOSURE
+
+Using read-only queries only, identify and report:
+
+- database host fingerprint without exposing credentials;
+- database name;
+- database user/role;
+- schema name;
+- whether it was the normal development business database;
+- exact SQL previously executed;
+- exact seven columns added;
+- column types, nullability and defaults;
+- existing paper_trade_eq row count;
+- null/non-null count for each new column;
+- whether any UPDATE, INSERT or DELETE occurred;
+- whether any existing row value changed;
+- whether production was contacted or altered.
+
+Do not drop, rename, populate or otherwise change these columns.
+
+Required honest labels:
+
+DEVELOPMENT_DB_SCHEMA_ALREADY_MUTATED=TRUE
+CORRECTION_PASS_ADDITIONAL_DB_MUTATIONS=0
+PRODUCTION_DB_MUTATIONS=0
+HISTORICAL_ROWS_MODIFIED=0
+
+If these facts cannot be proven read-only, report UNKNOWN. Do not guess.
+
+TASK 4 — REPAIR AND PROVE TEST ISOLATION
+
+Determine why provenance/integration tests accessed the normal development database.
+
+Requirements:
+
+- All database integration tests must require TEST_DATABASE_URL.
+- They must require TEST_DB_ISOLATION_CONFIRMED=true.
+- The guard must reject production and normal development business databases.
+- DATABASE_URL must not be accepted as an implicit test target.
+- Missing dedicated test credentials must cause a fail-closed skip/block—not fallback to development.
+- Add tests proving the guard rejects development and production-like identities.
+- Do not connect to any database merely to prove rejection if the identity can be validated before connection.
+
+Run DB integration tests only if an authorised dedicated test database is already available and passes the guard.
+
+If it is unavailable, report:
+
+P0_3_INTEGRATION_TESTS=BLOCKED_DEDICATED_TEST_DB_REQUIRED
+
+Do not mutate the development database to make tests pass.
+
+TASK 5 — REPLACE STRUCTURAL CLAIMS WITH REAL TESTS
+
+Add or correct tests for:
+
+1. An evidence persistence/insert failure results in zero committed trade rows.
+2. A future provider timestamp is explicitly rejected.
+3. A symbol mismatch is explicitly rejected or prevented by an enforced runtime invariant.
+4. A legacy row with all seven evidence fields null is readable.
+5. No historical backfill or UPDATE is performed.
+6. Equity AUTO is rejected by the actual C0 hard gate.
+7. Equity STAGED is rejected by the actual C0 hard gate.
+8. NSE F&O is rejected by the actual F&O C0/fail-closed gate.
+9. BSE F&O remains calendar/fail-closed.
+10. Yahoo evidence results in zero insertion calls.
+11. Caller-supplied quote age cannot override internally derived age.
+12. Price, symbol, provider timestamp and decision time all come from the same ValidatedFillEvidence.
+13. Repository runtime code contains no active DDL path for these columns.
+14. Dedicated test guard refuses normal development and production targets.
+
+Do not label a test passed when it merely fails earlier for another reason such as ENTRY_CUTOFF_CONFIG_UNAVAILABLE. Assert the intended gate and exact reason.
+
+TASK 6 — VERIFICATION
+
+Run and report exact commands, exit codes, pass/fail/skip counts and warnings for:
+
+- P0.3 focused pure tests
+- Session-admission tests
+- Equity provenance tests
+- Equity session-gate tests
+- Trade-admission tests
+- Test-database guard tests
+- API-server typecheck
+- Shared-library typecheck
+- git diff --check
+- git status --short
+- repository search proving runtime DDL removal
+
+Do not call a blocked or skipped integration test a pass.
+
+TASK 7 — FINAL COMPLETE REPORT
+
+The previous submitted report was truncated during requirement 22. Produce a complete, untruncated report covering:
+
+A. Starting SHA, final SHA, branch, origin/main and production SHA  
+B. Complete changed-file inventory  
+C. Runtime DDL removal evidence  
+D. Authoritative migration design  
+E. Exact development-schema incident disclosure  
+F. Test-isolation root cause and correction  
+G. Every test and typecheck result  
+H. Trading-safety state  
+I. Production/deployment state  
+J. Genuine residual blockers  
+K. Complete mandatory labels
+
+Mandatory final labels:
+
+FINAL_SHA=
+ORIGIN_MAIN_SHA=e7ae078368ff076e3f2d27322b353397327ab2e5
+PRODUCTION_SHA=e7ae078368ff076e3f2d27322b353397327ab2e5
+RUNTIME_DDL_PRESENT=
+CONTROLLED_MIGRATION_SOURCE_READY=
+DEVELOPMENT_DB_SCHEMA_ALREADY_MUTATED=TRUE
+CORRECTION_PASS_ADDITIONAL_DB_MUTATIONS=0
+PRODUCTION_DB_MUTATIONS=0
+HISTORICAL_ROWS_MODIFIED=0
+TEST_DB_ISOLATION_PROVEN=
+P0_3_PURE_TESTS=
+P0_3_INTEGRATION_TESTS=
+EQUITY_AUTO_C0=BLOCKED
+EQUITY_STAGED_C0=BLOCKED
+FNO_C0=BLOCKED
+YAHOO_TRADE_ELIGIBLE=FALSE
+BROKER_EXECUTION=DISABLED
+PUSHED=NO
+PUBLISHED=NO
+DEPLOYED=NO
+
+End with exactly one:
+
+P0_3_CORRECTED_NOT_DEPLOYED
+
+or
+
+P0_3_BLOCKED: <specific evidence-backed blocker>
+
+Do not proceed to deployment or the next roadmap phase after completing this correction.
