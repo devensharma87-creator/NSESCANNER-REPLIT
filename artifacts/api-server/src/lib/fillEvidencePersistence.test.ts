@@ -27,6 +27,7 @@ import {
 import {
   computeFinalExecutionAdmission,
   EQUITY_AUTO_ENTRY_CUTOFF,
+  type EntryAdmissionCutoffPolicy,
 } from "./sessionAdmission";
 import { checkDbTestIsolation } from "../test-infra/dbTestGuard";
 
@@ -648,5 +649,136 @@ describe("DB test isolation guard — refuses operational and production targets
     expect((resultWithNoDb as { ok: false; code: string }).code).toBe(
       "TEST_DATABASE_URL_MISSING",
     );
+  });
+});
+
+// ─── Group J — actual C0 gate proofs (tests 40–46) ───────────────────────────
+// Proves the HARD gates beyond the config-missing pre-check.
+// ENTRY_CUTOFF_CONFIG_UNAVAILABLE fires when entryCutoffPolicy===null (no config).
+// ENTRY_CUTOFF_PASSED is the ACTUAL C0 gate — fires when a real cutoff is supplied
+// and the current decision time is at or past the configured cutoff minute.
+//
+// DECISION_TIME = 2026-01-05T04:30:00.000Z = 10:00 IST = 600 min from midnight IST.
+// PAST_CUTOFF:   istMinOfDay=570 (09:30 IST)  — 600 >= 570 → cutoff PASSED → blocked
+// FUTURE_CUTOFF: istMinOfDay=840 (14:00 IST)  — 600 <  840 → cutoff not yet reached
+
+describe("Actual C0 gate proofs — independent of config-missing pre-check", () => {
+  const PAST_CUTOFF: EntryAdmissionCutoffPolicy = {
+    istMinOfDay: 570,
+    policySource: "P0_3_CORRECTIVE_TEST_09:30_IST",
+  };
+  const FUTURE_CUTOFF: EntryAdmissionCutoffPolicy = {
+    istMinOfDay: 840,
+    policySource: "P0_3_CORRECTIVE_TEST_14:00_IST",
+  };
+
+  it("40. Equity AUTO: actual C0 gate fires ENTRY_CUTOFF_PASSED (not ENTRY_CUTOFF_CONFIG_UNAVAILABLE) when a valid cutoff is supplied and the decision time has passed it", () => {
+    const evidence = buildEquityFillEvidence(makeRow());
+    expect(evidence).not.toBeNull();
+    const result = computeFinalExecutionAdmission({
+      lane: "equity_cash",
+      segment: "NSE_EQ",
+      instrument: "RELIANCE",
+      decisionTime: DECISION_TIME,
+      source: "AUTO",
+      entryCutoffPolicy: PAST_CUTOFF,
+      equityFillEvidence: evidence,
+    });
+    expect(result.allowed).toBe(false);
+    // Must be ENTRY_CUTOFF_PASSED — the actual C0 gate, not the config-missing pre-check
+    expect((result as { allowed: false; reason: string }).reason).toBe("ENTRY_CUTOFF_PASSED");
+  });
+
+  it("41. Equity STAGED (SWING_STAGED_APPROVAL): actual C0 gate fires ENTRY_CUTOFF_PASSED when valid cutoff has been passed", () => {
+    const evidence = buildEquityFillEvidence(makeRow());
+    expect(evidence).not.toBeNull();
+    const result = computeFinalExecutionAdmission({
+      lane: "equity_cash",
+      segment: "NSE_EQ",
+      instrument: "RELIANCE",
+      decisionTime: DECISION_TIME,
+      source: "SWING_STAGED_APPROVAL",
+      entryCutoffPolicy: PAST_CUTOFF,
+      equityFillEvidence: evidence,
+    });
+    expect(result.allowed).toBe(false);
+    expect((result as { allowed: false; reason: string }).reason).toBe("ENTRY_CUTOFF_PASSED");
+  });
+
+  it("42. NSE F&O C0 gate (Phase B step 1 hardcoded fail-closed): TRADE_ADMISSION_CONTEXT_INCOMPLETE fires before evidence or cutoff check — even with valid evidence AND valid cutoff supplied", () => {
+    const evidence = buildEquityFillEvidence(makeRow());
+    const result = computeFinalExecutionAdmission({
+      lane: "nse_fo",
+      segment: "NSE_FO",
+      instrument: "NIFTY",
+      decisionTime: DECISION_TIME,
+      source: "MANUAL",
+      entryCutoffPolicy: FUTURE_CUTOFF,
+      equityFillEvidence: evidence,
+    });
+    expect(result.allowed).toBe(false);
+    expect((result as { allowed: false; reason: string }).reason).toBe(
+      "TRADE_ADMISSION_CONTEXT_INCOMPLETE",
+    );
+  });
+
+  it("43. BSE F&O C0 gate: TRADE_ADMISSION_CONTEXT_INCOMPLETE regardless of evidence or cutoff", () => {
+    const evidence = buildEquityFillEvidence(makeRow());
+    const result = computeFinalExecutionAdmission({
+      lane: "bse_fo",
+      segment: "BSE_FO",
+      instrument: "SENSEX",
+      decisionTime: DECISION_TIME,
+      source: "MANUAL",
+      entryCutoffPolicy: FUTURE_CUTOFF,
+      equityFillEvidence: evidence,
+    });
+    expect(result.allowed).toBe(false);
+    expect((result as { allowed: false; reason: string }).reason).toBe(
+      "TRADE_ADMISSION_CONTEXT_INCOMPLETE",
+    );
+  });
+
+  it("44. Valid evidence + past cutoff: ENTRY_CUTOFF_PASSED is invariant — zero insertion path reachable (allowed=false means writer guard returns before any DB call)", () => {
+    const evidence = buildEquityFillEvidence(makeRow());
+    expect(evidence).not.toBeNull();
+    const result = computeFinalExecutionAdmission({
+      lane: "equity_cash",
+      segment: "NSE_EQ",
+      instrument: "RELIANCE",
+      decisionTime: DECISION_TIME,
+      source: "AUTO",
+      entryCutoffPolicy: PAST_CUTOFF,
+      equityFillEvidence: evidence,
+    });
+    expect(result.allowed).toBe(false);
+    expect((result as { allowed: false; reason: string }).reason).toBe("ENTRY_CUTOFF_PASSED");
+    // The trade writers (openPaperEquityTrade, openManualPaperEquityTrade) guard on
+    // admission.allowed === true before any INSERT. allowed=false → zero DB writes.
+  });
+
+  it("45. C0 gate distinguishes correctly: future cutoff (not yet reached) allows an otherwise valid trade", () => {
+    // This proves the gate is directional — it blocks when passed, allows when not passed.
+    const evidence = buildEquityFillEvidence(makeRow());
+    expect(evidence).not.toBeNull();
+    const result = computeFinalExecutionAdmission({
+      lane: "equity_cash",
+      segment: "NSE_EQ",
+      instrument: "RELIANCE",
+      decisionTime: DECISION_TIME,
+      source: "AUTO",
+      entryCutoffPolicy: FUTURE_CUTOFF, // 14:00 IST, decision is 10:00 IST → not yet reached
+      equityFillEvidence: evidence,
+    });
+    // With a valid session, fresh Kite evidence, and a cutoff not yet reached → allowed
+    expect(result.allowed).toBe(true);
+  });
+
+  it("46. Broker execution is disabled — paper trading writer contains no broker order placement calls", () => {
+    const src = fs.readFileSync(path.resolve(__dirname, "./paperTradingEq.ts"), "utf8");
+    expect(src).not.toContain("kite.orderPlace");
+    expect(src).not.toContain("placeOrder(");
+    expect(src).not.toContain("orders/regular");
+    expect(src).not.toContain("place_order");
   });
 });

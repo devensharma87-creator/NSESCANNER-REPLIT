@@ -1,0 +1,396 @@
+P0.3 FINAL ACCEPTANCE CLOSURE — DEDICATED TEST-DB PROOF AND RELEASE EVIDENCE ONLY
+
+This is the final corrective closure for P0.3. Do not begin any new roadmap phase.
+
+Current production/origin baseline:
+e7ae078368ff076e3f2d27322b353397327ab2e5
+
+Preserve the latest corrective checkpoint. Do not reset, rewrite or discard it.
+
+CURRENT AUDITOR POSITION
+
+The code correction is conditionally acceptable:
+
+- Runtime DDL was removed.
+- Read-only schema preflight was introduced.
+- Test isolation now fails closed.
+- Pure tests and typechecks pass.
+- Development schema mutation was disclosed.
+
+P0.3 release acceptance remains blocked because:
+
+1. Three database-backed tests were skipped.
+2. Atomic rollback has not been proven against PostgreSQL.
+3. Legacy-null read compatibility has not been proven against PostgreSQL.
+4. Schema/type compatibility has not been proven against PostgreSQL.
+5. Equity AUTO/STAGED and F&O C0 gates have not been independently proven by their exact hard gates.
+6. Final Git, production-identity and mandatory-label evidence is incomplete.
+
+STRICT SCOPE
+
+Complete only the remaining P0.3 acceptance evidence and necessary tests.
+
+Do not:
+
+- push to origin/main;
+- publish or deploy;
+- execute anything against production;
+- execute DDL or DML against the development business database;
+- drop or modify the seven columns already added to development;
+- modify historical business records;
+- change environment variables for development or production;
+- provision a new external database without owner authorisation;
+- use DATABASE_URL as a test target;
+- weaken the DB-isolation guard;
+- reintroduce runtime DDL;
+- enable Equity AUTO/STAGED;
+- enable F&O;
+- enable broker execution;
+- begin Upstox, IndianAPI or Yahoo-removal implementation;
+- refactor unrelated code.
+
+AUTHORISED DATABASE WRITES
+
+DDL/DML is authorised only against an existing, dedicated test database when all of the following are true:
+
+- TEST_DATABASE_URL is present;
+- TEST_DB_ISOLATION_CONFIRMED=true;
+- the isolation guard returns ok=true;
+- the target is not production;
+- the target is not the normal development business database;
+- the target identity is printed in redacted/fingerprinted form before any mutation.
+
+If these conditions are not met, perform no database mutation and finish with:
+
+P0_3_BLOCKED: DEDICATED_TEST_DATABASE_REQUIRED
+
+TASK 1 — RESOLVE TEST-DATABASE AVAILABILITY
+
+Read configuration and secrets by presence/name only. Never output connection strings, passwords, tokens or credentials.
+
+Report:
+
+- TEST_DATABASE_URL present: YES/NO
+- TEST_DB_ISOLATION_CONFIRMED value
+- isolation-guard result
+- redacted host fingerprint
+- database name
+- schema
+- role
+- whether the target is empty/dedicated
+- why it cannot be development or production
+
+Do not fall back to DATABASE_URL.
+
+If no authorised dedicated test database exists:
+
+1. Do not run DB integration tests.
+2. Do not alter code merely to force a pass.
+3. Complete all non-DB evidence.
+4. Produce the exact owner action required to provision/configure the test database.
+5. End with the blocked label.
+
+TASK 2 — STRENGTHEN READ-ONLY SCHEMA PREFLIGHT
+
+Review assertPaperEqEvidenceColumnsPresent().
+
+It must verify the exact active schema and table—not a same-named table in another schema.
+
+Verify all seven fields:
+
+- fill_provider
+- fill_provider_ts
+- fill_decision_time
+- fill_computed_age_sec
+- fill_policy_id
+- fill_policy_max_age_sec
+- fill_evidence_version
+
+For each field verify:
+
+- expected column name;
+- expected PostgreSQL type;
+- nullable status;
+- no default unless explicitly intended;
+- correct table schema.
+
+Expected semantics:
+
+- fill_provider: text, nullable
+- fill_provider_ts: timestamptz, nullable
+- fill_decision_time: timestamptz, nullable
+- fill_computed_age_sec: numeric(10,3), nullable
+- fill_policy_id: text, nullable
+- fill_policy_max_age_sec: numeric(10,3), nullable
+- fill_evidence_version: text, nullable
+
+The preflight must use SELECT/read-only metadata queries only.
+
+If a column exists with an incorrect type or constraint, fail closed with a precise diagnostic. Never repair it automatically.
+
+Add pure tests for:
+
+- all definitions correct;
+- missing column;
+- wrong type;
+- wrong nullability;
+- wrong numeric precision/scale;
+- same table name in the wrong schema;
+- zero ALTER/CREATE/DROP capability in the preflight.
+
+TASK 3 — PROVE THE ACTUAL C0 GATES
+
+Add focused tests that independently prove the hard controls rather than failing at an earlier cutoff or evidence gate.
+
+Required tests:
+
+1. Equity AUTO is blocked by the actual equity C0 gate.
+2. Equity STAGED is blocked by the actual equity C0 gate.
+3. NSE F&O is blocked by the actual F&O C0 gate.
+4. BSE F&O is blocked by the actual F&O C0 or calendar fail-closed gate.
+5. Valid evidence, valid cutoff and otherwise valid context cannot bypass C0.
+6. Zero insertion callbacks occur for all blocked lanes.
+7. Broker execution remains disabled.
+
+Assert the exact gate/reason and zero insert calls.
+
+Do not count ENTRY_CUTOFF_CONFIG_UNAVAILABLE as proof of C0.
+
+Also retain separate tests proving:
+
+- missing trusted F&O premium timestamp fails closed;
+- Yahoo evidence fails closed;
+- stale or future evidence fails closed.
+
+TASK 4 — DATABASE INTEGRATION ACCEPTANCE
+
+Run this task only when the dedicated test-database guard passes.
+
+Apply the P0.3 migration only to the dedicated test database.
+
+Create isolated test fixtures with unique run/test identifiers and clean them up through the approved test harness.
+
+Prove using the real PostgreSQL schema and real insertion transaction:
+
+A. Successful evidence persistence
+
+Insert a manual equity test trade through the real P0.3 writer using valid ValidatedFillEvidence.
+
+Verify:
+
+- symbol equals validatedFill.instrument;
+- entry_price equals validatedFill.price;
+- fill_provider equals validatedFill.provider;
+- fill_provider_ts equals validatedFill.providerTimestamp;
+- fill_decision_time equals validatedFill.decisionTime;
+- fill_computed_age_sec equals validatedFill.computedAgeSec to scale 3;
+- fill_policy_id equals validatedFill.policyId;
+- fill_policy_max_age_sec equals validatedFill.policyMaxAgeSec to scale 3;
+- fill_evidence_version equals the module version;
+- exactly one row is committed.
+
+B. Atomic rollback
+
+Force a deterministic insertion/transaction failure after entering the real transactional path.
+
+After rollback, query using the unique test identifier and prove:
+
+- trade rows committed = 0;
+- partial evidence rows committed = 0;
+- audit rows committed for the failed insertion = 0 unless the design explicitly stores failure audit outside the transaction; disclose actual behaviour.
+
+Do not claim rollback proof from source structure alone.
+
+C. Legacy compatibility
+
+Insert or construct a dedicated test-only legacy row where all seven new evidence columns are null.
+
+Prove:
+
+- the row can be read through the applicable repository/API mapping;
+- no coercion invents provider, timestamp, age or version;
+- the row is classified as legacy/unknown where applicable;
+- no backfill occurs.
+
+D. Schema compatibility
+
+Verify PostgreSQL stores and returns:
+
+- timestamps without timezone corruption;
+- numeric(10,3) values at expected precision;
+- null legacy fields;
+- evidence version text;
+- provider and policy strings without transformation.
+
+E. Rejection produces zero insertions
+
+Using the real or appropriately instrumented writer, prove zero committed rows for:
+
+- null evidence;
+- stale evidence;
+- future provider timestamp;
+- Yahoo/secondary-analytics evidence;
+- invalid price;
+- symbol mismatch;
+- Equity AUTO;
+- Equity STAGED;
+- NSE F&O;
+- BSE F&O.
+
+TASK 5 — MIGRATION RUNBOOK HARDENING
+
+Do not execute the production migration.
+
+Update the migration runbook so that the future owner-controlled production procedure includes:
+
+1. Exact target identity preflight.
+2. Explicit production confirmation.
+3. Schema-qualified table name.
+4. Transaction wrapper where supported.
+5. Appropriate lock_timeout.
+6. Appropriate statement_timeout.
+7. Pre-migration column inventory.
+8. Migration execution.
+9. Post-migration verification of all seven definitions.
+10. Application deployment only after migration success.
+11. Fail-closed behaviour if migration is absent.
+12. Rollback-impact explanation.
+
+Do not include a casual command that could run against an unverified PROD_DATABASE_URL.
+
+Do not recommend dropping populated columns as an automatic rollback.
+
+TASK 6 — DEVELOPMENT-DB INCIDENT COMPLETION
+
+Use read-only evidence only.
+
+Complete the disclosure of the earlier development-schema mutation:
+
+- redacted host fingerprint;
+- database: heliumdb;
+- role;
+- schema;
+- exact SQL or exact equivalent DDL executed;
+- all seven resulting definitions;
+- row count;
+- null/non-null count for every new column;
+- evidence of no UPDATE/INSERT/DELETE during the original DDL operation if available;
+- evidence production was not targeted;
+- correction-pass additional mutations.
+
+Do not claim BUSINESS_DB_MUTATIONS=0 for the complete P0.3 history.
+
+Use these labels:
+
+DEVELOPMENT_DB_SCHEMA_ALREADY_MUTATED=TRUE
+DEVELOPMENT_ROWS_UPDATED=
+DEVELOPMENT_ROWS_INSERTED=
+DEVELOPMENT_ROWS_DELETED=
+CORRECTION_PASS_ADDITIONAL_DB_MUTATIONS=0
+PRODUCTION_DB_MUTATIONS=0
+HISTORICAL_ROWS_MODIFIED=0
+
+Use UNKNOWN where evidence is unavailable.
+
+TASK 7 — COMPLETE VERIFICATION
+
+Run and report exact command, exit code, passed, failed, skipped and warnings for:
+
+- fillEvidencePersistence.test.ts
+- paperTradingEqProvenance.test.ts
+- tradeAdmission.test.ts
+- equitySessionGate.test.ts
+- sessionAdmission.test.ts
+- dbTestGuard.test.ts
+- new P0.3 database integration tests, if authorised
+- full API-server typecheck
+- shared-library typecheck
+- full workspace typecheck
+- git diff --check
+- repository-wide runtime-DDL search
+- git status --short
+
+A skipped DB suite must be reported as BLOCKED/SKIPPED, never PASS.
+
+Do not report a missing test file as a failed regression; identify the correct existing suite before running.
+
+TASK 8 — GIT AND PRODUCTION IDENTITY
+
+Report:
+
+- starting corrective SHA;
+- final corrective SHA;
+- current branch;
+- HEAD;
+- origin/main SHA;
+- production SHA;
+- merge base;
+- ahead/behind state;
+- complete changed-file inventory;
+- git status --short;
+- whether anything was pushed;
+- whether anything was published;
+- whether anything was deployed.
+
+Do not push.
+
+Expected origin/main and production SHA remain:
+
+e7ae078368ff076e3f2d27322b353397327ab2e5
+
+TASK 9 — FINAL UNTRUNCATED REPORT
+
+Provide a concise but complete report with:
+
+A. Code corrections  
+B. Schema-preflight evidence  
+C. Migration design and runbook  
+D. Development-DB incident  
+E. Test-isolation evidence  
+F. Pure-test results  
+G. Integration-test results or exact blocker  
+H. Actual C0-gate proof  
+I. Git identity  
+J. Production identity  
+K. Residual blockers  
+L. Mandatory final labels
+
+MANDATORY LABELS
+
+FINAL_SHA=
+HEAD_SHA=
+ORIGIN_MAIN_SHA=
+PRODUCTION_SHA=
+RUNTIME_DDL_PRESENT=FALSE
+SCHEMA_PREFLIGHT_READ_ONLY=TRUE
+SCHEMA_PREFLIGHT_EXACT_TYPES_VERIFIED=
+CONTROLLED_MIGRATION_SOURCE_READY=
+PRODUCTION_MIGRATION_EXECUTED=FALSE
+DEVELOPMENT_DB_SCHEMA_ALREADY_MUTATED=TRUE
+CORRECTION_PASS_ADDITIONAL_DB_MUTATIONS=0
+PRODUCTION_DB_MUTATIONS=0
+HISTORICAL_ROWS_MODIFIED=0
+TEST_DB_ISOLATION_PROVEN=
+P0_3_PURE_TESTS=
+P0_3_INTEGRATION_TESTS=
+ATOMIC_ROLLBACK_PROVEN=
+LEGACY_NULL_READ_PROVEN=
+EQUITY_AUTO_C0=BLOCKED
+EQUITY_STAGED_C0=BLOCKED
+NSE_FNO_C0=BLOCKED
+BSE_FNO=BLOCKED
+YAHOO_TRADE_ELIGIBLE=FALSE
+BROKER_EXECUTION=DISABLED
+PUSHED=NO
+PUBLISHED=NO
+DEPLOYED=NO
+
+End with exactly one:
+
+P0_3_ACCEPTED_NOT_DEPLOYED
+
+or
+
+P0_3_BLOCKED: <specific evidence-backed reason>
+
+Do not begin the next roadmap phase after this report.

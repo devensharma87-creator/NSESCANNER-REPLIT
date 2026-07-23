@@ -191,43 +191,139 @@ export function ensurePaperEqProvenanceColumns(): Promise<void> {
 // "column does not exist" error (fail closed). For an earlier, diagnostic-
 // rich failure, call assertPaperEqEvidenceColumnsPresent() at start-up.
 
-const EVIDENCE_COLUMNS = [
-  "fill_provider",
-  "fill_provider_ts",
-  "fill_decision_time",
-  "fill_computed_age_sec",
-  "fill_policy_id",
-  "fill_policy_max_age_sec",
-  "fill_evidence_version",
-] as const;
+/**
+ * One row returned by the preflight metadata query.
+ * Exported so the pure verifyEvidenceColumnDefs() function can be tested
+ * without a real database connection.
+ */
+export interface EvidenceSchemaRow {
+  [key: string]: unknown;
+  column_name: string;
+  data_type: string;
+  is_nullable: string;
+  numeric_precision: number | null;
+  numeric_scale: number | null;
+  column_default: string | null;
+  table_schema: string;
+}
+
+/** Per-column type + precision contract for the seven P0.3 evidence fields. */
+interface EvidenceColSpec {
+  dataType: string;
+  numericPrecision: number | null;
+  numericScale: number | null;
+}
+
+/**
+ * Authoritative type/constraint specification for all seven P0.3 evidence
+ * columns on `public.paper_trade_eq`. Used by `verifyEvidenceColumnDefs()`
+ * and exported so pure tests can build conforming and non-conforming rows.
+ *
+ *   fill_provider          TEXT      nullable  no default
+ *   fill_provider_ts       TIMESTAMPTZ nullable no default
+ *   fill_decision_time     TIMESTAMPTZ nullable no default
+ *   fill_computed_age_sec  NUMERIC(10,3) nullable no default
+ *   fill_policy_id         TEXT      nullable  no default
+ *   fill_policy_max_age_sec NUMERIC(10,3) nullable no default
+ *   fill_evidence_version  TEXT      nullable  no default
+ */
+export const EVIDENCE_COLUMN_SPECS: Record<string, EvidenceColSpec> = {
+  fill_provider:           { dataType: "text",                     numericPrecision: null, numericScale: null },
+  fill_provider_ts:        { dataType: "timestamp with time zone", numericPrecision: null, numericScale: null },
+  fill_decision_time:      { dataType: "timestamp with time zone", numericPrecision: null, numericScale: null },
+  fill_computed_age_sec:   { dataType: "numeric",                  numericPrecision: 10,   numericScale: 3   },
+  fill_policy_id:          { dataType: "text",                     numericPrecision: null, numericScale: null },
+  fill_policy_max_age_sec: { dataType: "numeric",                  numericPrecision: 10,   numericScale: 3   },
+  fill_evidence_version:   { dataType: "text",                     numericPrecision: null, numericScale: null },
+};
+
+/**
+ * Pure verification — no DB access, no side effects.
+ *
+ * Accepts rows from an `information_schema.columns` query for
+ * `public.paper_trade_eq` and checks that every P0.3 evidence column:
+ *   - is present in schema 'public' (rejects same-named table in another schema)
+ *   - has the exact expected data_type
+ *   - is nullable (is_nullable = 'YES')
+ *   - has the correct numeric_precision and numeric_scale
+ *   - has no column_default
+ *
+ * Returns { ok: true } on success.
+ * Returns { ok: false; errors: string[] } on any mismatch — never throws,
+ * never repairs, never issues DDL.
+ */
+export function verifyEvidenceColumnDefs(
+  rows: EvidenceSchemaRow[],
+): { ok: true } | { ok: false; errors: string[] } {
+  const errors: string[] = [];
+  const byName = new Map(rows.map((r) => [r.column_name, r]));
+
+  for (const [colName, spec] of Object.entries(EVIDENCE_COLUMN_SPECS)) {
+    const row = byName.get(colName);
+    if (!row) {
+      errors.push(`[MISSING] '${colName}' absent from public.paper_trade_eq`);
+      continue;
+    }
+    if (row.table_schema !== "public") {
+      errors.push(`[WRONG_SCHEMA] '${colName}': expected table_schema='public', got '${row.table_schema}'`);
+    }
+    if (row.data_type !== spec.dataType) {
+      errors.push(`[WRONG_TYPE] '${colName}': expected '${spec.dataType}', got '${row.data_type}'`);
+    }
+    if (row.is_nullable !== "YES") {
+      errors.push(`[NOT_NULLABLE] '${colName}': expected is_nullable='YES', got '${row.is_nullable}'`);
+    }
+    if (spec.numericPrecision !== null && row.numeric_precision !== spec.numericPrecision) {
+      errors.push(`[WRONG_PRECISION] '${colName}': expected numeric_precision=${spec.numericPrecision}, got ${String(row.numeric_precision)}`);
+    }
+    if (spec.numericScale !== null && row.numeric_scale !== spec.numericScale) {
+      errors.push(`[WRONG_SCALE] '${colName}': expected numeric_scale=${spec.numericScale}, got ${String(row.numeric_scale)}`);
+    }
+    if (row.column_default !== null) {
+      errors.push(`[UNEXPECTED_DEFAULT] '${colName}': has default='${row.column_default}', expected null`);
+    }
+  }
+
+  return errors.length === 0 ? { ok: true } : { ok: false, errors };
+}
 
 let evidenceColumnsVerified = false;
 
 /**
- * Read-only pre-flight: confirms all seven P0.3 fill-evidence columns are
- * present on `paper_trade_eq`. Throws with a diagnostic pointing to the
- * migration file if any are missing. Never creates or alters columns.
+ * Read-only preflight: queries information_schema.columns in schema 'public'
+ * and verifies all seven P0.3 evidence columns have the exact expected type,
+ * nullability, precision/scale, and no default. Fails closed with a precise
+ * diagnostic if any definition is absent or mismatched. Never creates, alters,
+ * or drops columns.
  *
- * Caches a successful check for the process lifetime (one DB round-trip).
+ * Caches success for the process lifetime (one DB round-trip total).
  * On failure the cache is not set so the next call re-checks.
  */
 export async function assertPaperEqEvidenceColumnsPresent(): Promise<void> {
   if (evidenceColumnsVerified) return;
-  const result = await db.execute<{ column_name: string }>(sql`
-    SELECT column_name
+  const result = await db.execute<EvidenceSchemaRow>(sql`
+    SELECT
+      column_name,
+      data_type,
+      is_nullable,
+      numeric_precision,
+      numeric_scale,
+      column_default,
+      table_schema
     FROM information_schema.columns
-    WHERE table_name = 'paper_trade_eq'
+    WHERE table_schema = 'public'
+      AND table_name   = 'paper_trade_eq'
       AND column_name IN (
         'fill_provider', 'fill_provider_ts', 'fill_decision_time',
         'fill_computed_age_sec', 'fill_policy_id', 'fill_policy_max_age_sec',
         'fill_evidence_version'
       )
   `);
-  const found = new Set(result.rows.map((r) => r.column_name));
-  const missing = EVIDENCE_COLUMNS.filter((c) => !found.has(c));
-  if (missing.length > 0) {
+  const verification = verifyEvidenceColumnDefs(result.rows);
+  if (!verification.ok) {
     throw new Error(
-      `P0.3 schema not migrated — paper_trade_eq is missing evidence columns: ${missing.join(", ")}. ` +
+      `P0.3 schema mismatch — public.paper_trade_eq evidence columns have incorrect definitions:\n` +
+        verification.errors.map((e) => `  · ${e}`).join("\n") + "\n" +
         `Run the controlled migration at docs/migrations/paper_trade_eq_fill_evidence.sql ` +
         `using the owner-run procedure documented in that file.`,
     );
