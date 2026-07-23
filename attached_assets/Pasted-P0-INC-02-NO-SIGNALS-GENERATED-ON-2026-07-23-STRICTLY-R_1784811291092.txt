@@ -1,0 +1,105 @@
+P0-INC-02 — NO SIGNALS GENERATED ON 2026-07-23
+STRICTLY READ-ONLY FORENSIC INVESTIGATION
+
+Do not modify code.
+Do not change strategy thresholds.
+Do not enable auto trading.
+Do not execute DDL or DML.
+Do not deploy, publish, push, merge, or restart production.
+Do not fabricate or infer missing evidence.
+
+Incident:
+The user reports zero signals generated on 2026-07-23 for NIFTY, BANKNIFTY, and SENSEX. The attached 15-minute charts show substantial bearish intraday structure. This does not prove a TRADEABLE_SIGNAL was mandatory, but the complete absence of candidates, INFO_ONLY records, or rejection evidence requires investigation.
+
+Important distinction:
+- EQUITY_AUTO_OPEN_C0_BLOCKED and FNO_AUTO_OPEN_C0_BLOCKED are permitted to prevent paper-trade creation only.
+- They must not prevent signal calculation, candidate evaluation, rejection recording, INFO_ONLY output, API visibility, or alerts.
+- If SystemMode=DEGRADED or C0 short-circuits signal generation, report it as a defect.
+- Do not change these gates during this investigation.
+
+Investigation window:
+2026-07-23 09:15:00–15:30:00 Asia/Kolkata.
+
+Instruments:
+- NIFTY
+- BANKNIFTY
+- SENSEX
+
+Required evidence:
+
+1. Confirm exact production SHA and deployment ID.
+2. Confirm whether the market session was classified as open throughout the window.
+3. Report Kite authentication status and reconnect/expiry times.
+4. For every instrument, report:
+   - first and last received live tick
+   - first and last completed candle
+   - provider name
+   - provider timestamp
+   - server receipt timestamp
+   - maximum data age
+   - stale/missing intervals
+5. Confirm every scheduled scanner/signal lifecycle invocation:
+   - expected executions
+   - actual executions
+   - start/end timestamps
+   - errors and skipped executions
+6. Produce a complete per-instrument funnel:
+   - scan evaluations
+   - raw candidates
+   - strategy-qualified candidates
+   - rejected candidates
+   - WATCHLIST_SETUP
+   - INFO_ONLY
+   - TRADEABLE_SIGNAL
+   - alerts attempted/sent
+   - paper-trade attempts
+7. Group every rejection by exact reason code and include counts.
+8. Verify whether option-chain or option-premium validation was reached. Report:
+   - provider
+   - premium timestamp
+   - age
+   - trust tier
+   - rejection reason
+9. Prove whether C0/SystemMode is evaluated before or after signal emission.
+10. Inspect production logs for:
+    - no_live_kite_intraday
+    - PRE_EMISSION_REJECTED
+    - MARKET_CLOSED
+    - stale quote/candle
+    - missing option chain
+    - cooldown
+    - recovery/chase veto
+    - schema/API serialization failure
+11. Query signal/rejection records read-only and determine whether records exist but were hidden by the API or UI.
+12. Capture the relevant signal API HTTP status and raw response. Verify that INFO_ONLY and rejected setups are not being filtered unintentionally.
+13. Verify Telegram/notification delivery separately from signal generation.
+14. Confirm that Yahoo data neither generated nor validated a trade signal.
+15. Do not treat lack of a TRADEABLE_SIGNAL as a defect unless the strategy conditions actually passed. The defect is zero auditable lifecycle evidence or an incorrect pipeline short-circuit.
+
+Required final report:
+
+A. Executive conclusion:
+- MARKET_CONDITIONS_DID_NOT_QUALIFY
+- DATA_PROVIDER_FAILURE
+- SCHEDULER_FAILURE
+- SESSION_CLASSIFICATION_FAILURE
+- C0_OR_SYSTEM_MODE_COUPLING_BUG
+- SIGNAL_GENERATED_BUT_NOT_DISPLAYED
+- MULTIPLE_CAUSES
+- INCONCLUSIVE
+
+B. Per-instrument funnel table.
+C. Provider/session timeline.
+D. Exact rejection-code counts.
+E. Proof of where processing stopped.
+F. Whether signal generation was running independently of trade execution.
+G. Whether any signals existed but were hidden.
+H. Corrective recommendations ranked P0/P1/P2.
+I. Explicit statement:
+   CODE CHANGES=0
+   DB MUTATIONS=0
+   ENV CHANGES=0
+   DEPLOYED=NO
+   PUBLISHED=NO
+
+Stop after producing the evidence report. Do not implement corrections until the owner/auditor reviews and authorizes them.
