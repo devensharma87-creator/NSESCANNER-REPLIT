@@ -1,0 +1,116 @@
+Collect evidence for an owner ruling on two divergences observed on production, 2026-07-24. You are gathering facts only. You are not diagnosing, not proposing fixes, and not writing code.
+
+Bright lines
+
+Zero code changes. Zero migrations. Zero deploys. Zero restarts.
+Read-only queries only. No UPDATE, INSERT, DELETE, ALTER, DROP.
+Do not "fix" anything you find while collecting. If you spot a bug, note it in the deliverable and stop.
+Do not touch replit.md.
+Run all DB queries against prod, and state explicitly at the top of your output which DATABASE_URL you used (prod vs workspace/dev). If you are unsure which you hit, stop and ask.
+Every deliverable is literal output — raw query results, raw file contents, raw JSON. Not summaries, not paraphrases, not "looks like it's working."
+Deliverable 1 — The three signals (raw rows)
+
+Today (2026-07-24 IST) the daily report shows 3 signals: SENSEX, BANK NIFTY, NIFTY 50, all Baseline Outlook — Short Bias, all PUT, all signalled and triggered 09:57.
+
+Provide:
+
+1a. Full row dump, all columns, no truncation, for those 3 signals from whatever table is the system of record for F&O signals. Include the table name.
+
+sql
+SELECT * FROM <signals_table>
+WHERE <timestamp_col> >= '2026-07-24 00:00:00+05:30'
+  AND <timestamp_col> <  '2026-07-25 00:00:00+05:30'
+ORDER BY <timestamp_col>;
+
+1b. The \d+ output (or equivalent) for that table, showing column names, types, and which columns are timezone-aware vs naive.
+
+1c. State the stored timezone of every timestamp column in that table. If any column is timestamp without time zone, say so explicitly and state what timezone the writer assumes.
+
+Deliverable 2 — The two readers (the core ask)
+
+The report surface shows these 3 signals. The live setup surface shows zero and renders "No setups because no candidate cleared the confidence floor or risk gates right now."
+
+2a. The exact query or ORM call the report surface executes to produce the Daily Report signal log. Paste the literal code, with file path and line numbers. If it's an ORM chain, also paste the SQL it compiles to.
+
+2b. The exact query or ORM call the live setups surface executes. Same: literal code, file path, line numbers, plus compiled SQL.
+
+2c. A side-by-side diff of 2a and 2b. Specifically identify every difference in: WHERE clauses, date/time window construction, status filters, tradeability/eligibility flags, index filters, LIMIT, and any joins.
+
+2d. Run both queries manually against prod right now and paste the literal row counts and rows returned by each.
+
+This is the single most important deliverable. The other seven exist to support it.
+
+Deliverable 3 — Date-window construction
+
+For both surfaces in Deliverable 2:
+
+3a. Paste the code that computes the date window (the "today" boundary). File path and line numbers.
+
+3b. State for each: is the boundary computed in IST or UTC? Is it computed server-side or client-side? Does it use the server clock, the DB clock, or a browser clock?
+
+3c. Paste the output of SELECT now(), current_setting('TIMEZONE'); from prod.
+
+3d. Paste the server's system timezone (date and timedatectl or equivalent) for the api-server process.
+
+Deliverable 4 — The skip-reason contradiction
+
+The Paper Trading F&O tab simultaneously displays: SIGNALS TODAY 3, TRADES OPENED 0 / 4, SKIPPED TODAY 0, and the text "No skip reasons logged today — every qualifying signal opened."
+
+These cannot all be true. Provide:
+
+4a. The write path for the skip-reason logger. Every call site that writes a skip reason — file paths and line numbers, literal code.
+
+4b. The query that populates SKIPPED TODAY and the query that populates SIGNALS TODAY on that panel. Literal code plus compiled SQL.
+
+4c. Raw dump of the skip-reason table for 2026-07-24 IST (expected: zero rows — confirm or deny with literal output), plus the table's \d+.
+
+4d. Trace and state plainly: for each of the 3 signals from Deliverable 1, did it reach the paper-trade open evaluator at all? If yes, what did the evaluator return and was that outcome persisted anywhere? If no, at what point in the pipeline did it stop? Cite the code path.
+
+4e. Paste the literal source of the string "No skip reasons logged today — every qualifying signal opened." State the exact condition under which it renders. I want to know whether it renders on "zero skip rows" without checking whether any signal actually opened — i.e. whether it is a hardcoded optimistic message.
+
+Deliverable 5 — Network capture
+
+5a. A HAR file (or equivalent full capture) of a fresh page load of the live F&O setups page on production, market hours if possible, captured today or the next trading day.
+
+5b. A HAR file of a fresh page load of the Daily Report page for 2026-07-24.
+
+5c. For both: list every distinct API endpoint called, with its full request URL including query params, and the HTTP status. If any endpoint is called more than once per load, note the count.
+
+Deliverable 6 — Fetch-path inventory (feeds Phase 2)
+
+6a. Literal grep output across the frontend (artifacts/scanner) for every data-fetching call site. Suggested:
+
+bash
+grep -rn "fetch(\|useQuery\|useSWR\|axios\." artifacts/scanner/src --include=*.ts --include=*.tsx
+
+Paste the raw output. Do not summarise or deduplicate.
+
+6b. Total count of distinct call sites, and total count of distinct endpoint URLs they hit.
+
+Deliverable 7 — Route inventory (feeds Phase 3)
+
+7a. Literal listing of all frontend routes currently registered — the router config file, pasted in full, with file path.
+
+7b. Count of routes. Confirm or correct the previously-recorded figure of 42.
+
+Deliverable 8 — Environment and mode
+
+8a. Literal values of SystemMode, env, and any auth-mode / public-mode flag as they were set on prod today. Redact secret values but state each key's name and whether it is set.
+
+8b. Confirm whether the api-server was restarted between 09:57 IST and the time the screenshots were taken (~11:57 IST). The Exit Monitor panel shows "Booted: 24 Jul, 06:06" — confirm that is the current process's boot time and that no restart occurred in between. This matters because the skipped/missed log is in-memory and resets on restart.
+
+Acceptance criteria
+
+I will consider this complete only when all of the following are true:
+
+Every deliverable above is present, with nothing marked "N/A" unless accompanied by a one-line reason.
+All code excerpts include file path and line numbers.
+All query outputs are literal — copy-pasted rows, not descriptions of rows.
+Deliverable 2c explicitly names the difference(s) between the two queries, or states with evidence that the queries are byte-identical.
+Deliverable 4d gives a definite answer for each of the 3 signals — "reached evaluator, returned X" or "stopped at Y" — not "unclear."
+The DATABASE_URL used (prod vs dev) is stated at the top.
+Zero writes were performed. Confirm this explicitly.
+
+If you get blocked
+
+Stop and report the blocker. Do not work around it, do not substitute a similar query, do not restart anything to get cleaner data. A restart wipes the in-memory skip log and destroys Deliverable 4 evidence.
