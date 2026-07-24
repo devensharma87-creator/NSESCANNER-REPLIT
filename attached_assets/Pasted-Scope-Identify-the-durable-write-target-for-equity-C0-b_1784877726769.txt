@@ -1,0 +1,69 @@
+Scope
+
+Identify the durable write target for equity C0 block records, and confirm whether writing one requires any schema change. This unblocks the Phase 1 fix prompt.
+
+Bright lines
+
+Zero code changes. Zero migrations. Zero deploys. Zero restarts.
+Do not write a test row to any table.
+No DDL of any kind, additive or otherwise.
+Do not touch replit.md.
+Literal output only — no summaries.
+State which DATABASE_URL was used (prod vs dev) at the top.
+
+Deliverable 1 — Identify the table
+
+The Paper Trading page has an "Equity decision audit" panel showing rows with TIME / SYMBOL / DECISION / REASON / DETAIL / SCORE / SOURCE columns (observed values: SKIP, CONCURRENT_CAP, "Concurrent-open cap reached: 10 ≥ 10", score 76, source AUTO).
+
+1a. Name the table backing that panel.
+
+1b. The endpoint and query that populates it — literal code, file path, line numbers, plus compiled SQL.
+
+1c. Confirm this is the same table the equity lane writes to for skip decisions, or state that it is not and identify what is.
+
+Deliverable 2 — Schema
+
+2a. \d+ for that table, complete.
+
+2b. List every NOT NULL column with no default. These are the fields a new row must supply.
+
+2c. Is DECISION (or its underlying column) an enum, a CHECK constraint, or free text? Give the literal constraint definition if one exists.
+
+2d. Same question for REASON.
+
+Deliverable 3 — The blocking question
+
+Can a row with decision = SKIP (or equivalent) and reason = C0_HARD_BLOCK be inserted into this table with no schema change at all?
+
+Answer must be one of exactly these three, with evidence:
+
+YES — every NOT NULL field is suppliable from the C0 block context. List each required field and where the value comes from at paperTradingEq.ts:385.
+NO — enum/CHECK blocks it — the reason or decision column constrains values and C0_HARD_BLOCK is not permitted. Quote the constraint.
+NO — missing column — a required field cannot be supplied. Name it.
+
+If the answer is either NO, stop there. Do not propose a migration. Do not write one. Report and wait for owner ruling.
+
+Deliverable 4 — Available context at the block
+
+4a. artifacts/api-server/src/lib/paperTradingEq.ts lines 370–400 verbatim with line numbers.
+
+4b. List every variable in scope at line 385 that could populate the audit row — symbol, score, source, timestamp, candidate metadata. For each: variable name and type.
+
+4c. Confirm whether a DB handle / write client is in scope at that point, or whether the early return happens before DB access is available. (Coder's earlier note said the equity block rejects "before any DB access" — I need to know if that's a scope problem or just an ordering choice.)
+
+Deliverable 5 — Existing write path
+
+5a. Literal grep -rn for the function that currently writes rows to this table.
+
+5b. Its full definition, verbatim, with file path and line numbers.
+
+5c. Every call site.
+
+Acceptance criteria
+
+Deliverable 3 answered with exactly one of the three verdicts, with evidence.
+All schema output literal, not described.
+4c gives a definite yes/no on DB-handle availability at the block point.
+Zero writes performed — confirm explicitly.
+DATABASE_URL stated at top.
+If the verdict is either NO — no migration proposed, no DDL written.
