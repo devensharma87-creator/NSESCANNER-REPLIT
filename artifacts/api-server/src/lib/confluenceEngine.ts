@@ -157,6 +157,11 @@ function scoreVwap(i: ConfluenceInputs): ConfluenceFactor {
 }
 
 function scoreVolumeProfile(i: ConfluenceInputs): ConfluenceFactor {
+  // D-FAB-03 structural invariant: for cash indices (NIFTY/BANKNIFTY/SENSEX),
+  // i.vp is ALWAYS null because vpIntraday is derived from zero-volume candles
+  // (volumeProfile returns null when totalVol=0). The null guard below therefore
+  // returns weight=0 for all index calls — no VP-derived directional points
+  // ever affect the confluence score for those instruments.
   if (!i.vp) {
     return {
       label: "VOLUME_PROFILE", weight: 0, polarity: "neutral",

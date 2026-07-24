@@ -696,14 +696,21 @@ function detectTrendContinuation(c: Ctx): Detected | null {
       conf += 20;
       if (c.rsi14 >= 52 && c.rsi14 <= 68) { drivers.push({ label: "RSI healthy bullish", detail: `RSI ${c.rsi14.toFixed(1)} in trend zone (52–68).`, weight: 15, bullish: true }); conf += 15; }
       else if (c.rsi14 > 68) { drivers.push({ label: "RSI overbought caution", detail: `RSI ${c.rsi14.toFixed(1)} — extended; size smaller.`, weight: 5, bullish: false }); conf -= 5; }
-      if (c.vp && c.spot > c.vp.pointOfControl) { drivers.push({ label: "Above POC", detail: `Spot above POC ${c.vp.pointOfControl.toFixed(2)} — value supports buyers.`, weight: 8, bullish: true }); conf += 8; }
+      // D-FAB-04 quarantine: POC/VAH/VAL from an untrusted (zero-volume) index
+      // series must not contribute directional points. This branch fires only
+      // when vwapAvailable=false (cash indices with structural zero candle volume),
+      // so c.vp is always null here (volumeProfile returns null when totalVol=0).
+      // The explicit absence of the "Above POC" check below closes the structural
+      // vulnerability: even if c.vp were somehow non-null (data anomaly), no
+      // directional points or confidence change is applied.
       if (c.lastVol != null && c.lastVol > c.avgVol20 * 1.2) { drivers.push({ label: "Volume confirmation", detail: `Last bar vol ${(c.lastVol / 1e6).toFixed(2)}M > 20-bar avg.`, weight: 8, bullish: true }); conf += 8; }
     } else {
       drivers.push({ label: "EMA 9 < EMA 21 stack", detail: `EMA9 ${c.ema9.toFixed(2)} < EMA21 ${c.ema21.toFixed(2)} — fast below slow.`, weight: 20, bullish: false });
       conf += 20;
       if (c.rsi14 <= 48 && c.rsi14 >= 32) { drivers.push({ label: "RSI healthy bearish", detail: `RSI ${c.rsi14.toFixed(1)} in trend zone (32–48).`, weight: 15, bullish: false }); conf += 15; }
       else if (c.rsi14 < 32) { drivers.push({ label: "RSI oversold caution", detail: `RSI ${c.rsi14.toFixed(1)} — bounce risk; size smaller.`, weight: 5, bullish: true }); conf -= 5; }
-      if (c.vp && c.spot < c.vp.pointOfControl) { drivers.push({ label: "Below POC", detail: `Spot below POC ${c.vp.pointOfControl.toFixed(2)} — value supports sellers.`, weight: 8, bullish: false }); conf += 8; }
+      // D-FAB-04 quarantine: "Below POC" removed from no-VWAP (index) branch.
+      // See BULLISH arm above for rationale.
       if (c.lastVol != null && c.lastVol > c.avgVol20 * 1.2) { drivers.push({ label: "Volume confirmation", detail: `Last bar vol ${(c.lastVol / 1e6).toFixed(2)}M > 20-bar avg.`, weight: 8, bullish: false }); conf += 8; }
     }
     drivers.push({
@@ -721,9 +728,12 @@ function detectTrendContinuation(c: Ctx): Detected | null {
     const stop = dir === "BULLISH"
       ? Math.min(c.piv.s1, c.spot - c.atrDaily * 0.3)
       : Math.max(c.piv.r1, c.spot + c.atrDaily * 0.3);
+    // D-FAB-04 quarantine: target must not be widened by an untrusted VP value.
+    // In this no-VWAP (index) branch VP is structurally unavailable; use pivot
+    // levels only, without the c.vp?.valueAreaHigh / c.vp?.valueAreaLow terms.
     const t1 = dir === "BULLISH"
-      ? Math.max(c.piv.r1, c.vp?.valueAreaHigh ?? c.piv.r1) + c.atr15 * 0.3
-      : Math.min(c.piv.s1, c.vp?.valueAreaLow ?? c.piv.s1) - c.atr15 * 0.3;
+      ? c.piv.r1 + c.atr15 * 0.3
+      : c.piv.s1 - c.atr15 * 0.3;
     const t2 = dir === "BULLISH" ? c.piv.r2 : c.piv.s2;
     const dist = Math.abs(c.spot - trigger);
     const triggerDesc = dir === "BULLISH"
