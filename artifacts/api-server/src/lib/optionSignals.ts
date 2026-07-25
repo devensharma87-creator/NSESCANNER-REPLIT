@@ -200,7 +200,7 @@ function lastSessionBars(chart: YahooChart): YahooChart {
 
 // ---------- shared market context ----------
 
-interface Ctx {
+export interface Ctx {
   cfg: IndexCfg;
   spot: number;
   open0: number;
@@ -674,7 +674,7 @@ interface Detected {
 const VOL_CLAMP_REJECT_RATIO = 1.5;
 
 /** 1. Trend Continuation — strong VWAP+EMA alignment, fresh momentum, RSI in trend zone */
-function detectTrendContinuation(c: Ctx): Detected | null {
+export function detectTrendContinuation(c: Ctx): Detected | null {
   // ── VWAP-UNAVAILABLE BRANCH ──────────────────────────────────────────────
   // For cash indices (NIFTY/BANKNIFTY/SENSEX), Kite candle volume is always
   // zero, so sessionVwap returns null for the entire series and vwapAvailable
@@ -1478,7 +1478,7 @@ export interface IndexBuildResult {
   snapshot?: SpotSnapshot;
 }
 
-function buildSignalsForIndex(
+export function buildSignalsForIndex(
   cfg: IndexCfg,
   intra: YahooChart,
   daily: YahooChart,
