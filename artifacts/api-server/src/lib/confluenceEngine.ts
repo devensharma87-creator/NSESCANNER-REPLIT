@@ -157,11 +157,14 @@ function scoreVwap(i: ConfluenceInputs): ConfluenceFactor {
 }
 
 function scoreVolumeProfile(i: ConfluenceInputs): ConfluenceFactor {
-  // D-FAB-03 structural invariant: for cash indices (NIFTY/BANKNIFTY/SENSEX),
-  // i.vp is ALWAYS null because vpIntraday is derived from zero-volume candles
-  // (volumeProfile returns null when totalVol=0). The null guard below therefore
-  // returns weight=0 for all index calls — no VP-derived directional points
-  // ever affect the confluence score for those instruments.
+  // D-FAB-03 enforced boundary: the index F&O caller (optionSignals.ts) explicitly
+  // passes `vp: null` to ConfluenceInputs for every OPTION_INDICES evaluation,
+  // regardless of what the upstream context contains. This is a decision-boundary
+  // rule enforced at the caller, not a prediction about upstream null propagation.
+  // Consequence: this function always takes the weight=0 branch for index F&O.
+  // For equity/swing paths that pass a real VP, this function scores normally.
+  // Do NOT change the null guard — it is the correct execution path for all index
+  // F&O evaluations. See optionSignals.ts confluenceInputs construction (vp: null).
   if (!i.vp) {
     return {
       label: "VOLUME_PROFILE", weight: 0, polarity: "neutral",
