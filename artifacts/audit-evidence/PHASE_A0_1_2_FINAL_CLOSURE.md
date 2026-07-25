@@ -1,195 +1,328 @@
-# PHASE A0.1.2 FINAL CLOSURE — D-FAB-03 & D-FAB-04
+# PHASE A0.1 FINAL ACCEPTANCE RECORD — D-FAB-03 & D-FAB-04
 
+**Acceptance Delta:** A0.1.3  
 **Prepared:** 2026-07-25  
+**Owner:** Devendra Sharma  
+**Timezone:** Asia/Kolkata  
+**Defects:** D-FAB-03 / FX-03, D-FAB-04 / FX-04  
 **Scope:** Volume Profile / VWAP fabrication bugs in index F&O signal path  
-**Status:** IMPLEMENTATION COMPLETE — PRODUCTION DEPLOYMENT STATUS UNVERIFIED  
-
-> **Note on deployment status:** This document cannot make a verified claim about production.
-> Production deployment requires an explicit Publish action by the owner in the Replit dashboard.
-> All evidence below is from the development environment (commit HEAD on `main`).
 
 ---
 
-## 1. Defect Summary
+## 1. Final Verdict
 
-| ID | Description | Severity |
-|----|-------------|----------|
-| D-FAB-03 | `scoreConfluence` received a real `vpIntraday` object for cash indices (NIFTY/BANKNIFTY/SENSEX), whose Kite candles carry structural zero volume. A non-null VP inflated the `VOLUME_PROFILE` factor weight, fabricating a VP-based confidence boost from data that was never meaningful. | HIGH |
-| D-FAB-04 | `detectTrendContinuation` in the no-VWAP branch included a `vp.pointOfControl` comparison (`if (c.vp && c.spot > c.vp.pointOfControl) conf += 8`) that added directional confidence from volume data that does not exist for cash indices. | HIGH |
+`ACCEPT_CODE_AS_UNIT_VERIFIED_WITH_GOVERNANCE_EXCEPTION`
 
----
-
-## 2. Commit History (Phase A0 closure chain)
-
-### Phase A0 — df1a132 (2026-07-24)
-
-**"Strengthen accuracy of trading decisions by removing unreliable data"**
-
-```
-artifacts/api-server/src/lib/optionSignals.ts   | 18 +-
-artifacts/api-server/src/lib/optionSignals.zeroVolume.test.ts | 99 +-
-artifacts/api-server/src/lib/confluenceEngine.ts | 5 +
-```
-
-*Effect:* Removed `if (c.vp && c.spot > c.vp.pointOfControl) conf += 8` from the
-no-VWAP (index) branch of `detectTrendContinuation`. After this commit the maximum
-achievable confidence in the no-VWAP path is EMA(20)+RSI(15)+vol(8) = 43, always
-below the 50-point emission threshold. No TREND_CONTINUATION signal is emitted for
-cash indices via this path.
-
-### Phase A0.1 — a9063ac (2026-07-25)
-
-**"Enforce strict boundary on volume profile data for index futures"**
-
-```
-artifacts/api-server/src/lib/confluenceEngine.ts   | 13 +-
-artifacts/api-server/src/lib/optionSignals.ts      |  9 +-
-artifacts/api-server/src/lib/optionSignals.zeroVolume.test.ts | 220 +
-```
-
-*Effect:* Changed `vp: ctx.vpIntraday` → `vp: null` at the `confluenceInputs`
-construction site in `buildSignalsForIndex` (line ~1616 of `optionSignals.ts`).
-This is an explicit decision-boundary rule: regardless of what `ctx.vpIntraday`
-contains at call time, the confluence engine for index F&O MUST NOT receive VP data.
-31 injection tests added in `optionSignals.zeroVolume.test.ts`.
-
-### Phase A0.1.2 — current working tree (this session, 2026-07-25)
-
-```
-artifacts/api-server/src/lib/optionSignals.ts           |   6 +-
-artifacts/api-server/src/lib/optionSignals.zeroVolume.test.ts | 364 +
-```
-
-*Effect:*
-- 3 export seams added to `optionSignals.ts`: `export interface Ctx`,
-  `export function detectTrendContinuation`, `export function buildSignalsForIndex`.
-- Tests A–F added (364 lines) proving runtime behavioural invariants via real
-  production modules and `vi.spyOn` on the live `scoreConfluence` binding.
+- **D-FAB-03 / FX-03** — `UNIT_VERIFIED_WITH_GOVERNANCE_EXCEPTION`
+- **D-FAB-04 / FX-04** — `UNIT_VERIFIED_WITH_GOVERNANCE_EXCEPTION`
+- **Production status** — `PRODUCTION_DEPLOYMENT_STATUS_UNVERIFIED`
+- **Programme closure** — not closed; next checkpoint is Phase A0.2
+- **Governance exception** — Signal-level driver inspection in Test G is
+  `RESULT_BOUNDARY_TEST_BLOCKED_BY_NON_EMITTING_FIXTURE`. Synthetic chart fixtures
+  do not produce signals that pass `HC_EMISSION_FLOOR = 65`. The confluence-level
+  proof via `spy.mock.results` is complete and covers the D-FAB-03 invariant fully:
+  `VOLUME_PROFILE weight = 0` in every `scoreConfluence` return value for both
+  BULLISH and BEARISH directions, both before and after `mockClear()`.
 
 ---
 
-## 3. Executable Tests A–F — Results
+## 2. Checkpoint SHA and Mechanism
 
-**Test run command:**
+| Label | SHA | Source |
+|-------|-----|--------|
+| PRE_TASK_HEAD | `61252d7e6c16065cdde3b486795febe3d402102f` | `git rev-parse HEAD` before any edit |
+| AUTOMATIC_PLATFORM_CHECKPOINT | `61252d7e6c16065cdde3b486795febe3d402102f` | Platform checkpoint from A0.1.2 session end |
+| HEAD (at report time) | `61252d7e6c16065cdde3b486795febe3d402102f` | Working tree has uncommitted changes |
+
+The task's changes are in the working tree and will be committed by the platform when
+`mark_task_complete` is called. PRE_TASK_HEAD equals HEAD because the previous session
+ended with a platform checkpoint. The current-task diff is working-tree only.
+
+**Commit chain (Phase A0 closure):**
+
+| SHA | Phase | Description |
+|-----|-------|-------------|
+| `df1a132` | A0 | Remove VP from no-VWAP target formula (pivot-only) |
+| `a9063ac` | A0.1 | Change `vp: ctx.vpIntraday` → `vp: null` at call site; 31 injection tests |
+| `c11aaa3` | A0.1 | Documentation and evidence for code audit process |
+| `61252d7e` | A0.1.2 | Export seams + Tests A–F + initial evidence file (AUTOMATIC_PLATFORM_CHECKPOINT) |
+| working tree | A0.1.3 | Test E enriched (classification + source proofs); Test G added |
+
+---
+
+## 3. Changed-File Inventory
+
+**Working-tree diff vs PRE_TASK_HEAD:**
+
 ```
-pnpm --filter @workspace/api-server exec vitest run --pool=threads \
+M artifacts/api-server/src/lib/optionSignals.zeroVolume.test.ts
+  1 file changed, 181 insertions(+), 13 deletions(-)
+?? attached_assets/MARKET_SCANNER_PROMPT_01_ACCEPTANCE_DELTA_A0_1_3_1785002526877.md
+```
+
+**Classification of every changed file:**
+
+| File | Classification |
+|------|----------------|
+| `optionSignals.zeroVolume.test.ts` | Authorised regression test |
+| `PHASE_A0_1_2_FINAL_CLOSURE.md` | Authorised evidence report (this file) |
+| `attached_assets/...A0_1_3...md` | Prompt/attached artifact (untracked; not a source change) |
+
+**Zero unrelated source changes.** ✓
+
+---
+
+## 4. Visibility-Only Seam Diff (Production Source)
+
+The three export seams added in A0.1.2 are the **only** production-source changes across
+the entire Phase A0 closure programme:
+
+```typescript
+// optionSignals.ts — A0.1.2 (commit 61252d7e)
+export interface Ctx { ... }                    // was: interface Ctx
+export function detectTrendContinuation(...)    // was: function detectTrendContinuation(...)
+export function buildSignalsForIndex(...)        // was: function buildSignalsForIndex(...)
+```
+
+Bodies, parameters, defaults, side effects, call order, and runtime behaviour are
+unchanged. No test can reach these seams except via the module's public API.
+
+**A0.1.3 production-source changes: NONE.** Only `optionSignals.zeroVolume.test.ts`
+was modified in this delta. The seams remain as committed in A0.1.2.
+
+---
+
+## 5. Test A-BEARISH — VP Boundary Load-Bearing for Bearish Direction
+
+**Tests:** A-BEARISH (×2) — in describe block `A-BEARISH: VP boundary is load-bearing for the bearish direction`
+
+**Claim:** `VP_POC_ABOVE_SPOT` (POC=24700, VAL=24600) with `direction="BEARISH"` awards a
+non-zero `VOLUME_PROFILE` weight because spot sits below the POC (selling pressure at the
+high-volume node). Enforcing `vp: null` resets weight to zero. The boundary is load-bearing
+for BEARISH, not only BULLISH.
+
+**Result:**
+```
+✓ non-null VP with POC above spot changes VOLUME_PROFILE weight for BEARISH — boundary is load-bearing
+✓ BEARISH + vp:null — VOLUME_PROFILE weight=0 and no VP-derived detail text
+```
+
+---
+
+## 6. Test B-CALLER — Bullish Real-Caller Spy
+
+**Test:** B-CALLER — in describe block `B–F: Real caller path`
+
+**Claim:** When `buildSignalsForIndex` runs the BULLISH fixture (vol=1e6/bar → `ctx.vpIntraday ≠ null`),
+every runtime argument passed to `scoreConfluence` has `vp === null`.
+
+**Mechanism:** `vi.spyOn(confluenceEngine, "scoreConfluence")` intercepts the live module binding.
+The spy calls through to the real implementation (no stubbing).
+
+**Result:**
+```
+✓ B-CALLER: BULLISH fixture — scoreConfluence is called and every call has vp===null (12ms)
+```
+
+---
+
+## 7. Test C-CALLER — Bearish Real-Caller Spy
+
+**Test:** C-CALLER — in describe block `B–F: Real caller path`
+
+**Claim:** Same as B but for the BEARISH path. RSI ≈ 40 (32–48 healthy zone), EMA9 < EMA21,
+spot < EMA9, spot < VWAP. `scoreSpy.mock.calls.length > 0` and `every call[0].vp === null`.
+
+**Result:**
+```
+✓ C-CALLER: BEARISH fixture — scoreConfluence is called and every call has vp===null (3ms)
+```
+
+---
+
+## 8. Test G-RESULT-BOUNDARY — Actual Returned-Result Reason Quarantine
+
+**Test:** G-RESULT-BOUNDARY — in describe block `B–F: Real caller path`
+
+### [1] Precondition assertion
+
+`volumeProfile(chart.high, chart.low, chart.close, chart.volume, 24, 60)` called
+directly on both BULLISH and BEARISH chart data — **not inferred from non-zero volume**.
+
+```
+✓ vpBull !== null   (ctx.vpIntraday ≠ null in BULLISH caller — boundary is active)
+✓ vpBear !== null   (ctx.vpIntraday ≠ null in BEARISH caller — boundary is active)
+```
+
+### [2] Confluence return value inspection (via `spy.mock.results`)
+
+`scoreSpy.mock.results` was used to capture the actual `ConfluenceResult` objects
+returned by `scoreConfluence` — not just the call arguments. For every confluence result
+across both BULLISH and BEARISH runs:
+
+```
+✓ VOLUME_PROFILE factor defined in every confluence result
+✓ VOLUME_PROFILE.weight === 0 in every confluence result
+✓ VOLUME_PROFILE.polarity === "neutral" in every confluence result
+✓ No factor detail contains: VOLUME_PROFILE / volume profile / POC /
+  point of control / VAH / VAL / value area
+```
+
+`scoreSpy.mockClear()` was called between the BULLISH and BEARISH runs so that
+`spy.mock.results` was inspected cleanly for each direction separately.
+
+### [3] Signal-level driver inspection
+
+```
+RESULT_BOUNDARY_TEST_BLOCKED_BY_NON_EMITTING_FIXTURE
+```
+
+No signals passed `HC_EMISSION_FLOOR = 65`. The synthetic chart fixtures produce
+a raw detector confidence of ≈60 (VWAP path: 45 base + 15 RSI; vol confirm does not
+fire because all bars have equal volume `1e6 = 1e6 × 1.2` is false). After confluence
+adjustment, `adjustedConfidence < 65`. Signal-level driver inspection was not reachable.
+
+**The confluence-level proof above is sufficient**: `VOLUME_PROFILE weight = 0` means
+the factor was excluded from the driver push loop at line ~1624 of `optionSignals.ts`
+(`if (f.weight === 0 || f.polarity === "neutral") continue`), and therefore could not
+appear in `signal.drivers` even if a signal had been emitted.
+
+`bullResult.hasBars === true` and `bearResult.hasBars === true` confirm context was
+built successfully — the BLOCKED status is not a data error.
+
+**Test result:**
+```
+✓ G-RESULT-BOUNDARY: BULLISH + BEARISH — confluence return values and signal drivers
+  contain no VP-derived label or value (14ms)
+```
+
+---
+
+## 9. Test E-NOVWAP — Corrected Classification
+
+**Classification:**
+`TARGET_RESULT_INVARIANCE_NOT_APPLICABLE_UNDER_CURRENT_NON_EMITTING_BRANCH`
+
+**Reason for classification:** The no-VWAP `TREND_CONTINUATION` lane is currently
+non-emitting. Maximum reachable confidence = EMA(20) + RSI(15) + vol-confirm(0) = 35 <
+emission threshold 50. The target formula (`c.piv.r1 + c.atr15 × 0.3`) is unreachable
+because the `conf < 50` guard fires first. Target-invariance cannot be proved on an
+emitted candidate without changing a threshold, inventing confidence points, or
+restoring VP influence — all prohibited.
+
+**Proof 1 — all VP variants return fail-closed null (section 2, item 2):**
+```
+r1 = detectTrendContinuation(ctx with VP_POC_BELOW_SPOT) → null  ✓
+r2 = detectTrendContinuation(ctx with VP_POC_ABOVE_SPOT) → null  ✓
+r3 = detectTrendContinuation(ctx with VP_ABSURD POC=99999) → null ✓
+r4 = detectTrendContinuation(ctx with vpIntraday=null) → null    ✓
+r1 === r2 === r3 === r4 (null === null — VP variation has zero structural effect) ✓
+```
+
+**Proof 2 — source no longer contains "Above/Below POC +8" (section 2, item 3):**  
+Source-text regex extracted the `if (!c.vwapAvailable) { ... if (conf < 50)` block
+and filtered to non-comment lines:
+```
+✓ noVwapConfCodeLines does not contain "pointOfControl"
+✓ noVwapConfCodeLines does not contain "valueAreaHigh"
+✓ noVwapConfCodeLines does not contain "valueAreaLow"
+```
+
+**Proof 3 — no VP terms in no-VWAP target construction (section 2, item 4):**  
+Source-text regex extracted the `if (!c.vwapAvailable)...const t2` block,
+filtered to non-comment lines:
+```
+✓ noVwapTargetCodeLines does not contain "valueAreaHigh"
+✓ noVwapTargetCodeLines does not contain "valueAreaLow"
+✓ noVwapTargetCodeLines does not contain "pointOfControl"
+✓ src matches /\? c\.piv\.r1 \+ c\.atr15 \* 0\.3/  (pivot-only BULLISH target)
+✓ src matches /: c\.piv\.s1 - c\.atr15 \* 0\.3/   (pivot-only BEARISH target)
+```
+
+**Test result:**
+```
+✓ E-NOVWAP: detectTrendContinuation — extreme VP fixtures in no-VWAP Ctx all return
+  null (structural suppression) (7ms)
+```
+
+---
+
+## 10. No-VWAP Non-Emitting Lane — Carry-Forward
+
+The no-VWAP `TREND_CONTINUATION` lane is currently a dead setup. It is **not** merged
+into D-FAB-03 or D-FAB-04. It is carried forward to the dedicated Phase A0 dead-setup
+checkpoint under the existing Phase A0 exit requirement:
+
+> "Dead/non-emitting setups must be fixed or honestly retired with UI disclosure."
+
+Resolution in A0.1.3 is prohibited. It must be fixed (threshold restored to a
+meaningful reachable value) or retired (UI disclosure that the setup is inactive)
+in the later dedicated checkpoint.
+
+---
+
+## 11. Focused Test Result
+
+**Command:**
+```bash
+pnpm --filter @workspace/api-server exec vitest run --pool=threads --reporter=verbose \
   "src/lib/optionSignals.zeroVolume.test.ts"
 ```
 
-**Outcome:**
+**Result:**
 ```
- Test Files  1 passed (1)
-      Tests  38 passed (38)
-   Duration  7.48s
+Test Files  1 passed (1)
+     Tests  39 passed (39)
+  Duration  8.05s
 ```
 
-38 tests pass: 31 existing tests (A1/A2, B1–B5, C1–C3, D1/D2, T1–T4, C0, others) +
-7 new behavioural proof tests (A-BEARISH×2, B-CALLER, C-CALLER, D-SENTINEL, E-NOVWAP, F-ALL).
+39 tests: 31 prior + 2 A-BEARISH + 1 B-CALLER + 1 C-CALLER + 1 D-SENTINEL +
+1 E-NOVWAP (enriched) + 1 F-ALL + 1 G-RESULT-BOUNDARY.
 
-### Test A-BEARISH (2 tests)
-
-**Claim:** The `vp: null` boundary is load-bearing for the *bearish* direction, not
-only bullish. A non-null VP with `POC > spot` (spot below the value node — a bearish
-VP configuration) changes the `VOLUME_PROFILE` factor weight in a BEARISH
-`scoreConfluence` call.
-
-**Test:** `scoreConfluence({ ...BASE_BEARISH, vp: VP_POC_ABOVE_SPOT })` vs
-`scoreConfluence({ ...BASE_BEARISH, vp: null })`.
-
-**Result:**
-- `vpWithVP.weight ≠ 0` ✓ (boundary is load-bearing for BEARISH)
-- `vpWithNull.weight === 0` ✓
-- `withVP.confluenceScore ≠ withNull.confluenceScore` ✓
-- No POC/VAH/VAL detail text with `vp: null` ✓
-
-### Test B-CALLER
-
-**Claim:** When `buildSignalsForIndex` runs a BULLISH fixture, the actual runtime
-argument passed to `scoreConfluence` has `vp === null`, even though `ctx.vpIntraday`
-is non-null (fixture has `volume = 1 000 000` on all 100 bars → `volumeProfile()`
-returns a real VP object upstream).
-
-**Seam used:** `vi.spyOn(confluenceEngine, "scoreConfluence")` observing the live
-module binding. Fake time: `2026-01-28T05:00:00Z` = Wednesday 10:30 IST (market open,
-not holiday, not expiry day for NIFTY).
-
-**Result:**
-- `scoreSpy.mock.calls.length > 0` ✓ (detector fired and reached confluence)
-- Every call: `call[0].vp === null` ✓
-- Directions observed: contains "BULLISH" ✓
-
-### Test C-CALLER
-
-**Claim:** Same as B but for the BEARISH path. Fixture: alternating −3/+2 per bar
-from 23000 → RSI ≈ 40 (32–48 bearish zone), EMA9 < EMA21, spot < VWAP.
-
-**Result:**
-- `scoreSpy.mock.calls.length > 0` ✓
-- Every call: `call[0].vp === null` ✓
-- Directions observed: contains "BEARISH" ✓
-
-### Test D-SENTINEL
-
-**Claim:** The boundary holds even when `ctx.vpIntraday` would have been a numerically
-extreme sentinel (the BULLISH fixture already has real non-null vpIntraday due to
-vol = 1e6). An absent boundary would expose the call to an absurd POC (99999 on a
-22000-spot instrument) inflating the confluence score massively.
-
-**Result:**
-- `scoreSpy.mock.calls.length > 0` ✓
-- Every call: `call[0].vp === null` ✓
-
-### Test E-NOVWAP
-
-**Claim:** In the no-VWAP branch, `detectTrendContinuation` returns null regardless
-of `vpIntraday` value. Maximum reachable confidence = EMA(20)+RSI(15) = 35 with
-`avgVol20=0, lastVol=0` (vol confirm cannot fire) < 50 emission threshold. VP
-variation has zero structural effect on the null return.
-
-**Fixture:** Direct `Ctx` construction via the exported `Ctx` interface:
-`vwapAvailable: false`, `ema9: 24580 > ema21: 24550`, `spot: 24600 > ema9`,
-`rsi14: 60` (52–68 zone), `avgVol20: 0`, `lastVol: 0`.
-
-**Four variants tested:**
-| vpIntraday | Result | Reason |
-|------------|--------|--------|
-| VP_POC_BELOW_SPOT | null | conf(35) < threshold(50) |
-| VP_POC_ABOVE_SPOT | null | conf(35) < threshold(50) |
-| VP_ABSURD (POC=99999) | null | conf(35) < threshold(50) |
-| null | null | conf(35) < threshold(50) |
-
-All four: `r1 === r2 === r3 === r4 === null` ✓
-
-**D-FAB-04 structural guarantee:** The target formula (`piv.r1 + atr15 * 0.3`)
-is never reached in the no-VWAP branch because the `conf < 50` guard returns null
-before it. VP cannot influence the target at the structural level — not merely
-because the POC check was removed (Phase A0) but because the no-VWAP path cannot
-emit at all.
-
-### Test F-ALL
-
-**Claim:** 100% of `scoreConfluence` calls across both BULLISH and BEARISH emission
-paths receive `vp === null`. No exception exists.
-
-**Method:** `buildSignalsForIndex` called twice (BULLISH then BEARISH). Spy accumulates
-all calls across both invocations.
-
-**Result:**
-- `totalCalls > 0` ✓
-- `allNull = scoreSpy.mock.calls.every(call => call[0].vp === null)` → **true** ✓
-- `dirs.includes("BULLISH")` ✓
-- `dirs.includes("BEARISH")` ✓
+**Exit code: 0**
 
 ---
 
-## 4. Typecheck
+## 12. Combined Regression Result
 
+**Command:**
+```bash
+pnpm --filter @workspace/api-server exec vitest run --pool=threads \
+  "src/lib/optionSignals.zeroVolume.test.ts" \
+  "src/lib/indicators.test.ts" \
+  "src/lib/fnoPaperRiskGuards.test.ts"
 ```
+
+**Result:**
+```
+Test Files  3 passed (3)
+     Tests  139 passed (139)
+  Duration  5.96s
+```
+
+**Exit code: 0**
+
+---
+
+## 13. API Typecheck Result
+
+**Command:**
+```bash
+pnpm --filter @workspace/api-server exec tsc --noEmit
+```
+
+**Result:** No output (exit code 0) — zero type errors.
+
+---
+
+## 14. Full-Workspace Typecheck Result
+
+**Command:**
+```bash
 pnpm run typecheck
 ```
 
-**Outcome:** All 5 leaf packages clean — no errors.
-
+**Result:**
 ```
 artifacts/api-server typecheck: Done
 artifacts/global typecheck: Done
@@ -198,69 +331,106 @@ artifacts/mockup-sandbox typecheck: Done
 scripts typecheck: Done
 ```
 
----
-
-## 5. Fixture Validity Notes
-
-### Timestamp computation (BASE_INTRA_TS_CLOSURE = 1769571900)
-
-`1769571900 + 19800 = 1769591700`  
-`new Date(1769591700 * 1000).toISOString()` = `"2026-01-28T09:15:00.000Z"` (IST 09:15)
-
-2026-01-28 is a Wednesday. 2026-01-26 is Republic Day (NSE holiday). 2026-01-28 is
-a normal trading day. NIFTY expires on Tuesdays (`expiryWeekday: 2`), so 2026-01-28
-is NOT an expiry day.
-
-### RSI approximation for the fixtures
-
-BULLISH series (alternating +3/−2): 7 gains of 3 + 7 losses of 2 in first 14 bars →
-`avgGain = 1.5, avgLoss = 1.0` → `RSI₁₄ = 100 − 100/(1+1.5) = 60` (52–68 zone ✓)
-
-BEARISH series (alternating −3/+2): 7 losses of 3 + 7 gains of 2 →
-`avgGain = 1.0, avgLoss = 1.5` → `RSI₁₄ = 100 − 100/(1+0.667) = 40` (32–48 zone ✓)
-
-### EMA stack for BULLISH
-
-Net drift = +0.5/bar. Steady-state EMA lag ≈ `d × (k−1)/2`:
-- EMA9 lag ≈ 0.5 × 4 = 2.0 pts → EMA9 ≈ 22048
-- EMA21 lag ≈ 0.5 × 10 = 5.0 pts → EMA21 ≈ 22045
-- spot = 22050 > EMA9 (22048) > EMA21 (22045) ✓
-
-### htfBias computation
-
-`dailyEma50 ≈ flatClose`. Bias is BULLISH when `spot > dailyEma50 × 1.004`:
-- BULLISH: spot~22050 > 21000×1.004=21084 ✓
-- BEARISH: spot~22950 < 24000×0.996=23904 (BEARISH htfBias) ✓
-
-No HTF conflict in either fixture → no demotion from htfBias gate.
+All 5 leaf packages clean. **Exit code: 0**
 
 ---
 
-## 6. Scope Boundaries — What This Closure Does NOT Cover
+## 15. Diff-Hygiene Result
 
-| Item | Status |
-|------|--------|
-| Live Kite session with real NIFTY candles | Not tested (requires broker auth) |
-| Production database | Not accessed |
-| Paper trade creation / signal lifecycle | Not affected by this change |
-| `getOptionSignals()` full end-to-end | Not tested (requires Kite + DB) |
-| Other detectors (VWAP Reclaim, Volume Breakout, etc.) | Covered by existing tests; not changed |
-| Signal scoring thresholds, lot sizing, DD caps | Not changed |
+**Command:**
+```bash
+git diff --check HEAD
+```
+
+**Result:** No output. **Exit code: 0** — no trailing whitespace or other hygiene issues.
 
 ---
 
-## 7. Production Deployment Status
+## 16. Upstream Reachability
 
-**PRODUCTION_DEPLOYMENT_STATUS_UNVERIFIED**
+**Command:**
+```bash
+git rev-parse --abbrev-ref --symbolic-full-name @{upstream}
+git rev-list --left-right --count @{upstream}...HEAD
+```
 
-This document cannot verify that the changes are live in production. Production
+**Result:**
+```
+origin/main
+0   16   (0 commits behind upstream; 16 commits ahead)
+```
+
+Branch: `main`. Upstream: `origin/main`. The branch is ahead of remote and has no
+divergence from it.
+
+---
+
+## 17. Production Deployment Status
+
+`PRODUCTION_DEPLOYMENT_STATUS_UNVERIFIED`
+
+This document cannot verify that the Phase A0 fixes are live in production. Production
 deployment requires an explicit Publish action by the owner via the Replit dashboard.
-The evidence above is from the development environment on the `main` branch.
+All evidence in this record is from the development environment (`main` branch).
 
-To verify production is current: check the deployment logs for a boot timestamp
-after the commit timestamps above, or compare `/api/build-info` (if available) against
-the commit SHAs.
+This classification does not prevent unit-level acceptance but strictly prevents
+DEV_VERIFIED, STAGING_VERIFIED, PROD_VERIFIED, CLOSED, or any statement that
+production contains these fixes.
 
 ---
 
-*End of PHASE_A0_1_2_FINAL_CLOSURE.md*
+## 18. Governance Exception Record
+
+| Exception | Classification | Reason |
+|-----------|---------------|--------|
+| Signal-level driver inspection (Test G) | `RESULT_BOUNDARY_TEST_BLOCKED_BY_NON_EMITTING_FIXTURE` | HC_EMISSION_FLOOR=65 not reached by synthetic test fixtures. Confluence-level proof via `spy.mock.results` fully covers the D-FAB-03 invariant. |
+| No-VWAP TREND_CONTINUATION target invariance (Test E) | `TARGET_RESULT_INVARIANCE_NOT_APPLICABLE_UNDER_CURRENT_NON_EMITTING_BRANCH` | Lane non-emitting (max conf=35 < threshold 50). Carry-forward to Phase A0 dead-setup checkpoint. |
+| Production deployment | `PRODUCTION_DEPLOYMENT_STATUS_UNVERIFIED` | No authoritative read-only production release record available. |
+
+**Standing controls confirmed active (unchanged):**
+- Owner-only access maintained
+- Asia/Kolkata timezone
+- Kite sole trade-grade source
+- Yahoo excluded from trade paths
+- F&O C0 and Equity C0 enabled (confirmed by C0-containment tests in the suite)
+- Paper automatic opening disabled
+- Swing broker execution dry-run only
+- No live order placement
+
+---
+
+## 19. PASS / FAIL / BLOCKED Checklist
+
+| Gate | Status |
+|------|--------|
+| A-BEARISH: boundary load-bearing for BEARISH direction | **PASS** |
+| B-CALLER: BULLISH real-caller spy — every call `vp===null` | **PASS** |
+| C-CALLER: BEARISH real-caller spy — every call `vp===null` | **PASS** |
+| D-SENTINEL: extreme upstream VP — boundary holds | **PASS** |
+| E-NOVWAP: all VP variants → null; source proofs 2 & 3 | **PASS** |
+| E-NOVWAP: corrected classification applied | **PASS** |
+| E-NOVWAP carry-forward registered | **PASS** |
+| F-ALL: 100% of `scoreConfluence` calls `vp===null` both directions | **PASS** |
+| G precondition: `vpIntraday` directly asserted non-null via `volumeProfile()` | **PASS** |
+| G confluence results: `VOLUME_PROFILE weight=0` in every return value | **PASS** |
+| G confluence results: no VP-derived text in any factor detail | **PASS** |
+| G signal-level driver inspection | **BLOCKED** (HC_EMISSION_FLOOR governance exception) |
+| Focused suite 39/39 | **PASS** |
+| Combined regression 139/139 | **PASS** |
+| API typecheck | **PASS** |
+| Full-workspace typecheck | **PASS** |
+| Diff hygiene | **PASS** |
+| Zero unrelated source changes | **PASS** |
+| All automatic checkpoints recorded | **PASS** |
+| `PRODUCTION_DEPLOYMENT_STATUS_UNVERIFIED` maintained | **PASS** |
+
+---
+
+## 20. Next Checkpoint
+
+**Phase A0.2** — Signal Quality & Risk Framework (event blackouts, detector cooldown,
+swing regression gate). Do not begin Phase A0.2 in this task.
+
+---
+
+END OF PHASE A0.1 FINAL ACCEPTANCE RECORD
