@@ -252,7 +252,8 @@ const BASE_BULLISH: ConfluenceInputs = {
   // so we must pass a number even for the index no-VWAP path.
   vwap:            24600,
   vwapAvailable:   false,
-  vp:              null,   // ← enforced boundary (mirrors the call site)
+  vp:              null,       // call site also passes null (defence in depth)
+  isIndexFno:      true,       // D-FAB-03 engine-level boundary
   regime:          "TRENDING_BULL",
   ivRank:          null,
   rawConfidence:   60,
@@ -284,43 +285,61 @@ describe("D-FAB-03 — index F&O confluence VP injection boundary", () => {
     expect(vp!.polarity).toBe("neutral");
   });
 
-  it("A2: non-null VP (spot above VAH) changes VOLUME_PROFILE weight — proving boundary is load-bearing", () => {
-    // Spot 24600 > VAH 24550 → direction supports → weight=+3 for BULLISH.
-    const result = scoreConfluence({ ...BASE_BULLISH, vp: VP_POC_BELOW_SPOT });
+  it("A2: non-null VP changes VOLUME_PROFILE weight when isIndexFno=false — boundary is load-bearing", () => {
+    // Without the engine-level isIndexFno guard, a non-null VP (spot 24600 >
+    // VAH 24550) changes the VOLUME_PROFILE factor weight and total score.
+    // This proves the structural guard is necessary, not ornamental.
+    const result = scoreConfluence({ ...BASE_BULLISH, isIndexFno: false, vp: VP_POC_BELOW_SPOT });
     const vp = result.factors.find(f => f.label === "VOLUME_PROFILE");
-    expect(vp!.weight).not.toBe(0);  // would be +3 (supports)
-    // Total score DIFFERS from the null-vp baseline:
-    const baseline = scoreConfluence({ ...BASE_BULLISH, vp: null });
+    expect(vp!.weight).not.toBe(0);  // +3 (spot above VAH, BULLISH direction)
+    // Total score DIFFERS from the null-vp / no-guard baseline:
+    const baseline = scoreConfluence({ ...BASE_BULLISH, isIndexFno: false, vp: null });
     expect(result.confluenceScore).not.toBe(baseline.confluenceScore);
   });
 
   // ── Part B: 5.1 — non-null VP injection cannot alter index F&O output ────
-  // In the actual call path vp is forced to null.  These tests verify that
-  // the enforced null call gives weight=0 for all VP fixture variants.
+  // BASE_BULLISH carries isIndexFno=true.  Each test injects the named VP
+  // fixture directly and verifies the engine blocks it: weight=0 and total
+  // score unchanged vs the null-vp baseline.
 
-  it("B1: POC below spot → VOLUME_PROFILE weight=0 (boundary sends null)", () => {
-    const r = scoreConfluence({ ...BASE_BULLISH, vp: null });
-    expect(r.factors.find(f => f.label === "VOLUME_PROFILE")!.weight).toBe(0);
+  it("B1: isIndexFno guard blocks VP with POC below spot — score identical to null-vp baseline", () => {
+    const withVP   = scoreConfluence({ ...BASE_BULLISH, vp: VP_POC_BELOW_SPOT });
+    const withNull = scoreConfluence({ ...BASE_BULLISH, vp: null });
+    expect(withVP.factors.find(f => f.label === "VOLUME_PROFILE")!.weight).toBe(0);
+    expect(withVP.confluenceScore).toBe(withNull.confluenceScore);
+    expect(withVP.adjustedConfidence).toBe(withNull.adjustedConfidence);
   });
 
-  it("B2: POC above spot → VOLUME_PROFILE weight=0 (boundary sends null)", () => {
-    const r = scoreConfluence({ ...BASE_BULLISH, vp: null });
-    expect(r.factors.find(f => f.label === "VOLUME_PROFILE")!.weight).toBe(0);
+  it("B2: isIndexFno guard blocks VP with POC above spot — score identical to null-vp baseline", () => {
+    const withVP   = scoreConfluence({ ...BASE_BULLISH, vp: VP_POC_ABOVE_SPOT });
+    const withNull = scoreConfluence({ ...BASE_BULLISH, vp: null });
+    expect(withVP.factors.find(f => f.label === "VOLUME_PROFILE")!.weight).toBe(0);
+    expect(withVP.confluenceScore).toBe(withNull.confluenceScore);
+    expect(withVP.adjustedConfidence).toBe(withNull.adjustedConfidence);
   });
 
-  it("B3: spot inside value area → VOLUME_PROFILE weight=0 (boundary sends null)", () => {
-    const r = scoreConfluence({ ...BASE_BULLISH, vp: null });
-    expect(r.factors.find(f => f.label === "VOLUME_PROFILE")!.weight).toBe(0);
+  it("B3: isIndexFno guard blocks VP with spot inside value area — score identical to null-vp baseline", () => {
+    const withVP   = scoreConfluence({ ...BASE_BULLISH, vp: VP_SPOT_INSIDE_VA });
+    const withNull = scoreConfluence({ ...BASE_BULLISH, vp: null });
+    expect(withVP.factors.find(f => f.label === "VOLUME_PROFILE")!.weight).toBe(0);
+    expect(withVP.confluenceScore).toBe(withNull.confluenceScore);
+    expect(withVP.adjustedConfidence).toBe(withNull.adjustedConfidence);
   });
 
-  it("B4: absurd VP values → VOLUME_PROFILE weight=0 (boundary sends null)", () => {
-    const r = scoreConfluence({ ...BASE_BULLISH, vp: null });
-    expect(r.factors.find(f => f.label === "VOLUME_PROFILE")!.weight).toBe(0);
+  it("B4: isIndexFno guard blocks VP with absurd values — score identical to null-vp baseline", () => {
+    const withVP   = scoreConfluence({ ...BASE_BULLISH, vp: VP_ABSURD });
+    const withNull = scoreConfluence({ ...BASE_BULLISH, vp: null });
+    expect(withVP.factors.find(f => f.label === "VOLUME_PROFILE")!.weight).toBe(0);
+    expect(withVP.confluenceScore).toBe(withNull.confluenceScore);
+    expect(withVP.adjustedConfidence).toBe(withNull.adjustedConfidence);
   });
 
-  it("B5: all-equal-spot VP → VOLUME_PROFILE weight=0 (boundary sends null)", () => {
-    const r = scoreConfluence({ ...BASE_BULLISH, vp: null });
-    expect(r.factors.find(f => f.label === "VOLUME_PROFILE")!.weight).toBe(0);
+  it("B5: isIndexFno guard blocks VP with all-equal-spot values — score identical to null-vp baseline", () => {
+    const withVP   = scoreConfluence({ ...BASE_BULLISH, vp: VP_ALL_EQUAL_SPOT });
+    const withNull = scoreConfluence({ ...BASE_BULLISH, vp: null });
+    expect(withVP.factors.find(f => f.label === "VOLUME_PROFILE")!.weight).toBe(0);
+    expect(withVP.confluenceScore).toBe(withNull.confluenceScore);
+    expect(withVP.adjustedConfidence).toBe(withNull.adjustedConfidence);
   });
 
   // ── Part C: 5.2 — symmetry test ─────────────────────────────────────────
@@ -364,12 +383,17 @@ describe("D-FAB-03 — index F&O confluence VP injection boundary", () => {
   // Verify optionSignals.ts passes vp: null at the confluence construction site.
   // We use readFileSync to avoid importing the heavy side-effect module.
 
-  it("D1: optionSignals.ts confluenceInputs passes vp: null followed by regime field", () => {
+  it("D1: optionSignals.ts confluenceInputs carries isIndexFno: true followed by regime field", () => {
     const src = readFileSync(resolve(__dirname, "optionSignals.ts"), "utf-8");
-    // Verify the actual assignment line: `vp: null,` is directly followed (after
-    // optional whitespace) by the `regime:` field — proving it is inside the
-    // confluenceInputs block and not a coincidental null elsewhere.
-    expect(src).toMatch(/vp:\s*null,\r?\n\s+regime:/);
+    // Verify the engine-level boundary field is present at the call site and
+    // sits immediately before the `regime:` field inside the confluenceInputs block.
+    expect(src).toMatch(/isIndexFno:\s*true,\r?\n\s+regime:/);
+  });
+
+  it("D1b: optionSignals.ts confluenceInputs also passes vp: null (defence in depth)", () => {
+    const src = readFileSync(resolve(__dirname, "optionSignals.ts"), "utf-8");
+    // Both controls must be present: isIndexFno (engine-level) AND vp: null (call site).
+    expect(src).toMatch(/vp:\s*null,\r?\n\s+isIndexFno:\s*true,/);
   });
 
   it("D2: optionSignals.ts confluenceInputs does NOT assign vp: ctx.vpIntraday", () => {
@@ -639,16 +663,19 @@ describe("A-BEARISH: VP boundary is load-bearing for the bearish direction", () 
    * non-zero weight for this placement, proving the vp:null rule is not
    * vacuous in the bearish direction.
    */
-  it("non-null VP with POC above spot changes VOLUME_PROFILE weight for BEARISH — boundary is load-bearing", () => {
-    const withVP   = scoreConfluence({ ...BASE_BEARISH, vp: VP_POC_ABOVE_SPOT });
-    const withNull = scoreConfluence({ ...BASE_BEARISH, vp: null });
+  it("non-null VP with POC above spot changes VOLUME_PROFILE weight for BEARISH when isIndexFno=false — boundary is load-bearing", () => {
+    // Explicitly disable the engine guard to prove it is load-bearing for BEARISH.
+    // VP_POC_ABOVE_SPOT: POC=24700 above spot=24600, VAL=24600 (spot at VAL).
+    // scoreVolumeProfile for BEARISH awards non-zero weight when guard is off.
+    const withVP   = scoreConfluence({ ...BASE_BEARISH, isIndexFno: false, vp: VP_POC_ABOVE_SPOT });
+    const withNull = scoreConfluence({ ...BASE_BEARISH, isIndexFno: false, vp: null });
 
     const vpWithVP   = withVP.factors.find(f => f.label === "VOLUME_PROFILE")!;
     const vpWithNull = withNull.factors.find(f => f.label === "VOLUME_PROFILE")!;
 
-    // Non-null VP awards a non-zero weight (not neutral):
+    // Non-null VP awards a non-zero weight without the guard:
     expect(vpWithVP.weight).not.toBe(0);
-    // Enforcing null resets to zero (the boundary is active, not vacuous):
+    // Null still resets to zero (null guard still fires when isIndexFno=false):
     expect(vpWithNull.weight).toBe(0);
     // Confluence score changes — boundary is load-bearing for BEARISH:
     expect(withVP.confluenceScore).not.toBe(withNull.confluenceScore);
@@ -711,9 +738,11 @@ describe("B–F: Real caller path — buildSignalsForIndex spy on scoreConfluenc
     // At least one detector must have fired and reached scoreConfluence:
     expect(scoreSpy.mock.calls.length).toBeGreaterThan(0);
 
-    // Every call MUST carry vp===null regardless of what ctx.vpIntraday holds:
+    // Every call MUST carry vp===null AND isIndexFno===true regardless of
+    // what ctx.vpIntraday holds — both the call-site and engine-level controls:
     for (const call of scoreSpy.mock.calls as [ConfluenceInputs][]) {
       expect(call[0].vp).toBeNull();
+      expect(call[0].isIndexFno).toBe(true);
     }
 
     // Confirm the direction seen at the call site was BULLISH:
@@ -721,7 +750,7 @@ describe("B–F: Real caller path — buildSignalsForIndex spy on scoreConfluenc
     expect(dirs.some(d => d === "BULLISH")).toBe(true);
   });
 
-  it("C-CALLER: BEARISH fixture — scoreConfluence is called and every call has vp===null", () => {
+  it("C-CALLER: BEARISH fixture — scoreConfluence is called with vp===null and isIndexFno===true", () => {
     buildSignalsForIndex(
       NIFTY_CFG_CLOSURE,
       makeIntraChart("BEARISH"),
@@ -732,18 +761,19 @@ describe("B–F: Real caller path — buildSignalsForIndex spy on scoreConfluenc
 
     for (const call of scoreSpy.mock.calls as [ConfluenceInputs][]) {
       expect(call[0].vp).toBeNull();
+      expect(call[0].isIndexFno).toBe(true);
     }
 
     const dirs = (scoreSpy.mock.calls as [ConfluenceInputs][]).map(c => c[0].direction);
     expect(dirs.some(d => d === "BEARISH")).toBe(true);
   });
 
-  it("D-SENTINEL: extreme upstream VP — boundary enforces vp===null regardless of sentinel magnitude", () => {
+  it("D-SENTINEL: extreme upstream VP — both controls (vp===null AND isIndexFno===true) arrive regardless of sentinel magnitude", () => {
     /**
-     * The BULLISH fixture already has vol=1e6 per bar, so ctx.vpIntraday is
-     * a real VP object (non-null). Were the boundary absent, the confluence
-     * score would shift. The spy confirms the enforced null arrived even when
-     * upstream data is analytically extreme.
+     * The BULLISH fixture has vol=1e6 per bar, so ctx.vpIntraday is a real VP
+     * object (non-null). Were the boundary absent, the confluence score would
+     * shift. The spy confirms both controls arrived even when upstream data is
+     * analytically extreme.
      */
     buildSignalsForIndex(
       NIFTY_CFG_CLOSURE,
@@ -753,9 +783,9 @@ describe("B–F: Real caller path — buildSignalsForIndex spy on scoreConfluenc
 
     expect(scoreSpy.mock.calls.length).toBeGreaterThan(0);
 
-    // No matter what ctx.vpIntraday contains, vp at the confluence call is null:
     for (const call of scoreSpy.mock.calls as [ConfluenceInputs][]) {
       expect(call[0].vp).toBeNull();
+      expect(call[0].isIndexFno).toBe(true);
     }
   });
 

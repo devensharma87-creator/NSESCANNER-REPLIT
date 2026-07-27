@@ -1606,14 +1606,15 @@ export function buildSignalsForIndex(
           ema50: ctx.ema50,
           vwap: ctx.vwap,
           vwapAvailable: ctx.vwapAvailable,
-          // D-FAB-03 enforced boundary: index F&O confluence MUST NOT receive VP.
-          // getOptionSignals() processes only OPTION_INDICES (NIFTY/BANKNIFTY/SENSEX)
-          // — cash indices with structural zero candle volume. Passing null here is an
-          // explicit decision-boundary rule, NOT a prediction that ctx.vpIntraday will
-          // happen to be null. It ensures that no future data path, provider change or
-          // test fixture can accidentally allow VP to influence an index F&O confluence
-          // score, regardless of what ctx.vpIntraday contains at call time.
+          // D-FAB-03 decision boundary: isIndexFno=true instructs the confluence
+          // engine to block VP scoring unconditionally — even if vp is somehow
+          // non-null (data anomaly, test fixture, future provider change).
+          // vp: null is also passed so no VP object enters the engine call;
+          // isIndexFno is the primary, engine-level structural rule (enforced
+          // inside scoreVolumeProfile in confluenceEngine.ts, not here at the
+          // caller). Both controls are defence-in-depth.
           vp: null,
+          isIndexFno: true,
           regime: ctx.regime.regime,
           ivRank: null,
           rawConfidence: r.confidence,
