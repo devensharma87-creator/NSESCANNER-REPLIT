@@ -4419,9 +4419,9 @@ export const GetOptionSignalsResponse = zod.object({
           }),
         )
         .describe(
-          "A0.3 — authoritative setup availability for index F&O. One entry per " +
-          "retired/unavailable setup (VOLUME_BREAKOUT, MEAN_REVERSION, no-VWAP " +
-          "TREND_CONTINUATION). Required on every response that includes setupState.",
+          "A0.3 / A0.3.1 — authoritative setup availability for index F&O. One entry per " +
+          "retired/unavailable setup (VOLUME_BREAKOUT, MEAN_REVERSION, " +
+          "TREND_CONTINUATION_NO_VWAP). Required on every response that includes setupState.",
         ),
     })
     .optional()

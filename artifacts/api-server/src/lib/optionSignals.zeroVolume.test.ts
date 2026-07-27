@@ -664,6 +664,7 @@ function makeNoVwapCtx(vpIntraday: Ctx["vpIntraday"]): Ctx {
     sessionChangePct: 0.41,
     vwap:             24600,        // placeholder = spot when vwapAvailable=false
     vwapAvailable:    false,
+    authVwap:         null,    // A0.3.1: no proxy — explicitly null when unavailable
     vwapSeries:       [null],
     ema9:             24580,        // ema9 > ema21 AND spot > ema9 → BULLISH stack
     ema21:            24550,

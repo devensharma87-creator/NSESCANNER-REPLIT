@@ -5,7 +5,7 @@
  * retired/unavailable in the index-F&O context:
  *   - VOLUME_BREAKOUT (always unavailable: zero-volume cash indices)
  *   - MEAN_REVERSION  (always unavailable: session VWAP unavailable)
- *   - TREND_CONTINUATION, no-VWAP branch (retired: conf max 35 < 50 threshold)
+ *   - TREND_CONTINUATION_NO_VWAP (retired: conf max 35 < 50 threshold)
  *
  * Scope: computeIndexFnoSetupAvailability — pure function, no network/DB/secrets.
  *
@@ -60,8 +60,8 @@ describe("computeIndexFnoSetupAvailability — vwapAvailable=false (cash-index r
     expect(e).toBeDefined();
   });
 
-  it("includes TREND_CONTINUATION entry when vwapAvailable=false", () => {
-    const e = entries.find(x => x.setupKey === "TREND_CONTINUATION");
+  it("includes TREND_CONTINUATION_NO_VWAP entry when vwapAvailable=false (A0.3.1 key rename)", () => {
+    const e = entries.find(x => x.setupKey === "TREND_CONTINUATION_NO_VWAP");
     expect(e).toBeDefined();
   });
 
@@ -106,8 +106,8 @@ describe("computeIndexFnoSetupAvailability — vwapAvailable=true (VWAP path act
     expect(e).toBeDefined();
   });
 
-  it("does NOT include TREND_CONTINUATION when vwapAvailable=true (VWAP path is ACTIVE)", () => {
-    const e = entries.find(x => x.setupKey === "TREND_CONTINUATION");
+  it("does NOT include TREND_CONTINUATION_NO_VWAP when vwapAvailable=true (VWAP-available path is ACTIVE, no retirement entry)", () => {
+    const e = entries.find(x => x.setupKey === "TREND_CONTINUATION_NO_VWAP");
     expect(e).toBeUndefined();
   });
 });
@@ -221,11 +221,11 @@ describe("MEAN_REVERSION availability entry properties", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// §10.5 — TREND_CONTINUATION (no-VWAP branch) entry properties
+// §10.5 — TREND_CONTINUATION_NO_VWAP (no-VWAP branch, A0.3.1 key rename) entry properties
 // ─────────────────────────────────────────────────────────────────────────────
-describe("TREND_CONTINUATION (no-VWAP branch) availability entry properties", () => {
+describe("TREND_CONTINUATION_NO_VWAP (no-VWAP branch) availability entry properties", () => {
   const entry = computeIndexFnoSetupAvailability(false).find(
-    x => x.setupKey === "TREND_CONTINUATION",
+    x => x.setupKey === "TREND_CONTINUATION_NO_VWAP",
   )!;
 
   it("has status=RETIRED_INDEX_FNO_POLICY", () => {
@@ -261,9 +261,9 @@ describe("TREND_CONTINUATION (no-VWAP branch) availability entry properties", ()
     expect(AUTHORISED_REASON_CODES.has(entry.reasonCode)).toBe(true);
   });
 
-  it("TREND_CONTINUATION absent when vwapAvailable=true (VWAP path is ACTIVE)", () => {
+  it("TREND_CONTINUATION_NO_VWAP absent when vwapAvailable=true (VWAP path is ACTIVE — no retirement record)", () => {
     const trueEntries = computeIndexFnoSetupAvailability(true);
-    const tcEntry = trueEntries.find(x => x.setupKey === "TREND_CONTINUATION");
+    const tcEntry = trueEntries.find(x => x.setupKey === "TREND_CONTINUATION_NO_VWAP");
     expect(tcEntry).toBeUndefined();
   });
 });

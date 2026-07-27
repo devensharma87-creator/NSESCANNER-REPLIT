@@ -214,8 +214,22 @@ export interface Ctx {
    * their VWAP-dependent drivers on this flag.
    * Provider/provenance trust is not asserted here — this flag reflects the
    * numeric outcome of the indicator helper, not the data source.
+   *
+   * For signal-DECISION paths that require genuine VWAP, use `authVwap`
+   * (which is null when unavailable) rather than `vwap` (which holds `spot`
+   * as a geometric placeholder). This eliminates the spot-as-VWAP proxy from
+   * signal decisions even if a guard is accidentally removed.
    */
   vwapAvailable: boolean;
+  /**
+   * A0.3.1 — Authoritative session VWAP: the raw computed value (vwapRaw)
+   * when available, null otherwise. Unlike `vwap` (which falls back to `spot`
+   * as a geometric placeholder when unavailable), `authVwap` is explicitly null
+   * when VWAP is unavailable. Use this in all signal-decision paths that require
+   * genuine VWAP (detectMeanReversion). Null when vwapAvailable=false — never
+   * substitutes spot, HLC3, or any other proxy.
+   */
+  authVwap: number | null;
   vwapSeries: (number | null)[];
   ema9: number;
   ema21: number;
@@ -530,7 +544,10 @@ function buildContext(cfg: IndexCfg, intra: YahooChart, daily: YahooChart): Ctx 
     cfg, spot, open0,
     prevClose,
     sessionChangePct: ((spot - open0) / open0) * 100,
-    vwap: effectiveVwap, vwapAvailable, vwapSeries,
+    // A0.3.1: authVwap = vwapRaw (null when unavailable, no proxy).
+    // vwap   = effectiveVwap (spot fallback for geometry-only calcs).
+    // Signal-decision paths (e.g. detectMeanReversion) must use authVwap.
+    vwap: effectiveVwap, authVwap: vwapRaw, vwapAvailable, vwapSeries,
     ema9: effectiveEma9, ema21: effectiveEma21,
     ema20: effectiveEma20, ema50: effectiveEma50,
     ema9Series, ema21Series,
@@ -1067,7 +1084,8 @@ function detectEmaPullback(c: Ctx): Detected | null {
 }
 
 /** 5. Mean Reversion — extreme RSI + at session high/low extension */
-function detectMeanReversion(c: Ctx): Detected | null {
+// A0.3.1: exported for §12.3 direct detector safety tests.
+export function detectMeanReversion(c: Ctx): Detected | null {
   // A0.3 D-FAB-07 / A0_2_RESIDUAL_PROPAGATION_GAP_DISCOVERED_IN_A0_3:
   // MEAN_REVERSION requires a genuine session VWAP for the distance calculation.
   // buildContext sets effectiveVwap = vwapRaw ?? spot (proxy). When unavailable:
@@ -1079,7 +1097,14 @@ function detectMeanReversion(c: Ctx): Detected | null {
   // but this detector-level guard is the authoritative fail-closed boundary.
   // No substitute (spot, HLC3, close, previous VWAP, VP levels) is used.
   if (!c.vwapAvailable) return null;
-  const dist = c.spot - c.vwap;
+  // A0.3.1: Use c.authVwap (the raw computed value, never a spot-proxy) for all
+  // signal-decision arithmetic in this function. At this point c.vwapAvailable=true
+  // guarantees c.authVwap is non-null. c.vwap (effectiveVwap) is NOT used here —
+  // it holds spot as a geometric fallback for other callers and MUST NOT enter the
+  // MEAN_REVERSION distance / extension check even as a fallback path.
+  // Source-search evidence: "effectiveVwap" does not appear inside detectMeanReversion.
+  const authVwap = c.authVwap!;
+  const dist = c.spot - authVwap;
   const extendedUp = dist > c.atr15 * 2 && c.rsi14 > 75;
   const extendedDn = dist < -c.atr15 * 2 && c.rsi14 < 25;
   if (!extendedUp && !extendedDn) return null;
@@ -1089,7 +1114,7 @@ function detectMeanReversion(c: Ctx): Detected | null {
   let conf = 60;
   drivers.push({
     label: dir === "BEARISH" ? "Overbought + extended above VWAP" : "Oversold + extended below VWAP",
-    detail: `RSI ${c.rsi14.toFixed(1)}, ${Math.abs(dist).toFixed(2)} pts (${(Math.abs(dist) / c.atr15).toFixed(1)}× ATR) from VWAP ${c.vwap.toFixed(2)}.`,
+    detail: `RSI ${c.rsi14.toFixed(1)}, ${Math.abs(dist).toFixed(2)} pts (${(Math.abs(dist) / c.atr15).toFixed(1)}× ATR) from VWAP ${authVwap.toFixed(2)}.`,
     weight: 25, bullish: dir === "BULLISH",
   });
   drivers.push({
@@ -1112,7 +1137,7 @@ function detectMeanReversion(c: Ctx): Detected | null {
     ? c.bars.h.at(-1)! // above last bar high (touch trigger)
     : c.bars.l.at(-1)!; // below last bar low (touch trigger)
   const stop = dir === "BULLISH" ? c.spot - c.atr15 * 0.6 : c.spot + c.atr15 * 0.6;
-  const t1 = dir === "BULLISH" ? c.vwap : c.vwap;
+  const t1 = authVwap; // authoritative VWAP: mean-reversion target for both directions
   const t2 = dir === "BULLISH" ? c.ema21 : c.ema21;
 
   return {
@@ -1594,9 +1619,13 @@ export function computeIndexFnoSetupAvailability(
 
   // no-VWAP TREND_CONTINUATION: retired when vwapAvailable=false
   // (always true for cash indices — structural zero-volume reality).
+  // A0.3.1: The setupKey is "TREND_CONTINUATION_NO_VWAP" (not "TREND_CONTINUATION")
+  // to distinguish this retirement record from the VWAP-available TREND_CONTINUATION
+  // setup (which remains ACTIVE when vwapAvailable=true). The orchestration mapping
+  // SETUP_KEY_TO_DET_NAME maps this key to the "trend_continuation" detector name.
   if (!vwapAvailable) {
     entries.push({
-      setupKey: "TREND_CONTINUATION",
+      setupKey: "TREND_CONTINUATION_NO_VWAP",
       status: "RETIRED_INDEX_FNO_POLICY",
       reasonCode: "SETUP_RETIRED_UNDER_CURRENT_INDEX_FNO_POLICY",
       explanation:
@@ -1688,10 +1717,13 @@ export function buildSignalsForIndex(
   // The same object is returned in IndexBuildResult → API → UI (no divergent lists).
   const setupAvailability = computeIndexFnoSetupAvailability(ctx.vwapAvailable);
   // Detector name → setupKey mapping (must match the detectors array below).
+  // A0.3.1: TREND_CONTINUATION_NO_VWAP maps to the "trend_continuation" detector.
+  // The setupKey uses the lane-specific name to distinguish only the no-VWAP branch
+  // (which is retired) from the VWAP-available TREND_CONTINUATION (which stays ACTIVE).
   const SETUP_KEY_TO_DET_NAME: Record<string, string> = {
     VOLUME_BREAKOUT: "volume_breakout",
     MEAN_REVERSION: "mean_reversion",
-    TREND_CONTINUATION: "trend_continuation",
+    TREND_CONTINUATION_NO_VWAP: "trend_continuation",
   };
   // Set of detector names that must NOT be invoked this cycle.
   // Built from the availability contract — any status !== "ACTIVE" means the
