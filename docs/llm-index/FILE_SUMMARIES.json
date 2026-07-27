@@ -4288,14 +4288,14 @@
   {
     "path": "artifacts/api-server/src/lib/optionSignals.a031.test.ts",
     "purpose": "test",
-    "lines": 682,
+    "lines": 862,
     "exports": [],
     "externalImports": [
       "vitest",
       "zod"
     ],
     "routes": [],
-    "hash": "e9f5638ba8ef73b8"
+    "hash": "6d5abddb82d02f24"
   },
   {
     "path": "artifacts/api-server/src/lib/optionSignals.expiryDay.test.ts",
@@ -8065,6 +8065,19 @@
     "externalImports": [],
     "routes": [],
     "hash": "f6ae9a290d82e77d"
+  },
+  {
+    "path": "artifacts/scanner/src/lib/fnoAvailabilityRender.test.tsx",
+    "purpose": "test",
+    "lines": 287,
+    "exports": [],
+    "externalImports": [
+      "react",
+      "react-dom/client",
+      "vitest"
+    ],
+    "routes": [],
+    "hash": "9d262ebd7430bf3c"
   },
   {
     "path": "artifacts/scanner/src/lib/fnoEmptyState.test.ts",
