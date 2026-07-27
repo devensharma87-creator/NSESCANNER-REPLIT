@@ -1027,6 +1027,44 @@ export default function OptionsPage() {
         );
       })()}
 
+      {/* A0.3 — Index F&O Setup Availability Disclosure.
+          Renders when any setup is retired/unavailable in the current index-F&O lane.
+          Provides the authoritative machine-readable contract (status + reasonCode)
+          alongside a brief user-facing explanation. Not included in liveSetupsCount.
+          Source of truth: setupState.indexFnoSetupAvailability from the API. */}
+      {(() => {
+        const unavailableSetups = (data?.setupState?.indexFnoSetupAvailability ?? []).filter(
+          (e) => e.status !== "ACTIVE",
+        );
+        if (unavailableSetups.length === 0) return null;
+        return (
+          <div
+            className="rounded border border-border/40 bg-secondary/15 px-4 py-2.5 text-[11px]"
+            data-testid="fno-setup-availability-strip"
+          >
+            <div className="flex items-center gap-2 mb-2">
+              <Ban className="w-3.5 h-3.5 text-muted-foreground/70 shrink-0" />
+              <span className="font-semibold text-muted-foreground/80 uppercase tracking-wider text-[10px]">
+                Index F&amp;O — setups not available in this lane
+              </span>
+            </div>
+            <div className="space-y-1.5">
+              {unavailableSetups.map((entry) => (
+                <div key={entry.setupKey} className="flex items-start gap-3">
+                  <span className="font-mono text-[10px] text-muted-foreground/60 shrink-0 w-36 pt-px">
+                    {entry.setupKey}
+                  </span>
+                  <span className="text-muted-foreground/70 leading-snug">{entry.explanation}</span>
+                  <span className="font-mono text-[9px] text-muted-foreground/40 shrink-0 pt-px whitespace-nowrap">
+                    {entry.reasonCode}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
+
       {/* Tab toggle: live setups vs report */}
       <div className="inline-flex rounded-md border border-border bg-secondary/30 p-0.5 text-xs font-mono">
         <button

@@ -220,7 +220,7 @@ router.get("/market/macroHistory", async (_req, res, next) => {
 
 router.get("/options/signals", requireSubscriberOrOwner("FNO"), async (_req, res, next) => {
   try {
-    const { signals, diagnostics } = await getOptionSignals();
+    const { signals, diagnostics, indexFnoSetupAvailability } = await getOptionSignals();
     const now = new Date();
     const marketStatus = getMarketStatusDetail(now);
     const tradeableCount = signals.filter(s => s.tradeClass === "TRADEABLE").length;
@@ -233,6 +233,10 @@ router.get("/options/signals", requireSubscriberOrOwner("FNO"), async (_req, res
       noSetupReason: signals.length === 0 && marketStatus.marketOpen
         ? (diagnostics?.gates?.notes?.[0] ?? "No high-conviction setup generated this cycle")
         : null,
+      // A0.3: authoritative per-setup availability for index F&O.
+      // Required on every response — normal, market-closed, stale/degraded, no-signal.
+      // Unavailable setups are not counted in liveSetupsCount.
+      indexFnoSetupAvailability: indexFnoSetupAvailability ?? [],
     };
     // Kite CSV parser returns instrument_token as a string; coerce to number
     // before Zod parse (affects both live signals and disk-cached signals).

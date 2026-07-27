@@ -1068,6 +1068,17 @@ function detectEmaPullback(c: Ctx): Detected | null {
 
 /** 5. Mean Reversion — extreme RSI + at session high/low extension */
 function detectMeanReversion(c: Ctx): Detected | null {
+  // A0.3 D-FAB-07 / A0_2_RESIDUAL_PROPAGATION_GAP_DISCOVERED_IN_A0_3:
+  // MEAN_REVERSION requires a genuine session VWAP for the distance calculation.
+  // buildContext sets effectiveVwap = vwapRaw ?? spot (proxy). When unavailable:
+  //   dist = c.spot - c.spot = 0
+  //   extendedUp  = 0 > atr15*2  → always false
+  //   extendedDn  = 0 < -atr15*2 → always false
+  // This guard removes the spot-as-VWAP proxy from the decision path.
+  // The orchestration gate in buildSignalsForIndex provides defence-in-depth,
+  // but this detector-level guard is the authoritative fail-closed boundary.
+  // No substitute (spot, HLC3, close, previous VWAP, VP levels) is used.
+  if (!c.vwapAvailable) return null;
   const dist = c.spot - c.vwap;
   const extendedUp = dist > c.atr15 * 2 && c.rsi14 > 75;
   const extendedDn = dist < -c.atr15 * 2 && c.rsi14 < 25;
@@ -1476,6 +1487,133 @@ function toSignal(c: Ctx, d: Detected, tier: "HIGH_CONVICTION" | "BASELINE"): Op
   };
 }
 
+/**
+ * A0.3 — Per-setup availability record for index-F&O context.
+ *
+ * One entry per retired/unavailable setup. Governs:
+ *   (a) which detectors the orchestration loop may invoke;
+ *   (b) what the API exposes as setup availability;
+ *   (c) what the UI discloses.
+ *
+ * A setup that is ACTIVE has no entry here — only unavailable/retired
+ * setups are listed, keeping the collection small and unambiguous.
+ *
+ * Defects closed: D-FAB-06 (VOLUME_BREAKOUT), D-FAB-07 (MEAN_REVERSION),
+ * carried no-VWAP TREND_CONTINUATION from A0.1.
+ */
+export interface IndexFnoSetupAvailability {
+  /** Stable setup identifier matching OptionSignal.setupKey. */
+  setupKey: string;
+  /** Availability status. ACTIVE = can emit; others = cannot. */
+  status: "ACTIVE" | "UNAVAILABLE_REQUIRED_INPUT" | "RETIRED_INDEX_FNO_POLICY";
+  /**
+   * Machine-readable reason code. Stable across deploys.
+   * Authorised codes: INDEX_VOLUME_UNAVAILABLE, SESSION_VWAP_UNAVAILABLE,
+   * SETUP_RETIRED_UNDER_CURRENT_INDEX_FNO_POLICY.
+   */
+  reasonCode: string;
+  /** Concise user-facing explanation (one sentence). */
+  explanation: string;
+  /** Required inputs that are missing or structurally unavailable. */
+  missingInputs: string[];
+  /** Applicability scope. Always INDEX_FNO for this structure. */
+  scope: "INDEX_FNO";
+  /** Explicit emission eligibility. Always false for non-ACTIVE entries. */
+  eligibleForEmission: false;
+}
+
+/**
+ * A0.3 — Compute the authoritative setup availability for index-F&O.
+ *
+ * This is the SINGLE SOURCE OF TRUTH for which detectors may emit in the
+ * index-F&O context. The same result drives:
+ *   1. Orchestration-level eligibility gating (before the detector loop).
+ *   2. API serialization (exposed in setupState.indexFnoSetupAvailability).
+ *   3. UI disclosure (options.tsx setup-availability strip).
+ *
+ * Always-unavailable (structural cash-index policy, independent of ctx):
+ *   VOLUME_BREAKOUT — requires traded vp + lastVol + avgVol20; cash-index
+ *     candles always have zero volume; A0.2 volumeProfile() returns null.
+ *   MEAN_REVERSION — requires genuine session VWAP; effectiveVwap=spot is a
+ *     proxy (A0_2_RESIDUAL_PROPAGATION_GAP_DISCOVERED_IN_A0_3); dist=0 makes
+ *     both extension conditions permanently false. Guard added in detector.
+ *
+ * Policy-unavailable when vwapAvailable=false (always true for cash indices):
+ *   TREND_CONTINUATION (no-VWAP branch) — max confidence arithmetic:
+ *     Generic theoretical maximum:  EMA(20) + RSI(15) + vol-confirm(8) = 43
+ *     Cash-index operational max:   EMA(20) + RSI(15) + vol-confirm(0)  = 35
+ *       because lastVol=avgVol20=0 → (0 > 0 × 1.2) = false → vol-confirm never fires.
+ *     Branch threshold = 50. Neither 43 nor 35 reaches 50. Branch non-emitting.
+ *
+ * The VWAP-available TREND_CONTINUATION path (conf base 45, reachable ≥50)
+ * is ACTIVE — no entry is added for it.
+ *
+ * @param vwapAvailable - Pass ctx.vwapAvailable when ctx is available;
+ *   pass false as the conservative default when ctx is null (no bars/data).
+ */
+export function computeIndexFnoSetupAvailability(
+  vwapAvailable: boolean,
+): IndexFnoSetupAvailability[] {
+  const entries: IndexFnoSetupAvailability[] = [
+    // D-FAB-06: VOLUME_BREAKOUT — always unavailable for index F&O.
+    // Two independent null boundaries:
+    //   A0.2 boundary: volumeProfile() returns null when totalVol=0 (cash-index structural).
+    //   A0.1 boundary: caller passes vp:null + isIndexFno:true to confluenceEngine
+    //                  (defence in depth — engine blocks VP scoring unconditionally).
+    {
+      setupKey: "VOLUME_BREAKOUT",
+      status: "UNAVAILABLE_REQUIRED_INPUT",
+      reasonCode: "INDEX_VOLUME_UNAVAILABLE",
+      explanation:
+        "Volume Breakout requires traded volume (volume profile, last-bar volume, 20-bar average). " +
+        "Cash-index candles carry zero volume — no substitute is used.",
+      missingInputs: ["volumeProfile", "lastVol", "avgVol20"],
+      scope: "INDEX_FNO",
+      eligibleForEmission: false,
+    },
+    // D-FAB-07: MEAN_REVERSION — always unavailable for index F&O.
+    // A0_2_RESIDUAL_PROPAGATION_GAP_DISCOVERED_IN_A0_3: buildContext sets
+    // effectiveVwap = vwapRaw ?? spot (proxy). When VWAP unavailable:
+    //   dist = c.spot - c.vwap = c.spot - c.spot = 0
+    //   extendedUp  = 0 > atr15*2  → permanently false
+    //   extendedDn  = 0 < -atr15*2 → permanently false
+    // Detector-level guard (if !c.vwapAvailable) added in detectMeanReversion.
+    {
+      setupKey: "MEAN_REVERSION",
+      status: "UNAVAILABLE_REQUIRED_INPUT",
+      reasonCode: "SESSION_VWAP_UNAVAILABLE",
+      explanation:
+        "Mean Reversion requires a genuine session VWAP to measure price extension. " +
+        "Cash-index candles have zero volume — session VWAP is unavailable. " +
+        "No proxy (spot, HLC3, close) is substituted.",
+      missingInputs: ["sessionVwap", "vwapAvailable"],
+      scope: "INDEX_FNO",
+      eligibleForEmission: false,
+    },
+  ];
+
+  // no-VWAP TREND_CONTINUATION: retired when vwapAvailable=false
+  // (always true for cash indices — structural zero-volume reality).
+  if (!vwapAvailable) {
+    entries.push({
+      setupKey: "TREND_CONTINUATION",
+      status: "RETIRED_INDEX_FNO_POLICY",
+      reasonCode: "SETUP_RETIRED_UNDER_CURRENT_INDEX_FNO_POLICY",
+      explanation:
+        "Trend Continuation (no-VWAP branch): generic theoretical max conf = " +
+        "EMA(20) + RSI(15) + vol-confirm(8) = 43; cash-index operational max = " +
+        "EMA(20) + RSI(15) + vol-confirm(0) = 35 (vol-confirm requires lastVol > 0, " +
+        "which never fires for zero-volume indices). Branch threshold = 50. " +
+        "Setup cannot emit without fabricated volume or threshold relaxation — both prohibited.",
+      missingInputs: ["sessionVwap"],
+      scope: "INDEX_FNO",
+      eligibleForEmission: false,
+    });
+  }
+
+  return entries;
+}
+
 export interface IndexBuildResult {
   signals: OptionSignal[];
   /** Reasons no high-conviction setup fired. Used by the diagnostics block. */
@@ -1484,6 +1622,16 @@ export interface IndexBuildResult {
   hasBars: boolean;
   /** Live snapshot used to evaluate lifecycle — null if no bars. */
   snapshot?: SpotSnapshot;
+  /**
+   * A0.3: per-setup availability for this index evaluation. One entry per
+   * retired/unavailable setup. The same authoritative result governs:
+   *   1. Orchestration-level eligibility gating (detector loop skips retired setups).
+   *   2. API serialization (exposed in setupState.indexFnoSetupAvailability).
+   *   3. UI disclosure (setup-availability strip on the F&O page).
+   *
+   * All three surfaces must agree. Do not maintain divergent lists.
+   */
+  setupAvailability: IndexFnoSetupAvailability[];
 }
 
 export function buildSignalsForIndex(
@@ -1493,7 +1641,9 @@ export function buildSignalsForIndex(
   gateCtx?: GateContext,
 ): IndexBuildResult {
   const ctx = buildContext(cfg, intra, daily);
-  if (!ctx) return { signals: [], suppressed: ["NO_BARS_OR_INSUFFICIENT_DATA"], hasBars: false };
+  // A0.3: even with no bars we still return the structural availability contract,
+  // so the API always carries honest setup-availability for index F&O.
+  if (!ctx) return { signals: [], suppressed: ["NO_BARS_OR_INSUFFICIENT_DATA"], hasBars: false, setupAvailability: computeIndexFnoSetupAvailability(false) };
 
   // IST market-hours gate for high-conviction detectors. Outside the
   // 09:15–15:30 IST regular session the most-recent intraday bar is
@@ -1531,6 +1681,27 @@ export function buildSignalsForIndex(
   ];
   const highConviction: Detected[] = [];
   const suppressed: string[] = [];
+  // A0.3: compute authoritative setup availability once per index evaluation.
+  // This is the single source of truth governing which detectors may emit.
+  // Computed OUTSIDE the market-open gate so it is present in all response
+  // variants: normal, market-closed, stale/degraded, and no-signal.
+  // The same object is returned in IndexBuildResult → API → UI (no divergent lists).
+  const setupAvailability = computeIndexFnoSetupAvailability(ctx.vwapAvailable);
+  // Detector name → setupKey mapping (must match the detectors array below).
+  const SETUP_KEY_TO_DET_NAME: Record<string, string> = {
+    VOLUME_BREAKOUT: "volume_breakout",
+    MEAN_REVERSION: "mean_reversion",
+    TREND_CONTINUATION: "trend_continuation",
+  };
+  // Set of detector names that must NOT be invoked this cycle.
+  // Built from the availability contract — any status !== "ACTIVE" means the
+  // detector is retired/unavailable and cannot emit, even if conditions are met.
+  const retiredDetectorNames = new Set(
+    setupAvailability
+      .filter(a => a.status !== "ACTIVE")
+      .map(a => SETUP_KEY_TO_DET_NAME[a.setupKey])
+      .filter((n): n is string => n !== undefined),
+  );
   if (!isMarketOpen) {
     suppressed.push(`market_closed: ${marketStatus} (high-conviction setups gated to 09:15–15:30 IST)`);
   } else if (!ctx.fullIndicators) {
@@ -1551,6 +1722,21 @@ export function buildSignalsForIndex(
     // to avoid gamma explosion in the last hour.
     const inExpiryDayForDetectors = ctx.regime.regime === "EXPIRY_DAY";
     for (const det of detectors) {
+      // A0.3 orchestration-level eligibility gate (defence-in-depth, layer 1).
+      // Layer 2 is the detector-level guard (e.g. detectMeanReversion's vwapAvailable check).
+      // Both must independently fail closed — a central loop gate alone is insufficient
+      // per the A0.3 acceptance requirements (§7.2, §10.4 item 11).
+      if (retiredDetectorNames.has(det.name)) {
+        const avEntry = setupAvailability.find(
+          a => SETUP_KEY_TO_DET_NAME[a.setupKey] === det.name,
+        );
+        suppressed.push(
+          `${det.name}: unavailable for index F&O — ` +
+          `${avEntry?.reasonCode ?? "RETIRED_INDEX_FNO_POLICY"} — ` +
+          `see indexFnoSetupAvailability in API response`,
+        );
+        continue;
+      }
       if (inExpiryDayForDetectors && det.trendClass) {
         suppressed.push(`${det.name}: expiry-day gate (BUG-80: MEAN_REVERSION only on expiry — pin/unwind dynamics dominate)`);
         continue;
@@ -1885,7 +2071,9 @@ export function buildSignalsForIndex(
       out.push(applyLock(s));
     }
   }
-  return { signals: out, suppressed, hasBars: true, snapshot: snapshotFromCtx(ctx) };
+  // A0.3: include availability in the result so the route serializes it
+  // and the UI can display the honest setup-availability contract.
+  return { signals: out, suppressed, hasBars: true, snapshot: snapshotFromCtx(ctx), setupAvailability };
 }
 
 /**
@@ -1916,6 +2104,13 @@ function snapshotFromCtx(ctx: Ctx): SpotSnapshot {
 
 export interface OptionSignalsResult {
   signals: OptionSignal[];
+  /**
+   * A0.3: deduplicated setup availability across all evaluated cash indices.
+   * All configured indices (NIFTY/BANKNIFTY/SENSEX) have identical structural
+   * availability — deduplicated by setupKey, one entry per setup.
+   * Exposed via setupState.indexFnoSetupAvailability in the API response.
+   */
+  indexFnoSetupAvailability: IndexFnoSetupAvailability[];
   diagnostics: {
     indicesConfigured: number;
     indicesWithBars: number;
@@ -2636,6 +2831,10 @@ export async function getOptionSignals(): Promise<OptionSignalsResult> {
   let indicesWithBars = 0;
   let highConvictionCount = 0;
   let baselineCount = 0;
+  // A0.3: accumulate setup availability across per-index results and deduplicate
+  // by setupKey. All indices are cash indices with identical structural availability;
+  // the map ensures exactly one entry per setup in the final OptionSignalsResult.
+  const indexFnoAvailMap = new Map<string, IndexFnoSetupAvailability>();
 
   // Sweep stale PENDING rows BEFORE loading gate context so the circuit
   // breaker / bias-flip queries see today's most up-to-date counts.
@@ -2747,6 +2946,13 @@ export async function getOptionSignals(): Promise<OptionSignalsResult> {
         s.dataQuality = quality;
       }
       bundles.push({ signals: r.signals, snapshot: r.snapshot });
+      // A0.3: collect setupAvailability into the deduplication map.
+      // First occurrence of each setupKey wins (all indices agree — cash indices only).
+      for (const entry of r.setupAvailability) {
+        if (!indexFnoAvailMap.has(entry.setupKey)) {
+          indexFnoAvailMap.set(entry.setupKey, entry);
+        }
+      }
       // Phase-1 IVR/IVP — snapshot ATM IV for THIS index regardless of
       // whether any signal emitted (so BANKEX/MIDCPNIFTY accumulate IV
       // history even on quiet days). Best-effort: any failure (chain
@@ -2792,6 +2998,18 @@ export async function getOptionSignals(): Promise<OptionSignalsResult> {
       const msg = (err as Error).message;
       logger.warn({ err: msg, idx: cfg.symbol }, "Option signal failed");
       suppressed.push({ index: cfg.symbol, reasons: [`exception: ${msg}`] });
+    }
+  }
+
+  // A0.3: Ensure indexFnoAvailMap is always populated, even when all indices
+  // were suppressed before reaching buildSignalsForIndex (e.g. all three failed
+  // the intraday/daily availability checks). The structural unavailability is
+  // data-independent — cash indices always have zero volume, no session VWAP.
+  // Seed the map from the canonical static contract so the API always returns
+  // the honest availability on every response variant.
+  if (indexFnoAvailMap.size === 0) {
+    for (const entry of computeIndexFnoSetupAvailability(false)) {
+      indexFnoAvailMap.set(entry.setupKey, entry);
     }
   }
 
@@ -3271,6 +3489,11 @@ export async function getOptionSignals(): Promise<OptionSignalsResult> {
   };
   const result: OptionSignalsResult = {
     signals: out,
+    // A0.3: deduplicated setup availability across all evaluated cash indices.
+    // All suppressed entries that failed the orchestration gate are already in
+    // each IndexBuildResult.suppressed; this array carries the authoritative
+    // per-setup availability contract for API consumers and the UI.
+    indexFnoSetupAvailability: Array.from(indexFnoAvailMap.values()),
     diagnostics: {
       indicesConfigured: OPTION_INDICES.length,
       indicesWithBars,

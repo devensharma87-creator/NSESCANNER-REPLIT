@@ -3309,9 +3309,44 @@ components:
         calendarSource:    { type: string, description: "Source of the holiday calendar used." }
         calendarAsOf:      { type: string, description: "Date through which the holiday calendar is valid." }
 
+    FnoSetupAvailabilityEntry:
+      type: object
+      description: >
+        A0.3 — availability record for a single index-F&O setup/lane.
+        One entry per retired/unavailable setup; no entry for ACTIVE setups.
+        The same authoritative result governs detector eligibility, API serialization,
+        and UI disclosure. Do not maintain divergent lists across these three surfaces.
+      required: [setupKey, status, reasonCode, explanation, missingInputs, scope, eligibleForEmission]
+      properties:
+        setupKey:
+          type: string
+          description: "Stable setup identifier matching OptionSignal.setupKey."
+        status:
+          type: string
+          enum: [ACTIVE, UNAVAILABLE_REQUIRED_INPUT, RETIRED_INDEX_FNO_POLICY]
+          description: "ACTIVE = can emit; UNAVAILABLE_REQUIRED_INPUT = required authoritative input absent; RETIRED_INDEX_FNO_POLICY = disabled by current index-F&O policy."
+        reasonCode:
+          type: string
+          description: "Machine-readable reason code, stable across deploys. Authorised: INDEX_VOLUME_UNAVAILABLE, SESSION_VWAP_UNAVAILABLE, SETUP_RETIRED_UNDER_CURRENT_INDEX_FNO_POLICY."
+        explanation:
+          type: string
+          description: "Concise user-facing explanation of why the setup is unavailable."
+        missingInputs:
+          type: array
+          items: { type: string }
+          description: "Required inputs that are missing or structurally unavailable."
+        scope:
+          type: string
+          enum: [INDEX_FNO]
+          description: "Applicability scope. Always INDEX_FNO for this structure."
+        eligibleForEmission:
+          type: boolean
+          enum: [false]
+          description: "Explicit emission eligibility. Always false for non-ACTIVE entries."
+
     FnoSetupState:
       type: object
-      required: [indicesEvaluated, liveSetupsCount, tradeableCount, suppressedCount]
+      required: [indicesEvaluated, liveSetupsCount, tradeableCount, suppressedCount, indexFnoSetupAvailability]
       description: "Live setup counts — how many setups were evaluated and are currently live."
       properties:
         indicesEvaluated: { type: integer, description: "Number of F&O indices evaluated this cycle." }
@@ -3319,6 +3354,16 @@ components:
         tradeableCount:   { type: integer, description: "Setups with tradeClass=TRADEABLE." }
         suppressedCount:  { type: integer, description: "Setups gated/suppressed by risk/data gates this cycle." }
         noSetupReason:    { type: string, nullable: true, description: "Human-readable reason when liveSetupsCount=0 during market hours." }
+        indexFnoSetupAvailability:
+          type: array
+          description: >
+            A0.3 — authoritative setup availability for index F&O. One entry per
+            retired/unavailable setup (VOLUME_BREAKOUT, MEAN_REVERSION, no-VWAP
+            TREND_CONTINUATION). Required on every response that includes setupState —
+            including market-closed, stale/degraded, and no-signal variants.
+            Unavailable setups must not appear in liveSetupsCount or be counted active.
+          items:
+            $ref: "#/components/schemas/FnoSetupAvailabilityEntry"
 
     OptionSignalSet:
       type: object

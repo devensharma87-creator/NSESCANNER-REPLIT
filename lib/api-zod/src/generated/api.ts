@@ -4385,6 +4385,44 @@ export const GetOptionSignalsResponse = zod.object({
         .describe(
           "Human-readable reason when liveSetupsCount=0 during market hours.",
         ),
+      indexFnoSetupAvailability: zod
+        .array(
+          zod.object({
+            setupKey: zod
+              .string()
+              .describe("Stable setup identifier matching OptionSignal.setupKey."),
+            status: zod
+              .enum(["ACTIVE", "UNAVAILABLE_REQUIRED_INPUT", "RETIRED_INDEX_FNO_POLICY"])
+              .describe(
+                "ACTIVE = can emit; UNAVAILABLE_REQUIRED_INPUT = required authoritative input absent; " +
+                "RETIRED_INDEX_FNO_POLICY = disabled by current index-F&O policy.",
+              ),
+            reasonCode: zod
+              .string()
+              .describe(
+                "Machine-readable reason code, stable across deploys. " +
+                "Authorised: INDEX_VOLUME_UNAVAILABLE, SESSION_VWAP_UNAVAILABLE, " +
+                "SETUP_RETIRED_UNDER_CURRENT_INDEX_FNO_POLICY.",
+              ),
+            explanation: zod
+              .string()
+              .describe("Concise user-facing explanation of why the setup is unavailable."),
+            missingInputs: zod
+              .array(zod.string())
+              .describe("Required inputs that are missing or structurally unavailable."),
+            scope: zod
+              .literal("INDEX_FNO")
+              .describe("Applicability scope. Always INDEX_FNO for this structure."),
+            eligibleForEmission: zod
+              .literal(false)
+              .describe("Explicit emission eligibility. Always false for non-ACTIVE entries."),
+          }),
+        )
+        .describe(
+          "A0.3 — authoritative setup availability for index F&O. One entry per " +
+          "retired/unavailable setup (VOLUME_BREAKOUT, MEAN_REVERSION, no-VWAP " +
+          "TREND_CONTINUATION). Required on every response that includes setupState.",
+        ),
     })
     .optional()
     .describe("Live setup counts for this cycle."),

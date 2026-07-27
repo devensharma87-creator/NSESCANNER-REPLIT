@@ -5,6 +5,7 @@
  * NSE Stock Scanner API
  * OpenAPI spec version: 0.1.0
  */
+import type { FnoSetupAvailabilityEntry } from "./fnoSetupAvailabilityEntry";
 
 /**
  * Live setup counts — how many setups were evaluated and are currently live.
@@ -20,4 +21,10 @@ export interface FnoSetupState {
   suppressedCount: number;
   /** Human-readable reason when liveSetupsCount=0 during market hours. */
   noSetupReason?: string | null;
+  /**
+   * A0.3 — authoritative setup availability for index F&O. One entry per
+   * retired/unavailable setup (VOLUME_BREAKOUT, MEAN_REVERSION, no-VWAP
+   * TREND_CONTINUATION). Required on every response that includes setupState.
+   */
+  indexFnoSetupAvailability: FnoSetupAvailabilityEntry[];
 }

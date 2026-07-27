@@ -1648,6 +1648,43 @@ export interface FnoMarketStatus {
 }
 
 /**
+ * A0.3 — availability record for a single index-F&O setup/lane.
+ * One entry per retired/unavailable setup; no entry for ACTIVE setups.
+ */
+export interface FnoSetupAvailabilityEntry {
+  /** Stable setup identifier matching OptionSignal.setupKey. */
+  setupKey: string;
+  /** ACTIVE = can emit; UNAVAILABLE_REQUIRED_INPUT = required authoritative input absent; RETIRED_INDEX_FNO_POLICY = disabled by current index-F&O policy. */
+  status: FnoSetupAvailabilityEntryStatus;
+  /** Machine-readable reason code, stable across deploys. */
+  reasonCode: string;
+  /** Concise user-facing explanation of why the setup is unavailable. */
+  explanation: string;
+  /** Required inputs that are missing or structurally unavailable. */
+  missingInputs: string[];
+  /** Applicability scope. Always INDEX_FNO for this structure. */
+  scope: FnoSetupAvailabilityEntryScope;
+  /** Explicit emission eligibility. Always false for non-ACTIVE entries. */
+  eligibleForEmission: false;
+}
+
+export type FnoSetupAvailabilityEntryStatus =
+  (typeof FnoSetupAvailabilityEntryStatus)[keyof typeof FnoSetupAvailabilityEntryStatus];
+
+export const FnoSetupAvailabilityEntryStatus = {
+  ACTIVE: "ACTIVE",
+  UNAVAILABLE_REQUIRED_INPUT: "UNAVAILABLE_REQUIRED_INPUT",
+  RETIRED_INDEX_FNO_POLICY: "RETIRED_INDEX_FNO_POLICY",
+} as const;
+
+export type FnoSetupAvailabilityEntryScope =
+  (typeof FnoSetupAvailabilityEntryScope)[keyof typeof FnoSetupAvailabilityEntryScope];
+
+export const FnoSetupAvailabilityEntryScope = {
+  INDEX_FNO: "INDEX_FNO",
+} as const;
+
+/**
  * Live setup counts — how many setups were evaluated and are currently live.
  */
 export interface FnoSetupState {
@@ -1661,6 +1698,11 @@ export interface FnoSetupState {
   suppressedCount: number;
   /** Human-readable reason when liveSetupsCount=0 during market hours. */
   noSetupReason?: string | null;
+  /**
+   * A0.3 — authoritative setup availability for index F&O. One entry per
+   * retired/unavailable setup. Required on every response that includes setupState.
+   */
+  indexFnoSetupAvailability: FnoSetupAvailabilityEntry[];
 }
 
 /**

@@ -848,24 +848,25 @@ describe("B–F: Real caller path — buildSignalsForIndex spy on scoreConfluenc
   it("E-NOVWAP: detectTrendContinuation — extreme VP fixtures in no-VWAP Ctx all return null (structural suppression)", () => {
     /**
      * CLASSIFICATION:
-     * TARGET_RESULT_INVARIANCE_NOT_APPLICABLE_UNDER_CURRENT_NON_EMITTING_BRANCH
+     * RETIRED_FOR_INDEX_FNO_UNAVAILABLE_AUTHORITATIVE_INPUT — resolved in Phase A0.3
      *
-     * The no-VWAP TREND_CONTINUATION lane is currently non-emitting:
+     * The no-VWAP TREND_CONTINUATION lane is permanently non-emitting:
      *   max conf = EMA(20) + RSI-healthy(15) + vol-confirm(0, avgVol20=0) = 35
      *   35 < 50 emission threshold → detectTrendContinuation always returns null
      *
      * The target formula (c.piv.r1 + c.atr15*0.3) is therefore unreachable in
      * this path. Target-invariance cannot be proved on an emitted candidate
      * without changing a threshold, inventing points, or restoring VP influence —
-     * all of which are prohibited. This classification is the honest substitute.
+     * all of which are prohibited.
      *
-     * Carry-forward: the non-emitting no-VWAP TREND_CONTINUATION lane is a
-     * dead setup. It must be fixed (restored to a meaningful threshold) or
-     * honestly retired with UI disclosure. This is NOT merged into D-FAB-03 or
-     * D-FAB-04. It is carried forward to the dedicated Phase A0 dead-setup
-     * checkpoint (registered under the existing Phase A0 exit requirement:
-     * "Dead/non-emitting setups must be fixed or honestly retired with UI
-     * disclosure").
+     * A0.3 resolution: the no-VWAP TREND_CONTINUATION lane has been explicitly
+     * retired under the authoritative machine-readable contract:
+     *   status: RETIRED_INDEX_FNO_POLICY
+     *   reasonCode: SETUP_RETIRED_UNDER_CURRENT_INDEX_FNO_POLICY
+     * The orchestration gate in buildSignalsForIndex skips this detector when
+     * setupAvailability marks it retired. The UI discloses the retirement via
+     * the setup-availability strip on the F&O page. No threshold changes made.
+     * This carry-forward obligation is now closed.
      */
 
     // ── Proof 1: all four VP variants return the same fail-closed null ───────

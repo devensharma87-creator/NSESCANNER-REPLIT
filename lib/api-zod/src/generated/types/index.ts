@@ -130,6 +130,7 @@ export * from "./fnoBanListResponse";
 export * from "./fnoCostBreakdown";
 export * from "./fnoMarketStatus";
 export * from "./fnoMarketStatusReason";
+export * from "./fnoSetupAvailabilityEntry";
 export * from "./fnoSetupState";
 export * from "./fnoSpotLifecycle";
 export * from "./gapStock";
