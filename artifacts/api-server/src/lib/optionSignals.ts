@@ -207,11 +207,13 @@ export interface Ctx {
   sessionChangePct: number;
   vwap: number;
   /**
-   * True only when the session VWAP is a genuine volume-weighted average.
-   * False for cash indices (NIFTY/BANKNIFTY/SENSEX) — their Kite candles
-   * carry zero volume, so `vwap` is set to `spot` as a geometric
-   * placeholder and MUST NOT be surfaced as institutional fair value.
-   * Detectors must gate their VWAP-dependent drivers on this flag.
+   * True only when the session VWAP is a genuine volume-weighted average:
+   * `sessionVwap()` returned a non-null final value for this window.
+   * When false, `vwap` is set to `spot` as a geometric placeholder and
+   * MUST NOT be surfaced as institutional fair value. Detectors must gate
+   * their VWAP-dependent drivers on this flag.
+   * Provider/provenance trust is not asserted here — this flag reflects the
+   * numeric outcome of the indicator helper, not the data source.
    */
   vwapAvailable: boolean;
   vwapSeries: (number | null)[];
@@ -354,11 +356,14 @@ function buildContext(cfg: IndexCfg, intra: YahooChart, daily: YahooChart): Ctx 
   const dailyEma50Raw = lastVal(dailyEma50Series);
   const atrDailyRaw   = lastVal(dailyAtrSeries);
 
-  // vwapAvailable is false for cash indices (NIFTY/BANKNIFTY/SENSEX): Kite
-  // returns volume=0 for every bar, so sessionVwap now correctly returns null
-  // for the entire series. This is a STRUCTURAL gap, not a warm-up gap — we
-  // do NOT include it in the fullIndicators warm-up gate (which would suppress
-  // ALL detectors for index signals). Detectors individually gate on vwapAvailable.
+  // vwapAvailable reflects whether sessionVwap() returned a non-null final
+  // value for this window. When the window carries no positive-volume bars,
+  // sessionVwap correctly returns an all-null series (D-FAB-05 contract).
+  // This is treated as a STRUCTURAL gap, not a warm-up gap — it is NOT
+  // included in the fullIndicators warm-up gate (which would suppress ALL
+  // detectors for index signals). Detectors individually gate on vwapAvailable.
+  // Provider/provenance trust is not asserted here; vwapAvailable is a numeric
+  // outcome of the indicator helper, not a data-source claim.
   const vwapAvailable = vwapRaw != null;
   const fullIndicators = ema9Raw != null && ema21Raw != null
     && rsi14Raw != null && atr15Raw != null && dailyEma50Raw != null && atrDailyRaw != null

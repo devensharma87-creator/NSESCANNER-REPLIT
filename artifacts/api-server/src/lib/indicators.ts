@@ -145,13 +145,14 @@ export function rollingVwap(
  * Intraday session VWAP (cumulative from start of provided bars).
  *
  * Numeric-validity contract (D-FAB-05):
- *   - Returns null for every bar whose cumulative USABLE volume is still zero.
- *   - Bars with non-finite volume (NaN, ±Infinity) or negative volume are
- *     skipped entirely (zero weight contribution); their output position stays null.
- *   - Bars with non-finite OHLC are skipped; their output position stays null.
- *   - Mismatched array lengths return an all-null series of length close.length.
- *   - Does NOT fall back to HLC3, close, spot, or any price-only substitute
- *     when cumulative volume is zero or invalid.
+ *   - Mismatched array lengths: returns an all-null series of length close.length.
+ *   - Fail-closed: a single bar with non-finite volume (NaN, ±Infinity), negative
+ *     volume, or non-finite OHLC makes the **entire session window unavailable**
+ *     (all positions null). Skipping the contaminated bar and resuming would
+ *     produce a valid-looking final value that does not reflect the full window.
+ *   - Zero-volume bars are permitted: they contribute zero weight; the cumulative
+ *     series stays null until positive volume accumulates.
+ *   - Does NOT fall back to HLC3, close, spot, or any price-only substitute.
  *
  * Provider/provenance trust is not enforced here — this function only receives
  * numeric arrays. Upstream callers are responsible for ensuring data provenance
@@ -172,16 +173,23 @@ export function sessionVwap(
   if (high.length !== n || low.length !== n || volume.length !== n) {
     return new Array(n).fill(null);
   }
+  // Fail-closed pre-scan: a single non-finite/negative volume bar or non-finite
+  // OHLC bar contaminates the entire session window. Skipping and resuming would
+  // silently produce a valid-looking final value from an incomplete window.
+  for (let i = 0; i < n; i++) {
+    const vol = volume[i]!;
+    if (!isFinite(vol) || vol < 0) return new Array(n).fill(null);
+    const typ = (high[i]! + low[i]! + close[i]!) / 3;
+    if (!isFinite(typ)) return new Array(n).fill(null);
+  }
+  // All bars are numerically valid. Zero-volume bars contribute zero weight;
+  // the output stays null until positive volume accumulates.
   const out: (number | null)[] = new Array(n).fill(null);
   let pv = 0;
   let v = 0;
   for (let i = 0; i < n; i++) {
-    const vol = volume[i]!;
-    // Non-finite or negative volume: skip this bar's contribution.
-    if (!isFinite(vol) || vol < 0) continue;
     const typ = (high[i]! + low[i]! + close[i]!) / 3;
-    // Non-finite OHLC: skip this bar's contribution.
-    if (!isFinite(typ)) continue;
+    const vol = volume[i]!;
     pv += typ * vol;
     v += vol;
     out[i] = v > 0 ? pv / v : null;
@@ -201,12 +209,16 @@ export interface VolumeProfile {
  * Numeric-validity contract (D-FAB-01):
  *   - Returns null when array lengths are inconsistent.
  *   - Returns null when fewer than 10 bars are provided.
- *   - Returns null when the price range is non-finite or non-positive (hi <= lo).
- *   - Bars with non-finite close or non-finite/negative volume are skipped
- *     (zero contribution); they do not influence the profile.
- *   - Returns null when total usable volume is <= 0 or non-finite — a
- *     degenerate profile (all buckets zero) would produce a POC/VAH/VAL
- *     derived entirely from price range, not volume, and must be rejected.
+ *   - Fail-closed: a single bar with non-finite required H, L, C or non-finite/
+ *     negative volume makes the **entire profile window unavailable** (null).
+ *     Skipping the bar and returning a profile from the remainder would silently
+ *     drop a contaminated input and produce a misleading result.
+ *   - Zero-volume bars are permitted when all their OHLC inputs are finite and
+ *     at least one other bar carries positive finite volume (total volume > 0).
+ *   - Returns null when the total usable volume is <= 0 or non-finite — a
+ *     degenerate all-zero-bucket profile would produce POC/VAH/VAL derived
+ *     entirely from the price range, not volume.
+ *   - Returns null when the profile price range is non-finite or non-positive.
  *
  * Provider/provenance trust is not enforced here — this function only
  * receives numeric arrays. Upstream callers handle data provenance.
@@ -231,17 +243,27 @@ export function volumeProfile(
   const sliceL = low.slice(start);
   const sliceC = close.slice(start);
   const sliceV = volume.slice(start);
+  // Fail-closed pre-scan: any non-finite OHLC or non-finite/negative volume bar
+  // in the window contaminates the entire profile — return null immediately.
+  // Zero-volume bars (vol === 0 with finite OHLC) pass this check and contribute
+  // zero weight in the bucket fill below.
+  for (let i = 0; i < sliceC.length; i++) {
+    if (
+      !isFinite(sliceH[i]!) || !isFinite(sliceL[i]!) ||
+      !isFinite(sliceC[i]!) || !isFinite(sliceV[i]!) || sliceV[i]! < 0
+    ) return null;
+  }
   const lo = Math.min(...sliceL);
   const hi = Math.max(...sliceH);
-  // Non-finite price range (NaN from non-finite OHLC) or zero-range: unavailable.
+  // Non-positive or non-finite price range: unavailable.
   if (!isFinite(lo) || !isFinite(hi) || hi <= lo) return null;
   const step = (hi - lo) / bins;
   const buckets = new Array(bins).fill(0) as number[];
   for (let i = 0; i < sliceC.length; i++) {
     const closeVal = sliceC[i]!;
     const vol = sliceV[i]!;
-    // Skip bars with non-finite close or non-finite/negative volume.
-    if (!isFinite(closeVal) || !isFinite(vol) || vol < 0) continue;
+    // All bars are valid at this point (pre-scan guarantees). Zero-volume bars
+    // contribute vol=0 to the bucket (no effect on the profile shape).
     const idx = Math.min(bins - 1, Math.max(0, Math.floor((closeVal - lo) / step)));
     buckets[idx]! += vol;
   }

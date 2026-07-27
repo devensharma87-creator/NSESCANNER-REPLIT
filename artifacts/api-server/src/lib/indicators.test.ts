@@ -182,20 +182,17 @@ describe("sessionVwap — input validation (A0.2)", () => {
     for (const v of result) expect(v).toBeNull();
   });
 
-  it("non-finite OHLC: bar with NaN high/low/close is skipped; valid subsequent bars produce VWAP", () => {
-    // Bar 0: NaN OHLC → typ=NaN → skipped → out[0]=null
-    // Bars 1 and 2: valid → cumVol accumulates → non-null
+  it("non-finite OHLC: any bar with NaN high/low/close fails the entire session closed (A0.2.1)", () => {
+    // Bar 0: NaN OHLC → contaminated window → all-null (fail closed).
+    // Bars 1 and 2 are valid, but the contamination prevents any resume.
     const result = sessionVwap(
       [NaN, 102, 104],
       [NaN, 100, 102],
       [NaN, 101, 103],
       [100, 200, 300],
     );
-    expect(result[0]).toBeNull();
-    expect(result[1]).not.toBeNull();
-    expect(isFinite(result[1]!)).toBe(true);
-    expect(result[2]).not.toBeNull();
-    expect(isFinite(result[2]!)).toBe(true);
+    expect(result).toHaveLength(3);
+    for (const v of result) expect(v).toBeNull();
   });
 
   it("all-non-finite OHLC: every bar returns null", () => {
@@ -269,6 +266,59 @@ describe("sessionVwap — input validation (A0.2)", () => {
     expect(c).toEqual(C);
     expect(vol).toEqual([100, 200, 300]);
   });
+
+  // --- Contaminated-series tests (A0.2.1): single invalid bar embedded in valid data ---
+  // These prove the fail-closed contract: one bad bar closes the entire window,
+  // not just its own position. The final value must be null (not a resumed VWAP).
+
+  it("contaminated series: one negative-volume middle bar → all positions unavailable (fail closed)", () => {
+    // Bars 0 and 2 are valid; bar 1 vol=-1 is contaminated.
+    // Skipping bar 1 would produce non-null at bar 2. Fail-closed returns all-null.
+    const result = sessionVwap(
+      [100, 102, 104], [98, 100, 102], [99, 101, 103],
+      [200, -1, 300],
+    );
+    expect(result).toHaveLength(3);
+    for (const v of result) expect(v).toBeNull();
+  });
+
+  it("contaminated series: one NaN-volume middle bar → all positions unavailable (fail closed)", () => {
+    const result = sessionVwap(
+      [100, 102, 104], [98, 100, 102], [99, 101, 103],
+      [200, NaN, 300],
+    );
+    expect(result).toHaveLength(3);
+    for (const v of result) expect(v).toBeNull();
+  });
+
+  it("contaminated series: one Infinity-volume middle bar → all positions unavailable (fail closed)", () => {
+    const result = sessionVwap(
+      [100, 102, 104], [98, 100, 102], [99, 101, 103],
+      [200, Infinity, 300],
+    );
+    expect(result).toHaveLength(3);
+    for (const v of result) expect(v).toBeNull();
+  });
+
+  it("contaminated series: one NaN OHLC middle bar → all positions unavailable (fail closed)", () => {
+    const result = sessionVwap(
+      [100, NaN, 104], [98, NaN, 102], [99, NaN, 103],
+      [200, 300, 400],
+    );
+    expect(result).toHaveLength(3);
+    for (const v of result) expect(v).toBeNull();
+  });
+
+  it("contaminated series: invalid middle bar — final bar value is still unavailable (no resume after contamination)", () => {
+    // Directly proves the final value cannot resume after a contaminated bar.
+    const result = sessionVwap(
+      [100, 102, 104, 106], [98, 100, 102, 104], [99, 101, 103, 105],
+      [200, -5, 300, 400], // bar 1 is negative-volume
+    );
+    // All values must be null — contamination at bar 1 closes the entire window.
+    expect(result).toHaveLength(4);
+    for (const v of result) expect(v).toBeNull();
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -320,8 +370,9 @@ describe("volumeProfile — input validation (A0.2)", () => {
     expect(volumeProfile(flat, flat, flat, V10, 10, 24)).toBeNull();
   });
 
-  it("mixed zero and positive valid volume: profile computed from positive bars only", () => {
-    // First 5 bars vol=0 (skipped), last 5 have real volume → still a valid profile
+  it("mixed zero and positive valid volume: zero-volume bars contribute zero weight; profile valid", () => {
+    // First 5 bars vol=0 (zero weight contribution, all OHLC finite), last 5 have real volume → valid profile.
+    // Zero-volume bars are PERMITTED under the fail-closed contract when all their OHLC inputs are finite.
     const mixedVol = [...new Array(5).fill(0), ...V10.slice(5)] as number[];
     const result = volumeProfile(H10, L10, C10, mixedVol, 10, 24);
     expect(result).not.toBeNull();
@@ -356,6 +407,37 @@ describe("volumeProfile — input validation (A0.2)", () => {
     expect(l).toEqual(L10);
     expect(c).toEqual(C10);
     expect(v).toEqual(V10);
+  });
+
+  // --- Contaminated-series tests (A0.2.1): single invalid bar embedded in valid data ---
+  // These prove the fail-closed contract: one bad bar closes the entire window,
+  // not just silently dropping the bar while returning a profile from the rest.
+
+  it("contaminated series: one negative-volume middle bar → null (fail closed)", () => {
+    // Bar 5 of 10 has vol=-1; bars 0-4 and 6-9 are valid.
+    // Skipping bar 5 would return a valid profile from the other 9 bars. Fail-closed: null.
+    const contaminatedVol = [...V10] as number[];
+    contaminatedVol[5] = -1;
+    expect(volumeProfile(H10, L10, C10, contaminatedVol, 10, 24)).toBeNull();
+  });
+
+  it("contaminated series: one NaN-volume middle bar → null (fail closed)", () => {
+    const contaminatedVol = [...V10] as number[];
+    contaminatedVol[5] = NaN;
+    expect(volumeProfile(H10, L10, C10, contaminatedVol, 10, 24)).toBeNull();
+  });
+
+  it("contaminated series: one Infinity-volume middle bar → null (fail closed)", () => {
+    const contaminatedVol = [...V10] as number[];
+    contaminatedVol[5] = Infinity;
+    expect(volumeProfile(H10, L10, C10, contaminatedVol, 10, 24)).toBeNull();
+  });
+
+  it("contaminated series: one NaN-close middle bar → null (fail closed)", () => {
+    // Bar 5 close=NaN with valid H/L and positive volume: fail-closed returns null.
+    const contaminatedClose = [...C10] as number[];
+    contaminatedClose[5] = NaN;
+    expect(volumeProfile(H10, L10, contaminatedClose, V10, 10, 24)).toBeNull();
   });
 });
 
