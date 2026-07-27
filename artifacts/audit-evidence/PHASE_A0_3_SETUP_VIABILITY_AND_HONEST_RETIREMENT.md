@@ -936,13 +936,13 @@ The chunk size warning is pre-existing and unrelated to A0.3.
 ### Final Git State
 
 ```
-HEAD:    (see commit SHA in final commit after evidence file is committed)
-PRE_TASK_HEAD: d42d8b4a157c834ca31d14ee562dc4e7433bf3fb
-A0.3.1 implementation commit: 33d4320a9b0cba2d7f89ba021af282f4c90a9016
+HEAD (evidence commit):  b94732d7e219e720b7f10cefaa8657c74099356d
+PRE_TASK_HEAD:           d42d8b4a157c834ca31d14ee562dc4e7433bf3fb
+A0.3.1 implementation:   33d4320a9b0cba2d7f89ba021af282f4c90a9016
 
 Branch: main
 Upstream: origin/main
-Divergence: 25+ commits ahead, 0 behind (local-only commits, not pushed)
+Divergence: 26+ commits ahead, 0 behind (local-only commits, not pushed)
 
 A0.1 ancestor (4af42c1f): YES
 A0.2 ancestor (b611fd26): YES
