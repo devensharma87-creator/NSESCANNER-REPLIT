@@ -8,6 +8,7 @@ import {
   detectTrendContinuation,
   buildSignalsForIndex,
   OPTION_INDICES,
+  _resetDetectorCooldownForTest,
 } from "./optionSignals";
 import type { Ctx } from "./optionSignals";
 import type { YahooChart } from "./yahoo";
@@ -534,8 +535,18 @@ const NIFTY_CFG_CLOSURE     = OPTION_INDICES.find(c => c.symbol === "NIFTY")!;
  *   vwapAvailable = true  (session VWAP is genuine, not a placeholder)
  *   vpIntraday    ≠ null  (volumeProfile returns a real VP object)
  */
-function makeIntraChart(dir: "BULLISH" | "BEARISH"): YahooChart {
-  const n = 100;
+/**
+ * n=100 (default): bar indices 0-99; last bar = i=99 (odd).
+ *   BULLISH i=99 → -2 (small down bar).  EMA still above spot?  No: gentle uptrend
+ *   keeps EMA below recent closes so spot > ema9 ✓
+ *   BEARISH i=99 → +2 (up bar).  EMA above spot in downtrend — the UP last bar
+ *   can push spot back near/above EMA9 → detectTrendContinuation `spot<ema9` may fail.
+ *
+ * n=99: last bar = i=98 (even).
+ *   BEARISH i=98 → -3 (down bar).  Spot definitively below EMA9 in downtrend ✓
+ *   Use for S53 BEARISH emission proof to ensure `stackBear` fires.
+ */
+function makeIntraChart(dir: "BULLISH" | "BEARISH", n: number = 100): YahooChart {
   const timestamps: number[] = [];
   const opens: number[]   = [];
   const highs: number[]   = [];
@@ -557,7 +568,11 @@ function makeIntraChart(dir: "BULLISH" | "BEARISH"): YahooChart {
     highs.push(price + 5);
     lows.push(price - 5);
     closes.push(price);
-    volumes.push(1_000_000);
+    // §5.1 volume fix: last bar gets 2× baseline so that the volume-confirmation
+    // check `lastVol > avgVol20 * 1.2` fires deterministically.
+    // avgVol20 = (19 × 1_000_000 + 2_000_000) / 20 = 1_050_000
+    // 2_000_000 > 1_050_000 × 1.2 = 1_260_000 ✓
+    volumes.push(i === n - 1 ? 2_000_000 : 1_000_000);
   }
 
   return {
@@ -589,6 +604,41 @@ function makeDailyChart(flatClose: number): YahooChart {
     open:   Array<number>(n).fill(flatClose - 10),
     high:   Array<number>(n).fill(flatClose + 50),
     low:    Array<number>(n).fill(flatClose - 50),
+    close:  Array<number>(n).fill(flatClose),
+    volume: Array<number>(n).fill(0),
+  };
+}
+
+/**
+ * §5.2/§5.3 emission fixture — daily chart with a custom H-L spread.
+ *
+ * Standard makeDailyChart uses ±50 from flatClose.  For the emission proof
+ * we need r1/s1 separated from spot by enough room that the clamp-plan RR
+ * stays ≥ 1.4.  halfRange controls the ±spread from flatClose.
+ *
+ * Geometry used in §5.2 (BULLISH) — makeCustomDailyChart(22100, 100):
+ *   H=22200, L=22000, C=22100
+ *   pivot = 22100, r1 = 22200, s1 = 22000
+ *   spot(≈22050) < r1(22200) → target well above entry ✓
+ *   htfBias: 22050 is within ±0.4% of 22100 → NEUTRAL (no HTF conflict) ✓
+ *
+ * Geometry used in §5.3 (BEARISH) — makeCustomDailyChart(23100, 400):
+ *   H=23500, L=22700, C=23100
+ *   pivot = 23100, r1 = 23500, s1 = 22700
+ *   spot(≈22950) > s1(22700) → target well below entry ✓
+ *   htfBias: 22950 < 23100×0.996=23007.6 → BEARISH (htfBias agrees w/ dir) ✓
+ */
+function makeCustomDailyChart(flatClose: number, halfRange: number): YahooChart {
+  const n = 60;
+  return {
+    symbol: "^NSEI",
+    meta:   { symbol: "^NSEI", regularMarketPrice: flatClose },
+    timestamps: Array.from({ length: n }, (_, i) =>
+      BASE_INTRA_TS_CLOSURE - (n - 1 - i) * 86400,
+    ),
+    open:   Array<number>(n).fill(flatClose - halfRange / 5),
+    high:   Array<number>(n).fill(flatClose + halfRange),
+    low:    Array<number>(n).fill(flatClose - halfRange),
     close:  Array<number>(n).fill(flatClose),
     volume: Array<number>(n).fill(0),
   };
@@ -710,6 +760,12 @@ describe("B–F: Real caller path — buildSignalsForIndex spy on scoreConfluenc
   beforeEach(() => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-01-28T05:00:00Z")); // Wednesday 10:30 IST
+    // Clear in-memory detector-cooldown state so each test in this describe
+    // starts from a clean slate. Without this, signals emitted by B-CALLER
+    // (e.g. TREND_CONTINUATION for "NIFTY") are on a 30-min cooldown that
+    // blocks S52/S53's signal-count assertions — both use the same fake time
+    // T so Date.now()-recorded_T = 0 < 30min cooldown window.
+    _resetDetectorCooldownForTest();
     scoreSpy = vi.spyOn(confluenceEngine, "scoreConfluence");
   });
 
@@ -1017,6 +1073,192 @@ describe("B–F: Real caller path — buildSignalsForIndex spy on scoreConfluenc
         `BEARISH suppressed: ${bearResult.suppressed.join(" | ")}`,
       ];
       void suppressedEvidence; // evidence recorded; test passes via confluence proof
+    }
+  });
+
+  // ── §5.1 Volume-confirm pre-conditions ──────────────────────────────────────
+
+  it("S51: volume spike pre-condition — last bar volume fires confirmation check", () => {
+    /**
+     * §5.1 of the A0.1.4 acceptance brief:
+     *   (a) volumeProfile with these candles must not be null.
+     *   (b) lastVol must be > avgVol20 × 1.2 (volume-confirmation threshold).
+     *
+     * The makeIntraChart volume fix: 99 bars at 1_000_000, last bar at 2_000_000.
+     * avgVol20 is computed from today's session's last 20 bars (slice(-20)).
+     * Since today has exactly 20 bars (bars 80-99), all 20 are included.
+     * avgVol20 = (19 × 1_000_000 + 2_000_000) / 20 = 1_050_000.
+     * lastVol  = 2_000_000.
+     * 2_000_000 > 1_050_000 × 1.2 = 1_260_000 ✓
+     */
+    const bullChart = makeIntraChart("BULLISH");
+
+    // (a) volumeProfile returns non-null with these candles (non-zero volume).
+    const vpResult = volumeProfile(
+      bullChart.high, bullChart.low, bullChart.close, bullChart.volume, 24, 60,
+    );
+    expect(vpResult).not.toBeNull();
+
+    // (b) Direct calculation and assertion of the volume-confirm threshold.
+    const BASE_VOL  = 1_000_000;
+    const LAST_VOL  = 2_000_000;
+    const SESSION_N = 20;                               // today's bars
+    const expectedAvgVol20 = (19 * BASE_VOL + LAST_VOL) / SESSION_N; // 1_050_000
+    expect(LAST_VOL).toBeGreaterThan(expectedAvgVol20 * 1.2);
+  });
+
+  // ── §5.2 Bullish emitted-signal proof ────────────────────────────────────────
+
+  it("S52-BULLISH: buildSignalsForIndex emits a real BULLISH signal; isIndexFno enforced; no VP evidence", () => {
+    /**
+     * Uses the fixed makeIntraChart("BULLISH") (last bar vol = 2M → volume confirm
+     * fires, detector raw conf = 68) and makeCustomDailyChart(22100, 100):
+     *   r1 = 22200 > spot ≈ 22050 → target above entry ✓
+     *   htfBias: spot within ±0.4% of daily close 22100 → NEUTRAL (no penalty) ✓
+     *
+     * Confluence: EMA_STACK(+5) + VWAP(0, near-neutral) + VP(0, isIndexFno) +
+     *             REGIME(±5) + IV(0) → adjusted ≥ 68+0 = 68 > HC floor 65 ✓
+     *
+     * Serialization requirement (§6):
+     *   VOLUME_PROFILE factor: weight=0, polarity=neutral, level-free detail — retained as diagnostic.
+     *   Signal.drivers: zero-weight factors filtered → no VOLUME_PROFILE entry.
+     *   At least one legitimate non-VP driver must be present.
+     */
+    const result = buildSignalsForIndex(
+      NIFTY_CFG_CLOSURE,
+      makeIntraChart("BULLISH"),
+      makeCustomDailyChart(22100, 100),
+    );
+
+    // ── [1] Signal must emit ───────────────────────────────────────────────────
+    expect(result.hasBars).toBe(true);
+    expect(result.signals.length).toBeGreaterThan(0);
+
+    // ── [2] Select and verify direction ───────────────────────────────────────
+    const bullSignal = result.signals.find(s => s.bias === "BULLISH");
+    expect(bullSignal).toBeDefined();
+    expect(bullSignal!.bias).toBe("BULLISH");
+
+    // ── [3] Runtime controls via spy ──────────────────────────────────────────
+    // Every scoreConfluence call that produced this signal must have
+    // arrived with isIndexFno===true AND vp===null (both controls).
+    const bullishCalls = (scoreSpy.mock.calls as [ConfluenceInputs][]).filter(
+      c => c[0].direction === "BULLISH",
+    );
+    expect(bullishCalls.length).toBeGreaterThan(0);
+    for (const call of bullishCalls) {
+      expect(call[0].isIndexFno).toBe(true);
+      expect(call[0].vp).toBeNull();
+    }
+
+    // ── [4] Signal drivers: no VP-derived directional evidence ────────────────
+    const drivers = bullSignal!.drivers;
+    for (const d of drivers) {
+      expect(d.label).not.toBe("VOLUME_PROFILE");
+      expect(d.detail).not.toContain("POC");
+      expect(d.detail).not.toContain("VAH");
+      expect(d.detail).not.toContain("VAL");
+      expect(d.detail).not.toContain("value area");
+      expect(d.detail).not.toContain("point of control");
+    }
+
+    // ── [5] At least one legitimate non-VP driver ─────────────────────────────
+    const nonVpDrivers = drivers.filter(d =>
+      d.label !== "VOLUME_PROFILE" && d.weight !== 0,
+    );
+    expect(nonVpDrivers.length).toBeGreaterThan(0);
+
+    // ── [6] Confluence result: VOLUME_PROFILE retained as zero-weight neutral ──
+    // Check via spy.mock.results that every confluence return value carries
+    // the expected diagnostic factor (not a positive driver).
+    const crList = (scoreSpy.mock.results as Array<{ type: string; value: ConfluenceResult }>)
+      .filter(r => r.type === "return")
+      .map(r => r.value);
+    for (const cr of crList) {
+      const vpFactor = cr.factors.find(f => f.label === "VOLUME_PROFILE");
+      expect(vpFactor).toBeDefined();
+      expect(vpFactor!.weight).toBe(0);
+      expect(vpFactor!.polarity).toBe("neutral");
+      // Diagnostic detail must mention the policy decision, must be level-free.
+      expect(vpFactor!.detail).toMatch(/disabled|not scored/i);
+      expect(vpFactor!.detail).not.toContain("POC");
+      expect(vpFactor!.detail).not.toContain("VAH");
+      expect(vpFactor!.detail).not.toContain("VAL");
+      expect(vpFactor!.detail).not.toContain("value area");
+    }
+  });
+
+  // ── §5.3 Bearish emitted-signal proof ────────────────────────────────────────
+
+  it("S53-BEARISH: buildSignalsForIndex emits a real BEARISH signal; isIndexFno enforced; no VP evidence", () => {
+    /**
+     * Uses the fixed makeIntraChart("BEARISH") (last bar vol = 2M → volume confirm
+     * fires, detector raw conf = 68) and makeCustomDailyChart(23100, 400):
+     *   s1 = 22700 < spot ≈ 22950 → target below entry ✓
+     *   htfBias: 22950 < 23100×0.996 = 23007.6 → BEARISH (agrees with direction) ✓
+     *
+     * Confluence: EMA_STACK(+5) + VWAP(0) + VP(0, isIndexFno) + REGIME(±5) + IV(0)
+     *             → adjusted ≥ 68 > HC floor 65 ✓
+     */
+    scoreSpy.mockClear(); // reset from any prior calls in this test run
+
+    // n=99 so last bar is i=98 (even) → -3 DOWN bar → spot definitively below
+    // EMA9 in the declining trend → stackBear fires in detectTrendContinuation.
+    const result = buildSignalsForIndex(
+      NIFTY_CFG_CLOSURE,
+      makeIntraChart("BEARISH", 99),
+      makeCustomDailyChart(23100, 400),
+    );
+
+    // ── [1] Signal must emit ───────────────────────────────────────────────────
+    expect(result.hasBars).toBe(true);
+    expect(result.signals.length).toBeGreaterThan(0);
+
+    // ── [2] Select and verify direction ───────────────────────────────────────
+    const bearSignal = result.signals.find(s => s.bias === "BEARISH");
+    expect(bearSignal).toBeDefined();
+    expect(bearSignal!.bias).toBe("BEARISH");
+
+    // ── [3] Runtime controls via spy ──────────────────────────────────────────
+    const bearishCalls = (scoreSpy.mock.calls as [ConfluenceInputs][]).filter(
+      c => c[0].direction === "BEARISH",
+    );
+    expect(bearishCalls.length).toBeGreaterThan(0);
+    for (const call of bearishCalls) {
+      expect(call[0].isIndexFno).toBe(true);
+      expect(call[0].vp).toBeNull();
+    }
+
+    // ── [4] Signal drivers: no VP-derived directional evidence ────────────────
+    const drivers = bearSignal!.drivers;
+    for (const d of drivers) {
+      expect(d.label).not.toBe("VOLUME_PROFILE");
+      expect(d.detail).not.toContain("POC");
+      expect(d.detail).not.toContain("VAH");
+      expect(d.detail).not.toContain("VAL");
+      expect(d.detail).not.toContain("value area");
+      expect(d.detail).not.toContain("point of control");
+    }
+
+    // ── [5] At least one legitimate non-VP driver ─────────────────────────────
+    const nonVpDrivers = drivers.filter(d =>
+      d.label !== "VOLUME_PROFILE" && d.weight !== 0,
+    );
+    expect(nonVpDrivers.length).toBeGreaterThan(0);
+
+    // ── [6] Confluence result: VOLUME_PROFILE retained as zero-weight neutral ──
+    const crList = (scoreSpy.mock.results as Array<{ type: string; value: ConfluenceResult }>)
+      .filter(r => r.type === "return")
+      .map(r => r.value);
+    for (const cr of crList) {
+      const vpFactor = cr.factors.find(f => f.label === "VOLUME_PROFILE");
+      expect(vpFactor).toBeDefined();
+      expect(vpFactor!.weight).toBe(0);
+      expect(vpFactor!.polarity).toBe("neutral");
+      expect(vpFactor!.detail).toMatch(/disabled|not scored/i);
+      expect(vpFactor!.detail).not.toContain("POC");
+      expect(vpFactor!.detail).not.toContain("VAH");
+      expect(vpFactor!.detail).not.toContain("VAL");
     }
   });
 });

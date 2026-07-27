@@ -20,6 +20,9 @@ const BASE: ConfluenceInputs = {
   vwap: 25000,        // effectiveVwap = spot when unavailable
   vwapAvailable: true,
   vp: null,
+  // isIndexFno required (not optional) — set false here since this is the
+  // equity/stock VWAP-guard test, not an index-F&O evaluation.
+  isIndexFno: false,
   regime: "TRENDING_BULL",
   ivRank: null,
   rawConfidence: 65,

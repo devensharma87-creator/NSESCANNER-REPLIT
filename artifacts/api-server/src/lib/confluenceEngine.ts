@@ -50,12 +50,16 @@ export interface ConfluenceInputs {
    * True for index F&O evaluations (NIFTY / BANKNIFTY / SENSEX).
    * When set, `scoreVolumeProfile` returns weight=0 unconditionally — even
    * when `vp` is non-null (data anomaly, test fixture, or future provider
-   * change). This is the executable D-FAB-03 decision-boundary rule: cash-index
-   * candles carry structural zero volume, so Volume Profile data is not
-   * decision-grade for index F&O regardless of what the upstream context holds.
+   * change). This is the executable D-FAB-03 decision-boundary rule under the
+   * current authorised policy: Volume Profile must not influence index-F&O
+   * scoring regardless of what the upstream context holds.
    * Enforced at the engine level, not at the call site.
+   *
+   * Required (not optional): every caller must set this explicitly.
+   * Index-F&O callers set `true`; all other callers (equity, swing) set `false`.
+   * TypeScript compilation fails if the field is omitted.
    */
-  isIndexFno?: boolean;
+  isIndexFno: boolean;
   regime:
     | "TRENDING_BULL"
     | "TRENDING_BEAR"
@@ -172,11 +176,11 @@ function scoreVolumeProfile(i: ConfluenceInputs): ConfluenceFactor {
   // test fixture, or future provider change) cannot alter an index F&O score.
   // `isIndexFno` is the executable structural rule — not a comment, naming
   // convention, or prediction about upstream null propagation.
-  // For equity/swing paths (isIndexFno absent or false), scoring continues normally.
+  // For equity/swing paths (isIndexFno=false), scoring continues normally.
   if (i.isIndexFno) {
     return {
       label: "VOLUME_PROFILE", weight: 0, polarity: "neutral",
-      detail: "Volume Profile: index F&O decision boundary — cash indices carry structural zero volume; VP not scored",
+      detail: "Volume Profile is disabled for index-F&O decision scoring under the current authorised policy; VP was not scored.",
     };
   }
   if (!i.vp) {
