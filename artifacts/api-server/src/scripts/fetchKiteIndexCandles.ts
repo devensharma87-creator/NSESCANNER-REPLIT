@@ -22,12 +22,13 @@
  * We fetch SPOT indices, NOT futures. The advisor raised "spot (vol=0) vs
  * near-month futures (real vol)" and leaned futures. The codebase settles it:
  * the LIVE engine computes index VWAP from Kite SPOT candles where cash-index
- * volume is 0 (see kiteIntraday.ts "Cash-index volume from Kite is 0"), its
- * `sessionVwap` falls back to typical price when volume is 0, and the
- * volume-breakout / volume-profile detectors stay DORMANT for indices. A
- * backtest MUST use the same volume basis as live, so fetching futures would
- * test a strategy live does not run = invalid. The backtester's session_vwap
- * mirrors the same typical-price fallback so zero-volume spot data is valid.
+ * volume is 0 (see kiteIntraday.ts "Cash-index volume from Kite is 0").
+ * `sessionVwap` returns null when cumulative volume is zero — it does NOT
+ * fall back to HLC3 or any price-only substitute (that was the old buggy
+ * behaviour, removed to prevent fake VWAP signals for indices). The
+ * volume-breakout and volume-profile detectors stay DORMANT for indices.
+ * A backtest MUST use the same volume basis as live, so fetching futures
+ * would test a strategy live does not run = invalid.
  *
  * KITE CONSTRAINT
  * ---------------
@@ -261,8 +262,9 @@ async function main() {
   );
   if (zeroVolHint) {
     console.log(
-      "\nNote: index spot volume is 0 (expected). The backtester's session_vwap mirrors\n" +
-        "the live typical-price fallback, so the VWAP gate stays valid on zero-volume data.",
+      "\nNote: index spot volume is 0 (expected). The live sessionVwap returns null\n" +
+        "for zero-volume bars (no HLC3 fallback), and the backtester matches this\n" +
+        "behaviour — the VWAP gate stays inactive (unavailable) on zero-volume data.",
     );
   }
   process.exit(0);

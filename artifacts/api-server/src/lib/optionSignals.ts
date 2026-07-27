@@ -391,11 +391,14 @@ function buildContext(cfg: IndexCfg, intra: YahooChart, daily: YahooChart): Ctx 
     ? volumeProfile(daily.high, daily.low, daily.close, daily.volume, 30, 60)
     : null;
   // Phase-2: INTRADAY fixed volume profile over the last 60 15-min bars
-  // (~3 trading days of context). Cash-index volume from Kite is 0 for
-  // NIFTY/BANKNIFTY/etc — `volumeProfile` now returns null when totalVol=0
-  // (the degenerate all-zero-bucket profile is correctly rejected), so this
-  // is naturally null for those indices and the confluence engine scores it
-  // as weight=0 ("warm-up — insufficient bars").
+  // (~3 trading days of context).
+  // `volumeProfile` returns null when total usable volume is zero or non-finite
+  // (the degenerate all-zero-bucket profile is correctly rejected by the
+  // numeric-validity contract). Additionally, A0.1's mandatory isIndexFno policy
+  // ensures that even a non-null vpIntraday cannot influence index-F&O scoring —
+  // the call site passes vp:null and the confluence engine enforces isIndexFno:true
+  // as defence in depth. Whether vpIntraday is null is a numeric outcome; it is not
+  // asserted here as a provenance guarantee about any particular data source.
   const vpIntraday = intraCloses.length >= 30
     ? volumeProfile(intraHighs, intraLows, intraCloses, intra.volume, 24, 60)
     : null;

@@ -156,6 +156,260 @@ describe("volumeProfile — zero-volume guard", () => {
 });
 
 // ---------------------------------------------------------------------------
+// A0.2 — D-FAB-05: sessionVwap() extended input-validation contract
+// ---------------------------------------------------------------------------
+
+describe("sessionVwap — input validation (A0.2)", () => {
+  const H = [100, 102, 104];
+  const L = [98,  100, 102];
+  const C = [99,  101, 103];
+
+  it("negative volume: every bar returns null (invalid volume skipped, cumVol stays 0)", () => {
+    const result = sessionVwap(H, L, C, [-100, -200, -300]);
+    expect(result).toHaveLength(3);
+    for (const v of result) expect(v).toBeNull();
+  });
+
+  it("NaN volume: every bar returns null (non-finite volume skipped)", () => {
+    const result = sessionVwap(H, L, C, [NaN, NaN, NaN]);
+    expect(result).toHaveLength(3);
+    for (const v of result) expect(v).toBeNull();
+  });
+
+  it("Infinity volume: every bar returns null (non-finite volume skipped)", () => {
+    const result = sessionVwap(H, L, C, [Infinity, Infinity, Infinity]);
+    expect(result).toHaveLength(3);
+    for (const v of result) expect(v).toBeNull();
+  });
+
+  it("non-finite OHLC: bar with NaN high/low/close is skipped; valid subsequent bars produce VWAP", () => {
+    // Bar 0: NaN OHLC → typ=NaN → skipped → out[0]=null
+    // Bars 1 and 2: valid → cumVol accumulates → non-null
+    const result = sessionVwap(
+      [NaN, 102, 104],
+      [NaN, 100, 102],
+      [NaN, 101, 103],
+      [100, 200, 300],
+    );
+    expect(result[0]).toBeNull();
+    expect(result[1]).not.toBeNull();
+    expect(isFinite(result[1]!)).toBe(true);
+    expect(result[2]).not.toBeNull();
+    expect(isFinite(result[2]!)).toBe(true);
+  });
+
+  it("all-non-finite OHLC: every bar returns null", () => {
+    const result = sessionVwap(
+      [NaN, NaN, NaN],
+      [NaN, NaN, NaN],
+      [NaN, NaN, NaN],
+      [100, 200, 300],
+    );
+    expect(result).toHaveLength(3);
+    for (const v of result) expect(v).toBeNull();
+  });
+
+  it("mismatched array lengths (volume shorter): returns all-null series of close.length", () => {
+    // volume.length=0 ≠ close.length=1
+    const result = sessionVwap([100], [99], [99.5], []);
+    expect(result).toHaveLength(1);
+    expect(result[0]).toBeNull();
+  });
+
+  it("mismatched array lengths (high shorter): returns all-null series of close.length", () => {
+    // high.length=1 ≠ close.length=2
+    const result = sessionVwap([100], [99, 100], [99.5, 101], [100, 200]);
+    expect(result).toHaveLength(2);
+    for (const v of result) expect(v).toBeNull();
+  });
+
+  it("mixed zero and positive valid volume: only real-volume bars contribute (zero bars stay null)", () => {
+    // Bar 0: vol=0 → cumVol=0 → out[0]=null
+    // Bar 1: vol=0 → cumVol=0 → out[1]=null
+    // Bar 2: vol=500, typ=(104+102+103)/3=103 → cumVol=500 → out[2]=103×500/500=103
+    const result = sessionVwap([100, 102, 104], [98, 100, 102], [99, 101, 103], [0, 0, 500]);
+    expect(result[0]).toBeNull();
+    expect(result[1]).toBeNull();
+    expect(result[2]).not.toBeNull();
+    // Must equal the volume-weighted value of bar 2 only — not HLC3 of any other bar
+    const expectedTyp2 = (104 + 102 + 103) / 3; // = 103
+    expect(result[2]).toBeCloseTo(expectedTyp2, 8);
+  });
+
+  it("hand-verifiable positive fixture: VWAP = Σ(typ_i × vol_i) / Σ(vol_i)", () => {
+    // Bar 0: H=110 L=90 C=100 → typ=100, vol=200, pv=20000, v=200 → vwap[0]=100
+    // Bar 1: H=120 L=100 C=110 → typ=110, vol=300, pv=20000+33000=53000, v=500 → vwap[1]=106
+    const result = sessionVwap([110, 120], [90, 100], [100, 110], [200, 300]);
+    expect(result[0]).toBeCloseTo(100, 8);  // 20000/200 = 100
+    expect(result[1]).toBeCloseTo(106, 8);  // 53000/500 = 106
+  });
+
+  it("all-zero volume does NOT return HLC3, close, or spot (A0.2 explicit contract)", () => {
+    const hlc3 = (H[0]! + L[0]! + C[0]!) / 3;
+    const result = sessionVwap(H, L, C, [0, 0, 0]);
+    for (const v of result) {
+      expect(v).toBeNull();
+      expect(v).not.toBe(hlc3);
+      expect(v).not.toBe(C[0]);
+    }
+  });
+
+  it("determinism: identical input produces identical output", () => {
+    const vol = [100, 200, 300];
+    const r1 = sessionVwap(H, L, C, vol);
+    const r2 = sessionVwap(H, L, C, vol);
+    expect(r1).toEqual(r2);
+  });
+
+  it("input arrays are not mutated", () => {
+    const h = [...H], l = [...L], c = [...C], vol = [100, 200, 300];
+    sessionVwap(h, l, c, vol);
+    expect(h).toEqual(H);
+    expect(l).toEqual(L);
+    expect(c).toEqual(C);
+    expect(vol).toEqual([100, 200, 300]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A0.2 — D-FAB-01: volumeProfile() extended input-validation contract
+// ---------------------------------------------------------------------------
+
+describe("volumeProfile — input validation (A0.2)", () => {
+  // 10-bar fixture — just enough to clear the n<10 guard
+  const H10 = [100, 102, 104, 106, 108, 110, 112, 114, 116, 118];
+  const L10 = [98,  100, 102, 104, 106, 108, 110, 112, 114, 116];
+  const C10 = [99,  101, 103, 105, 107, 109, 111, 113, 115, 117];
+  const V10 = [100, 200, 150, 300, 250, 180, 220, 140, 310, 200];
+
+  it("negative volume: returns null (all negative → total usable vol = 0)", () => {
+    const negVol = V10.map(v => -v);
+    expect(volumeProfile(H10, L10, C10, negVol, 10, 24)).toBeNull();
+  });
+
+  it("NaN volume: returns null (NaN bars skipped → total usable vol = 0)", () => {
+    const nanVol = new Array(10).fill(NaN) as number[];
+    expect(volumeProfile(H10, L10, C10, nanVol, 10, 24)).toBeNull();
+  });
+
+  it("Infinity volume: returns null (Infinity bars skipped → total usable vol = 0)", () => {
+    const infVol = new Array(10).fill(Infinity) as number[];
+    expect(volumeProfile(H10, L10, C10, infVol, 10, 24)).toBeNull();
+  });
+
+  it("non-finite OHLC (NaN in low array): Math.min returns NaN → !isFinite(lo) → null", () => {
+    const nanLow = L10.map((v, i) => (i === 5 ? NaN : v));
+    expect(volumeProfile(H10, nanLow, C10, V10, 10, 24)).toBeNull();
+  });
+
+  it("non-finite OHLC (NaN in high array): Math.max returns NaN → !isFinite(hi) → null", () => {
+    const nanHigh = H10.map((v, i) => (i === 2 ? NaN : v));
+    expect(volumeProfile(nanHigh, L10, C10, V10, 10, 24)).toBeNull();
+  });
+
+  it("mismatched array lengths (volume shorter by 1): returns null", () => {
+    expect(volumeProfile(H10, L10, C10, V10.slice(0, 9), 10, 24)).toBeNull();
+  });
+
+  it("mismatched array lengths (high shorter): returns null", () => {
+    expect(volumeProfile(H10.slice(0, 8), L10, C10, V10, 10, 24)).toBeNull();
+  });
+
+  it("non-positive price range (all-same OHLC: hi === lo): returns null", () => {
+    const flat = new Array(10).fill(100) as number[];
+    expect(volumeProfile(flat, flat, flat, V10, 10, 24)).toBeNull();
+  });
+
+  it("mixed zero and positive valid volume: profile computed from positive bars only", () => {
+    // First 5 bars vol=0 (skipped), last 5 have real volume → still a valid profile
+    const mixedVol = [...new Array(5).fill(0), ...V10.slice(5)] as number[];
+    const result = volumeProfile(H10, L10, C10, mixedVol, 10, 24);
+    expect(result).not.toBeNull();
+    expect(isFinite(result!.pointOfControl)).toBe(true);
+    expect(isFinite(result!.valueAreaHigh)).toBe(true);
+    expect(isFinite(result!.valueAreaLow)).toBe(true);
+    expect(result!.valueAreaLow).toBeLessThanOrEqual(result!.valueAreaHigh);
+  });
+
+  it("valid positive-volume: VAL <= POC <= VAH, all within [min(L10), max(H10)]", () => {
+    const result = volumeProfile(H10, L10, C10, V10, 10, 24);
+    expect(result).not.toBeNull();
+    const minL = Math.min(...L10), maxH = Math.max(...H10);
+    expect(result!.valueAreaLow).toBeLessThanOrEqual(result!.pointOfControl);
+    expect(result!.pointOfControl).toBeLessThanOrEqual(result!.valueAreaHigh);
+    expect(result!.pointOfControl).toBeGreaterThanOrEqual(minL);
+    expect(result!.pointOfControl).toBeLessThanOrEqual(maxH);
+    expect(result!.valueAreaLow).toBeGreaterThanOrEqual(minL);
+    expect(result!.valueAreaHigh).toBeLessThanOrEqual(maxH);
+  });
+
+  it("determinism: identical input produces identical result", () => {
+    const r1 = volumeProfile(H10, L10, C10, V10, 10, 24);
+    const r2 = volumeProfile(H10, L10, C10, V10, 10, 24);
+    expect(r1).toEqual(r2);
+  });
+
+  it("input arrays are not mutated", () => {
+    const h = [...H10], l = [...L10], c = [...C10], v = [...V10];
+    volumeProfile(h, l, c, v, 10, 24);
+    expect(h).toEqual(H10);
+    expect(l).toEqual(L10);
+    expect(c).toEqual(C10);
+    expect(v).toEqual(V10);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A0.2 — §9.3 Propagation: null indicators do not fabricate decision evidence
+// ---------------------------------------------------------------------------
+
+describe("sessionVwap / volumeProfile propagation (A0.2 §9.3)", () => {
+  it("§9.3.1 zero-volume series: vp (volumeProfile) returns null — no POC/VAH/VAL fabricated", () => {
+    // Simulates the intraday series for a cash index where all volumes are 0.
+    const n = 30; // enough bars to clear volumeProfile n<10 guard
+    const h = new Array(n).fill(100).map((v, i) => v + i * 0.1) as number[];
+    const l = new Array(n).fill(98).map((v, i) => v + i * 0.1) as number[];
+    const c = new Array(n).fill(99).map((v, i) => v + i * 0.1) as number[];
+    const zeroVol = new Array(n).fill(0) as number[];
+    const vp = volumeProfile(h, l, c, zeroVol, 24, 60);
+    // Must be null — no POC/VAH/VAL can be derived from zero volume.
+    expect(vp).toBeNull();
+  });
+
+  it("§9.3.2 zero-volume series: sessionVwap last value (vwapRaw) is null", () => {
+    // Simulates buildContext's sessionVwap call on a cash index.
+    const closes = [99, 101, 103] as number[];
+    const zeroVol = [0, 0, 0] as number[];
+    const series = sessionVwap([100, 102, 104], [98, 100, 102], closes, zeroVol);
+    const vwapRaw = series[series.length - 1] ?? null;
+    // vwapRaw must be null — cannot label this value as live VWAP.
+    expect(vwapRaw).toBeNull();
+  });
+
+  it("§9.3.3 zero-volume series: vwapAvailable derived from vwapRaw is false", () => {
+    const series = sessionVwap([100], [98], [99], [0]);
+    const vwapRaw = series[series.length - 1] ?? null;
+    const vwapAvailable = vwapRaw !== null && isFinite(vwapRaw);
+    expect(vwapAvailable).toBe(false);
+  });
+
+  it("§9.3.7 valid positive-volume non-index series retains correct behaviour", () => {
+    // sessionVwap on equity data (non-zero volume) must still return a valid series.
+    const result = sessionVwap([110, 120], [90, 100], [100, 110], [200, 300]);
+    expect(result[0]).not.toBeNull();
+    expect(result[1]).not.toBeNull();
+    // volumeProfile on equity data must still return a valid profile.
+    const h = [100,102,104,106,108,110,112,114,116,118] as number[];
+    const l = [98, 100,102,104,106,108,110,112,114,116] as number[];
+    const c = [99, 101,103,105,107,109,111,113,115,117] as number[];
+    const v = [100,200,150,300,250,180,220,140,310,200] as number[];
+    const vp = volumeProfile(h, l, c, v, 10, 24);
+    expect(vp).not.toBeNull();
+    expect(isFinite(vp!.pointOfControl)).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // P1B — MACD Warm-Up Fix (2026-07-08)
 // ---------------------------------------------------------------------------
 // These tests prove that the canonical NSE MACD implementation does NOT
