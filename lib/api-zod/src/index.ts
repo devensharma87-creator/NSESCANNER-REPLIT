@@ -44,3 +44,4 @@ export type { OptionLeg } from "./generated/types/optionLeg";
 export type { OptionLegType } from "./generated/types/optionLegType";
 export type { OptionLegAction } from "./generated/types/optionLegAction";
 export type { IndexQuoteTrend } from "./generated/types/indexQuoteTrend";
+export { GetOptionSignalsResponse } from "./generated/api";

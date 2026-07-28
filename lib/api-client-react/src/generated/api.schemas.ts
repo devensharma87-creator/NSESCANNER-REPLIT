@@ -1652,6 +1652,12 @@ export interface FnoMarketStatus {
  * One entry per retired/unavailable setup; no entry for ACTIVE setups.
  */
 export interface FnoSetupAvailabilityEntry {
+  /**
+   * A0.3.2 — Which cash index this record applies to.
+   * Together with setupKey forms the composite identity key.
+   * One record per (indexSymbol, setupKey) pair.
+   */
+  indexSymbol: "NIFTY" | "BANKNIFTY" | "SENSEX";
   /** Stable setup identifier matching OptionSignal.setupKey. */
   setupKey: string;
   /** ACTIVE = can emit; UNAVAILABLE_REQUIRED_INPUT = required authoritative input absent; RETIRED_INDEX_FNO_POLICY = disabled by current index-F&O policy. */

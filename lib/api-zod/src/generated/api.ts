@@ -4388,6 +4388,12 @@ export const GetOptionSignalsResponse = zod.object({
       indexFnoSetupAvailability: zod
         .array(
           zod.object({
+            indexSymbol: zod
+              .enum(["NIFTY", "BANKNIFTY", "SENSEX"])
+              .describe(
+                "A0.3.2 — Which cash index this record applies to. Together with setupKey " +
+                "forms the composite identity key. One record per (indexSymbol, setupKey) pair.",
+              ),
             setupKey: zod
               .string()
               .describe("Stable setup identifier matching OptionSignal.setupKey."),
@@ -4418,10 +4424,17 @@ export const GetOptionSignalsResponse = zod.object({
               .describe("Explicit emission eligibility. Always false for non-ACTIVE entries."),
           }),
         )
+        .length(
+          9,
+          "A0.3.2: exactly 9 records required (3 cash indices × 3 structurally-unavailable setups). " +
+          "This is a data-independent invariant — the cardinality is determined by the cash-index " +
+          "structural policy, not by per-cycle success/failure.",
+        )
         .describe(
-          "A0.3 / A0.3.1 — authoritative setup availability for index F&O. One entry per " +
-          "retired/unavailable setup (VOLUME_BREAKOUT, MEAN_REVERSION, " +
-          "TREND_CONTINUATION_NO_VWAP). Required on every response that includes setupState.",
+          "A0.3.2 — per-index setup availability for all 3 cash indices. One entry per " +
+          "(indexSymbol, setupKey) pair. Always exactly 9 records: NIFTY×3 + BANKNIFTY×3 + SENSEX×3. " +
+          "Required on every response that includes setupState. " +
+          "Identity key: (indexSymbol, setupKey) — unique across all 9 records.",
         ),
     })
     .optional()

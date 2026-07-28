@@ -26,9 +26,10 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { z } from "zod";
+import { GetOptionSignalsResponse } from "@workspace/api-zod";
 import {
   computeIndexFnoSetupAvailability,
+  computeAllIndexFnoSetupAvailability,
   detectMeanReversion,
   detectTrendContinuation,
   buildSignalsForIndex,
@@ -224,57 +225,57 @@ describe("§12.2 Orchestration — setupAvailability from buildSignalsForIndex",
     });
   });
 
-  describe("VWAP-available TREND_CONTINUATION is NOT retired", () => {
-    it("computeIndexFnoSetupAvailability(true) does not contain TREND_CONTINUATION_NO_VWAP", () => {
-      const entries = computeIndexFnoSetupAvailability(true);
-      const tc = entries.find(x => x.setupKey === "TREND_CONTINUATION_NO_VWAP");
-      expect(tc).toBeUndefined();
+  // A0.3.2 delta: the old "VWAP-available TREND_CONTINUATION is NOT retired" sub-describe
+  // is retired along with the boolean API. In A0.3.2:
+  //   - computeIndexFnoSetupAvailability now takes SupportedFnoIndex (not boolean)
+  //   - TC_NO_VWAP is ALWAYS included regardless of vwapAvailable (3 records always)
+  //   - The conditional removal was removed because cash indices structurally always have
+  //     vwapAvailable=false — the condition was always true, making it dead code.
+  // The A0.3.2 variant is tested in §12.6 (real Zod schema) and §12.2 below.
+
+  describe("§12.2 global policy design proof (A0.3.2 — per-index invariants)", () => {
+    it("always returns exactly 3 entries per index (unconditional — A0.3.2 change)", () => {
+      expect(computeIndexFnoSetupAvailability("NIFTY")).toHaveLength(3);
+      expect(computeIndexFnoSetupAvailability("BANKNIFTY")).toHaveLength(3);
+      expect(computeIndexFnoSetupAvailability("SENSEX")).toHaveLength(3);
     });
 
-    it("computeIndexFnoSetupAvailability(true) returns 2 entries (VB + MR only)", () => {
-      const entries = computeIndexFnoSetupAvailability(true);
-      expect(entries).toHaveLength(2);
-      expect(entries.find(x => x.setupKey === "VOLUME_BREAKOUT")).toBeDefined();
-      expect(entries.find(x => x.setupKey === "MEAN_REVERSION")).toBeDefined();
+    it("TREND_CONTINUATION_NO_VWAP is always the third entry (unconditional — was conditional on vwapAvailable)", () => {
+      // A0.3.2: removing the vwapAvailable conditional makes the function data-independent.
+      // TC_NO_VWAP is always included — cash indices structurally always have vwapAvailable=false.
+      for (const idx of ["NIFTY", "BANKNIFTY", "SENSEX"] as const) {
+        const entries = computeIndexFnoSetupAvailability(idx);
+        expect(entries.find(e => e.setupKey === "TREND_CONTINUATION_NO_VWAP")).toBeDefined();
+      }
     });
-  });
 
-  describe("§12.2 global policy design proof", () => {
-    it("computeIndexFnoSetupAvailability is called once — result governs all surfaces (no divergent lists)", () => {
-      // The function is pure and deterministic — same input always yields same output.
-      // This proves all three surfaces (orchestration, API, UI) use one canonical result.
-      const a = computeIndexFnoSetupAvailability(false);
-      const b = computeIndexFnoSetupAvailability(false);
+    it("all entries have the correct indexSymbol stamped", () => {
+      for (const idx of ["NIFTY", "BANKNIFTY", "SENSEX"] as const) {
+        for (const e of computeIndexFnoSetupAvailability(idx)) {
+          expect(e.indexSymbol).toBe(idx);
+        }
+      }
+    });
+
+    it("function is pure and deterministic — same input yields identical output", () => {
+      const a = computeIndexFnoSetupAvailability("NIFTY");
+      const b = computeIndexFnoSetupAvailability("NIFTY");
       expect(a.map(e => e.setupKey)).toEqual(b.map(e => e.setupKey));
       expect(a.map(e => e.status)).toEqual(b.map(e => e.status));
       expect(a.map(e => e.reasonCode)).toEqual(b.map(e => e.reasonCode));
     });
 
-    it("cardinality: 3 entries when vwapAvailable=false (VB + MR + TC_NO_VWAP)", () => {
-      expect(computeIndexFnoSetupAvailability(false)).toHaveLength(3);
-    });
-
-    it("cardinality: 2 entries when vwapAvailable=true (VB + MR; TC is ACTIVE)", () => {
-      expect(computeIndexFnoSetupAvailability(true)).toHaveLength(2);
-    });
-
-    it("uniqueness: no duplicate setupKey values in either variant", () => {
-      for (const v of [true, false]) {
-        const entries = computeIndexFnoSetupAvailability(v);
+    it("uniqueness: no duplicate setupKey values per index", () => {
+      for (const idx of ["NIFTY", "BANKNIFTY", "SENSEX"] as const) {
+        const entries = computeIndexFnoSetupAvailability(idx);
         const keys = entries.map(e => e.setupKey);
         expect(new Set(keys).size).toBe(keys.length);
       }
     });
 
-    it("ordering: stable across calls (pure function — deterministic)", () => {
-      const a = computeIndexFnoSetupAvailability(false).map(e => e.setupKey);
-      const b = computeIndexFnoSetupAvailability(false).map(e => e.setupKey);
-      expect(a).toEqual(b);
-    });
-
-    it("scope: all-response-state — all entries have scope=INDEX_FNO", () => {
-      for (const v of [true, false]) {
-        for (const e of computeIndexFnoSetupAvailability(v)) {
+    it("scope: all entries have scope=INDEX_FNO across all indices", () => {
+      for (const idx of ["NIFTY", "BANKNIFTY", "SENSEX"] as const) {
+        for (const e of computeIndexFnoSetupAvailability(idx)) {
           expect(e.scope).toBe("INDEX_FNO");
         }
       }
@@ -536,99 +537,178 @@ describe("§12.5 A0.2 non-regression — sessionVwap() + volumeProfile() fail-cl
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// §12.6 — API/Zod contract: availability entries conform to the schema
+// §12.6 / A0.3.2 — Real schema validation and 9-record contract
 // ─────────────────────────────────────────────────────────────────────────────
+// A0.3.2 replaces the inline mirror schema approach with direct imports of the
+// actual production GetOptionSignalsResponse Zod schema. No mirrors allowed.
 
-describe("§12.6 API/Zod contract — availability entry schema", () => {
-  // Mirror the schema from lib/api-zod/src/generated/api.ts
-  // (inline rather than importing the generated schema directly, so the test
-  // remains a pure-logic check that does not depend on the generated artifact).
-  const AvailabilityEntrySchema = z.object({
-    setupKey: z.string().min(1),
-    status: z.enum(["ACTIVE", "UNAVAILABLE_REQUIRED_INPUT", "RETIRED_INDEX_FNO_POLICY"]),
-    reasonCode: z.string().min(1),
-    explanation: z.string().min(10),
-    missingInputs: z.array(z.string()),
-    scope: z.literal("INDEX_FNO"),
-    eligibleForEmission: z.literal(false),
-  });
+describe("§12.6 A0.3.2 — Real Zod schema validation and 9-record contract", () => {
+  // Extract the inner availability array schema from the real production Zod schema.
+  const availabilityArraySchema = GetOptionSignalsResponse
+    .shape.setupState
+    .unwrap()  // .optional() → inner object schema
+    .shape.indexFnoSetupAvailability;
 
-  describe("valid entries from computeIndexFnoSetupAvailability pass the schema", () => {
-    it("all vwapAvailable=false entries are schema-valid", () => {
-      const entries = computeIndexFnoSetupAvailability(false);
-      for (const entry of entries) {
-        const result = AvailabilityEntrySchema.safeParse(entry);
-        expect(result.success, `Entry ${entry.setupKey} failed: ${!result.success && result.error}`).toBe(true);
+  const entrySchema = availabilityArraySchema.element;
+
+  describe("computeAllIndexFnoSetupAvailability() 9-record pure function", () => {
+    const entries = computeAllIndexFnoSetupAvailability();
+
+    it("returns exactly 9 records", () => {
+      expect(entries).toHaveLength(9);
+    });
+
+    it("all 9 records parse through the real production Zod schema", () => {
+      const result = availabilityArraySchema.safeParse(entries);
+      expect(result.success, !result.success ? result.error.toString() : "OK").toBe(true);
+    });
+
+    it("3 records per index — NIFTY, BANKNIFTY, SENSEX each have exactly 3", () => {
+      for (const idx of ["NIFTY", "BANKNIFTY", "SENSEX"] as const) {
+        expect(entries.filter(e => e.indexSymbol === idx)).toHaveLength(3);
       }
     });
 
-    it("all vwapAvailable=true entries are schema-valid", () => {
-      const entries = computeIndexFnoSetupAvailability(true);
-      for (const entry of entries) {
-        const result = AvailabilityEntrySchema.safeParse(entry);
-        expect(result.success, `Entry ${entry.setupKey} failed: ${!result.success && result.error}`).toBe(true);
+    it("9 composite identity keys (indexSymbol:setupKey) are all unique", () => {
+      const keys = entries.map(e => `${e.indexSymbol}:${e.setupKey}`);
+      expect(new Set(keys).size).toBe(9);
+    });
+
+    it("VOLUME_BREAKOUT is UNAVAILABLE_REQUIRED_INPUT for all 3 indices", () => {
+      const vb = entries.filter(e => e.setupKey === "VOLUME_BREAKOUT");
+      expect(vb).toHaveLength(3);
+      for (const e of vb) expect(e.status).toBe("UNAVAILABLE_REQUIRED_INPUT");
+    });
+
+    it("MEAN_REVERSION is UNAVAILABLE_REQUIRED_INPUT for all 3 indices", () => {
+      const mr = entries.filter(e => e.setupKey === "MEAN_REVERSION");
+      expect(mr).toHaveLength(3);
+      for (const e of mr) expect(e.status).toBe("UNAVAILABLE_REQUIRED_INPUT");
+    });
+
+    it("TREND_CONTINUATION_NO_VWAP is RETIRED_INDEX_FNO_POLICY for all 3 indices", () => {
+      const tc = entries.filter(e => e.setupKey === "TREND_CONTINUATION_NO_VWAP");
+      expect(tc).toHaveLength(3);
+      for (const e of tc) expect(e.status).toBe("RETIRED_INDEX_FNO_POLICY");
+    });
+
+    it("no entry has eligibleForEmission=true", () => {
+      for (const e of entries) expect(e.eligibleForEmission).toBe(false);
+    });
+
+    it("all entries have scope=INDEX_FNO", () => {
+      for (const e of entries) expect(e.scope).toBe("INDEX_FNO");
+    });
+
+    it("is deterministic — two calls return identical records", () => {
+      expect(computeAllIndexFnoSetupAvailability()).toStrictEqual(entries);
+    });
+  });
+
+  describe("computeIndexFnoSetupAvailability(indexSymbol) per-index function", () => {
+    it("returns exactly 3 records for NIFTY", () => {
+      expect(computeIndexFnoSetupAvailability("NIFTY")).toHaveLength(3);
+    });
+
+    it("returns exactly 3 records for BANKNIFTY", () => {
+      expect(computeIndexFnoSetupAvailability("BANKNIFTY")).toHaveLength(3);
+    });
+
+    it("returns exactly 3 records for SENSEX", () => {
+      expect(computeIndexFnoSetupAvailability("SENSEX")).toHaveLength(3);
+    });
+
+    it("all NIFTY entries have indexSymbol=NIFTY", () => {
+      for (const e of computeIndexFnoSetupAvailability("NIFTY")) {
+        expect(e.indexSymbol).toBe("NIFTY");
       }
     });
-  });
 
-  describe("invalid entries are rejected by the schema", () => {
-    const VALID_ENTRY = computeIndexFnoSetupAvailability(false).find(
-      e => e.setupKey === "VOLUME_BREAKOUT",
-    )!;
-
-    it("invalid status enum value is rejected", () => {
-      const result = AvailabilityEntrySchema.safeParse({
-        ...VALID_ENTRY,
-        status: "UNKNOWN_STATUS",
-      });
-      expect(result.success).toBe(false);
+    it("each per-index entry parses through the real Zod entry schema", () => {
+      for (const idx of ["NIFTY", "BANKNIFTY", "SENSEX"] as const) {
+        for (const e of computeIndexFnoSetupAvailability(idx)) {
+          const result = entrySchema.safeParse(e);
+          expect(result.success, `${idx}:${e.setupKey} failed: ${!result.success ? result.error : "OK"}`).toBe(true);
+        }
+      }
     });
 
-    it("missing required setupKey field is rejected", () => {
-      const { setupKey: _, ...withoutKey } = VALID_ENTRY;
-      const result = AvailabilityEntrySchema.safeParse(withoutKey);
-      expect(result.success).toBe(false);
-    });
-
-    it("missing missingInputs field is rejected", () => {
-      const { missingInputs: _, ...withoutMI } = VALID_ENTRY;
-      const result = AvailabilityEntrySchema.safeParse(withoutMI);
-      expect(result.success).toBe(false);
-    });
-
-    it("invalid scope (not INDEX_FNO) is rejected", () => {
-      const result = AvailabilityEntrySchema.safeParse({
-        ...VALID_ENTRY,
-        scope: "EQUITY_SWING",
-      });
-      expect(result.success).toBe(false);
-    });
-
-    it("eligibleForEmission=true is rejected (schema uses z.literal(false))", () => {
-      const result = AvailabilityEntrySchema.safeParse({
-        ...VALID_ENTRY,
-        eligibleForEmission: true,
-      });
-      expect(result.success).toBe(false);
-    });
-
-    it("short explanation (< 10 chars) is rejected", () => {
-      const result = AvailabilityEntrySchema.safeParse({
-        ...VALID_ENTRY,
-        explanation: "Too short",
-      });
-      expect(result.success).toBe(false);
+    it("TREND_CONTINUATION_NO_VWAP is always included (unconditional — A0.3.2 change)", () => {
+      // A0.3.2: TC_NO_VWAP is always present, not conditional on vwapAvailable.
+      // Cash indices structurally always have vwapAvailable=false, so the conditional
+      // was always true — removing it makes the contract data-independent.
+      const niftyEntries = computeIndexFnoSetupAvailability("NIFTY");
+      expect(niftyEntries.find(e => e.setupKey === "TREND_CONTINUATION_NO_VWAP")).toBeDefined();
     });
   });
 
-  describe("TREND_CONTINUATION_NO_VWAP setupKey is accepted (A0.3.1 key rename)", () => {
-    it("the new setupKey passes the schema (string, non-empty)", () => {
-      const entry = computeIndexFnoSetupAvailability(false).find(
-        e => e.setupKey === "TREND_CONTINUATION_NO_VWAP",
-      )!;
-      expect(entry).toBeDefined();
-      const result = AvailabilityEntrySchema.safeParse(entry);
-      expect(result.success).toBe(true);
+  describe("Zod schema cardinality guard — rejects non-9-record payloads", () => {
+    it("empty array is rejected (must be exactly 9)", () => {
+      expect(availabilityArraySchema.safeParse([]).success).toBe(false);
+    });
+
+    it("3-record single-index payload is rejected (old A0.3.1 design)", () => {
+      const three = computeIndexFnoSetupAvailability("NIFTY");
+      expect(availabilityArraySchema.safeParse(three).success).toBe(false);
+    });
+
+    it("8 records (one short) are rejected", () => {
+      const eight = computeAllIndexFnoSetupAvailability().slice(0, 8);
+      expect(availabilityArraySchema.safeParse(eight).success).toBe(false);
+    });
+  });
+
+  describe("Zod schema field validation — real schema enforces correct fields", () => {
+    const baseEntry = computeIndexFnoSetupAvailability("NIFTY")[0];
+
+    it("entry missing indexSymbol is rejected", () => {
+      const { indexSymbol: _, ...without } = baseEntry;
+      const all9 = computeAllIndexFnoSetupAvailability();
+      const bad = [without, ...all9.slice(1)];
+      expect(availabilityArraySchema.safeParse(bad).success).toBe(false);
+    });
+
+    it("invalid indexSymbol (e.g. FINNIFTY) is rejected", () => {
+      const all9 = computeAllIndexFnoSetupAvailability();
+      const bad = [{ ...all9[0], indexSymbol: "FINNIFTY" }, ...all9.slice(1)];
+      expect(availabilityArraySchema.safeParse(bad).success).toBe(false);
+    });
+
+    it("invalid status enum is rejected", () => {
+      const all9 = computeAllIndexFnoSetupAvailability();
+      const bad = [{ ...all9[0], status: "UNKNOWN_STATUS" }, ...all9.slice(1)];
+      expect(availabilityArraySchema.safeParse(bad).success).toBe(false);
+    });
+
+    it("eligibleForEmission=true is rejected (schema literal(false))", () => {
+      const all9 = computeAllIndexFnoSetupAvailability();
+      const bad = [{ ...all9[0], eligibleForEmission: true }, ...all9.slice(1)];
+      expect(availabilityArraySchema.safeParse(bad).success).toBe(false);
+    });
+
+    it("scope !== INDEX_FNO is rejected", () => {
+      const all9 = computeAllIndexFnoSetupAvailability();
+      const bad = [{ ...all9[0], scope: "EQUITY_SWING" }, ...all9.slice(1)];
+      expect(availabilityArraySchema.safeParse(bad).success).toBe(false);
+    });
+  });
+
+  describe("route-state invariant — 9 records regardless of signal/data state", () => {
+    it("state: no bars (buildSignalsForIndex with empty charts) → 3 records for NIFTY", () => {
+      const NIFTY_CFG = OPTION_INDICES.find(c => c.symbol === "NIFTY")!;
+      // Empty charts → buildContext returns null → no-bars fallback
+      const emptyIntra = { timestamps: [], open: [], high: [], low: [], close: [], volume: [] };
+      const emptyDaily = { timestamps: [], open: [], high: [], low: [], close: [], volume: [] };
+      const result = buildSignalsForIndex(NIFTY_CFG, emptyIntra, emptyDaily);
+      expect(result.setupAvailability).toHaveLength(3);
+      expect(result.setupAvailability[0].indexSymbol).toBe("NIFTY");
+    });
+
+    it("computeAllIndexFnoSetupAvailability always returns 9 (data-independent)", () => {
+      // Call 3 times to prove no side-effect contamination
+      for (let i = 0; i < 3; i++) {
+        expect(computeAllIndexFnoSetupAvailability()).toHaveLength(9);
+      }
     });
   });
 });
@@ -764,98 +844,5 @@ describe("§4 (delta) — TC no-VWAP branch confidence arithmetic proofs", () =>
   });
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// §12.6 extension — Route schema: setupState.indexFnoSetupAvailability is required
-// ─────────────────────────────────────────────────────────────────────────────
-//
-// Verifies the api-zod GetOptionSignalsResponse Zod schema requires
-// indexFnoSetupAvailability in setupState.
-// Uses the inline mirror schema (same approach as the §12.6 availability tests above)
-// to prove the field exists, is an array, and is never omitted at the schema level.
-// ─────────────────────────────────────────────────────────────────────────────
-
-describe("§12.6 route schema — setupState.indexFnoSetupAvailability required field", () => {
-  // Inline mirror of the setupState.indexFnoSetupAvailability field as defined
-  // in lib/api-zod/src/generated/api.ts (lines 4388–4425).
-  const AvailEntrySchema = z.object({
-    setupKey:            z.string().min(1),
-    status:              z.enum(["ACTIVE", "UNAVAILABLE_REQUIRED_INPUT", "RETIRED_INDEX_FNO_POLICY"]),
-    reasonCode:          z.string().min(1),
-    explanation:         z.string().min(1),
-    missingInputs:       z.array(z.string()),
-    scope:               z.literal("INDEX_FNO"),
-    eligibleForEmission: z.literal(false),
-  });
-
-  // The setupState schema from GetOptionSignalsResponse (inline mirror).
-  const SetupStateSchema = z.object({
-    indicesEvaluated:          z.number(),
-    liveSetupsCount:           z.number(),
-    tradeableCount:            z.number(),
-    suppressedCount:           z.number(),
-    noSetupReason:             z.string().nullish(),
-    indexFnoSetupAvailability: z.array(AvailEntrySchema),
-  });
-
-  it("valid setupState with indexFnoSetupAvailability=[] passes schema", () => {
-    const result = SetupStateSchema.safeParse({
-      indicesEvaluated: 3, liveSetupsCount: 0, tradeableCount: 0,
-      suppressedCount: 0, noSetupReason: null,
-      indexFnoSetupAvailability: [],
-    });
-    expect(result.success).toBe(true);
-  });
-
-  it("valid setupState with populated indexFnoSetupAvailability passes schema", () => {
-    const entries = computeIndexFnoSetupAvailability(false);
-    const result = SetupStateSchema.safeParse({
-      indicesEvaluated: 3, liveSetupsCount: 0, tradeableCount: 0,
-      suppressedCount: 0, noSetupReason: null,
-      indexFnoSetupAvailability: entries,
-    });
-    expect(result.success, `Parse failed: ${!result.success && JSON.stringify((result as {error: unknown}).error)}`).toBe(true);
-  });
-
-  it("setupState MISSING indexFnoSetupAvailability fails schema (field is required)", () => {
-    const result = SetupStateSchema.safeParse({
-      indicesEvaluated: 3, liveSetupsCount: 0, tradeableCount: 0,
-      suppressedCount: 0, noSetupReason: null,
-      // indexFnoSetupAvailability intentionally omitted
-    });
-    expect(result.success).toBe(false);
-  });
-
-  it("indexFnoSetupAvailability with invalid status enum fails schema", () => {
-    const result = SetupStateSchema.safeParse({
-      indicesEvaluated: 3, liveSetupsCount: 0, tradeableCount: 0,
-      suppressedCount: 0, noSetupReason: null,
-      indexFnoSetupAvailability: [{
-        setupKey: "VOLUME_BREAKOUT",
-        status: "SESSION_VWAP_UNAVAILABLE_CONF_BELOW_THRESHOLD", // prohibited reason code as status
-        reasonCode: "INDEX_VOLUME_UNAVAILABLE",
-        explanation: "test",
-        missingInputs: [],
-        scope: "INDEX_FNO",
-        eligibleForEmission: false,
-      }],
-    });
-    expect(result.success).toBe(false);
-  });
-
-  it("route: ?? [] fallback guarantees field is always present (never undefined in response)", () => {
-    // Mirrors scanner.ts line: indexFnoSetupAvailability: indexFnoSetupAvailability ?? []
-    // Even if getOptionSignals() returns undefined for indexFnoSetupAvailability,
-    // the route serializes it as [].
-    const maybeUndefined: undefined = undefined;
-    const fromRoute = maybeUndefined ?? ([] as ReturnType<typeof computeIndexFnoSetupAvailability>);
-    const result = SetupStateSchema.safeParse({
-      indicesEvaluated: 3, liveSetupsCount: 0, tradeableCount: 0,
-      suppressedCount: 0, noSetupReason: null,
-      indexFnoSetupAvailability: fromRoute,
-    });
-    expect(result.success).toBe(true);
-    if (result.success) {
-      expect(Array.isArray(result.data.indexFnoSetupAvailability)).toBe(true);
-    }
-  });
-});
+// (§12.6 extension / route-schema block removed in A0.3.2 — replaced by the
+//  §12.6 A0.3.2 block above which imports the actual GetOptionSignalsResponse schema.)

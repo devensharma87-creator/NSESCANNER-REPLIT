@@ -27,12 +27,15 @@ import {
 
 // ─── fixtures ────────────────────────────────────────────────────────────────
 
+// A0.3.2: makeEntry now requires indexSymbol — defaults to "NIFTY" for single-index tests.
 function makeEntry(
   setupKey: string,
   status: "UNAVAILABLE_REQUIRED_INPUT" | "RETIRED_INDEX_FNO_POLICY",
   reasonCode: string,
+  indexSymbol: string = "NIFTY",
 ): AvailabilityEntry {
   return {
+    indexSymbol,
     setupKey,
     status,
     reasonCode,
@@ -43,17 +46,19 @@ function makeEntry(
   };
 }
 
-// Representative 3-entry payload from the API (vwapAvailable=false — cash-index reality)
+// A0.3.2: Representative 3-entry payload from a single index (NIFTY).
+// With the per-index design, the full payload is 9 records (3×3), but
+// deriveSetupAvailabilityView works on any subset (no cardinality constraint at this layer).
 const THREE_ENTRY_PAYLOAD: AvailabilityEntry[] = [
-  makeEntry("VOLUME_BREAKOUT", "UNAVAILABLE_REQUIRED_INPUT", "INDEX_VOLUME_UNAVAILABLE"),
-  makeEntry("MEAN_REVERSION",  "UNAVAILABLE_REQUIRED_INPUT", "SESSION_VWAP_UNAVAILABLE"),
-  makeEntry("TREND_CONTINUATION_NO_VWAP", "RETIRED_INDEX_FNO_POLICY", "SETUP_RETIRED_UNDER_CURRENT_INDEX_FNO_POLICY"),
+  makeEntry("VOLUME_BREAKOUT",            "UNAVAILABLE_REQUIRED_INPUT", "INDEX_VOLUME_UNAVAILABLE",                    "NIFTY"),
+  makeEntry("MEAN_REVERSION",             "UNAVAILABLE_REQUIRED_INPUT", "SESSION_VWAP_UNAVAILABLE",                    "NIFTY"),
+  makeEntry("TREND_CONTINUATION_NO_VWAP", "RETIRED_INDEX_FNO_POLICY",  "SETUP_RETIRED_UNDER_CURRENT_INDEX_FNO_POLICY", "NIFTY"),
 ];
 
-// 2-entry payload (vwapAvailable=true — TREND_CONTINUATION_NO_VWAP not retired)
+// A0.3.2: 2-entry payload (NIFTY only, TREND_CONTINUATION_NO_VWAP not included).
 const TWO_ENTRY_PAYLOAD: AvailabilityEntry[] = [
-  makeEntry("VOLUME_BREAKOUT", "UNAVAILABLE_REQUIRED_INPUT", "INDEX_VOLUME_UNAVAILABLE"),
-  makeEntry("MEAN_REVERSION",  "UNAVAILABLE_REQUIRED_INPUT", "SESSION_VWAP_UNAVAILABLE"),
+  makeEntry("VOLUME_BREAKOUT", "UNAVAILABLE_REQUIRED_INPUT", "INDEX_VOLUME_UNAVAILABLE", "NIFTY"),
+  makeEntry("MEAN_REVERSION",  "UNAVAILABLE_REQUIRED_INPUT", "SESSION_VWAP_UNAVAILABLE", "NIFTY"),
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────

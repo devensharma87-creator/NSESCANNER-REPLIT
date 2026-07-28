@@ -1029,4 +1029,77 @@ No production deployment has occurred. The platform is configured as
 
 Do not deploy, publish, push, change databases, rotate secrets, or begin Phase A0.4.
 
+---
+
+## SECTION 39 — Phase A0.3.2 Delta: Per-Index 9-Record Contract
+
+**Date:** 2026-07-28
+**Scope:** A0.3.2 second delta — per-index design, `indexSymbol` field, 9-record contract,
+`Ctx.pivotRef` rename, Zod cardinality guard `.length(9)`, `IndexFnoSetupAvailabilityStrip`
+component extraction, options.tsx IIFE removal, real-schema test rewrites, new test files.
+
+### Design Rationale
+
+A0.3.1 shipped a 2–3 record global design (one entry per setup, conditional on `vwapAvailable`).
+A0.3.2 upgrades to a **per-index 9-record design** (3 indices × 3 setups each) with these goals:
+
+1. **Honest UI disclosure** — each index row in the options page must show its own availability
+   state independently, not a globally-aggregated single row per setup.
+2. **Zod cardinality guard** — the API schema enforces exactly 9 records (`z.array(...).length(9)`),
+   so a partial/malformed payload fails at the schema boundary before reaching the UI.
+3. **Data-independent purity** — `computeAllIndexFnoSetupAvailability()` has zero runtime
+   dependencies. It is called after `getOptionSignals()` returns and cannot interfere with
+   signal emission. The `if (!vwapAvailable)` conditional was removed (it was always true for
+   cash indices — dead code).
+4. **Ctx.pivotRef rename** — eliminates the proxy where `c.vwap` was sometimes spot price.
+   Geometry-only calcs use `c.pivotRef` (spot proxy OK); VWAP-guarded detectors use `c.authVwap!`.
+
+### Files Changed in A0.3.2 Delta
+
+| Status | File | Change |
+|---|---|---|
+| M | `artifacts/api-server/src/lib/optionSignals.ts` | `SupportedFnoIndex` type; `IndexFnoSetupAvailability.indexSymbol`; `computeIndexFnoSetupAvailability(indexSymbol)` signature; `computeAllIndexFnoSetupAvailability()` new export; `Ctx.vwap` → `Ctx.pivotRef` (22 sites); `getOptionSignals` map/loop removed |
+| M | `lib/api-zod/src/generated/api.ts` | `indexSymbol: z.enum(["NIFTY","BANKNIFTY","SENSEX"])` added; `.length(9)` cardinality guard added |
+| M | `lib/api-zod/src/index.ts` | `GetOptionSignalsResponse` re-exported for test access |
+| M | `lib/api-client-react/src/generated/api.schemas.ts` | `indexSymbol: "NIFTY" \| "BANKNIFTY" \| "SENSEX"` added to `FnoSetupAvailabilityEntry` |
+| A (new) | `artifacts/scanner/src/components/IndexFnoSetupAvailabilityStrip.tsx` | Extracted production component; 9-record cardinality guard; degraded state; composite `data-testid` |
+| M | `artifacts/scanner/src/pages/options.tsx` | Inline IIFE (~70 lines) replaced with `<IndexFnoSetupAvailabilityStrip entries={...} />`; import added |
+| M | `artifacts/api-server/src/lib/optionSignals.a031.test.ts` | §12.6 inline-mirror block deleted + replaced with real `GetOptionSignalsResponse` schema tests; §12.2 updated for `(indexSymbol)` API; `computeAllIndexFnoSetupAvailability` imported |
+| M | `artifacts/scanner/src/lib/fnoAvailabilityRender.test.tsx` | Inline `DisclosureStrip` removed; now imports real `IndexFnoSetupAvailabilityStrip`; 9-entry fixtures; composite `data-testid` assertions |
+| M | `artifacts/scanner/src/lib/fnoSetupAvailability.ts` | `indexSymbol` added to `AvailabilityEntry`; dedup key → composite `(indexSymbol:setupKey)`; `TOTAL_FNO_SETUP_SLOTS = 18` |
+| M | `artifacts/scanner/src/lib/fnoSetupAvailability.test.ts` | `makeEntry` factory updated (default `indexSymbol:"NIFTY"`); fixture payloads include `indexSymbol` |
+| A (new) | `artifacts/api-server/src/lib/paperAdmission.a032.test.ts` | Layer-1 (signal emission) + Layer-2 (openPaperTrade C0 gate) exclusion proof for all 9 retired entries across 3 indices |
+| A (new) | `artifacts/api-server/src/lib/openApiParity.a032.test.ts` | Structural parity: real Zod parse of domain objects; cardinality guard; field-presence; composite identity uniqueness |
+
+### Test Evidence
+
+| Suite | File | Result |
+|---|---|---|
+| `optionSignals.a031.test.ts` | api-server | **72/72 PASS** |
+| `paperAdmission.a032.test.ts` | api-server (new) | **21/21 PASS** |
+| `openApiParity.a032.test.ts` | api-server (new) | **15/15 PASS** |
+| `fnoAvailabilityRender.test.tsx` | scanner (rewritten) | **20/20 PASS** |
+| `fnoSetupAvailability.test.ts` | scanner (updated) | **24/24 PASS** |
+| Full scanner suite | scanner | **843/843 PASS** (39 files) |
+
+**Total: 843 scanner + 108 api-server targeted = 951+ tests passing.**
+
+### Validation Gates (A0.3.2 Delta)
+
+| Gate | Description | Result |
+|---|---|---|
+| G-A | a031 test suite (72 tests) | PASS |
+| G-B | paperAdmission.a032 (21 tests) | PASS |
+| G-C | openApiParity.a032 (15 tests) | PASS |
+| G-D | fnoAvailabilityRender rewrite (20 tests) | PASS |
+| G-E | fnoSetupAvailability updated (24 tests) | PASS |
+| G-F | Full scanner suite (843 tests, 39 files) | PASS |
+| G-G | No `?? []` fallback in IndexFnoSetupAvailabilityStrip | VERIFIED |
+| G-H | No `computeIndexFnoSetupAvailability(boolean)` calls remain | VERIFIED |
+| G-I | `Ctx.vwap` no longer exists — only `c.pivotRef` and `c.authVwap` | VERIFIED |
+| G-J | Inline IIFE in options.tsx deleted (only `<IndexFnoSetupAvailabilityStrip />` remains) | VERIFIED |
+| G-K | §12.6 inline mirror schema deleted — real GetOptionSignalsResponse used | VERIFIED |
+
+**All A0.3.2 validation gates passed.**
+
 END OF PHASE A0.3 SETUP VIABILITY AND HONEST RETIREMENT RECORD

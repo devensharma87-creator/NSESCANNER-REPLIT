@@ -76,6 +76,15 @@ export const OPTION_INDICES: IndexCfg[] = [
 ];
 
 /**
+ * A0.3.2 — Canonical union type for the three cash indices supported in the
+ * index-F&O pipeline. Used as the identity key in `IndexFnoSetupAvailability`.
+ * Must match OPTION_INDICES symbols exactly — the ordering here defines the
+ * ordering of records in `computeAllIndexFnoSetupAvailability()`.
+ */
+export type SupportedFnoIndex = "NIFTY" | "BANKNIFTY" | "SENSEX";
+export const SUPPORTED_FNO_INDICES: readonly SupportedFnoIndex[] = ["NIFTY", "BANKNIFTY", "SENSEX"] as const;
+
+/**
  * Single source of truth mapping OPTION_INDICES.symbol → the Yahoo-style
  * key the live-LTP source (`getKiteIndexQuotes`) returns. The historical
  * Yahoo intraday endpoint and the live Kite-LTP source disagree on which
@@ -205,20 +214,33 @@ export interface Ctx {
   spot: number;
   open0: number;
   sessionChangePct: number;
-  vwap: number;
+  /**
+   * A0.3.2 — Geometric price reference: effectiveVwap = sessionVwap ?? spot.
+   *
+   * Used ONLY for stop/target geometry and baseline stop formulas where
+   * a numeric price level is needed regardless of VWAP availability
+   * (e.g. `Math.min(pivotRef, ema21) - atr15 * 0.5`). This is NOT labelled
+   * "VWAP" in any scored output — it is a pivot/geometry reference only.
+   *
+   * When vwapAvailable=false this equals `spot`. Callers that need a genuine
+   * volume-weighted price for signal DECISIONS must use `authVwap` (which is
+   * null when unavailable) — never this field. Renaming from "vwap" prevents
+   * accidental use in confidence/direction scoring.
+   */
+  pivotRef: number;
   /**
    * True only when the session VWAP is a genuine volume-weighted average:
    * `sessionVwap()` returned a non-null final value for this window.
-   * When false, `vwap` is set to `spot` as a geometric placeholder and
+   * When false, `pivotRef` equals `spot` as a geometric placeholder and
    * MUST NOT be surfaced as institutional fair value. Detectors must gate
    * their VWAP-dependent drivers on this flag.
    * Provider/provenance trust is not asserted here — this flag reflects the
    * numeric outcome of the indicator helper, not the data source.
    *
    * For signal-DECISION paths that require genuine VWAP, use `authVwap`
-   * (which is null when unavailable) rather than `vwap` (which holds `spot`
-   * as a geometric placeholder). This eliminates the spot-as-VWAP proxy from
-   * signal decisions even if a guard is accidentally removed.
+   * (which is null when unavailable) rather than `pivotRef` (which holds
+   * `spot` as a geometric placeholder). This eliminates the spot-as-VWAP
+   * proxy from signal decisions even if a guard is accidentally removed.
    */
   vwapAvailable: boolean;
   /**
@@ -544,10 +566,11 @@ function buildContext(cfg: IndexCfg, intra: YahooChart, daily: YahooChart): Ctx 
     cfg, spot, open0,
     prevClose,
     sessionChangePct: ((spot - open0) / open0) * 100,
-    // A0.3.1: authVwap = vwapRaw (null when unavailable, no proxy).
-    // vwap   = effectiveVwap (spot fallback for geometry-only calcs).
+    // A0.3.2: pivotRef = effectiveVwap (spot fallback for geometry-only calcs).
+    // authVwap = vwapRaw (null when unavailable, no proxy).
     // Signal-decision paths (e.g. detectMeanReversion) must use authVwap.
-    vwap: effectiveVwap, authVwap: vwapRaw, vwapAvailable, vwapSeries,
+    // pivotRef must NEVER appear in scored signal outputs labelled as VWAP.
+    pivotRef: effectiveVwap, authVwap: vwapRaw, vwapAvailable, vwapSeries,
     ema9: effectiveEma9, ema21: effectiveEma21,
     ema20: effectiveEma20, ema50: effectiveEma50,
     ema9Series, ema21Series,
@@ -784,7 +807,7 @@ export function detectTrendContinuation(c: Ctx): Detected | null {
     };
   }
   // ── VWAP-AVAILABLE PATH (equity stocks / equity-index futures with real volume) ──
-  const aboveVwap = c.spot > c.vwap;
+  const aboveVwap = c.spot > c.authVwap!;
   const stackBull = c.ema9 > c.ema21 && c.spot > c.ema9;
   const stackBear = c.ema9 < c.ema21 && c.spot < c.ema9;
   if (!(aboveVwap && stackBull) && !(!aboveVwap && stackBear)) return null;
@@ -794,7 +817,7 @@ export function detectTrendContinuation(c: Ctx): Detected | null {
   let conf = 0;
 
   if (dir === "BULLISH") {
-    drivers.push({ label: "Spot above VWAP", detail: `${c.spot.toFixed(2)} > VWAP ${c.vwap.toFixed(2)}`, weight: 25, bullish: true });
+    drivers.push({ label: "Spot above VWAP", detail: `${c.spot.toFixed(2)} > VWAP ${c.authVwap!.toFixed(2)}`, weight: 25, bullish: true });
     drivers.push({ label: "EMA 9 > EMA 21 stack", detail: `EMA9 ${c.ema9.toFixed(2)} > EMA21 ${c.ema21.toFixed(2)} — fast above slow.`, weight: 20, bullish: true });
     conf += 45;
     if (c.rsi14 >= 52 && c.rsi14 <= 68) { drivers.push({ label: "RSI healthy bullish", detail: `RSI ${c.rsi14.toFixed(1)} in trend zone (52–68).`, weight: 15, bullish: true }); conf += 15; }
@@ -802,7 +825,7 @@ export function detectTrendContinuation(c: Ctx): Detected | null {
     if (c.vp && c.spot > c.vp.pointOfControl) { drivers.push({ label: "Above POC", detail: `Spot above POC ${c.vp.pointOfControl.toFixed(2)} — value supports buyers.`, weight: 8, bullish: true }); conf += 8; }
     if (c.lastVol != null && c.lastVol > c.avgVol20 * 1.2) { drivers.push({ label: "Volume confirmation", detail: `Last bar vol ${(c.lastVol / 1e6).toFixed(2)}M > 20-bar avg.`, weight: 8, bullish: true }); conf += 8; }
   } else {
-    drivers.push({ label: "Spot below VWAP", detail: `${c.spot.toFixed(2)} < VWAP ${c.vwap.toFixed(2)}`, weight: 25, bullish: false });
+    drivers.push({ label: "Spot below VWAP", detail: `${c.spot.toFixed(2)} < VWAP ${c.authVwap!.toFixed(2)}`, weight: 25, bullish: false });
     drivers.push({ label: "EMA 9 < EMA 21 stack", detail: `EMA9 ${c.ema9.toFixed(2)} < EMA21 ${c.ema21.toFixed(2)} — fast below slow.`, weight: 20, bullish: false });
     conf += 45;
     if (c.rsi14 <= 48 && c.rsi14 >= 32) { drivers.push({ label: "RSI healthy bearish", detail: `RSI ${c.rsi14.toFixed(1)} in trend zone (32–48).`, weight: 15, bullish: false }); conf += 15; }
@@ -827,8 +850,8 @@ export function detectTrendContinuation(c: Ctx): Detected | null {
   // Stops snapped to structural levels (pivot S1/R1) — does NOT shift bar-by-bar.
   const trigger = dir === "BULLISH" ? c.prevSwingHigh : c.prevSwingLow;
   const stop = dir === "BULLISH"
-    ? Math.min(c.piv.s1, c.vwap - c.atrDaily * 0.3)
-    : Math.max(c.piv.r1, c.vwap + c.atrDaily * 0.3);
+    ? Math.min(c.piv.s1, c.authVwap! - c.atrDaily * 0.3)
+    : Math.max(c.piv.r1, c.authVwap! + c.atrDaily * 0.3);
   const t1 = dir === "BULLISH"
     ? Math.max(c.piv.r1, c.vp?.valueAreaHigh ?? c.piv.r1) + c.atr15 * 0.3
     : Math.min(c.piv.s1, c.vp?.valueAreaLow ?? c.piv.s1) - c.atr15 * 0.3;
@@ -853,8 +876,8 @@ export function detectTrendContinuation(c: Ctx): Detected | null {
     targetLevel: t1,
     target2Level: t2,
     invalidation: dir === "BULLISH"
-      ? `Close below VWAP ${c.vwap.toFixed(2)} or below S1 ${c.piv.s1.toFixed(2)}.`
-      : `Close above VWAP ${c.vwap.toFixed(2)} or above R1 ${c.piv.r1.toFixed(2)}.`,
+      ? `Close below VWAP ${c.authVwap!.toFixed(2)} or below S1 ${c.piv.s1.toFixed(2)}.`
+      : `Close above VWAP ${c.authVwap!.toFixed(2)} or above R1 ${c.piv.r1.toFixed(2)}.`,
   };
 }
 
@@ -877,8 +900,8 @@ function detectVwapReclaim(c: Ctx): Detected | null {
   if (v3 == null || v4 == null) return null;
   const wasBelow = (closes[n - 3]! < v3) || (closes[n - 4]! < v4);
   const wasAbove = (closes[n - 3]! > v3) || (closes[n - 4]! > v4);
-  const nowAbove = c.spot > c.vwap;
-  const nowBelow = c.spot < c.vwap;
+  const nowAbove = c.spot > c.authVwap!;
+  const nowBelow = c.spot < c.authVwap!;
 
   let dir: Direction | null = null;
   if (wasBelow && nowAbove && c.ema9 > c.ema21) dir = "BULLISH";
@@ -896,7 +919,7 @@ function detectVwapReclaim(c: Ctx): Detected | null {
   let conf = 60;
   drivers.push({
     label: dir === "BULLISH" ? "VWAP reclaim from below" : "VWAP rejection from above",
-    detail: `Price crossed back ${dir === "BULLISH" ? "above" : "below"} VWAP ${c.vwap.toFixed(2)} in last 2–3 bars.`,
+    detail: `Price crossed back ${dir === "BULLISH" ? "above" : "below"} VWAP ${c.authVwap!.toFixed(2)} in last 2–3 bars.`,
     weight: 30, bullish: dir === "BULLISH",
   });
   drivers.push({
@@ -913,8 +936,8 @@ function detectVwapReclaim(c: Ctx): Detected | null {
   conf = Math.max(0, Math.min(100, conf));
   if (conf < 50) return null;
 
-  const trigger = dir === "BULLISH" ? c.vwap + c.atr15 * 0.15 : c.vwap - c.atr15 * 0.15;
-  const stop = dir === "BULLISH" ? c.vwap - c.atr15 * 0.5 : c.vwap + c.atr15 * 0.5;
+  const trigger = dir === "BULLISH" ? c.authVwap! + c.atr15 * 0.15 : c.authVwap! - c.atr15 * 0.15;
+  const stop = dir === "BULLISH" ? c.authVwap! - c.atr15 * 0.5 : c.authVwap! + c.atr15 * 0.5;
   const t1 = dir === "BULLISH"
     ? Math.max(c.prevSwingHigh, c.piv.r1)
     : Math.min(c.prevSwingLow, c.piv.s1);
@@ -937,8 +960,8 @@ function detectVwapReclaim(c: Ctx): Detected | null {
     targetLevel: t1,
     target2Level: t2,
     invalidation: dir === "BULLISH"
-      ? `Close back below VWAP ${c.vwap.toFixed(2)} on next bar — failed reclaim.`
-      : `Close back above VWAP ${c.vwap.toFixed(2)} on next bar — failed rejection.`,
+      ? `Close back below VWAP ${c.authVwap!.toFixed(2)} on next bar — failed reclaim.`
+      : `Close back above VWAP ${c.authVwap!.toFixed(2)} on next bar — failed rejection.`,
   };
 }
 
@@ -956,7 +979,7 @@ function detectVolumeBreakout(c: Ctx): Detected | null {
   if (c.lastVol == null) return null;
   const lastVol = c.lastVol;
   const volOk = lastVol > c.avgVol20 * 1.3;
-  const momentumOk = dir === "BULLISH" ? c.spot > c.ema9 && c.spot > c.vwap : c.spot < c.ema9 && c.spot < c.vwap;
+  const momentumOk = dir === "BULLISH" ? c.spot > c.ema9 && c.spot > c.pivotRef : c.spot < c.ema9 && c.spot < c.pivotRef;
   if (!volOk || !momentumOk) return null;
 
   const drivers: SignalReason[] = [];
@@ -1193,7 +1216,7 @@ function detectBaselineOutlook(c: Ctx): Detected | null {
       { label: "VWAP data quality", detail: "Index spot candles carry zero volume — VWAP vote omitted from direction score; using EMA+RSI only.", weight: 0, bullish: dir === "BULLISH" },
     );
   } else {
-    const spotAboveVwap = c.spot > c.vwap;
+    const spotAboveVwap = c.spot > c.authVwap!;
     const bullVotes = (spotAboveVwap ? 1 : 0) + (spotAboveEma21 ? 1 : 0) + (ema9AboveEma21 ? 1 : 0) + (rsiAbove50 ? 1 : 0);
     const bearVotes = 4 - bullVotes;
     dir = bullVotes > bearVotes ? "BULLISH"
@@ -1201,7 +1224,7 @@ function detectBaselineOutlook(c: Ctx): Detected | null {
       : (c.sessionChangePct >= 0 ? "BULLISH" : "BEARISH");
     align = Math.max(bullVotes, bearVotes);
     drivers.push(
-      { label: spotAboveVwap ? "Spot above VWAP" : "Spot below VWAP", detail: `Spot ${c.spot.toFixed(2)} ${spotAboveVwap ? ">" : "<"} VWAP ${c.vwap.toFixed(2)}.`, weight: 12, bullish: spotAboveVwap },
+      { label: spotAboveVwap ? "Spot above VWAP" : "Spot below VWAP", detail: `Spot ${c.spot.toFixed(2)} ${spotAboveVwap ? ">" : "<"} VWAP ${c.authVwap!.toFixed(2)}.`, weight: 12, bullish: spotAboveVwap },
       { label: spotAboveEma21 ? "Spot above EMA21" : "Spot below EMA21", detail: `Spot ${spotAboveEma21 ? "above" : "below"} EMA21 ${c.ema21.toFixed(2)}.`, weight: 10, bullish: spotAboveEma21 },
       { label: ema9AboveEma21 ? "EMA 9 > 21" : "EMA 9 < 21", detail: `EMA9 ${c.ema9.toFixed(2)} vs EMA21 ${c.ema21.toFixed(2)}.`, weight: 10, bullish: ema9AboveEma21 },
       { label: `RSI ${c.rsi14.toFixed(1)}`, detail: `RSI ${rsiAbove50 ? "above" : "below"} 50 — ${rsiAbove50 ? "bullish" : "bearish"} bias.`, weight: 8, bullish: rsiAbove50 },
@@ -1210,7 +1233,7 @@ function detectBaselineOutlook(c: Ctx): Detected | null {
 
   const conf = (c.vwapAvailable ? 35 : 30) + align * 5; // 35–55% with VWAP, 30–45% without
   const trigger = dir === "BULLISH" ? c.prevSwingHigh : c.prevSwingLow;
-  const stop = dir === "BULLISH" ? Math.min(c.vwap, c.ema21) - c.atr15 * 0.5 : Math.max(c.vwap, c.ema21) + c.atr15 * 0.5;
+  const stop = dir === "BULLISH" ? Math.min(c.pivotRef, c.ema21) - c.atr15 * 0.5 : Math.max(c.pivotRef, c.ema21) + c.atr15 * 0.5;
   // Ensure RR >= 1.5 by construction; expand pivot target if it's too tight.
   const risk = Math.abs(trigger - stop);
   const minReward = risk * 1.5;
@@ -1244,10 +1267,10 @@ function detectBaselineOutlook(c: Ctx): Detected | null {
     target2Level: t2,
     invalidation: dir === "BULLISH"
       ? (c.vwapAvailable
-          ? `Sustained close below VWAP ${c.vwap.toFixed(2)} flips bias.`
+          ? `Sustained close below VWAP ${c.authVwap!.toFixed(2)} flips bias.`
           : `Sustained close below EMA21 ${c.ema21.toFixed(2)} flips bias.`)
       : (c.vwapAvailable
-          ? `Sustained close above VWAP ${c.vwap.toFixed(2)} flips bias.`
+          ? `Sustained close above VWAP ${c.authVwap!.toFixed(2)} flips bias.`
           : `Sustained close above EMA21 ${c.ema21.toFixed(2)} flips bias.`),
   };
 }
@@ -1458,7 +1481,7 @@ function toSignal(c: Ctx, d: Detected, tier: "HIGH_CONVICTION" | "BASELINE"): Op
     // strictly INFO_ONLY and the paper auto-trader refuses to open it.
     tradeClass: deriveTradeClass(tier, isSignalHygieneV2Enabled()),
     timeframe: "intraday-15m",
-    vwap: round2(c.vwap),
+    vwap: c.authVwap != null ? round2(c.authVwap) : undefined,
     vwapAvailable: c.vwapAvailable,
     ema9: round2(c.ema9),
     ema21: round2(c.ema21),
@@ -1527,6 +1550,12 @@ function toSignal(c: Ctx, d: Detected, tier: "HIGH_CONVICTION" | "BASELINE"): Op
  * carried no-VWAP TREND_CONTINUATION from A0.1.
  */
 export interface IndexFnoSetupAvailability {
+  /**
+   * A0.3.2 — Which index this record applies to. Together with `setupKey`
+   * this forms the composite identity key. One record per (indexSymbol, setupKey)
+   * pair. The API always returns exactly 9 records: 3 indices × 3 setups.
+   */
+  indexSymbol: SupportedFnoIndex;
   /** Stable setup identifier matching OptionSignal.setupKey. */
   setupKey: string;
   /** Availability status. ACTIVE = can emit; others = cannot. */
@@ -1548,44 +1577,44 @@ export interface IndexFnoSetupAvailability {
 }
 
 /**
- * A0.3 — Compute the authoritative setup availability for index-F&O.
+ * A0.3.2 — Compute the authoritative setup availability for a single index.
  *
  * This is the SINGLE SOURCE OF TRUTH for which detectors may emit in the
  * index-F&O context. The same result drives:
  *   1. Orchestration-level eligibility gating (before the detector loop).
- *   2. API serialization (exposed in setupState.indexFnoSetupAvailability).
- *   3. UI disclosure (options.tsx setup-availability strip).
+ *   2. API serialization (via computeAllIndexFnoSetupAvailability()).
+ *   3. UI disclosure (IndexFnoSetupAvailabilityStrip component).
  *
- * Always-unavailable (structural cash-index policy, independent of ctx):
+ * Always-unavailable (structural cash-index policy, data-independent):
  *   VOLUME_BREAKOUT — requires traded vp + lastVol + avgVol20; cash-index
  *     candles always have zero volume; A0.2 volumeProfile() returns null.
  *   MEAN_REVERSION — requires genuine session VWAP; effectiveVwap=spot is a
  *     proxy (A0_2_RESIDUAL_PROPAGATION_GAP_DISCOVERED_IN_A0_3); dist=0 makes
  *     both extension conditions permanently false. Guard added in detector.
- *
- * Policy-unavailable when vwapAvailable=false (always true for cash indices):
- *   TREND_CONTINUATION (no-VWAP branch) — max confidence arithmetic:
- *     Generic theoretical maximum:  EMA(20) + RSI(15) + vol-confirm(8) = 43
- *     Cash-index operational max:   EMA(20) + RSI(15) + vol-confirm(0)  = 35
- *       because lastVol=avgVol20=0 → (0 > 0 × 1.2) = false → vol-confirm never fires.
- *     Branch threshold = 50. Neither 43 nor 35 reaches 50. Branch non-emitting.
+ *   TREND_CONTINUATION_NO_VWAP — always retired for cash indices:
+ *     Cash-index operational max conf = EMA(20) + RSI(15) + vol-confirm(0) = 35
+ *     (vol-confirm never fires because lastVol=avgVol20=0). Branch threshold = 50.
+ *     Branch non-emitting regardless of vwapAvailable state.
  *
  * The VWAP-available TREND_CONTINUATION path (conf base 45, reachable ≥50)
  * is ACTIVE — no entry is added for it.
  *
- * @param vwapAvailable - Pass ctx.vwapAvailable when ctx is available;
- *   pass false as the conservative default when ctx is null (no bars/data).
+ * Always returns exactly 3 records for the given indexSymbol.
+ * Use computeAllIndexFnoSetupAvailability() for the full 9-record contract.
+ *
+ * @param indexSymbol - One of the three supported cash indices.
  */
 export function computeIndexFnoSetupAvailability(
-  vwapAvailable: boolean,
+  indexSymbol: SupportedFnoIndex,
 ): IndexFnoSetupAvailability[] {
-  const entries: IndexFnoSetupAvailability[] = [
+  return [
     // D-FAB-06: VOLUME_BREAKOUT — always unavailable for index F&O.
     // Two independent null boundaries:
     //   A0.2 boundary: volumeProfile() returns null when totalVol=0 (cash-index structural).
     //   A0.1 boundary: caller passes vp:null + isIndexFno:true to confluenceEngine
     //                  (defence in depth — engine blocks VP scoring unconditionally).
     {
+      indexSymbol,
       setupKey: "VOLUME_BREAKOUT",
       status: "UNAVAILABLE_REQUIRED_INPUT",
       reasonCode: "INDEX_VOLUME_UNAVAILABLE",
@@ -1597,13 +1626,11 @@ export function computeIndexFnoSetupAvailability(
       eligibleForEmission: false,
     },
     // D-FAB-07: MEAN_REVERSION — always unavailable for index F&O.
-    // A0_2_RESIDUAL_PROPAGATION_GAP_DISCOVERED_IN_A0_3: buildContext sets
-    // effectiveVwap = vwapRaw ?? spot (proxy). When VWAP unavailable:
-    //   dist = c.spot - c.vwap = c.spot - c.spot = 0
-    //   extendedUp  = 0 > atr15*2  → permanently false
-    //   extendedDn  = 0 < -atr15*2 → permanently false
+    // A0_2_RESIDUAL_PROPAGATION_GAP_DISCOVERED_IN_A0_3: when VWAP unavailable:
+    //   dist = c.spot - c.authVwap → null → detector returns null (guard added A0.3.1).
     // Detector-level guard (if !c.vwapAvailable) added in detectMeanReversion.
     {
+      indexSymbol,
       setupKey: "MEAN_REVERSION",
       status: "UNAVAILABLE_REQUIRED_INPUT",
       reasonCode: "SESSION_VWAP_UNAVAILABLE",
@@ -1615,16 +1642,18 @@ export function computeIndexFnoSetupAvailability(
       scope: "INDEX_FNO",
       eligibleForEmission: false,
     },
-  ];
-
-  // no-VWAP TREND_CONTINUATION: retired when vwapAvailable=false
-  // (always true for cash indices — structural zero-volume reality).
-  // A0.3.1: The setupKey is "TREND_CONTINUATION_NO_VWAP" (not "TREND_CONTINUATION")
-  // to distinguish this retirement record from the VWAP-available TREND_CONTINUATION
-  // setup (which remains ACTIVE when vwapAvailable=true). The orchestration mapping
-  // SETUP_KEY_TO_DET_NAME maps this key to the "trend_continuation" detector name.
-  if (!vwapAvailable) {
-    entries.push({
+    // A0.3.1/A0.3.2: TREND_CONTINUATION_NO_VWAP — always retired for all cash indices.
+    // The setupKey distinguishes this retirement record from the VWAP-available
+    // TREND_CONTINUATION setup (which remains ACTIVE when vwapAvailable=true).
+    // The orchestration mapping SETUP_KEY_TO_DET_NAME maps this key to the
+    // "trend_continuation" detector name.
+    //
+    // A0.3.2: This was previously conditional on vwapAvailable=false. Cash indices
+    // structurally always have vwapAvailable=false (zero volume → no session VWAP),
+    // so the condition was always true. Removing the conditional makes this
+    // data-independent and guarantees the 3-record contract regardless of runtime state.
+    {
+      indexSymbol,
       setupKey: "TREND_CONTINUATION_NO_VWAP",
       status: "RETIRED_INDEX_FNO_POLICY",
       reasonCode: "SETUP_RETIRED_UNDER_CURRENT_INDEX_FNO_POLICY",
@@ -1637,10 +1666,26 @@ export function computeIndexFnoSetupAvailability(
       missingInputs: ["sessionVwap"],
       scope: "INDEX_FNO",
       eligibleForEmission: false,
-    });
-  }
+    },
+  ];
+}
 
-  return entries;
+/**
+ * A0.3.2 — Compute the full 9-record setup availability contract.
+ *
+ * Pure function. No runtime dependencies. Deterministic regardless of
+ * session state, signal success/failure, or data availability.
+ *
+ * Returns exactly 9 records: 3 setups × 3 indices (NIFTY, BANKNIFTY, SENSEX).
+ * Records are ordered by index (NIFTY first) then by setup within each index.
+ * Identity key: (indexSymbol, setupKey) — unique across all 9 records.
+ *
+ * This replaces the previous runtime indexFnoAvailMap dedup approach, which
+ * produced 2–3 records depending on vwapAvailable state and required a
+ * per-cycle fallback seed when all indices were suppressed.
+ */
+export function computeAllIndexFnoSetupAvailability(): IndexFnoSetupAvailability[] {
+  return SUPPORTED_FNO_INDICES.flatMap(idx => computeIndexFnoSetupAvailability(idx));
 }
 
 export interface IndexBuildResult {
@@ -1672,7 +1717,7 @@ export function buildSignalsForIndex(
   const ctx = buildContext(cfg, intra, daily);
   // A0.3: even with no bars we still return the structural availability contract,
   // so the API always carries honest setup-availability for index F&O.
-  if (!ctx) return { signals: [], suppressed: ["NO_BARS_OR_INSUFFICIENT_DATA"], hasBars: false, setupAvailability: computeIndexFnoSetupAvailability(false) };
+  if (!ctx) return { signals: [], suppressed: ["NO_BARS_OR_INSUFFICIENT_DATA"], hasBars: false, setupAvailability: computeIndexFnoSetupAvailability(cfg.symbol as SupportedFnoIndex) };
 
   // IST market-hours gate for high-conviction detectors. Outside the
   // 09:15–15:30 IST regular session the most-recent intraday bar is
@@ -1715,7 +1760,7 @@ export function buildSignalsForIndex(
   // Computed OUTSIDE the market-open gate so it is present in all response
   // variants: normal, market-closed, stale/degraded, and no-signal.
   // The same object is returned in IndexBuildResult → API → UI (no divergent lists).
-  const setupAvailability = computeIndexFnoSetupAvailability(ctx.vwapAvailable);
+  const setupAvailability = computeIndexFnoSetupAvailability(cfg.symbol as SupportedFnoIndex);
   // Detector name → setupKey mapping (must match the detectors array below).
   // A0.3.1: TREND_CONTINUATION_NO_VWAP maps to the "trend_continuation" detector.
   // The setupKey uses the lane-specific name to distinguish only the no-VWAP branch
@@ -2863,11 +2908,6 @@ export async function getOptionSignals(): Promise<OptionSignalsResult> {
   let indicesWithBars = 0;
   let highConvictionCount = 0;
   let baselineCount = 0;
-  // A0.3: accumulate setup availability across per-index results and deduplicate
-  // by setupKey. All indices are cash indices with identical structural availability;
-  // the map ensures exactly one entry per setup in the final OptionSignalsResult.
-  const indexFnoAvailMap = new Map<string, IndexFnoSetupAvailability>();
-
   // Sweep stale PENDING rows BEFORE loading gate context so the circuit
   // breaker / bias-flip queries see today's most up-to-date counts.
   // Idempotent and cheap when there are no stale rows.
@@ -2978,13 +3018,6 @@ export async function getOptionSignals(): Promise<OptionSignalsResult> {
         s.dataQuality = quality;
       }
       bundles.push({ signals: r.signals, snapshot: r.snapshot });
-      // A0.3: collect setupAvailability into the deduplication map.
-      // First occurrence of each setupKey wins (all indices agree — cash indices only).
-      for (const entry of r.setupAvailability) {
-        if (!indexFnoAvailMap.has(entry.setupKey)) {
-          indexFnoAvailMap.set(entry.setupKey, entry);
-        }
-      }
       // Phase-1 IVR/IVP — snapshot ATM IV for THIS index regardless of
       // whether any signal emitted (so BANKEX/MIDCPNIFTY accumulate IV
       // history even on quiet days). Best-effort: any failure (chain
@@ -3030,18 +3063,6 @@ export async function getOptionSignals(): Promise<OptionSignalsResult> {
       const msg = (err as Error).message;
       logger.warn({ err: msg, idx: cfg.symbol }, "Option signal failed");
       suppressed.push({ index: cfg.symbol, reasons: [`exception: ${msg}`] });
-    }
-  }
-
-  // A0.3: Ensure indexFnoAvailMap is always populated, even when all indices
-  // were suppressed before reaching buildSignalsForIndex (e.g. all three failed
-  // the intraday/daily availability checks). The structural unavailability is
-  // data-independent — cash indices always have zero volume, no session VWAP.
-  // Seed the map from the canonical static contract so the API always returns
-  // the honest availability on every response variant.
-  if (indexFnoAvailMap.size === 0) {
-    for (const entry of computeIndexFnoSetupAvailability(false)) {
-      indexFnoAvailMap.set(entry.setupKey, entry);
     }
   }
 
@@ -3521,11 +3542,11 @@ export async function getOptionSignals(): Promise<OptionSignalsResult> {
   };
   const result: OptionSignalsResult = {
     signals: out,
-    // A0.3: deduplicated setup availability across all evaluated cash indices.
-    // All suppressed entries that failed the orchestration gate are already in
-    // each IndexBuildResult.suppressed; this array carries the authoritative
-    // per-setup availability contract for API consumers and the UI.
-    indexFnoSetupAvailability: Array.from(indexFnoAvailMap.values()),
+    // A0.3.2: pure function — always exactly 9 records (3 indices × 3 setups).
+    // Data-independent: determined by the cash-index structural policy, not by
+    // per-cycle success/failure. No map/dedup needed. Per-index suppression
+    // detail is reported in diagnostics.suppressed only.
+    indexFnoSetupAvailability: computeAllIndexFnoSetupAvailability(),
     diagnostics: {
       indicesConfigured: OPTION_INDICES.length,
       indicesWithBars,

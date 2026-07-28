@@ -4100,6 +4100,18 @@
     "hash": "b2b8c19a9c606ff6"
   },
   {
+    "path": "artifacts/api-server/src/lib/openApiParity.a032.test.ts",
+    "purpose": "test",
+    "lines": 167,
+    "exports": [],
+    "externalImports": [
+      "vitest",
+      "@workspace/api-zod"
+    ],
+    "routes": [],
+    "hash": "7cc9fc700bdf2116"
+  },
+  {
     "path": "artifacts/api-server/src/lib/optionAnalytics.ts",
     "purpose": "fno-engine",
     "lines": 334,
@@ -4288,14 +4300,14 @@
   {
     "path": "artifacts/api-server/src/lib/optionSignals.a031.test.ts",
     "purpose": "test",
-    "lines": 862,
+    "lines": 849,
     "exports": [],
     "externalImports": [
       "vitest",
-      "zod"
+      "@workspace/api-zod"
     ],
     "routes": [],
-    "hash": "6d5abddb82d02f24"
+    "hash": "962fa7956f07021b"
   },
   {
     "path": "artifacts/api-server/src/lib/optionSignals.expiryDay.test.ts",
@@ -4357,16 +4369,19 @@
   {
     "path": "artifacts/api-server/src/lib/optionSignals.ts",
     "purpose": "fno-engine",
-    "lines": 3584,
+    "lines": 3605,
     "exports": [
       "IndexCfg",
       "OPTION_INDICES",
+      "SupportedFnoIndex",
+      "SUPPORTED_FNO_INDICES",
       "indexesExpiringTodayIst",
       "Ctx",
       "detectTrendContinuation",
       "detectMeanReversion",
       "IndexFnoSetupAvailability",
       "computeIndexFnoSetupAvailability",
+      "computeAllIndexFnoSetupAvailability",
       "IndexBuildResult",
       "buildSignalsForIndex",
       "OptionSignalsResult",
@@ -4375,14 +4390,13 @@
       "_resetDetectorCooldownForTest",
       "_setCooldownForTest",
       "_isDetectorOnCooldownForTest",
-      "_recordDetectorEmitForTest",
-      "getOptionSignals"
+      "_recordDetectorEmitForTest"
     ],
     "externalImports": [
       "@workspace/api-zod"
     ],
     "routes": [],
-    "hash": "08858fc7d6c806b6"
+    "hash": "c0e8a1bf21f1eedd"
   },
   {
     "path": "artifacts/api-server/src/lib/optionSignals.vwapLabel.test.ts",
@@ -4572,6 +4586,17 @@
     ],
     "routes": [],
     "hash": "0732720ea5c8e5f5"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/paperAdmission.a032.test.ts",
+    "purpose": "test",
+    "lines": 237,
+    "exports": [],
+    "externalImports": [
+      "vitest"
+    ],
+    "routes": [],
+    "hash": "c1a5d49b9482c1aa"
   },
   {
     "path": "artifacts/api-server/src/lib/paperAnalyticsFO.test.ts",
@@ -8069,15 +8094,16 @@
   {
     "path": "artifacts/scanner/src/lib/fnoAvailabilityRender.test.tsx",
     "purpose": "test",
-    "lines": 287,
+    "lines": 232,
     "exports": [],
     "externalImports": [
       "react",
       "react-dom/client",
-      "vitest"
+      "vitest",
+      "@/components/IndexFnoSetupAvailabilityStrip"
     ],
     "routes": [],
-    "hash": "9d262ebd7430bf3c"
+    "hash": "bc718d3bc672b11f"
   },
   {
     "path": "artifacts/scanner/src/lib/fnoEmptyState.test.ts",
@@ -8141,18 +8167,18 @@
   {
     "path": "artifacts/scanner/src/lib/fnoSetupAvailability.test.ts",
     "purpose": "test",
-    "lines": 264,
+    "lines": 269,
     "exports": [],
     "externalImports": [
       "vitest"
     ],
     "routes": [],
-    "hash": "4dfae09e92b5fb7c"
+    "hash": "9994e10b7f4373da"
   },
   {
     "path": "artifacts/scanner/src/lib/fnoSetupAvailability.ts",
     "purpose": "fno-engine",
-    "lines": 106,
+    "lines": 121,
     "exports": [
       "AvailabilityEntry",
       "SetupAvailabilityView",
@@ -8162,7 +8188,7 @@
     ],
     "externalImports": [],
     "routes": [],
-    "hash": "67486611750a9809"
+    "hash": "05544f6b2b5def6e"
   },
   {
     "path": "artifacts/scanner/src/lib/foCockpitView.test.ts",
@@ -9300,7 +9326,7 @@
   {
     "path": "artifacts/scanner/src/pages/options.tsx",
     "purpose": "ui-page",
-    "lines": 1810,
+    "lines": 1743,
     "exports": [],
     "externalImports": [
       "@/components/ui/card",
@@ -9315,7 +9341,7 @@
       "date-fns"
     ],
     "routes": [],
-    "hash": "b128edb8db9bf25b"
+    "hash": "b2cccb4e4fcb15ff"
   },
   {
     "path": "artifacts/scanner/src/pages/paper-reports.tsx",

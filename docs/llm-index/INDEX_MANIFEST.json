@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-27T14:02:12.250Z",
+  "generatedAt": "2026-07-28T07:25:31.211Z",
   "generatorVersion": "1.0.0",
   "files": {
     "artifacts/api-server/src/routes/admin.ts": {
@@ -938,9 +938,9 @@
       "mtime": "2026-05-06T14:27:23.697Z"
     },
     "artifacts/api-server/src/lib/optionSignals.ts": {
-      "hash": "08858fc7d6c806b6",
-      "lines": 3584,
-      "mtime": "2026-07-27T12:51:06.657Z"
+      "hash": "c0e8a1bf21f1eedd",
+      "lines": 3605,
+      "mtime": "2026-07-28T07:08:19.523Z"
     },
     "artifacts/api-server/src/lib/optionSnapshotAnalytics.ts": {
       "hash": "6f46087c9cd95893",
@@ -1568,9 +1568,9 @@
       "mtime": "2026-07-18T09:30:59.882Z"
     },
     "artifacts/scanner/src/pages/options.tsx": {
-      "hash": "b128edb8db9bf25b",
-      "lines": 1810,
-      "mtime": "2026-07-27T12:52:01.317Z"
+      "hash": "b2cccb4e4fcb15ff",
+      "lines": 1743,
+      "mtime": "2026-07-28T07:19:02.135Z"
     },
     "artifacts/scanner/src/pages/paper-reports.tsx": {
       "hash": "bdf9cdfe4482b23a",
@@ -1713,9 +1713,9 @@
       "mtime": "2026-07-18T09:30:59.878Z"
     },
     "artifacts/scanner/src/lib/fnoSetupAvailability.ts": {
-      "hash": "67486611750a9809",
-      "lines": 106,
-      "mtime": "2026-07-27T12:57:07.439Z"
+      "hash": "05544f6b2b5def6e",
+      "lines": 121,
+      "mtime": "2026-07-28T07:16:46.841Z"
     },
     "artifacts/scanner/src/lib/foCockpitView.ts": {
       "hash": "0b4a62f77517925f",
