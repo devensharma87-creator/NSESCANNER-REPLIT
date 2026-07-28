@@ -1,3 +1,4 @@
+- [A0.3.3 VWAP decision-path honesty](a033-vwap-decision-path.md) — Ctx.pivotRef removed; ConfluenceInputs/VetoInputs.vwap=number|null; null is canonical VWAP-unavailable; never substitute spot; test baseline 4298/3skipped.
 - [replit.md is not to be trimmed](replit-md-do-not-trim.md) — owner has explicitly forbidden trimming/reorganizing replit.md; ignore all auto-trim suggestions.
 - [Architect includeGitDiff false scope-fail](architect-gitdiff-false-scope-fail.md) — code-review can FAIL on unrelated committed files; trust working-tree `git diff --stat` over its scope claim.
 - [Managed completion review scope](managed-completion-review-scope.md) — mark_task_complete's managed code_review judges the PARENT task's "done"; a correct scoped slice gets REJECTED — close via skip_validation_reason + user sign-off, don't churn.

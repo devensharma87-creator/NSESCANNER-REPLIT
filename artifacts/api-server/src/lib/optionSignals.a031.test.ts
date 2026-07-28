@@ -98,15 +98,11 @@ function makeCtx(opts: {
   const spot = opts.spot ?? 24600;
   const atr15 = opts.atr15 ?? 30;
   const authVwap = opts.authVwap;
-  // pivotRef = authVwap when available (genuine), spot placeholder when unavailable.
-  // A0.3.2 renamed Ctx.vwap → Ctx.pivotRef to eliminate the proxy-as-vwap semantics.
-  const pivotRef = authVwap ?? spot;
   return {
     cfg:              NIFTY_CFG,
     spot,
     open0:            spot - 100,
     sessionChangePct: 0.4,
-    pivotRef,
     authVwap,
     vwapAvailable:    opts.vwapAvailable,
     vwapSeries:       [null, null, authVwap],

@@ -37,10 +37,15 @@ describe("scoreConfluence — vwapAvailable=false guard", () => {
     expect(vwapFactor!.polarity).toBe("neutral");
   });
 
-  it("VWAP factor detail mentions 'zero volume' when unavailable", () => {
+  it("VWAP factor detail mentions VWAP unavailability when unavailable (A0.3.3: no zero-volume assumption)", () => {
+    // A0.3.3: the canonical unavailability signal is vwap===null; vwapAvailable===false
+    // is the legacy flag. Both produce the same honest "unavailable" detail — the
+    // specific reason (zero volume vs null) is not assumed in the shared message.
     const result = scoreConfluence({ ...BASE, vwapAvailable: false });
     const vwapFactor = result.factors.find((f) => f.label === "VWAP");
-    expect(vwapFactor!.detail).toMatch(/zero volume/i);
+    expect(vwapFactor!.detail).toMatch(/unavailable/i);
+    // Must NOT claim a directional read when VWAP is unavailable
+    expect(vwapFactor!.detail.toLowerCase()).not.toMatch(/agrees|opposes|above|below/);
   });
 
   it("does NOT add VWAP factor weight to adjustedConfidence when unavailable", () => {

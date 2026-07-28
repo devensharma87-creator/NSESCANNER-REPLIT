@@ -662,7 +662,6 @@ function makeNoVwapCtx(vpIntraday: Ctx["vpIntraday"]): Ctx {
     spot:             24600,
     open0:            24500,
     sessionChangePct: 0.41,
-    pivotRef:         24600,        // geometric placeholder = spot when vwapAvailable=false
     authVwap:         null,         // null because vwapAvailable=false
     vwapAvailable:    false,
     vwapSeries:       [null],

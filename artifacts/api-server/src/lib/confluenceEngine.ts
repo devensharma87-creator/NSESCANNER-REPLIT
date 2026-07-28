@@ -35,13 +35,19 @@ export interface ConfluenceInputs {
   ema9: number;
   ema20: number;
   ema50: number;
-  vwap: number;
   /**
-   * Whether `vwap` is a real volume-weighted average price.
-   * False for cash indices (NIFTY/BANKNIFTY/SENSEX) whose Kite candles
-   * carry zero volume — `vwap` will be set to `spot` as a geometric
-   * placeholder but must NOT be scored as institutional fair value.
-   * When false, scoreVwap returns weight=0 / polarity="neutral".
+   * Authoritative session VWAP. Must be `null` when VWAP is genuinely
+   * unavailable (e.g. cash-index candles with zero volume). Passing
+   * `spot` as a geometric substitute is prohibited — use `null` instead.
+   * When `null`, scoreVwap returns weight=0 / polarity="neutral" with an
+   * honest "VWAP unavailable" detail; the confluence score is unaffected.
+   */
+  vwap: number | null;
+  /**
+   * Explicit VWAP availability flag. Must satisfy the invariant:
+   *   vwapAvailable === (vwap !== null)
+   * When `false` or `undefined`, scoreVwap returns weight=0 / polarity="neutral".
+   * Prefer passing `vwap: null` over setting this to false with a non-null `vwap`.
    */
   vwapAvailable?: boolean;
   /** intraday volume profile (last 60 15-min bars). null when warm-up or zero volume. */
@@ -136,14 +142,16 @@ function scoreEmaStack(i: ConfluenceInputs): ConfluenceFactor {
 }
 
 function scoreVwap(i: ConfluenceInputs): ConfluenceFactor {
-  // Cash indices (NIFTY/BANKNIFTY/SENSEX) carry zero candle volume — their
-  // VWAP is structurally unavailable. The `vwap` field is set to `spot` as
-  // a geometric placeholder. Scoring it would give a spurious "at VWAP"
-  // reading on every bar, so we return weight=0 with an honest label.
-  if (i.vwapAvailable === false) {
+  // Authoritative VWAP is unavailable when vwap===null (canonical) or when
+  // vwapAvailable===false (legacy flag). Both conditions produce the same
+  // honest diagnostic: weight=0, neutral polarity, no VWAP driver.
+  // A non-null vwap with vwapAvailable===false is also treated as unavailable
+  // (vwapAvailable takes priority — belt-and-suspenders for callers that
+  // haven't yet migrated to the null-canonical pattern).
+  if (i.vwap === null || i.vwapAvailable === false) {
     return {
       label: "VWAP", weight: 0, polarity: "neutral",
-      detail: "VWAP unavailable — index spot candles carry zero volume; cannot compute volume-weighted price",
+      detail: "Authoritative session VWAP unavailable — cannot compute volume-weighted price; VWAP factor excluded",
     };
   }
   const above = i.spot > i.vwap;

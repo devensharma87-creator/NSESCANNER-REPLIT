@@ -55,7 +55,13 @@ export const CHASE_VETO = {
 export interface VetoInputs {
   /** Latest spot (== closes.at(-1) in practice, passed explicitly). */
   spot: number;
-  vwap: number;
+  /**
+   * Authoritative session VWAP, or `null` when structurally unavailable
+   * (e.g. cash-index zero-volume candles). Must never be a spot-derived
+   * substitute. When `null`, all VWAP-dependent veto rules are skipped
+   * and the function returns { recovery: false, chase: false }.
+   */
+  vwap: number | null;
   ema9: number;
   /** 15-min ATR. Guards bail when <= 0. */
   atr15: number;
@@ -125,6 +131,13 @@ function finiteAtOffset(arr: (number | null)[], offsetFromEnd: number): number |
 
 export function evaluateDirectionalVetoes(v: VetoInputs): VetoEvaluation {
   const { spot, vwap, ema9, atr15, rsi14, highs, lows, closes, rsiSeries } = v;
+
+  // Authoritative VWAP is required for all veto rules in this function.
+  // When vwap===null (structurally unavailable — e.g. cash-index zero-volume
+  // candles), skip all VWAP-dependent rules rather than substitute spot.
+  if (vwap === null) {
+    return { recovery: false, chase: false };
+  }
 
   let recovery = false;
   let recoveryReason: string | undefined;

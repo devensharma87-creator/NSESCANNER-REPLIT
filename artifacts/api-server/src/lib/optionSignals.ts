@@ -205,19 +205,17 @@ export interface Ctx {
   spot: number;
   open0: number;
   sessionChangePct: number;
-  /** A0.3.2: geometric pivot reference = sessionVwap ?? spot. Used ONLY for geometry
-   * (stop/target, momentum check, confluenceInputs/veto connectors). Never labeled VWAP
-   * in signal output — c.authVwap is the authenticated VWAP for signal decisions.
-   */
-  pivotRef: number;
-  /** Authenticated session VWAP. Non-null only when vwapAvailable=true.
-   * Signal-decision paths (above/below VWAP gates, VWAP drivers) MUST use this, not pivotRef.
+  /**
+   * Authoritative session VWAP. Null when structurally unavailable (cash-index
+   * zero-volume candles). All VWAP-labelled paths (above/below VWAP gates,
+   * VWAP drivers, confluence VWAP factor, directional-veto VWAP rules,
+   * signal serialization) MUST use this field. Never substitute spot.
    */
   authVwap: number | null;
   /**
    * True only when the session VWAP is a genuine volume-weighted average:
    * `sessionVwap()` returned a non-null final value for this window.
-   * When false, `pivotRef` equals `spot` as a geometric placeholder — not institutional VWAP.
+   * Invariant: vwapAvailable === (authVwap !== null).
    */
   vwapAvailable: boolean;
   vwapSeries: (number | null)[];
@@ -534,7 +532,7 @@ function buildContext(cfg: IndexCfg, intra: YahooChart, daily: YahooChart): Ctx 
     cfg, spot, open0,
     prevClose,
     sessionChangePct: ((spot - open0) / open0) * 100,
-    pivotRef: effectiveVwap, authVwap: vwapRaw, vwapAvailable, vwapSeries,
+    authVwap: vwapRaw, vwapAvailable, vwapSeries,
     ema9: effectiveEma9, ema21: effectiveEma21,
     ema20: effectiveEma20, ema50: effectiveEma50,
     ema9Series, ema21Series,
@@ -943,7 +941,10 @@ function detectVolumeBreakout(c: Ctx): Detected | null {
   if (c.lastVol == null) return null;
   const lastVol = c.lastVol;
   const volOk = lastVol > c.avgVol20 * 1.3;
-  const momentumOk = dir === "BULLISH" ? c.spot > c.ema9 && c.spot > c.pivotRef : c.spot < c.ema9 && c.spot < c.pivotRef;
+  // A0.3.3: VWAP-labelled momentum check requires authoritative VWAP.
+  // Fail closed when authVwap is null rather than substitute spot.
+  if (!c.authVwap) return null;
+  const momentumOk = dir === "BULLISH" ? c.spot > c.ema9 && c.spot > c.authVwap : c.spot < c.ema9 && c.spot < c.authVwap;
   if (!volOk || !momentumOk) return null;
 
   const drivers: SignalReason[] = [];
@@ -1072,15 +1073,11 @@ function detectEmaPullback(c: Ctx): Detected | null {
 
 /** 5. Mean Reversion — extreme RSI + at session high/low extension */
 export function detectMeanReversion(c: Ctx): Detected | null {
-  // A0.3 D-FAB-07 / A0_2_RESIDUAL_PROPAGATION_GAP_DISCOVERED_IN_A0_3:
-  // MEAN_REVERSION requires a genuine session VWAP for the distance calculation.
-  // buildContext sets effectiveVwap = vwapRaw ?? spot (proxy). When unavailable:
-  //   dist = c.spot - c.spot = 0
-  //   extendedUp  = 0 > atr15*2  → always false
-  //   extendedDn  = 0 < -atr15*2 → always false
-  // This guard removes the spot-as-VWAP proxy from the decision path.
-  // The orchestration gate in buildSignalsForIndex provides defence-in-depth,
-  // but this detector-level guard is the authoritative fail-closed boundary.
+  // A0.3 D-FAB-07: MEAN_REVERSION requires authoritative session VWAP for the
+  // distance calculation. When vwapAvailable=false the distance would be
+  // computed as c.spot - null → NaN or TypeError, so we return null early.
+  // A0.3.3: Ctx.pivotRef (spot-as-VWAP proxy) is removed; c.authVwap is null
+  // when unavailable, making this guard the canonical fail-closed boundary.
   // No substitute (spot, HLC3, close, previous VWAP, VP levels) is used.
   if (!c.vwapAvailable) return null;
   const dist = c.spot - c.authVwap!;
@@ -1189,7 +1186,12 @@ function detectBaselineOutlook(c: Ctx): Detected | null {
 
   const conf = (c.vwapAvailable ? 35 : 30) + align * 5; // 35–55% with VWAP, 30–45% without
   const trigger = dir === "BULLISH" ? c.prevSwingHigh : c.prevSwingLow;
-  const stop = dir === "BULLISH" ? Math.min(c.pivotRef, c.ema21) - c.atr15 * 0.5 : Math.max(c.pivotRef, c.ema21) + c.atr15 * 0.5;
+  // A0.3.3: When VWAP is unavailable, use spot as the explicit geometry
+  // anchor for the stop formula — same numeric result as before (pivotRef
+  // equalled spot in that branch) but named honestly. Never passes a
+  // spot-derived value through a 'vwap'-labelled parameter.
+  const stopRef = c.vwapAvailable ? c.authVwap! : c.spot;
+  const stop = dir === "BULLISH" ? Math.min(stopRef, c.ema21) - c.atr15 * 0.5 : Math.max(stopRef, c.ema21) + c.atr15 * 0.5;
   // Ensure RR >= 1.5 by construction; expand pivot target if it's too tight.
   const risk = Math.abs(trigger - stop);
   const minReward = risk * 1.5;
@@ -1811,7 +1813,7 @@ export function buildSignalsForIndex(
           ema9: ctx.ema9,
           ema20: ctx.ema20,
           ema50: ctx.ema50,
-          vwap: ctx.pivotRef,
+          vwap: ctx.authVwap,
           vwapAvailable: ctx.vwapAvailable,
           // D-FAB-03 decision boundary: isIndexFno=true instructs the confluence
           // engine to block VP scoring unconditionally — even if vp is somehow
@@ -1952,7 +1954,7 @@ export function buildSignalsForIndex(
     hygieneOn && ctx.fullIndicators
       ? evaluateDirectionalVetoes({
           spot: ctx.spot,
-          vwap: ctx.pivotRef,
+          vwap: ctx.authVwap,
           ema9: ctx.ema9,
           atr15: ctx.atr15,
           rsi14: ctx.rsi14,

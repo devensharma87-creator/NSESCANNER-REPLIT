@@ -426,4 +426,115 @@ Phase A0.4 was not started.
 
 ---
 
+---
+
+## Section 19 — Phase A0.3.3: Final VWAP Decision-Path Honesty Closure
+
+**Session date:** 2026-07-28
+**Implementation HEAD at start:** `efb153af5362b011da167b397a8e17087bbc5481`
+
+### 19.1 Confirmed Defect
+
+A0.3.2 renamed `Ctx.vwap → Ctx.pivotRef` and separated `Ctx.authVwap` (null when unavailable) from the geometric reference. However, it left `pivotRef` (which equals `vwapRaw ?? spot` — a spot-derived substitute when VWAP is absent) flowing through **VWAP-labelled connector parameters**:
+
+| Site | Code before A0.3.3 | Defect class |
+|------|--------------------|--------------|
+| `confluenceInputs.vwap` (line 1814) | `vwap: ctx.pivotRef` | spot-as-VWAP in scoring engine |
+| `evaluateDirectionalVetoes.vwap` (line 1955) | `vwap: ctx.pivotRef` | spot-as-VWAP in veto function |
+| `detectVolumeBreakout` momentum (line 946) | `c.spot > c.pivotRef` labelled "VWAP + EMA9" | spot-derived comparison emitting VWAP-labelled driver |
+| `detectBaselineOutlook` stop anchor (line 1192) | `Math.min(c.pivotRef, c.ema21)` | unnamed spot-derived anchor when vwap absent |
+
+The confluence engine's `ConfluenceInputs.vwap` was typed `number` (not nullable), requiring callers to always pass a number. The `evaluateDirectionalVetoes` `VetoInputs.vwap` was also `number`. This prevented honest null-propagation.
+
+### 19.2 Changes Made
+
+**`artifacts/api-server/src/lib/confluenceEngine.ts`**
+- `ConfluenceInputs.vwap: number` → `vwap: number | null` (canonical: null = unavailable)
+- Updated JSDoc: removed "set to spot as geometric placeholder" (prohibited pattern)
+- `scoreVwap`: guard changed to `if (i.vwap === null || i.vwapAvailable === false)` — both canonical null and legacy flag handled; honest detail updated to "Authoritative session VWAP unavailable — cannot compute volume-weighted price; VWAP factor excluded"
+
+**`artifacts/api-server/src/lib/optionSignalVetoes.ts`**
+- `VetoInputs.vwap: number` → `vwap: number | null` with prohibiting JSDoc
+- `evaluateDirectionalVetoes`: explicit early return `if (vwap === null) return { recovery: false, chase: false }` — no fabrication, no silent spot substitution
+
+**`artifacts/api-server/src/lib/optionSignals.ts`**
+- Removed `pivotRef: number` from `Ctx` interface entirely (previously `vwapRaw ?? spot`)
+- Removed `pivotRef: effectiveVwap` from `buildContext` return (line 537)
+- Updated `Ctx.authVwap` JSDoc: now the sole VWAP-labelled field, no substitute
+- `detectVolumeBreakout` (line 946): added `if (!c.authVwap) return null` guard (fail-closed); changed `c.pivotRef` → `c.authVwap` in momentum comparison
+- `detectBaselineOutlook` (line 1192): introduced `const stopRef = c.vwapAvailable ? c.authVwap! : c.spot` — explicit honest naming; numeric result is unchanged in each branch
+- `confluenceInputs.vwap` (line 1814): changed `ctx.pivotRef` → `ctx.authVwap`
+- `evaluateDirectionalVetoes.vwap` (line 1955): changed `ctx.pivotRef` → `ctx.authVwap`
+- Updated `detectMeanReversion` comment: removed stale reference to `effectiveVwap = vwapRaw ?? spot`
+
+**Test files updated (Ctx construction, removing `pivotRef:` field):**
+- `optionSignals.a031.test.ts`: removed `pivotRef` local variable and field from `makeCtx` factory
+- `optionSignals.zeroVolume.test.ts`: removed `pivotRef: 24600` line from `makeNoVwapCtx`
+- `confluenceEngine.vwapGuard.test.ts`: updated detail-string assertion from `/zero volume/i` to `/unavailable/i` (new canonical message)
+- `pivotRefInventory.a032.test.ts`: **complete rewrite** — §13.2 inventory updated from "pivotRef present" assertions to "pivotRef absent" + authVwap connector assertions; added §13.5 A0.3.3 behavioral tests (Tests A–H, 35 total tests)
+
+### 19.3 Scope Boundary
+
+The `classifyRegimeWithHysteresis` call at line 525 still receives `vwap: effectiveVwap` (spot-derived proxy). This is classified as **category 4 — unrelated type/module**: the regime classifier produces a `TRENDING_BULL/BEAR/RANGING/VOLATILE/EXPIRY_DAY` label, not a VWAP-labelled confidence factor, driver, or veto output. It is out of scope per the narrow root-cause correction boundary. The `effectiveVwap` variable is retained in `buildContext` solely for this call.
+
+### 19.4 Post-Fix Consumer Audit
+
+After A0.3.3, `c.pivotRef` / `ctx.pivotRef` produce **zero matches** in non-comment production code.
+
+| Consumer | Status after A0.3.3 |
+|----------|---------------------|
+| `ConfluenceInputs.vwap` | Receives `ctx.authVwap` (null when unavailable → VWAP factor weight=0/neutral) |
+| `VetoInputs.vwap` | Receives `ctx.authVwap` (null → early-return, both vetoes false) |
+| `detectVolumeBreakout` momentum | `if (!c.authVwap) return null` guard; uses `c.authVwap` directly |
+| `detectBaselineOutlook` stop | `stopRef = vwapAvailable ? authVwap! : spot` — explicit and honest |
+| `detectMeanReversion` | Unchanged — already guarded by `if (!c.vwapAvailable) return null` |
+| Signal serialization (`vwap:` field) | Unchanged — already used `c.authVwap != null ? round2(c.authVwap) : undefined` |
+
+### 19.5 Test Evidence
+
+All test commands were run on the working tree (7 modified files, uncommitted). TypeScript typecheck (`pnpm exec tsc --noEmit`) produced **zero errors** after all changes.
+
+| Suite | Files | Passed | Skipped | Failed |
+|-------|-------|--------|---------|--------|
+| A0.3.3 new tests | `pivotRefInventory.a032.test.ts` (rewritten) | **35** | 0 | 0 |
+| A0.3 indicators baseline | `indicators.test.ts`, `indicatorsShared.test.ts` | **120** | 0 | 0 |
+| A0.3 zero-volume baseline | `optionSignals.zeroVolume.test.ts` | **67** | 0 | 0 |
+| vwapGuard (updated) | `confluenceEngine.vwapGuard.test.ts` | **7** | 0 | 0 |
+| A0.3 acceptance | 6 api-server route/serializer files | **213** | 0 | 0 |
+| Trading boundary | `c0Enforcement.test.ts`, `paperAdmission.a032.test.ts` | **35** | 0 | 0 |
+| Full api-server suite | All 213 test files | **4298** | 3 | 0 |
+| Scanner tsc | `artifacts/scanner` TypeScript compile | **0 errors** | — | — |
+
+**Full suite delta vs A0.3.2 baseline:** +19 tests (pivotRefInventory: 35 new − 16 old = +19). The 3 skipped are pre-existing `paperTradingEqProvenance.test.ts` DB-isolation guard skips, unchanged from A0.3.2.
+
+### 19.6 Behavioral Invariants Proved (Tests A–H)
+
+| Test | Invariant |
+|------|-----------|
+| A | `scoreConfluence({vwap: null})` → VWAP factor weight=0, polarity=neutral, detail mentions "unavailable" |
+| B | `scoreConfluence({vwap: null, vwapAvailable: true})` → still weight=0 (null wins over inconsistent flag) |
+| C | `scoreConfluence({vwap: real, vwapAvailable: true})` → VWAP factor properly scored (authentic path preserved) |
+| D | `evaluateDirectionalVetoes({vwap: null})` → `{recovery: false, chase: false}` unconditionally |
+| E | `evaluateDirectionalVetoes({vwap: non-null, extension ≥ 2×ATR, RSI ≥ 70, vertical run})` → `chase: true` (authentic path preserved) |
+| F | `buildSignalsForIndex` on zero-volume NIFTY chart → no fabricated VWAP driver; stop geometry computes a finite value |
+| G | Regime classifier receives non-null `effectiveVwap` (out-of-scope, noted) → no crash |
+| H | `ConfluenceInputs.vwap: number | null` and `VetoInputs.vwap: number | null` confirmed in source; early-return guard pattern confirmed in veto source |
+
+### 19.7 Git State at Evidence Write
+
+```
+HEAD:     efb153af5362b011da167b397a8e17087bbc5481
+Status:   M (7 modified production/test files, uncommitted)
+          ?? attached_assets/MARKET_SCANNER_PROMPT_...
+Branch:   main
+Upstream: origin/main
+Ahead/behind: 0 4 (4 local commits not pushed)
+4af42c1: IS ancestor
+b611fd2: IS ancestor
+```
+
+Working tree contains all A0.3.3 changes. No commit created for this evidence update (per §16 convention — evidence is a living document updated in-place in the working tree before commit). Nothing was pushed. Nothing was deployed. No database or secret was changed.
+
+---
+
 END OF PHASE A0.3 SETUP VIABILITY AND HONEST RETIREMENT RECORD
