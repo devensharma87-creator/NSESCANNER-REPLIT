@@ -76,15 +76,6 @@ export const OPTION_INDICES: IndexCfg[] = [
 ];
 
 /**
- * A0.3.2 — Canonical union type for the three cash indices supported in the
- * index-F&O pipeline. Used as the identity key in `IndexFnoSetupAvailability`.
- * Must match OPTION_INDICES symbols exactly — the ordering here defines the
- * ordering of records in `computeAllIndexFnoSetupAvailability()`.
- */
-export type SupportedFnoIndex = "NIFTY" | "BANKNIFTY" | "SENSEX";
-export const SUPPORTED_FNO_INDICES: readonly SupportedFnoIndex[] = ["NIFTY", "BANKNIFTY", "SENSEX"] as const;
-
-/**
  * Single source of truth mapping OPTION_INDICES.symbol → the Yahoo-style
  * key the live-LTP source (`getKiteIndexQuotes`) returns. The historical
  * Yahoo intraday endpoint and the live Kite-LTP source disagree on which
@@ -214,44 +205,21 @@ export interface Ctx {
   spot: number;
   open0: number;
   sessionChangePct: number;
-  /**
-   * A0.3.2 — Geometric price reference: effectiveVwap = sessionVwap ?? spot.
-   *
-   * Used ONLY for stop/target geometry and baseline stop formulas where
-   * a numeric price level is needed regardless of VWAP availability
-   * (e.g. `Math.min(pivotRef, ema21) - atr15 * 0.5`). This is NOT labelled
-   * "VWAP" in any scored output — it is a pivot/geometry reference only.
-   *
-   * When vwapAvailable=false this equals `spot`. Callers that need a genuine
-   * volume-weighted price for signal DECISIONS must use `authVwap` (which is
-   * null when unavailable) — never this field. Renaming from "vwap" prevents
-   * accidental use in confidence/direction scoring.
+  /** A0.3.2: geometric pivot reference = sessionVwap ?? spot. Used ONLY for geometry
+   * (stop/target, momentum check, confluenceInputs/veto connectors). Never labeled VWAP
+   * in signal output — c.authVwap is the authenticated VWAP for signal decisions.
    */
   pivotRef: number;
+  /** Authenticated session VWAP. Non-null only when vwapAvailable=true.
+   * Signal-decision paths (above/below VWAP gates, VWAP drivers) MUST use this, not pivotRef.
+   */
+  authVwap: number | null;
   /**
    * True only when the session VWAP is a genuine volume-weighted average:
    * `sessionVwap()` returned a non-null final value for this window.
-   * When false, `pivotRef` equals `spot` as a geometric placeholder and
-   * MUST NOT be surfaced as institutional fair value. Detectors must gate
-   * their VWAP-dependent drivers on this flag.
-   * Provider/provenance trust is not asserted here — this flag reflects the
-   * numeric outcome of the indicator helper, not the data source.
-   *
-   * For signal-DECISION paths that require genuine VWAP, use `authVwap`
-   * (which is null when unavailable) rather than `pivotRef` (which holds
-   * `spot` as a geometric placeholder). This eliminates the spot-as-VWAP
-   * proxy from signal decisions even if a guard is accidentally removed.
+   * When false, `pivotRef` equals `spot` as a geometric placeholder — not institutional VWAP.
    */
   vwapAvailable: boolean;
-  /**
-   * A0.3.1 — Authoritative session VWAP: the raw computed value (vwapRaw)
-   * when available, null otherwise. Unlike `vwap` (which falls back to `spot`
-   * as a geometric placeholder when unavailable), `authVwap` is explicitly null
-   * when VWAP is unavailable. Use this in all signal-decision paths that require
-   * genuine VWAP (detectMeanReversion). Null when vwapAvailable=false — never
-   * substitutes spot, HLC3, or any other proxy.
-   */
-  authVwap: number | null;
   vwapSeries: (number | null)[];
   ema9: number;
   ema21: number;
@@ -566,10 +534,6 @@ function buildContext(cfg: IndexCfg, intra: YahooChart, daily: YahooChart): Ctx 
     cfg, spot, open0,
     prevClose,
     sessionChangePct: ((spot - open0) / open0) * 100,
-    // A0.3.2: pivotRef = effectiveVwap (spot fallback for geometry-only calcs).
-    // authVwap = vwapRaw (null when unavailable, no proxy).
-    // Signal-decision paths (e.g. detectMeanReversion) must use authVwap.
-    // pivotRef must NEVER appear in scored signal outputs labelled as VWAP.
     pivotRef: effectiveVwap, authVwap: vwapRaw, vwapAvailable, vwapSeries,
     ema9: effectiveEma9, ema21: effectiveEma21,
     ema20: effectiveEma20, ema50: effectiveEma50,
@@ -1107,7 +1071,6 @@ function detectEmaPullback(c: Ctx): Detected | null {
 }
 
 /** 5. Mean Reversion — extreme RSI + at session high/low extension */
-// A0.3.1: exported for §12.3 direct detector safety tests.
 export function detectMeanReversion(c: Ctx): Detected | null {
   // A0.3 D-FAB-07 / A0_2_RESIDUAL_PROPAGATION_GAP_DISCOVERED_IN_A0_3:
   // MEAN_REVERSION requires a genuine session VWAP for the distance calculation.
@@ -1120,14 +1083,7 @@ export function detectMeanReversion(c: Ctx): Detected | null {
   // but this detector-level guard is the authoritative fail-closed boundary.
   // No substitute (spot, HLC3, close, previous VWAP, VP levels) is used.
   if (!c.vwapAvailable) return null;
-  // A0.3.1: Use c.authVwap (the raw computed value, never a spot-proxy) for all
-  // signal-decision arithmetic in this function. At this point c.vwapAvailable=true
-  // guarantees c.authVwap is non-null. c.vwap (effectiveVwap) is NOT used here —
-  // it holds spot as a geometric fallback for other callers and MUST NOT enter the
-  // MEAN_REVERSION distance / extension check even as a fallback path.
-  // Source-search evidence: "effectiveVwap" does not appear inside detectMeanReversion.
-  const authVwap = c.authVwap!;
-  const dist = c.spot - authVwap;
+  const dist = c.spot - c.authVwap!;
   const extendedUp = dist > c.atr15 * 2 && c.rsi14 > 75;
   const extendedDn = dist < -c.atr15 * 2 && c.rsi14 < 25;
   if (!extendedUp && !extendedDn) return null;
@@ -1137,7 +1093,7 @@ export function detectMeanReversion(c: Ctx): Detected | null {
   let conf = 60;
   drivers.push({
     label: dir === "BEARISH" ? "Overbought + extended above VWAP" : "Oversold + extended below VWAP",
-    detail: `RSI ${c.rsi14.toFixed(1)}, ${Math.abs(dist).toFixed(2)} pts (${(Math.abs(dist) / c.atr15).toFixed(1)}× ATR) from VWAP ${authVwap.toFixed(2)}.`,
+    detail: `RSI ${c.rsi14.toFixed(1)}, ${Math.abs(dist).toFixed(2)} pts (${(Math.abs(dist) / c.atr15).toFixed(1)}× ATR) from VWAP ${c.authVwap!.toFixed(2)}.`,
     weight: 25, bullish: dir === "BULLISH",
   });
   drivers.push({
@@ -1160,7 +1116,7 @@ export function detectMeanReversion(c: Ctx): Detected | null {
     ? c.bars.h.at(-1)! // above last bar high (touch trigger)
     : c.bars.l.at(-1)!; // below last bar low (touch trigger)
   const stop = dir === "BULLISH" ? c.spot - c.atr15 * 0.6 : c.spot + c.atr15 * 0.6;
-  const t1 = authVwap; // authoritative VWAP: mean-reversion target for both directions
+  const t1 = dir === "BULLISH" ? c.authVwap! : c.authVwap!;
   const t2 = dir === "BULLISH" ? c.ema21 : c.ema21;
 
   return {
@@ -1549,12 +1505,10 @@ function toSignal(c: Ctx, d: Detected, tier: "HIGH_CONVICTION" | "BASELINE"): Op
  * Defects closed: D-FAB-06 (VOLUME_BREAKOUT), D-FAB-07 (MEAN_REVERSION),
  * carried no-VWAP TREND_CONTINUATION from A0.1.
  */
+export type SupportedFnoIndex = "NIFTY" | "BANKNIFTY" | "SENSEX";
+
 export interface IndexFnoSetupAvailability {
-  /**
-   * A0.3.2 — Which index this record applies to. Together with `setupKey`
-   * this forms the composite identity key. One record per (indexSymbol, setupKey)
-   * pair. The API always returns exactly 9 records: 3 indices × 3 setups.
-   */
+  /** A0.3.2: Which cash index this entry applies to. */
   indexSymbol: SupportedFnoIndex;
   /** Stable setup identifier matching OptionSignal.setupKey. */
   setupKey: string;
@@ -1577,42 +1531,46 @@ export interface IndexFnoSetupAvailability {
 }
 
 /**
- * A0.3.2 — Compute the authoritative setup availability for a single index.
+ * A0.3 — Compute the authoritative setup availability for index-F&O.
  *
  * This is the SINGLE SOURCE OF TRUTH for which detectors may emit in the
  * index-F&O context. The same result drives:
  *   1. Orchestration-level eligibility gating (before the detector loop).
- *   2. API serialization (via computeAllIndexFnoSetupAvailability()).
- *   3. UI disclosure (IndexFnoSetupAvailabilityStrip component).
+ *   2. API serialization (exposed in setupState.indexFnoSetupAvailability).
+ *   3. UI disclosure (options.tsx setup-availability strip).
  *
- * Always-unavailable (structural cash-index policy, data-independent):
+ * Always-unavailable (structural cash-index policy, independent of ctx):
  *   VOLUME_BREAKOUT — requires traded vp + lastVol + avgVol20; cash-index
  *     candles always have zero volume; A0.2 volumeProfile() returns null.
  *   MEAN_REVERSION — requires genuine session VWAP; effectiveVwap=spot is a
  *     proxy (A0_2_RESIDUAL_PROPAGATION_GAP_DISCOVERED_IN_A0_3); dist=0 makes
  *     both extension conditions permanently false. Guard added in detector.
- *   TREND_CONTINUATION_NO_VWAP — always retired for cash indices:
- *     Cash-index operational max conf = EMA(20) + RSI(15) + vol-confirm(0) = 35
- *     (vol-confirm never fires because lastVol=avgVol20=0). Branch threshold = 50.
- *     Branch non-emitting regardless of vwapAvailable state.
+ *
+ * Policy-unavailable when vwapAvailable=false (always true for cash indices):
+ *   TREND_CONTINUATION (no-VWAP branch) — max confidence arithmetic:
+ *     Generic theoretical maximum:  EMA(20) + RSI(15) + vol-confirm(8) = 43
+ *     Cash-index operational max:   EMA(20) + RSI(15) + vol-confirm(0)  = 35
+ *       because lastVol=avgVol20=0 → (0 > 0 × 1.2) = false → vol-confirm never fires.
+ *     Branch threshold = 50. Neither 43 nor 35 reaches 50. Branch non-emitting.
  *
  * The VWAP-available TREND_CONTINUATION path (conf base 45, reachable ≥50)
  * is ACTIVE — no entry is added for it.
  *
- * Always returns exactly 3 records for the given indexSymbol.
- * Use computeAllIndexFnoSetupAvailability() for the full 9-record contract.
- *
- * @param indexSymbol - One of the three supported cash indices.
+ * @param vwapAvailable - Pass ctx.vwapAvailable when ctx is available;
+ *   pass false as the conservative default when ctx is null (no bars/data).
  */
 export function computeIndexFnoSetupAvailability(
   indexSymbol: SupportedFnoIndex,
 ): IndexFnoSetupAvailability[] {
+  // A0.3.2: Always returns exactly 3 entries for the given cash index.
+  // Cash indices (NIFTY/BANKNIFTY/SENSEX) structurally have zero volume — no session VWAP.
+  // This is the single source of truth for per-index setup retirement.
+  // All three setups are unconditionally unavailable for cash indices:
+  //   VOLUME_BREAKOUT  — requires traded volume (structurally zero for cash indices)
+  //   MEAN_REVERSION   — requires genuine session VWAP (unavailable without volume)
+  //   TREND_CONTINUATION (no-VWAP branch) — max conf 35 < threshold 50 (cannot emit)
   return [
     // D-FAB-06: VOLUME_BREAKOUT — always unavailable for index F&O.
-    // Two independent null boundaries:
-    //   A0.2 boundary: volumeProfile() returns null when totalVol=0 (cash-index structural).
-    //   A0.1 boundary: caller passes vp:null + isIndexFno:true to confluenceEngine
-    //                  (defence in depth — engine blocks VP scoring unconditionally).
     {
       indexSymbol,
       setupKey: "VOLUME_BREAKOUT",
@@ -1626,9 +1584,6 @@ export function computeIndexFnoSetupAvailability(
       eligibleForEmission: false,
     },
     // D-FAB-07: MEAN_REVERSION — always unavailable for index F&O.
-    // A0_2_RESIDUAL_PROPAGATION_GAP_DISCOVERED_IN_A0_3: when VWAP unavailable:
-    //   dist = c.spot - c.authVwap → null → detector returns null (guard added A0.3.1).
-    // Detector-level guard (if !c.vwapAvailable) added in detectMeanReversion.
     {
       indexSymbol,
       setupKey: "MEAN_REVERSION",
@@ -1642,27 +1597,19 @@ export function computeIndexFnoSetupAvailability(
       scope: "INDEX_FNO",
       eligibleForEmission: false,
     },
-    // A0.3.1/A0.3.2: TREND_CONTINUATION_NO_VWAP — always retired for all cash indices.
-    // The setupKey distinguishes this retirement record from the VWAP-available
-    // TREND_CONTINUATION setup (which remains ACTIVE when vwapAvailable=true).
-    // The orchestration mapping SETUP_KEY_TO_DET_NAME maps this key to the
-    // "trend_continuation" detector name.
-    //
-    // A0.3.2: This was previously conditional on vwapAvailable=false. Cash indices
-    // structurally always have vwapAvailable=false (zero volume → no session VWAP),
-    // so the condition was always true. Removing the conditional makes this
-    // data-independent and guarantees the 3-record contract regardless of runtime state.
+    // TREND_CONTINUATION (no-VWAP branch) — always retired for cash indices.
+    // Generic theoretical max conf = EMA(20) + RSI(15) + vol-confirm(8) = 43.
+    // Cash-index operational max = EMA(20) + RSI(15) + vol-confirm(0) = 35
+    //   (vol-confirm requires lastVol > 0, which never fires for zero-volume indices).
+    // Branch threshold = 50. Cannot emit without fabricated volume or threshold relaxation.
     {
       indexSymbol,
       setupKey: "TREND_CONTINUATION_NO_VWAP",
       status: "RETIRED_INDEX_FNO_POLICY",
       reasonCode: "SETUP_RETIRED_UNDER_CURRENT_INDEX_FNO_POLICY",
       explanation:
-        "Trend Continuation (no-VWAP branch): generic theoretical max conf = " +
-        "EMA(20) + RSI(15) + vol-confirm(8) = 43; cash-index operational max = " +
-        "EMA(20) + RSI(15) + vol-confirm(0) = 35 (vol-confirm requires lastVol > 0, " +
-        "which never fires for zero-volume indices). Branch threshold = 50. " +
-        "Setup cannot emit without fabricated volume or threshold relaxation — both prohibited.",
+        "Trend Continuation (no-VWAP branch): max conf = 35 < threshold 50 for " +
+        indexSymbol + " (zero-volume cash index). Cannot emit without fabricated volume or threshold relaxation — both prohibited.",
       missingInputs: ["sessionVwap"],
       scope: "INDEX_FNO",
       eligibleForEmission: false,
@@ -1671,21 +1618,13 @@ export function computeIndexFnoSetupAvailability(
 }
 
 /**
- * A0.3.2 — Compute the full 9-record setup availability contract.
- *
- * Pure function. No runtime dependencies. Deterministic regardless of
- * session state, signal success/failure, or data availability.
- *
- * Returns exactly 9 records: 3 setups × 3 indices (NIFTY, BANKNIFTY, SENSEX).
- * Records are ordered by index (NIFTY first) then by setup within each index.
- * Identity key: (indexSymbol, setupKey) — unique across all 9 records.
- *
- * This replaces the previous runtime indexFnoAvailMap dedup approach, which
- * produced 2–3 records depending on vwapAvailable state and required a
- * per-cycle fallback seed when all indices were suppressed.
+ * A0.3.2 — Canonical 9-record contract: one entry per (index × setup) combination.
+ * Always returns exactly 9 entries: 3 indices × 3 retired setups each.
+ * This is the authoritative source for getOptionSignals() and the scanner route.
  */
 export function computeAllIndexFnoSetupAvailability(): IndexFnoSetupAvailability[] {
-  return SUPPORTED_FNO_INDICES.flatMap(idx => computeIndexFnoSetupAvailability(idx));
+  const indices: SupportedFnoIndex[] = ["NIFTY", "BANKNIFTY", "SENSEX"];
+  return indices.flatMap(idx => computeIndexFnoSetupAvailability(idx));
 }
 
 export interface IndexBuildResult {
@@ -1762,13 +1701,10 @@ export function buildSignalsForIndex(
   // The same object is returned in IndexBuildResult → API → UI (no divergent lists).
   const setupAvailability = computeIndexFnoSetupAvailability(cfg.symbol as SupportedFnoIndex);
   // Detector name → setupKey mapping (must match the detectors array below).
-  // A0.3.1: TREND_CONTINUATION_NO_VWAP maps to the "trend_continuation" detector.
-  // The setupKey uses the lane-specific name to distinguish only the no-VWAP branch
-  // (which is retired) from the VWAP-available TREND_CONTINUATION (which stays ACTIVE).
   const SETUP_KEY_TO_DET_NAME: Record<string, string> = {
     VOLUME_BREAKOUT: "volume_breakout",
     MEAN_REVERSION: "mean_reversion",
-    TREND_CONTINUATION_NO_VWAP: "trend_continuation",
+    TREND_CONTINUATION: "trend_continuation",
   };
   // Set of detector names that must NOT be invoked this cycle.
   // Built from the availability contract — any status !== "ACTIVE" means the
@@ -2908,6 +2844,11 @@ export async function getOptionSignals(): Promise<OptionSignalsResult> {
   let indicesWithBars = 0;
   let highConvictionCount = 0;
   let baselineCount = 0;
+  // A0.3: accumulate setup availability across per-index results and deduplicate
+  // by setupKey. All indices are cash indices with identical structural availability;
+  // the map ensures exactly one entry per setup in the final OptionSignalsResult.
+  const indexFnoAvailMap = new Map<string, IndexFnoSetupAvailability>();
+
   // Sweep stale PENDING rows BEFORE loading gate context so the circuit
   // breaker / bias-flip queries see today's most up-to-date counts.
   // Idempotent and cheap when there are no stale rows.
@@ -3018,6 +2959,13 @@ export async function getOptionSignals(): Promise<OptionSignalsResult> {
         s.dataQuality = quality;
       }
       bundles.push({ signals: r.signals, snapshot: r.snapshot });
+      // A0.3: collect setupAvailability into the deduplication map.
+      // First occurrence of each setupKey wins (all indices agree — cash indices only).
+      for (const entry of r.setupAvailability) {
+        if (!indexFnoAvailMap.has(entry.setupKey)) {
+          indexFnoAvailMap.set(entry.setupKey, entry);
+        }
+      }
       // Phase-1 IVR/IVP — snapshot ATM IV for THIS index regardless of
       // whether any signal emitted (so BANKEX/MIDCPNIFTY accumulate IV
       // history even on quiet days). Best-effort: any failure (chain
@@ -3066,6 +3014,12 @@ export async function getOptionSignals(): Promise<OptionSignalsResult> {
     }
   }
 
+  // A0.3: Ensure indexFnoAvailMap is always populated, even when all indices
+  // were suppressed before reaching buildSignalsForIndex (e.g. all three failed
+  // the intraday/daily availability checks). The structural unavailability is
+  // data-independent — cash indices always have zero volume, no session VWAP.
+  // Seed the map from the canonical static contract so the API always returns
+  // the honest availability on every response variant.
   // ---------------- Phase-1 post-detection gates ----------------
   //
   // These run BEFORE lifecycle persistence so vetoed / suppressed
@@ -3542,10 +3496,10 @@ export async function getOptionSignals(): Promise<OptionSignalsResult> {
   };
   const result: OptionSignalsResult = {
     signals: out,
-    // A0.3.2: pure function — always exactly 9 records (3 indices × 3 setups).
-    // Data-independent: determined by the cash-index structural policy, not by
-    // per-cycle success/failure. No map/dedup needed. Per-index suppression
-    // detail is reported in diagnostics.suppressed only.
+    // A0.3: deduplicated setup availability across all evaluated cash indices.
+    // All suppressed entries that failed the orchestration gate are already in
+    // each IndexBuildResult.suppressed; this array carries the authoritative
+    // per-setup availability contract for API consumers and the UI.
     indexFnoSetupAvailability: computeAllIndexFnoSetupAvailability(),
     diagnostics: {
       indicesConfigured: OPTION_INDICES.length,

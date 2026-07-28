@@ -662,9 +662,9 @@ function makeNoVwapCtx(vpIntraday: Ctx["vpIntraday"]): Ctx {
     spot:             24600,
     open0:            24500,
     sessionChangePct: 0.41,
-    pivotRef:         24600,        // A0.3.2 rename: placeholder = spot when vwapAvailable=false
+    pivotRef:         24600,        // geometric placeholder = spot when vwapAvailable=false
+    authVwap:         null,         // null because vwapAvailable=false
     vwapAvailable:    false,
-    authVwap:         null,    // A0.3.1: no proxy — explicitly null when unavailable
     vwapSeries:       [null],
     ema9:             24580,        // ema9 > ema21 AND spot > ema9 → BULLISH stack
     ema21:            24550,

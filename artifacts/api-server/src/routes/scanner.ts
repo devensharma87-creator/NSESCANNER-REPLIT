@@ -236,7 +236,7 @@ router.get("/options/signals", requireSubscriberOrOwner("FNO"), async (_req, res
       // A0.3: authoritative per-setup availability for index F&O.
       // Required on every response — normal, market-closed, stale/degraded, no-signal.
       // Unavailable setups are not counted in liveSetupsCount.
-      indexFnoSetupAvailability: indexFnoSetupAvailability ?? [],
+      indexFnoSetupAvailability: indexFnoSetupAvailability,
     };
     // Kite CSV parser returns instrument_token as a string; coerce to number
     // before Zod parse (affects both live signals and disk-cached signals).
