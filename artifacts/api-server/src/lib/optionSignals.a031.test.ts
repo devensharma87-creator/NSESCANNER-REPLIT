@@ -98,14 +98,15 @@ function makeCtx(opts: {
   const spot = opts.spot ?? 24600;
   const atr15 = opts.atr15 ?? 30;
   const authVwap = opts.authVwap;
-  // vwap = authVwap when available (genuine), spot placeholder when unavailable.
-  const vwap = authVwap ?? spot;
+  // pivotRef = authVwap when available (genuine), spot placeholder when unavailable.
+  // A0.3.2 renamed Ctx.vwap → Ctx.pivotRef to eliminate the proxy-as-vwap semantics.
+  const pivotRef = authVwap ?? spot;
   return {
     cfg:              NIFTY_CFG,
     spot,
     open0:            spot - 100,
     sessionChangePct: 0.4,
-    vwap,
+    pivotRef,
     authVwap,
     vwapAvailable:    opts.vwapAvailable,
     vwapSeries:       [null, null, authVwap],
@@ -161,8 +162,8 @@ describe("§12.2 Orchestration — setupAvailability from buildSignalsForIndex",
       expect(result.setupAvailability.length).toBeGreaterThan(0);
     });
 
-    it("setupAvailability matches computeIndexFnoSetupAvailability(false) when no bars", () => {
-      const expected = computeIndexFnoSetupAvailability(false);
+    it("setupAvailability matches computeIndexFnoSetupAvailability(\"NIFTY\") when no bars", () => {
+      const expected = computeIndexFnoSetupAvailability("NIFTY");
       expect(result.setupAvailability).toHaveLength(expected.length);
       const resultKeys = result.setupAvailability.map(e => e.setupKey).sort();
       const expectedKeys = expected.map(e => e.setupKey).sort();
@@ -544,9 +545,10 @@ describe("§12.5 A0.2 non-regression — sessionVwap() + volumeProfile() fail-cl
 
 describe("§12.6 A0.3.2 — Real Zod schema validation and 9-record contract", () => {
   // Extract the inner availability array schema from the real production Zod schema.
-  const availabilityArraySchema = GetOptionSignalsResponse
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const availabilityArraySchema = (GetOptionSignalsResponse
     .shape.setupState
-    .unwrap()  // .optional() → inner object schema
+    .unwrap() as any)  // .optional() → inner object schema; cast needed for TS inference depth
     .shape.indexFnoSetupAvailability;
 
   const entrySchema = availabilityArraySchema.element;
@@ -697,8 +699,9 @@ describe("§12.6 A0.3.2 — Real Zod schema validation and 9-record contract", (
     it("state: no bars (buildSignalsForIndex with empty charts) → 3 records for NIFTY", () => {
       const NIFTY_CFG = OPTION_INDICES.find(c => c.symbol === "NIFTY")!;
       // Empty charts → buildContext returns null → no-bars fallback
-      const emptyIntra = { timestamps: [], open: [], high: [], low: [], close: [], volume: [] };
-      const emptyDaily = { timestamps: [], open: [], high: [], low: [], close: [], volume: [] };
+      const minMeta = { symbol: "NIFTY", regularMarketPrice: 0 };
+      const emptyIntra = { symbol: "NIFTY", meta: minMeta, timestamps: [], open: [], high: [], low: [], close: [], volume: [] };
+      const emptyDaily = { symbol: "NIFTY", meta: minMeta, timestamps: [], open: [], high: [], low: [], close: [], volume: [] };
       const result = buildSignalsForIndex(NIFTY_CFG, emptyIntra, emptyDaily);
       expect(result.setupAvailability).toHaveLength(3);
       expect(result.setupAvailability[0].indexSymbol).toBe("NIFTY");

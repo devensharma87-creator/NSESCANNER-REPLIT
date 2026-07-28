@@ -3312,12 +3312,17 @@ components:
     FnoSetupAvailabilityEntry:
       type: object
       description: >
-        A0.3 — availability record for a single index-F&O setup/lane.
-        One entry per retired/unavailable setup; no entry for ACTIVE setups.
+        A0.3 / A0.3.2 — availability record for a single index-F&O setup per cash index.
+        One entry per (indexSymbol, setupKey) pair for retired/unavailable setups; no entry
+        for ACTIVE setups. The full contract is exactly 9 records (3 indices × 3 setups).
         The same authoritative result governs detector eligibility, API serialization,
         and UI disclosure. Do not maintain divergent lists across these three surfaces.
-      required: [setupKey, status, reasonCode, explanation, missingInputs, scope, eligibleForEmission]
+      required: [indexSymbol, setupKey, status, reasonCode, explanation, missingInputs, scope, eligibleForEmission]
       properties:
+        indexSymbol:
+          type: string
+          enum: [NIFTY, BANKNIFTY, SENSEX]
+          description: "A0.3.2 — Which cash index this availability record applies to. One of the three supported F&O cash indices."
         setupKey:
           type: string
           description: "Stable setup identifier matching OptionSignal.setupKey."
@@ -3356,12 +3361,16 @@ components:
         noSetupReason:    { type: string, nullable: true, description: "Human-readable reason when liveSetupsCount=0 during market hours." }
         indexFnoSetupAvailability:
           type: array
+          minItems: 9
+          maxItems: 9
           description: >
-            A0.3 — authoritative setup availability for index F&O. One entry per
-            retired/unavailable setup (VOLUME_BREAKOUT, MEAN_REVERSION, no-VWAP
-            TREND_CONTINUATION). Required on every response that includes setupState —
-            including market-closed, stale/degraded, and no-signal variants.
+            A0.3.2 — authoritative per-index setup availability for index F&O.
+            Exactly 9 records: 3 cash indices (NIFTY, BANKNIFTY, SENSEX) × 3 retired/unavailable
+            setups (VOLUME_BREAKOUT, MEAN_REVERSION, TREND_CONTINUATION_NO_VWAP).
+            Required on every response that includes setupState — including market-closed,
+            stale/degraded, and no-signal variants.
             Unavailable setups must not appear in liveSetupsCount or be counted active.
+            The cardinality constraint (minItems/maxItems: 9) is enforced at the Zod layer.
           items:
             $ref: "#/components/schemas/FnoSetupAvailabilityEntry"
 

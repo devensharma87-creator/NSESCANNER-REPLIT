@@ -33,9 +33,11 @@ const BANKNIFTY_CFG = OPTION_INDICES.find(c => c.symbol === "BANKNIFTY")!;
 const SENSEX_CFG = OPTION_INDICES.find(c => c.symbol === "SENSEX")!;
 
 /** Zero-volume intraday chart — cash-index structural reality. */
-function makeZeroVolIntra(n: number, flat: number): YahooChart {
+function makeZeroVolIntra(n: number, flat: number, sym = "NIFTY"): YahooChart {
   const ts = Array.from({ length: n }, (_, i) => 1_700_000_000 + i * 900);
   return {
+    symbol: sym,
+    meta: { symbol: sym, regularMarketPrice: flat },
     timestamps: ts,
     open: Array(n).fill(flat),
     high: Array(n).fill(flat * 1.002),
@@ -46,10 +48,12 @@ function makeZeroVolIntra(n: number, flat: number): YahooChart {
 }
 
 /** Zero-volume daily chart. */
-function makeZeroVolDaily(flat: number): YahooChart {
+function makeZeroVolDaily(flat: number, sym = "NIFTY"): YahooChart {
   const n = 60;
   const ts = Array.from({ length: n }, (_, i) => 1_690_000_000 + i * 86_400);
   return {
+    symbol: sym,
+    meta: { symbol: sym, regularMarketPrice: flat },
     timestamps: ts,
     open: Array(n).fill(flat),
     high: Array(n).fill(flat * 1.005),

@@ -1875,7 +1875,7 @@ export function buildSignalsForIndex(
           ema9: ctx.ema9,
           ema20: ctx.ema20,
           ema50: ctx.ema50,
-          vwap: ctx.vwap,
+          vwap: ctx.pivotRef,
           vwapAvailable: ctx.vwapAvailable,
           // D-FAB-03 decision boundary: isIndexFno=true instructs the confluence
           // engine to block VP scoring unconditionally — even if vp is somehow
@@ -2016,7 +2016,7 @@ export function buildSignalsForIndex(
     hygieneOn && ctx.fullIndicators
       ? evaluateDirectionalVetoes({
           spot: ctx.spot,
-          vwap: ctx.vwap,
+          vwap: ctx.pivotRef,
           ema9: ctx.ema9,
           atr15: ctx.atr15,
           rsi14: ctx.rsi14,

@@ -662,7 +662,7 @@ function makeNoVwapCtx(vpIntraday: Ctx["vpIntraday"]): Ctx {
     spot:             24600,
     open0:            24500,
     sessionChangePct: 0.41,
-    vwap:             24600,        // placeholder = spot when vwapAvailable=false
+    pivotRef:         24600,        // A0.3.2 rename: placeholder = spot when vwapAvailable=false
     vwapAvailable:    false,
     authVwap:         null,    // A0.3.1: no proxy — explicitly null when unavailable
     vwapSeries:       [null],

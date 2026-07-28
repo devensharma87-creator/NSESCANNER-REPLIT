@@ -29,11 +29,13 @@ import {
 
 // ─── Extract the availability sub-schema from the real Zod schema ─────────────
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const setupStateInnerSchema = GetOptionSignalsResponse
   .shape.setupState
-  .unwrap(); // .optional() → inner object schema
+  .unwrap() as any; // .optional() → inner object schema; cast needed for TS depth limit
 
-const availabilityArraySchema = setupStateInnerSchema.shape.indexFnoSetupAvailability;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const availabilityArraySchema = (setupStateInnerSchema.shape.indexFnoSetupAvailability) as any;
 
 // ─── §10.1 — Structural parity: domain objects parse through Zod schema ───────
 
@@ -145,7 +147,7 @@ describe("§10 A0.3.2 — OpenAPI/codegen structural parity", () => {
       const result = availabilityArraySchema.safeParse(entries);
       expect(result.success).toBe(true);
       if (result.success) {
-        const keys = result.data.map(e => `${e.indexSymbol}:${e.setupKey}`);
+        const keys = result.data.map((e: any) => `${e.indexSymbol}:${e.setupKey}`);
         const unique = new Set(keys);
         expect(unique.size).toBe(9);
       }
@@ -156,7 +158,7 @@ describe("§10 A0.3.2 — OpenAPI/codegen structural parity", () => {
       const result = availabilityArraySchema.safeParse(entries);
       expect(result.success).toBe(true);
       if (result.success) {
-        const indices = new Set(result.data.map(e => e.indexSymbol));
+        const indices = new Set(result.data.map((e: any) => e.indexSymbol));
         expect(indices.has("NIFTY")).toBe(true);
         expect(indices.has("BANKNIFTY")).toBe(true);
         expect(indices.has("SENSEX")).toBe(true);
