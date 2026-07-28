@@ -6,6 +6,17 @@ Format: `## YYYY-MM-DD — <short title>` then bullet points with: what changed,
 
 ---
 
+## 2026-07-28 — Phase A0.3.2: Ctx.vwap→pivotRef/authVwap rename + 9-record setup contract
+
+- `optionSignals.ts`: Removed `Ctx.vwap: number`; added `Ctx.pivotRef: number` (geometric ref = sessionVwap ?? spot) and `Ctx.authVwap: number | null` (null when vwapAvailable=false); 23 function-body replacements (c.authVwap! in VWAP-guarded paths, c.pivotRef for geometry/connectors)
+- `toSignal` serializer: `vwap: round2(c.vwap)` → `vwap: c.authVwap != null ? round2(c.authVwap) : undefined` — spot-as-VWAP proxy can no longer leak into signal output
+- `computeIndexFnoSetupAvailability`: signature changed from `(boolean)` to `(SupportedFnoIndex)`, always returns 3 entries with `indexSymbol` field; `computeAllIndexFnoSetupAvailability()` new export returns canonical 9-record contract (3 indices × 3 setups)
+- `getOptionSignals`: `indexFnoSetupAvailability` now always `computeAllIndexFnoSetupAvailability()` (was accumulating via map, max 3 entries)
+- `scanner.ts`: removed `?? []` fallback (source guarantees 9 records)
+- Evidence: 241/241 across 6 A0.3.2 test files; 4279/4282 full suite; 4 typechecks clean; git diff --check clean
+- **Re-read if**: touching F&O signal detectors (Ctx fields), setup availability contract, or scanner /options/signals route serialization
+- **Files**: `artifacts/api-server/src/lib/optionSignals.ts`, `artifacts/api-server/src/routes/scanner.ts`, `artifacts/api-server/src/lib/optionSignals.zeroVolume.test.ts`
+
 ## 2026-07-02 — Swing TTL Staged Order Lifecycle (P1)
 
 - Background scheduler (`swingTtlSweep.ts`) auto-expires stale staged swing orders every 10 min (all owners); `applySwingTtlSchemaColumns()` runs BEFORE the first tick (migration-before-tick ordering fix prevents "column does not exist" on fresh deployments)

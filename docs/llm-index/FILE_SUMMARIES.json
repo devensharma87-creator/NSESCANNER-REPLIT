@@ -4102,14 +4102,28 @@
   {
     "path": "artifacts/api-server/src/lib/openApiParity.a032.test.ts",
     "purpose": "test",
-    "lines": 167,
+    "lines": 169,
     "exports": [],
     "externalImports": [
       "vitest",
       "@workspace/api-zod"
     ],
     "routes": [],
-    "hash": "7cc9fc700bdf2116"
+    "hash": "5d396bed9c931039"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/openapiSpecParity.a032.test.ts",
+    "purpose": "test",
+    "lines": 244,
+    "exports": [],
+    "externalImports": [
+      "vitest",
+      "node:fs",
+      "node:path",
+      "@workspace/api-zod"
+    ],
+    "routes": [],
+    "hash": "7ad1709a408885ee"
   },
   {
     "path": "artifacts/api-server/src/lib/optionAnalytics.ts",
@@ -4300,14 +4314,14 @@
   {
     "path": "artifacts/api-server/src/lib/optionSignals.a031.test.ts",
     "purpose": "test",
-    "lines": 849,
+    "lines": 852,
     "exports": [],
     "externalImports": [
       "vitest",
       "@workspace/api-zod"
     ],
     "routes": [],
-    "hash": "962fa7956f07021b"
+    "hash": "a2491c9c55ae87d9"
   },
   {
     "path": "artifacts/api-server/src/lib/optionSignals.expiryDay.test.ts",
@@ -4345,13 +4359,13 @@
   {
     "path": "artifacts/api-server/src/lib/optionSignals.setupAvailability.test.ts",
     "purpose": "test",
-    "lines": 395,
+    "lines": 446,
     "exports": [],
     "externalImports": [
       "vitest"
     ],
     "routes": [],
-    "hash": "82fde33e01c1ff2b"
+    "hash": "c6f9731d44824820"
   },
   {
     "path": "artifacts/api-server/src/lib/optionSignals.triggerSemantics.test.ts",
@@ -4369,16 +4383,15 @@
   {
     "path": "artifacts/api-server/src/lib/optionSignals.ts",
     "purpose": "fno-engine",
-    "lines": 3605,
+    "lines": 3559,
     "exports": [
       "IndexCfg",
       "OPTION_INDICES",
-      "SupportedFnoIndex",
-      "SUPPORTED_FNO_INDICES",
       "indexesExpiringTodayIst",
       "Ctx",
       "detectTrendContinuation",
       "detectMeanReversion",
+      "SupportedFnoIndex",
       "IndexFnoSetupAvailability",
       "computeIndexFnoSetupAvailability",
       "computeAllIndexFnoSetupAvailability",
@@ -4390,13 +4403,14 @@
       "_resetDetectorCooldownForTest",
       "_setCooldownForTest",
       "_isDetectorOnCooldownForTest",
-      "_recordDetectorEmitForTest"
+      "_recordDetectorEmitForTest",
+      "getOptionSignals"
     ],
     "externalImports": [
       "@workspace/api-zod"
     ],
     "routes": [],
-    "hash": "c0e8a1bf21f1eedd"
+    "hash": "6e4589c8629dc1d0"
   },
   {
     "path": "artifacts/api-server/src/lib/optionSignals.vwapLabel.test.ts",
@@ -4420,7 +4434,7 @@
       "path"
     ],
     "routes": [],
-    "hash": "35b6a5039598e2a4"
+    "hash": "a1efc09ed6ff1e64"
   },
   {
     "path": "artifacts/api-server/src/lib/optionSignalVetoes.test.ts",
@@ -4590,13 +4604,13 @@
   {
     "path": "artifacts/api-server/src/lib/paperAdmission.a032.test.ts",
     "purpose": "test",
-    "lines": 237,
+    "lines": 241,
     "exports": [],
     "externalImports": [
       "vitest"
     ],
     "routes": [],
-    "hash": "c1a5d49b9482c1aa"
+    "hash": "5194beb18ae2ab2e"
   },
   {
     "path": "artifacts/api-server/src/lib/paperAnalyticsFO.test.ts",
@@ -4998,6 +5012,19 @@
     "hash": "2bcf3f809b2bc4df"
   },
   {
+    "path": "artifacts/api-server/src/lib/pivotRefInventory.a032.test.ts",
+    "purpose": "test",
+    "lines": 243,
+    "exports": [],
+    "externalImports": [
+      "vitest",
+      "node:fs",
+      "node:path"
+    ],
+    "routes": [],
+    "hash": "3fd4c390e2dca291"
+  },
+  {
     "path": "artifacts/api-server/src/lib/preMarket.test.ts",
     "purpose": "test",
     "lines": 100,
@@ -5087,6 +5114,18 @@
     ],
     "routes": [],
     "hash": "0484aec0b0254a5a"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/routeSerializer.a032.test.ts",
+    "purpose": "test",
+    "lines": 481,
+    "exports": [],
+    "externalImports": [
+      "vitest",
+      "@workspace/api-zod"
+    ],
+    "routes": [],
+    "hash": "746243a38319622c"
   },
   {
     "path": "artifacts/api-server/src/lib/scanner.ts",
@@ -7624,7 +7663,7 @@
       "GET /stocks/:symbol/statements",
       "GET /stocks/:symbol/history"
     ],
-    "hash": "0cf79578668b704a"
+    "hash": "b09e01b5e2f0ff06"
   },
   {
     "path": "artifacts/api-server/src/routes/secretsVault.ts",

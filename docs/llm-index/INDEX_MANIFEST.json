@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-28T07:25:31.211Z",
+  "generatedAt": "2026-07-28T10:22:18.442Z",
   "generatorVersion": "1.0.0",
   "files": {
     "artifacts/api-server/src/routes/admin.ts": {
@@ -158,9 +158,9 @@
       "mtime": "2026-07-18T09:30:59.872Z"
     },
     "artifacts/api-server/src/routes/scanner.ts": {
-      "hash": "0cf79578668b704a",
+      "hash": "b09e01b5e2f0ff06",
       "lines": 1059,
-      "mtime": "2026-07-27T11:59:14.569Z"
+      "mtime": "2026-07-28T10:17:54.783Z"
     },
     "artifacts/api-server/src/routes/secretsVault.ts": {
       "hash": "79a9cb4228c42f14",
@@ -938,9 +938,9 @@
       "mtime": "2026-05-06T14:27:23.697Z"
     },
     "artifacts/api-server/src/lib/optionSignals.ts": {
-      "hash": "c0e8a1bf21f1eedd",
-      "lines": 3605,
-      "mtime": "2026-07-28T07:08:19.523Z"
+      "hash": "6e4589c8629dc1d0",
+      "lines": 3559,
+      "mtime": "2026-07-28T10:18:56.999Z"
     },
     "artifacts/api-server/src/lib/optionSnapshotAnalytics.ts": {
       "hash": "6f46087c9cd95893",
@@ -1448,9 +1448,9 @@
       "mtime": "2026-06-05T12:55:17.075Z"
     },
     "lib/api-spec/openapi.yaml": {
-      "hash": "3be6468115a867dc",
-      "lines": 7192,
-      "mtime": "2026-07-27T11:58:24.401Z"
+      "hash": "796785ecc2bdb48d",
+      "lines": 7201,
+      "mtime": "2026-07-28T09:38:09.575Z"
     },
     "artifacts/scanner/src/pages/admin.tsx": {
       "hash": "4a6ea1da8bb56b02",
