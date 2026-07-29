@@ -396,9 +396,14 @@ describe.skipIf(!process.env.DATABASE_URL)("swingOrderStaging (DB)", () => {
     if (!blocked.approved) expect(blocked.reason).toBe("RECHECK_BLOCKED");
 
     // Approve WITH an owner event affirmation → clears review, approves.
+    // resultDate must always be > resultWithinDaysBlock (3 days) from t so the
+    // proximity gate does not fire. Use t+30 days, formatted as YYYY-MM-DD in UTC
+    // (daysBetweenIstDates uses the date portion only; ±1-day IST/UTC skew is
+    // absorbed by the 30-day margin leaving 27+ days clear of the 3-day window).
+    const resultDate = new Date(t + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
     const ok = await approveSwingOrder(owner, staged.row!.id, "owner", {
       fetchQuote: makeFetcher(freshKiteQuote("TESTSTK", 100.5, t)),
-      eventOverride: { resultDateKnown: true, resultDate: "2026-08-01", corporateActionRisk: false },
+      eventOverride: { resultDateKnown: true, resultDate, corporateActionRisk: false },
       now: new Date(t),
     });
     expect(ok.approved).toBe(true);

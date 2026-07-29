@@ -30,3 +30,8 @@ veto extension was always 0, and VWAP confluence factor could shift confidence u
   pre-existing). pivotRefInventory.a032.test.ts = 35 tests (§13.1–§13.5 incl. A0.3.3 boundary tests).
 - The regime classifier at line 525 still receives `vwap: effectiveVwap` (out-of-scope; not a
   VWAP-labelled trade-decision output).
+- **Final acceptance (2026-07-29):** `ACCEPT_A0_3_AS_UNIT_VERIFIED` issued in §21 of evidence file.
+  All 6 route states carry 9 records unconditionally (`computeAllIndexFnoSetupAvailability()` is
+  static, called at line 3505 independent of per-index signal/exception results). EMA-pullback
+  confirmed VWAP-free (0 references). Blocker (Case 10 stale fixture) closed — see stale-date-fixture.md.
+  Working tree at acceptance: `swingOrderStaging.test.ts` modified (+7/-1), no commit made.

@@ -942,4 +942,257 @@ A0.1 and A0.2 evidence files were not modified. ✅
 
 ---
 
-END_PHASE_A0_3_3_FINAL_EVIDENCE
+---
+
+## §21 — Final Blocker Closure Pass (Prompt 05)
+
+**Date:** 2026-07-29
+
+---
+
+### 21.1 HEAD Governance Event
+
+At the start of this session HEAD was `9306e0a8dcbbb53bfe7c9f07e84eef9b3c5f59a9`, not `faa1d0ad`.
+
+| Field | Value |
+|---|---|
+| Prior expected HEAD | `faa1d0ad14b8bace52bacf851abc3a02df631d93` |
+| Observed HEAD | `9306e0a8dcbbb53bfe7c9f07e84eef9b3c5f59a9` |
+| Auto-commit contents | §19 + §20 evidence update; the new prompt-05 attached_assets file |
+| Changed files | `artifacts/audit-evidence/PHASE_A0_3_SETUP_VIABILITY_AND_HONEST_RETIREMENT.md`, `artifacts/audit-evidence/FINAL_EVIDENCE_ONLY_ACCEPTANCE_1785311719199.md` |
+| Ahead/behind | 36 ahead of `origin/main` (was 35) |
+| Platform-generated | YES — auto-commit of evidence file changes from prior session |
+| Impact on production code | NONE — no production file changed |
+| Working tree at session start | Tracked-clean; one untracked `attached_assets/*.md` |
+| Action taken | Document event, continue without reverting (no revert needed) |
+
+This is a governance event only. `faa1d0ad` remains the production implementation commit. `9306e0a8` is a documentation-only auto-commit.
+
+---
+
+### 21.2 Case 10 Root Cause Diagnosis
+
+**Test:** `swingOrderStaging.test.ts > Case 10: event-risk forces review; owner override clears it`
+
+**Root cause:** Hardcoded `resultDate: "2026-08-01"` in the test fixture has entered the production `resultWithinDaysBlock: 3` proximity window.
+
+| Variable | Value |
+|---|---|
+| Test run date (IST) | 2026-07-29 |
+| Hardcoded `resultDate` | `"2026-08-01"` |
+| `daysBetweenIstDates("2026-07-29", "2026-08-01")` | **3** |
+| `DEFAULT_SWING_CASH_CONFIG.eventRisk.resultWithinDaysBlock` | **3** |
+| Proximity gate condition | `daysToResult >= 0 && daysToResult <= 3` → `3 <= 3` → **true** |
+| Event risk classification | `RESULT_WITHIN_3_DAYS` → `blocked: true` |
+| Effect on Case 10 second approval | `decision.allowed = false` → `{approved: false, reason: "RECHECK_BLOCKED"}` |
+| Test expectation at line 404 | `expect(ok.approved).toBe(true)` → **FAILS** |
+
+This is a **stale test fixture** — the date was safe when written but has drifted into the production event-risk window. The business assertion (override with a far-future date should clear event review) is correct; the fixture value is not.
+
+**Classification:** Not a business logic regression. Predates A0.3.3 (last touched `e1de7c6`). Not in A0.3.3 commit `faa1d0ad`. Triggered by calendar advancement, not code change.
+
+**Isolation check (5 runs):** Fail is deterministic, not order-dependent. Fails identically with `--pool=threads`.
+
+---
+
+### 21.3 Case 10 Fix
+
+**Minimal correction:** Replace the hardcoded `"2026-08-01"` result date with a dynamically computed date that is always 30 days ahead of the test epoch `t`.
+
+**Changed file:** `artifacts/api-server/src/lib/swingOrderStaging.test.ts`
+
+**Before (line 401):**
+```ts
+eventOverride: { resultDateKnown: true, resultDate: "2026-08-01", corporateActionRisk: false },
+```
+
+**After:**
+```ts
+// resultDate must always be > resultWithinDaysBlock (3 days) from t so the
+// proximity gate does not fire. Use t+30 days, formatted as YYYY-MM-DD in UTC
+// (daysBetweenIstDates uses the date portion only; ±1-day IST/UTC skew is
+// absorbed by the 30-day margin leaving 27+ days clear of the 3-day window).
+const resultDate = new Date(t + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+const ok = await approveSwingOrder(owner, staged.row!.id, "owner", {
+  fetchQuote: makeFetcher(freshKiteQuote("TESTSTK", 100.5, t)),
+  eventOverride: { resultDateKnown: true, resultDate, corporateActionRisk: false },
+  now: new Date(t),
+});
+```
+
+**Safety margin:** 30-day offset leaves 27+ days of clearance from the 3-day block window, absorbing the ±1-day IST/UTC date-boundary skew. The fix does not alter any business assertion.
+
+---
+
+### 21.4 Case 10 Post-Fix Verification
+
+```
+swingOrderStaging.test.ts — 5 runs, post-fix:
+Run 1: Tests  31 passed (31)
+Run 2: Tests  31 passed (31)
+Run 3: Tests  31 passed (31)
+Run 4: Tests  31 passed (31)
+Run 5: Tests  31 passed (31)
+```
+
+All 31 tests passing. No flakiness observed.
+
+---
+
+### 21.5 Route State Proof — Partial-Index and All-Index Failure
+
+**Production source:** `artifacts/api-server/src/lib/optionSignals.ts` lines 3499–3506.
+
+```ts
+const result: OptionSignalsResult = {
+  signals: out,
+  // A0.3: deduplicated setup availability across all evaluated cash indices.
+  indexFnoSetupAvailability: computeAllIndexFnoSetupAvailability(),
+  diagnostics: { ... },
+};
+```
+
+`indexFnoSetupAvailability` is assigned from **`computeAllIndexFnoSetupAvailability()`** — a pure static function (lines 1627–1630):
+
+```ts
+export function computeAllIndexFnoSetupAvailability(): IndexFnoSetupAvailability[] {
+  const indices: SupportedFnoIndex[] = ["NIFTY", "BANKNIFTY", "SENSEX"];
+  return indices.flatMap(idx => computeIndexFnoSetupAvailability(idx));
+}
+```
+
+This function:
+- Has no I/O dependencies
+- Always returns exactly 9 records (3 setups × 3 indices) — structural unavailability is data-independent (cash indices always have zero volume)
+- Is called unconditionally at the end of `getOptionSignals()`, after all per-index try/catch blocks
+
+**No `?? []` on the scanner route.** `scanner.ts:239`:
+```ts
+indexFnoSetupAvailability: indexFnoSetupAvailability,
+```
+No fallback. The 9-record guarantee comes from the source function, not from defensive coalescing.
+
+| Failure state | Availability behaviour |
+|---|---|
+| Normal signals, market open | `computeAllIndexFnoSetupAvailability()` → 9 records ✅ |
+| No signals, market open | Same static call → 9 records ✅ |
+| Market closed | Same static call → 9 records ✅ |
+| Stale / suppressed | Same static call → 9 records ✅ |
+| Partial-index failure (1–2 indices throw exception) | Per-index catch does not affect static call → 9 records ✅ |
+| All-index failure (all 3 throw exception) | `out=[]`, `suppressed` populated — static call still fires → 9 records ✅ |
+
+**Note on `buildSignalsForIndex` no-bars early return (line 1661):**
+```ts
+if (!ctx) return { signals: [], ..., setupAvailability: computeIndexFnoSetupAvailability(cfg.symbol) };
+```
+Even this per-index no-bars fallback returns the availability. But the definitive guarantee is the unconditional `computeAllIndexFnoSetupAvailability()` at line 3505, which makes per-index behavior irrelevant to the API contract.
+
+**Route serializer state matrix (27 tests / 232 passes in routeSerializer + related suites):**
+States 1–6 each tested with explicit schema assertions. State 5 (diagnostics absent) and State 6 (degraded/stale) both carry 9-record availability. Empty-array rejection tests (R1) confirm the schema enforces `minItems: 9` / `maxItems: 9`.
+
+---
+
+### 21.6 EMA-Pullback Null-VWAP Proof
+
+`detectEmaPullback` (lines 1001–1065 of `optionSignals.ts`) contains **zero references** to `vwap`, `authVwap`, or any VWAP-derived value.
+
+```
+grep count of 'vwap|authVwap' in lines 1001-1065: 0
+```
+
+The detector uses only: `ema9`, `ema21`, `rsi14`, `bars.l/h/c/o`, `atr15`, `prevSwingHigh`, `prevSwingLow`, `piv.r1/r2/s1/s2`. VWAP unavailability cannot affect EMA-pullback signals. ✅
+
+---
+
+### 21.7 Scanner Setup-Availability Tests
+
+```
+artifacts/scanner — fnoSetupAvailability.test.ts + setupExplanation.test.ts:
+Test Files  2 passed (2)
+Tests       35 passed (35)
+```
+
+✅
+
+---
+
+### 21.8 Full Workspace Typecheck
+
+All 4 packages typechecked individually:
+
+```
+pnpm -r exec tsc --noEmit → 0 errors
+```
+
+✅ Clean.
+
+---
+
+### 21.9 Final Acceptance Gate Matrix
+
+| Gate | Files / Tests | Result |
+|---|---|---|
+| Gate A: A0.3.3 baseline (indicators + zeroVolume + vwapGuard + a031 + c0 + paperAdmission) | 160 tests | ✅ 160/160 |
+| Gate B: A0.3.3 behavioral (pivotRefInventory §13.1–§13.5) | 35 tests | ✅ 35/35 |
+| Gate C: A0.3 acceptance (setupAvailability + routeSerializer + a031 + paperAdmission + openapiSpecParity + openApiParity + c0) | 232 tests | ✅ 232/232 |
+| Gate D (7-file normal + 7-file reverse) | 261 tests | ✅ 261/261 |
+| Gate E scanner | 35 tests | ✅ 35/35 (scanner fnoSetupAvailability + setupExplanation) |
+| Gate E full API server | 4301 tests | ✅ 4298 passed / 3 skipped |
+| Workspace typecheck | all packages | ✅ 0 errors |
+| EMA-pullback null-VWAP count | regex grep | ✅ 0 |
+| Route `?? []` | scanner.ts:239 | ✅ absent |
+| No pivotRef in production signals | confirmed | ✅ |
+| No spot via VWAP-named parameters | confirmed | ✅ |
+| VWAP-dependent detectors fail closed | confirmed | ✅ |
+| Nine-record availability contract | computeAllIndexFnoSetupAvailability() | ✅ static, unconditional |
+| No commit / push / deploy during blocker closure | git reflog | ✅ |
+
+**Skipped tests:** 3 in `paperTradingEqProvenance.test.ts` `describeDb` block — require `TEST_DB_ISOLATION_CONFIRMED=true`. All 3 predate A0.3.x. Not related to VWAP signal path.
+
+---
+
+### 21.10 Git State at Verdict
+
+| Field | Value |
+|---|---|
+| HEAD | `9306e0a8dcbbb53bfe7c9f07e84eef9b3c5f59a9` |
+| Working tree | 1 modified tracked file (`swingOrderStaging.test.ts`), 1 untracked `attached_assets/*.md` |
+| `git diff --stat` HEAD | `swingOrderStaging.test.ts | 7 ++++++-` |
+| Any commit during blocker closure | NO |
+| Any push during blocker closure | NO |
+| Any deployment during blocker closure | NO |
+| A0.4 started | NO |
+
+---
+
+### 21.11 Verdict
+
+**`ACCEPT_A0_3_AS_UNIT_VERIFIED`**
+
+All acceptance gates are GREEN. The sole blocker from §20.17 has been resolved:
+
+- **Root cause:** Stale test fixture (`resultDate: "2026-08-01"`) entered the production `resultWithinDaysBlock: 3` event-risk window on 2026-07-29.
+- **Fix:** Dynamic 30-day offset. Business assertion unchanged.
+- **Scope:** Test fixture only. No production code changed. Not in A0.3.3 commit.
+- **Verification:** 31/31 consistently, 5 runs.
+- **Full suite:** 4298/4301 (3 expected DB-isolation skips).
+
+Phase A0.3 (A0.3.1 + A0.3.2 + A0.3.3) is accepted as a verified unit.
+
+| Acceptance dimension | Status |
+|---|---|
+| VWAP fabrication removed | ✅ `pivotRef` gone; `null` is canonical VWAP-unavailable |
+| VWAP-named parameters carry only authentic VWAP | ✅ `ConfluenceInputs.vwap`, `VetoInputs.vwap` = `number\|null` |
+| Detectors fail closed on null VWAP | ✅ volume-breakout, mean-reversion, trend-continuation |
+| EMA-pullback is VWAP-free | ✅ 0 references confirmed |
+| Permitted spot geometry explicitly disclosed | ✅ `detectBaselineOutlook` stop: `vwapAvailable ? authVwap : spot` |
+| 9-record availability contract | ✅ `computeAllIndexFnoSetupAvailability()` is static + unconditional |
+| No `?? []` on route | ✅ `scanner.ts:239` clean |
+| All 6 route states carry 9 records | ✅ proven by static function |
+| Test regression (Case 10) | ✅ CLOSED — stale fixture, non-A0.3.3 |
+| Workspace typecheck | ✅ 0 errors |
+| No commit/push/deploy | ✅ |
+
+---
+
+END_PHASE_A0_3_FINAL_BLOCKER_CLOSURE
