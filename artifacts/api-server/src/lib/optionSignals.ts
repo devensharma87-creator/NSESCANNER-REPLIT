@@ -2302,6 +2302,13 @@ export function _getDetectorCooldownMs(): number {
 export function _resetDetectorCooldownForTest(): void {
   detectorCooldownMap.clear();
 }
+/** Clears the 30-second getOptionSignals() result cache — call in beforeEach/afterEach in tests
+ *  that call getOptionSignals() directly so each test gets a fresh cycle (not the cached result
+ *  from a prior test). Never changes production behaviour — cache is always a best-effort
+ *  deduplication layer with a 30-second TTL, not a correctness constraint. */
+export function _resetOptionSignalsCacheForTest(): void {
+  cache = null;
+}
 /** Seeds a specific cooldown entry with an explicit timestamp — for time-travel tests. */
 export function _setCooldownForTest(key: string, ts: number): void {
   detectorCooldownMap.set(key, ts);

@@ -1508,57 +1508,67 @@ The three DB-backed tests in the `describeDb` block run `checkDbTestIsolation(pr
 
 ### 22.6 Gate 2 Status — Production Route Execution
 
-**Status: NOT_ATTEMPTED — blocked by Gate 1 failure**
+**Status: ✅ PASS — 6/6 tests — 2026-07-29**
 
-Per the acceptance rule: "Do not proceed to Gate 2 after an unsafe or failed DB gate."
+Gate 2 was authorized independently while Gate 1 remains blocked (owner sign-off received in Prompt 07).
 
-**Preliminary findings recorded for future use (source-analysis only — not executable proof):**
+**Approach — vi.mock + TTL-cache reset helper:**
 
-The `getOptionSignals()` production call chain was fully read:
+`getOptionSignals()` has no parameters and calls many DB/network dependencies. The implementation adds a minimal test-only helper `_resetOptionSignalsCacheForTest()` (following the existing `_resetDetectorCooldownForTest` pattern) next to the existing test helpers in `optionSignals.ts`. This nulls the module-level 30-second TTL cache between tests. All external modules are mocked with `vi.mock`. No production logic, strategy logic, or public API behavior changed.
+
+**New test file:** `artifacts/api-server/src/lib/routeHandler.a033.test.ts`
+
+**Test results:**
 
 ```
-HTTP GET /options/signals
-  → requireSubscriberOrOwner("FNO") [scanner.ts:221]
-  → getOptionSignals() [optionSignals.ts:2815]
-    → for (const cfg of OPTION_INDICES) {  // [line 2913]
-        try { centralIndexCandles → buildSignalsForIndex → per-index result }
-        catch (err) { suppressed.push({ index: cfg.symbol, reasons: [...] }) }
-      }
-    → computeAllIndexFnoSetupAvailability()  // [line 3505] UNCONDITIONAL
-    → return { signals: out, indexFnoSetupAvailability: ..., diagnostics: ... }
-  → GetOptionSignalsResponse.parse({...})  // [line 3255]
-  → res.json(data)
+ RUN  v4.1.5 /home/runner/workspace/artifacts/api-server
+
+ Test Files  1 passed (1)
+      Tests  6 passed (6)
+   Start at  14:14:53
+   Duration  6.08s (transform 2.87s, setup 0ms, import 5.32s, tests 243ms, environment 0ms)
 ```
 
-Key observations:
-- `computeAllIndexFnoSetupAvailability()` at line 3505 is called unconditionally after ALL per-index try/catch blocks — it fires regardless of how many indices throw
-- The per-index catch at line 3012 catches all thrown exceptions and adds them to `suppressed[]`, never propagating to the outer scope
-- No `?? []` fallback on `indexFnoSetupAvailability` in the result at line 3505
+**Six tests executed:**
 
-**Existing `routeSerializer.a032.test.ts` (27 tests) gap:**
-These tests call `GetOptionSignalsResponse.safeParse()` with constructed payloads. They prove the schema validates correctly and `computeAllIndexFnoSetupAvailability()` returns 9 records. They do NOT invoke the actual `getOptionSignals()` production function and therefore do not prove the partial/all-index-failure code paths through the real production handler. The prompt correctly classifies this as "source reasoning / constructed-object parsing" — not executable production-route proof.
+| # | Description | Verdict |
+|---|---|---|
+| 1 | Normal path: all three indices reach `buildSignalsForIndex` — `indexFnoSetupAvailability` has exactly 9 records | ✅ PASS |
+| 2 | Partial failure (continue path): NIFTY suppressed at intraday-candle check — `indexFnoSetupAvailability` still has 9 records | ✅ PASS |
+| 3 | All-index failure (continue path): all three indices suppressed — `bundles[]` empty — `indexFnoSetupAvailability` still has 9 records | ✅ PASS |
+| 4 | Exception path partial failure: NIFTY throws inside per-index try block — `indexFnoSetupAvailability` still has 9 records | ✅ PASS |
+| 5 | All-index failure: each availability entry carries required contract fields (`setupKey`, `status`, `explanation`, `scope`, `eligibleForEmission`) and all 9 (indexSymbol, setupKey) pairs are distinct | ✅ PASS |
+| 6 | Availability count is identical (9) across normal, partial, and all-index failure without rebuilding mocks | ✅ PASS |
 
-**Seam analysis (not yet authorized):**
-A minimal injection point exists — `getOptionSignals()` could accept an optional `buildSignalsFn` parameter (default: the current `buildSignalsForIndex`) to allow deterministic failure injection in tests. This change is NOT made here because Gate 2 is not reached.
+**Invariant proved:**
+
+`computeAllIndexFnoSetupAvailability()` (line 3505 of `optionSignals.ts`) is called unconditionally after ALL per-index try/catch blocks — it fires and returns exactly 9 records regardless of:
+- All indices succeeding (continue path never taken)
+- Some indices being suppressed via `centralHasIndexCoverage` / `centralIndexCandles` → null (continue path)
+- Some indices throwing exceptions (catch path)
+
+This is executable production-route proof, not source reasoning or constructed-object parsing.
+
+**Typecheck:** clean — `pnpm --filter @workspace/api-server exec tsc --noEmit` — zero errors.
+
+**Mock design note:** `vi.clearAllMocks()` (not `vi.resetAllMocks()`) is used in `beforeEach`. The distinction: `clearAllMocks` clears call counts only, preserving factory-level `.mockResolvedValue(...)` implementations. `resetAllMocks` would zero those implementations, causing `.catch()` to throw on `undefined`. All promise-returning functions have `.mockResolvedValue(...)` in their `vi.mock` factories, so they survive `clearAllMocks` intact. Only `loadGateContext` requires a `beforeEach` re-apply (it references `MINIMAL_GATE_CTX` which is defined after the hoisted `vi.mock` factories).
 
 ---
 
-### 22.7 Git State
+### 22.7 Git State (Prompt 08)
 
 | Field | Value |
 |---|---|
-| Session execution baseline | `fcfe54189015894c5cac1a1c714c903f27c0a4fc` |
-| HEAD at evidence write | `33133883aa40d8645739d64001838c54290790a0` |
-| Auto-commits this session | `3313388` (prompt 06 to `attached_assets/` — blanket exception) |
+| HEAD at prompt start | `28d7790` (auto-commit: prompt 07 evidence write to `attached_assets/`) |
 | Branch | `main` — ahead 45 of `origin/main` |
-| Tracked modifications (before evidence write) | None |
-| Staged modifications | None |
-| Untracked files (before evidence write) | None (prompt file was auto-committed as `3313388`) |
+| Tracked modifications | `M artifacts/api-server/src/lib/optionSignals.ts` (`_resetOptionSignalsCacheForTest` helper) |
+| Untracked files | `?? artifacts/api-server/src/lib/routeHandler.a033.test.ts` (new file) |
 | Manual commit | NO |
 | Push / pull / fetch | NO |
 | Deployment | NO |
 | A0.4 started | NO |
-| Production code changed | NO |
+| Production code changed | `_resetOptionSignalsCacheForTest()` export added (test helper only, never called by production paths) |
+| Strategy / signal logic changed | NO |
 | Test assertions weakened | NO |
 | `test:db` invoked | NO |
 | DB destructive SQL executed | NO |
@@ -1567,14 +1577,15 @@ A minimal injection point exists — `getOptionSignals()` could accept an option
 
 ### 22.8 Unit Verdict
 
-**`BLOCKED — SAFE_TEST_DATABASE_NOT_CONFIRMED`**
+**Gate 1: `BLOCKED — SAFE_TEST_DATABASE_NOT_CONFIRMED`**
+**Gate 2: `PASS — 6/6`**
 
-Phase A0.3 final unit acceptance remains withheld. Both gates must pass before `ACCEPT_A0_3_AS_UNIT_VERIFIED` can be issued.
+Phase A0.3 final unit acceptance (`ACCEPT_A0_3_AS_UNIT_VERIFIED`) remains withheld pending Gate 1. Gate 2 is resolved.
 
 | Gate | Verdict |
 |---|---|
-| Gate 1 — Safe DB isolation | `BLOCKED — SAFE_TEST_DATABASE_NOT_CONFIRMED` |
-| Gate 2 — Executable production-route failure proof | `NOT_ATTEMPTED — gate 1 must pass first` |
+| Gate 1 — Safe DB isolation (3 provenance tests) | `BLOCKED — SAFE_TEST_DATABASE_NOT_CONFIRMED` |
+| Gate 2 — Executable production-route failure proof | ✅ `PASS — 6/6 — 2026-07-29` |
 
 **Previously verified work (§21) is preserved and unaffected:**
 - VWAP fabrication removal: ✅
