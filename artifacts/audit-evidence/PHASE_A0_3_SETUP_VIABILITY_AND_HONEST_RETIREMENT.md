@@ -1328,3 +1328,267 @@ Unit acceptance must not be presented as production acceptance.
 ---
 
 END_PHASE_A0_3_FINAL_BLOCKER_CLOSURE
+
+---
+
+## §22 — DB Isolation and Route Execution Closure (Prompt 06)
+
+**Date:** 2026-07-29 IST  
+**Session start:** 2026-07-29 19:09 IST  
+**Session end:** 2026-07-29 19:16 IST
+
+---
+
+### 22.1 Execution Baseline and HEAD Chronology
+
+| Label | Commit |
+|---|---|
+| A0.3.3 implementation baseline | `faa1d0ad14b8bace52bacf851abc3a02df631d93` |
+| Authorized fixture repair | `be186dd…` |
+| Prior blocker-closure execution baseline | `e201eb146c0f22e40d0965b01919426071bbbbb1` |
+| Prior session auto-commit (evidence/memory) | `fcfe54189015894c5cac1a1c714c903f27c0a4fc` — AUTHORIZED (prior session work) |
+| **This session execution baseline** | **`fcfe54189015894c5cac1a1c714c903f27c0a4fc`** |
+| Auto-commit during this session | `33133883aa40d8645739d64001838c54290790a0` — Prompt 06 file added to `attached_assets/` — blanket exception applies |
+| HEAD at evidence write | `33133883aa40d8645739d64001838c54290790a0` |
+
+**Auto-commit `fcfe541` authorization:** See §21.1. Platform auto-committed the prior session's working tree (evidence file + memory). Authorized by owner as `PLATFORM_AUTO_COMMITTED_PRIOR_SESSION_WORKING_TREE_EVENT`.
+
+**Auto-commit `3313388` classification:** `status A`, exclusively under `attached_assets/`, no source/test/schema/config/dependency changes. Satisfies the extended blanket exception granted in this authorization.
+
+---
+
+### 22.2 DB-Isolation Contract — Full Guard Specification
+
+Source: `artifacts/api-server/src/test-infra/dbTestGuard.ts` (299 lines) + `dbTestPreflightRunner.ts` (736 lines).
+
+**Official DB test pathway:**
+```
+pnpm --filter @workspace/api-server run test:db
+  → tsx src/test-infra/dbTestPreflightRunner.ts
+    → checkDbTestIsolation(env)   ← 9 sequential conditions
+    → DB_TEST_RUNTIME_AUTHORIZED  ← compile-time hard block
+    → (post-P0.1B) spawn vitest with isolated child env
+```
+
+**`checkDbTestIsolation` — 9 conditions (all must pass):**
+
+| # | Check | Description |
+|---|---|---|
+| 1 | `NODE_ENV === "test"` | Must be exactly `"test"` — not `"development"` or unset |
+| 2 | `TEST_DATABASE_URL` present and non-empty | Missing when `DATABASE_URL` exists → `OPERATIONAL_DATABASE_FALLBACK_FORBIDDEN` |
+| 3 | `TEST_DATABASE_URL` valid PostgreSQL URL | Must start `postgres://` or `postgresql://` with a database name |
+| 4 | `TEST_DATABASE_URL` ≠ `DATABASE_URL` target | Same host+port+database as `DATABASE_URL` → `TEST_EQUALS_OPERATIONAL_TARGET` |
+| 5 | DB name NOT containing `nse_scanner` | Operational denylist — `TEST_TARGET_NOT_ISOLATED` |
+| 6 | `TEST_RUN_ID` present, 8–64 chars `[A-Za-z0-9_-]` | `TEST_RUN_ID_MISSING` or `TEST_RUN_ID_FORMAT_INVALID` |
+| 7 | DB name contains normalized `TEST_RUN_ID` | `TEST_RUN_ID_TARGET_MISMATCH` — ties DB to specific run |
+| 8 | DB name contains isolation keyword (`vitest`, `test`, `ephemeral`, `tmp`, `spec`, `sandbox`) | `TEST_TARGET_NOT_ISOLATED` |
+| 9 | `TEST_EXTERNAL_SERVICES_CONFIGURED_DISABLED === "true"` | `TEST_EXTERNAL_SERVICES_NOT_CONFIGURED_DISABLED` |
+| 9b | `TEST_DB_ISOLATION_CONFIRMED === "true"` | `TEST_DB_CONFIRMATION_MISSING` |
+
+**Hard runtime block — compile-time constant (cannot be bypassed):**
+
+```typescript
+// dbTestPreflightRunner.ts:638
+const DB_TEST_RUNTIME_AUTHORIZED = false as boolean;
+
+// The comment explicitly states:
+// "It cannot be bypassed by setting DB_TEST_RUNTIME_AUTHORIZED,
+//  P0_1B_AUTHORIZED, BYPASS_DB_RUNTIME_LOCK, FORCE_DB_TESTS, or any
+//  other environment variable."
+```
+
+This block fires EVEN IF all 9 guard conditions pass. It rejects with `DB_TEST_RUNTIME_NOT_AUTHORIZED` and exits. It can only be removed by changing the constant to `true` after completing all P0.1B prerequisites.
+
+---
+
+### 22.3 Isolation Probe — Redacted Environment State
+
+Captured at session start (2026-07-29 19:09 IST):
+
+| Variable | State |
+|---|---|
+| `NODE_ENV` | NOT `"test"` (development) |
+| `TEST_DATABASE_URL` | NOT SET |
+| `TEST_RUN_ID` | NOT SET |
+| `TEST_DB_ISOLATION_CONFIRMED` | NOT SET |
+| `TEST_EXTERNAL_SERVICES_CONFIGURED_DISABLED` | NOT SET |
+| `DATABASE_URL` | SET (development operational database) |
+| `TEST_DATABASE_URL` in workspace secrets | ABSENT — not listed in available secrets |
+
+**`checkDbTestIsolation(process.env)` result (Step 1 would fire):**
+
+```
+ok: false
+code: "NOT_TEST_ENV"
+reason: "NODE_ENV is 'development'; must be 'test' for DB-backed test mode."
+```
+
+Even if `NODE_ENV=test` were forced, the cascade would fail at condition 2 (`TEST_DATABASE_URL` missing → `OPERATIONAL_DATABASE_FALLBACK_FORBIDDEN`, since `DATABASE_URL` is present).
+
+**Fingerprint (redacted):**
+
+| Field | Value |
+|---|---|
+| Engine / type | PostgreSQL |
+| Host classification | Development / Replit-managed cluster (redacted) |
+| Database classification | Operational development database (redacted) |
+| TEST_DATABASE_URL present | NO |
+| Isolation targets differ | NOT_APPLICABLE — `TEST_DATABASE_URL` not provisioned |
+| Isolation guard result | `FAIL — NOT_TEST_ENV` (cascade: multiple additional failures) |
+
+**`pnpm test:db` output (expected, not run):**
+```
+[dbTestPreflight] DB-backed test launch BLOCKED
+  Code:   NOT_TEST_ENV
+  Reason: NODE_ENV is 'development'; must be 'test' for DB-backed test mode.
+```
+
+Even with a valid guard pass:
+```
+[dbTestPreflight] DB_TEST_RUNTIME_NOT_AUTHORIZED
+  DB-backed test execution is hard-blocked pending P0.1B completion.
+```
+
+---
+
+### 22.4 Prior Direct-Test Residue Assessment (Read-Only)
+
+**Method:** Direct `pg` read-only SELECT against the development `DATABASE_URL`.
+
+**Tables inspected:**
+- `paper_trade_eq`
+- `paper_eq_audit`
+
+**Test markers searched:**
+- `__PROV_TEST_AUTO__`
+- `__PROV_TEST_ORPHAN__`
+- `__PROV_TEST_ALREADY_SOURCED__`
+
+**Results:**
+
+| Table | Residue rows found |
+|---|---|
+| `paper_trade_eq` | **0** |
+| `paper_eq_audit` | **0** |
+
+**Assessment:** No test-specific residue detected in the development database. Either previous test runs (if any were made against `DATABASE_URL`) completed cleanup via their `finally` blocks, or these tests were never run against this database. No operational records appear to have been affected.
+
+**Confidence:** HIGH. The test marker symbols are unique, non-production identifiers. Their absence in both tables indicates clean state.
+
+---
+
+### 22.5 Gate 1 Verdict — DB Isolation
+
+**`BLOCKED — SAFE_TEST_DATABASE_NOT_CONFIRMED`**
+
+The DB isolation gate cannot pass because:
+
+1. **Primary blocker:** `DB_TEST_RUNTIME_AUTHORIZED = false as boolean` is a compile-time hard block in `dbTestPreflightRunner.ts:638`. It is P0.1B-pending and cannot be bypassed by any environment variable or configuration change. The official `pnpm test:db` pathway always exits with `DB_TEST_RUNTIME_NOT_AUTHORIZED`.
+
+2. **Secondary blocker:** No `TEST_DATABASE_URL` is provisioned. The workspace secrets do not contain `TEST_DATABASE_URL`. Without it, `checkDbTestIsolation` fails at condition 2 (`OPERATIONAL_DATABASE_FALLBACK_FORBIDDEN`) before even reaching the hard block.
+
+3. **Tertiary:** `NODE_ENV` is not `"test"`, and no `TEST_RUN_ID` is set.
+
+**`paperTradingEqProvenance.test.ts` DB tests (3 tests):**
+
+The three DB-backed tests in the `describeDb` block run `checkDbTestIsolation(process.env)` at module-load time. Because `process.env` fails the guard, `isolationResult.ok = false` → `describeDb = describe.skip`. These 3 tests will continue to skip until `TEST_DATABASE_URL`, `NODE_ENV=test`, `TEST_RUN_ID`, and the hard block are all resolved.
+
+**What the owner must provision:**
+
+| Requirement | Detail |
+|---|---|
+| Isolated PostgreSQL database | Separate cluster/instance from `DATABASE_URL`; name must contain an isolation keyword AND `TEST_RUN_ID`; must NOT contain `nse_scanner` |
+| `TEST_DATABASE_URL` workspace secret | Full PostgreSQL URL pointing to the isolated database |
+| Schema migration | `paper_trade_eq`, `paper_eq_audit` tables (plus any other tables used by DB-backed tests) must exist in the test database |
+| P0.1B authorization | Change `DB_TEST_RUNTIME_AUTHORIZED = false as boolean` → `true` in `src/test-infra/dbTestPreflightRunner.ts` after completing prerequisites listed in `docs/paper-trader-architecture.md` |
+| `TEST_RUN_ID` | Passed by the test runner call; must appear in the database name |
+| Permissions | DDL + read/write scoped to the test database only; no access to operational `nse_scanner` database |
+
+---
+
+### 22.6 Gate 2 Status — Production Route Execution
+
+**Status: NOT_ATTEMPTED — blocked by Gate 1 failure**
+
+Per the acceptance rule: "Do not proceed to Gate 2 after an unsafe or failed DB gate."
+
+**Preliminary findings recorded for future use (source-analysis only — not executable proof):**
+
+The `getOptionSignals()` production call chain was fully read:
+
+```
+HTTP GET /options/signals
+  → requireSubscriberOrOwner("FNO") [scanner.ts:221]
+  → getOptionSignals() [optionSignals.ts:2815]
+    → for (const cfg of OPTION_INDICES) {  // [line 2913]
+        try { centralIndexCandles → buildSignalsForIndex → per-index result }
+        catch (err) { suppressed.push({ index: cfg.symbol, reasons: [...] }) }
+      }
+    → computeAllIndexFnoSetupAvailability()  // [line 3505] UNCONDITIONAL
+    → return { signals: out, indexFnoSetupAvailability: ..., diagnostics: ... }
+  → GetOptionSignalsResponse.parse({...})  // [line 3255]
+  → res.json(data)
+```
+
+Key observations:
+- `computeAllIndexFnoSetupAvailability()` at line 3505 is called unconditionally after ALL per-index try/catch blocks — it fires regardless of how many indices throw
+- The per-index catch at line 3012 catches all thrown exceptions and adds them to `suppressed[]`, never propagating to the outer scope
+- No `?? []` fallback on `indexFnoSetupAvailability` in the result at line 3505
+
+**Existing `routeSerializer.a032.test.ts` (27 tests) gap:**
+These tests call `GetOptionSignalsResponse.safeParse()` with constructed payloads. They prove the schema validates correctly and `computeAllIndexFnoSetupAvailability()` returns 9 records. They do NOT invoke the actual `getOptionSignals()` production function and therefore do not prove the partial/all-index-failure code paths through the real production handler. The prompt correctly classifies this as "source reasoning / constructed-object parsing" — not executable production-route proof.
+
+**Seam analysis (not yet authorized):**
+A minimal injection point exists — `getOptionSignals()` could accept an optional `buildSignalsFn` parameter (default: the current `buildSignalsForIndex`) to allow deterministic failure injection in tests. This change is NOT made here because Gate 2 is not reached.
+
+---
+
+### 22.7 Git State
+
+| Field | Value |
+|---|---|
+| Session execution baseline | `fcfe54189015894c5cac1a1c714c903f27c0a4fc` |
+| HEAD at evidence write | `33133883aa40d8645739d64001838c54290790a0` |
+| Auto-commits this session | `3313388` (prompt 06 to `attached_assets/` — blanket exception) |
+| Branch | `main` — ahead 45 of `origin/main` |
+| Tracked modifications (before evidence write) | None |
+| Staged modifications | None |
+| Untracked files (before evidence write) | None (prompt file was auto-committed as `3313388`) |
+| Manual commit | NO |
+| Push / pull / fetch | NO |
+| Deployment | NO |
+| A0.4 started | NO |
+| Production code changed | NO |
+| Test assertions weakened | NO |
+| `test:db` invoked | NO |
+| DB destructive SQL executed | NO |
+
+---
+
+### 22.8 Unit Verdict
+
+**`BLOCKED — SAFE_TEST_DATABASE_NOT_CONFIRMED`**
+
+Phase A0.3 final unit acceptance remains withheld. Both gates must pass before `ACCEPT_A0_3_AS_UNIT_VERIFIED` can be issued.
+
+| Gate | Verdict |
+|---|---|
+| Gate 1 — Safe DB isolation | `BLOCKED — SAFE_TEST_DATABASE_NOT_CONFIRMED` |
+| Gate 2 — Executable production-route failure proof | `NOT_ATTEMPTED — gate 1 must pass first` |
+
+**Previously verified work (§21) is preserved and unaffected:**
+- VWAP fabrication removal: ✅
+- 9-record availability contract: ✅
+- Case 10 stale-fixture repair: ✅
+- Full suite 4298/4301: ✅
+- Typechecks and builds: ✅
+
+---
+
+### 22.9 Production Status
+
+`PRODUCTION_DEPLOYMENT_STATUS_UNVERIFIED`
+
+---
+
+END_PHASE_A0_3_DB_ISOLATION_AND_ROUTE_EXECUTION_CLOSURE
