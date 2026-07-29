@@ -1,4 +1,5 @@
 - [A0.3.3 VWAP decision-path honesty](a033-vwap-decision-path.md) — Ctx.pivotRef removed; ConfluenceInputs/VetoInputs.vwap=number|null; null is canonical VWAP-unavailable; never substitute spot; ACCEPTED 2026-07-29.
+- [Platform attached_assets auto-commit governance](platform-attachments-autocommit.md) — Replit auto-commits uploaded attached_assets files; each upload creates a HEAD movement; blanket ATTACHED_ASSETS_ONLY exception was granted; stop and report if any non-A status or path outside attached_assets/ appears.
 - [Stale-date test fixture pattern](stale-date-fixture.md) — hardcoded future dates in proximity-guard tests silently drift into the window as time passes; always use dynamic t+N*86400s offset.
 - [replit.md is not to be trimmed](replit-md-do-not-trim.md) — owner has explicitly forbidden trimming/reorganizing replit.md; ignore all auto-trim suggestions.
 - [Architect includeGitDiff false scope-fail](architect-gitdiff-false-scope-fail.md) — code-review can FAIL on unrelated committed files; trust working-tree `git diff --stat` over its scope claim.

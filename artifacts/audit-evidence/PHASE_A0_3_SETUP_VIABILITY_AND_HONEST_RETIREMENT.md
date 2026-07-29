@@ -946,27 +946,56 @@ A0.1 and A0.2 evidence files were not modified. ✅
 
 ## §21 — Final Blocker Closure Pass (Prompt 05)
 
-**Date:** 2026-07-29
+**Date:** 2026-07-29 IST  
+**Blocker-closure session start:** 2026-07-29 16:46 IST  
+**Blocker-closure session end:** 2026-07-29 18:57 IST
 
 ---
 
-### 21.1 HEAD Governance Event
+### 21.1 HEAD Governance Record
 
-At the start of this session HEAD was `9306e0a8dcbbb53bfe7c9f07e84eef9b3c5f59a9`, not `faa1d0ad`.
+#### 21.1.1 Checkpoint Definitions
 
-| Field | Value |
+| Label | Commit | Role |
+|---|---|---|
+| A0.3.3 implementation baseline | `faa1d0ad14b8bace52bacf851abc3a02df631d93` | All A0.3.3 production changes |
+| Authorized fixture repair | `be186dd…` | Stale-date fix to `swingOrderStaging.test.ts` — see §21.1.3 |
+| Earlier execution baseline | `4f7e1339a0c7a7c1886ef6ba07cccef0835098af` | First observed HEAD at start of blocker-closure session |
+| **Blocker-closure execution baseline** | **`e201eb146c0f22e40d0965b01919426071bbbbb1`** | Confirmed HEAD at start of active work; all tests run from this commit |
+
+#### 21.1.2 Six Auto-Commits Between `faa1d0ad` and `4f7e1339`
+
+The Replit platform auto-committed the following between the A0.3.3 implementation baseline and the earlier execution baseline during the prior forensic audit session. None touch production source, tests (except `be186dd` — see §21.1.3), API schemas, migrations, dependencies, build or deployment configuration.
+
+| Commit | Title | Non-documentation file |
+|---|---|---|
+| `9306e0a` | Document phase A0.3 setup viability and honest retirement evidence | — |
+| `be186dd` | Update memory documentation and add audit evidence for phase A0.3 completion | `swingOrderStaging.test.ts` — see §21.1.3 |
+| `4162799` | Add NSC forensic audit report | — |
+| `4e1ba69` | Add NSC forensic audit report for July 2026 | — |
+| `d64f55a` | Add forensic audit report artifact | — |
+| `4f7e133` | Add NSC forensic audit report 2026-07-29 | — |
+
+#### 21.1.3 Auto-Commit Governance Exception — `be186dd` Test File Change
+
+Commit `be186dd` was titled "Update memory documentation and add audit evidence" but also modified `artifacts/api-server/src/lib/swingOrderStaging.test.ts`. This was flagged as a `SEMANTIC_TEST_CHANGE_REQUIRES_AUTHORIZATION` by the forensic comparison in this session.
+
+**Forensic verdict:** The change replaced the hardcoded fixture date `"2026-08-01"` with a dynamic `t + 30d` expression. The assertion (`expect(ok.approved).toBe(true)`) was unchanged. The business invariant was unchanged. The change is a correct stale-date fixture repair.
+
+**Owner authorization:** Retrospectively ratified by the owner in this session. Root cause accepted as `STALE_DATE_FIXTURE_DRIFT — NOT A PRODUCTION LOGIC DEFECT`.
+
+**Commit title disclosure gap:** The commit title did not disclose the test-file change. Classified as an **auto-commit governance exception**. The fixture repair is correct and ratified; no code revert or re-commit is required.
+
+#### 21.1.4 Two Further Auto-Commits — `4f7e1339` → `e201eb1`
+
+Between the earlier execution baseline and the current blocker-closure baseline, the platform auto-committed two more attached_assets files (the prompt documents uploaded this session). Both are `status A`, exclusively under `attached_assets/`, and touch no source, tests, configuration, or evidence.
+
+| Commit | File added |
 |---|---|
-| Prior expected HEAD | `faa1d0ad14b8bace52bacf851abc3a02df631d93` |
-| Observed HEAD | `9306e0a8dcbbb53bfe7c9f07e84eef9b3c5f59a9` |
-| Auto-commit contents | §19 + §20 evidence update; the new prompt-05 attached_assets file |
-| Changed files | `artifacts/audit-evidence/PHASE_A0_3_SETUP_VIABILITY_AND_HONEST_RETIREMENT.md`, `artifacts/audit-evidence/FINAL_EVIDENCE_ONLY_ACCEPTANCE_1785311719199.md` |
-| Ahead/behind | 36 ahead of `origin/main` (was 35) |
-| Platform-generated | YES — auto-commit of evidence file changes from prior session |
-| Impact on production code | NONE — no production file changed |
-| Working tree at session start | Tracked-clean; one untracked `attached_assets/*.md` |
-| Action taken | Document event, continue without reverting (no revert needed) |
+| `cdba04c` | `attached_assets/MARKET_SCANNER_PROMPT_05_A0_3_FINAL_BLOCKER_CLOSURE_1785323757142.md` |
+| `e201eb1` | `attached_assets/MARKET_SCANNER_PROMPT_05A_HEAD_DISCREPANCY_AUTHORIZATION_1785324409710.md` |
 
-This is a governance event only. `faa1d0ad` remains the production implementation commit. `9306e0a8` is a documentation-only auto-commit.
+**Blanket authorization:** Owner granted `ATTACHED_ASSETS_ONLY_AUTO_COMMIT_EXCEPTION_GRANTED` for all future HEAD movements that add only `status A` files exclusively under `attached_assets/`, with no modification/deletion of any existing file.
 
 ---
 
@@ -1026,16 +1055,43 @@ const ok = await approveSwingOrder(owner, staged.row!.id, "owner", {
 
 ### 21.4 Case 10 Post-Fix Verification
 
+Executed from blocker-closure execution baseline `e201eb1` (contains `be186dd` fixture repair).
+
+**5 isolated Case 10 runs** (`vitest run --pool=threads -t "Case 10" swingOrderStaging.test.ts`):
+
+| Run | Result | Duration |
+|---|---|---|
+| 1 | ✓ 1 passed / 30 skipped | 199ms |
+| 2 | ✓ 1 passed / 30 skipped | 40ms |
+| 3 | ✓ 1 passed / 30 skipped | 52ms |
+| 4 | ✓ 1 passed / 30 skipped | 40ms |
+| 5 | ✓ 1 passed / 30 skipped | 51ms |
+
+**5 complete file runs** (`vitest run --pool=threads swingOrderStaging.test.ts`):
+
+| Run | Result |
+|---|---|
+| 1 | ✓ 31/31 |
+| 2 | ✓ 31/31 |
+| 3 | ✓ 31/31 |
+| 4 | ✓ 31/31 |
+| 5 | ✓ 31/31 |
+
+No flakiness. No test-order dependency. All 31 tests passing deterministically.
+
+**Three-day boundary verification** (`swingCashEventRisk.test.ts`):
+
 ```
-swingOrderStaging.test.ts — 5 runs, post-fix:
-Run 1: Tests  31 passed (31)
-Run 2: Tests  31 passed (31)
-Run 3: Tests  31 passed (31)
-Run 4: Tests  31 passed (31)
-Run 5: Tests  31 passed (31)
+Test Files  1 passed (1)
+Tests       10 passed (10)
 ```
 
-All 31 tests passing. No flakiness observed.
+Tests include: "blocks when result is within the window", "blocks on result day", "clears when no event risk in window", "never reads a non-finite (NaN) daysToResult as clear", and all owner-override scenarios. ✅
+
+**Valid / invalid override confirmation:**
+- Case 10 with `resultDate = t + 30d`: `approved: true` ✅ (valid override clears event review)
+- Case 10 without override: `approved: false`, `reason: "RECHECK_BLOCKED"` ✅ (event calendar unavailable blocks)
+- `swingCashEventRisk.test.ts` covers: expired schedule, corporate-action unavailable, news-risk unavailable, NaN/null daysToResult ✅
 
 ---
 
@@ -1116,52 +1172,118 @@ Tests       35 passed (35)
 
 ---
 
-### 21.8 Full Workspace Typecheck
+### 21.8 Typechecks and Builds
 
-All 4 packages typechecked individually:
+All commands run from blocker-closure execution baseline `e201eb1`.
 
-```
-pnpm -r exec tsc --noEmit → 0 errors
-```
+| Package | Command | Exit |
+|---|---|---|
+| `api-server` | `pnpm --filter @workspace/api-server run typecheck` | **0** ✅ |
+| `scanner` | `pnpm --filter @workspace/scanner run typecheck` | **0** ✅ |
+| `api-zod` | no `typecheck` script (pure declaration package) | N/A |
+| `api-client-react` | no `typecheck` script (pure declaration package) | N/A |
+| Full workspace | `pnpm run typecheck` (= `typecheck:libs` + `-r --filter ./artifacts/**` typecheck) | **0** ✅ |
+| `api-server` prod build | `pnpm --filter @workspace/api-server run build` | **0** ✅ |
+| `scanner` prod build | `pnpm --filter @workspace/scanner run build` | **0** ✅ |
+| `git diff --check` | whitespace/conflict-marker check | **0** ✅ |
 
-✅ Clean.
+The full workspace `typecheck` command (`pnpm run typecheck`) exercises `typecheck:libs` (tsc project references for lib packages) plus all artifacts (`global`, `scanner`, `api-server`, `mockup-sandbox`, `scripts`). All clean.
+
+`api-zod` and `api-client-react` have no standalone `typecheck` scripts; their types are validated transitively by `api-server` and `scanner` typechecks which import them.
 
 ---
 
 ### 21.9 Final Acceptance Gate Matrix
 
-| Gate | Files / Tests | Result |
-|---|---|---|
-| Gate A: A0.3.3 baseline (indicators + zeroVolume + vwapGuard + a031 + c0 + paperAdmission) | 160 tests | ✅ 160/160 |
-| Gate B: A0.3.3 behavioral (pivotRefInventory §13.1–§13.5) | 35 tests | ✅ 35/35 |
-| Gate C: A0.3 acceptance (setupAvailability + routeSerializer + a031 + paperAdmission + openapiSpecParity + openApiParity + c0) | 232 tests | ✅ 232/232 |
-| Gate D (7-file normal + 7-file reverse) | 261 tests | ✅ 261/261 |
-| Gate E scanner | 35 tests | ✅ 35/35 (scanner fnoSetupAvailability + setupExplanation) |
-| Gate E full API server | 4301 tests | ✅ 4298 passed / 3 skipped |
-| Workspace typecheck | all packages | ✅ 0 errors |
-| EMA-pullback null-VWAP count | regex grep | ✅ 0 |
-| Route `?? []` | scanner.ts:239 | ✅ absent |
-| No pivotRef in production signals | confirmed | ✅ |
-| No spot via VWAP-named parameters | confirmed | ✅ |
-| VWAP-dependent detectors fail closed | confirmed | ✅ |
-| Nine-record availability contract | computeAllIndexFnoSetupAvailability() | ✅ static, unconditional |
-| No commit / push / deploy during blocker closure | git reflog | ✅ |
+**Per-file counts (Gate A + B + C combined, 11 files):**
 
-**Skipped tests:** 3 in `paperTradingEqProvenance.test.ts` `describeDb` block — require `TEST_DB_ISOLATION_CONFIRMED=true`. All 3 predate A0.3.x. Not related to VWAP signal path.
+| File | Gate | Tests |
+|---|---|---|
+| `indicators.test.ts` | A — baseline | 110 |
+| `optionSignals.zeroVolume.test.ts` | A — baseline | 43 |
+| `confluenceEngine.vwapGuard.test.ts` | A — baseline | 7 |
+| **Gate A subtotal** | | **160** |
+| `pivotRefInventory.a032.test.ts` | B — A0.3.3 behavioral | 35 |
+| **Gate B subtotal** | | **35** |
+| `optionSignals.setupAvailability.test.ts` | C — setup contract | 58 |
+| `routeSerializer.a032.test.ts` | C — route serializer | 27 |
+| `optionSignals.a031.test.ts` | C — A0.3.1 core | 72 |
+| `paperAdmission.a032.test.ts` | C — trading boundary | 21 |
+| `openapiSpecParity.a032.test.ts` | C — OpenAPI spec | 25 |
+| `openApiParity.a032.test.ts` | C — Zod parity | 15 |
+| `c0Enforcement.test.ts` | C — C0 kill-switch | 14 |
+| **Gate C subtotal** | | **232** |
+| **Gate A + B + C total** | | **427** |
+
+**Acceptance manifest:**
+
+| Gate | Required | Actual | Pass |
+|---|---|---|---|
+| Accepted backend baseline (Gate A) | 160/160 | 160/160 | ✅ |
+| A0.3.3 behavioral (Gate B) | 35/35 | 35/35 | ✅ |
+| Other A0.3 acceptance (Gate C) | 232/232 | 232/232 | ✅ |
+| Normal-order A0.3 manifest (Gates A+B+C) | 427/427 | 427/427 | ✅ |
+| Reverse-order A0.3 manifest | 427/427 | 427/427 | ✅ |
+| Scanner (`pnpm --filter @workspace/scanner run test`) | 843/843 | 843/843 | ✅ |
+| Scanner disclosure component (`setupExplanation.test.ts` + `fnoSetupAvailability.test.ts`) | — | 35/35 | ✅ |
+| Trading boundary (`paperAdmission` + `c0Enforcement`) | 35/35 | 35/35 | ✅ |
+| Swing staging file | 31/31 | 31/31 (×5 runs) | ✅ |
+| Full API server (213 files) | 0 failures | 4298 passed / 3 skipped / **0 failed** | ✅ |
+| API server typecheck | exit 0 | exit 0 | ✅ |
+| API Zod typecheck | N/A (no script) | N/A | ✅ |
+| API React client typecheck | N/A (no script) | N/A | ✅ |
+| Scanner typecheck | exit 0 | exit 0 | ✅ |
+| Full workspace typecheck | exit 0 | exit 0 | ✅ |
+| Scanner production build | exit 0 | exit 0 | ✅ |
+| API production build | exit 0 | exit 0 | ✅ |
+| `git diff --check` | exit 0 | exit 0 | ✅ |
+
+**Skipped test record (3 tests, pre-existing, no new skip/only markers introduced):**
+
+| Test | File | Skip mechanism | Reason |
+|---|---|---|---|
+| `applyPaperEqProvenanceColumns — live DB backfill idempotency` (×3) | `paperTradingEqProvenance.test.ts` | `describeDb = isolationResult.ok ? describe : describe.skip` | `checkDbTestIsolation` fails: `NODE_ENV=development`, no `TEST_DATABASE_URL`, no `TEST_RUN_ID`. P0.1 DB isolation guard. Predates A0.3.x. |
+
+No `.skip`, `.only`, retries, or arbitrary sleeps were added during this session.
 
 ---
 
 ### 21.10 Git State at Verdict
 
-| Field | Value |
+**Baselines:**
+
+| Label | Commit |
 |---|---|
-| HEAD | `9306e0a8dcbbb53bfe7c9f07e84eef9b3c5f59a9` |
-| Working tree | 1 modified tracked file (`swingOrderStaging.test.ts`), 1 untracked `attached_assets/*.md` |
-| `git diff --stat` HEAD | `swingOrderStaging.test.ts | 7 ++++++-` |
-| Any commit during blocker closure | NO |
-| Any push during blocker closure | NO |
-| Any deployment during blocker closure | NO |
+| A0.3.3 implementation baseline | `faa1d0ad14b8bace52bacf851abc3a02df631d93` |
+| Authorized fixture repair | `be186dd…` (committed by platform; ratified by owner) |
+| Blocker-closure execution baseline | `e201eb146c0f22e40d0965b01919426071bbbbb1` |
+| HEAD at evidence write | `e201eb146c0f22e40d0965b01919426071bbbbb1` |
+
+**Working tree at verdict (before evidence write):**
+
+| Category | State |
+|---|---|
+| Tracked modifications (`git diff`) | None |
+| Staged modifications (`git diff --cached`) | None |
+| `git diff --check` | Exit 0 — no whitespace/conflict issues |
+| Untracked files | `attached_assets/MARKET_SCANNER_PROMPT_05_A0_3_FINAL_BLOCKER_CLOSURE_1785323757142.md` + `attached_assets/MARKET_SCANNER_PROMPT_05A_HEAD_DISCREPANCY_AUTHORIZATION_1785324409710.md` |
+| Evidence file index flags | `H` (normal tracked, not assume-unchanged/skip-worktree) |
+
+**Classification:** tracked-clean, index-clean, with untracked attached_assets files. The evidence file itself becomes the sole tracked modification after this write.
+
+**Session governance:**
+
+| Action | Performed |
+|---|---|
+| Manual commit | NO |
+| Amend/rebase/reset | NO |
+| Push / pull / fetch | NO |
+| Deployment / publish | NO |
 | A0.4 started | NO |
+| Any production file changed | NO |
+| Any test assertion weakened | NO |
+
+**Checkpoint ancestry:** `faa1d0ad` is a direct ancestor of `e201eb1`. The six auto-commits between them are documentation and fixture repair only (see §21.1.2–21.1.4).
 
 ---
 
@@ -1169,29 +1291,39 @@ pnpm -r exec tsc --noEmit → 0 errors
 
 **`ACCEPT_A0_3_AS_UNIT_VERIFIED`**
 
-All acceptance gates are GREEN. The sole blocker from §20.17 has been resolved:
+All acceptance gates are GREEN. The sole failure reported in the previous session (Case 10 in `swingOrderStaging.test.ts`) has been diagnosed, root-caused, repaired (via `be186dd`), and verified across five consecutive isolated runs and five complete-file runs from the blocker-closure execution baseline.
 
-- **Root cause:** Stale test fixture (`resultDate: "2026-08-01"`) entered the production `resultWithinDaysBlock: 3` event-risk window on 2026-07-29.
-- **Fix:** Dynamic 30-day offset. Business assertion unchanged.
-- **Scope:** Test fixture only. No production code changed. Not in A0.3.3 commit.
-- **Verification:** 31/31 consistently, 5 runs.
-- **Full suite:** 4298/4301 (3 expected DB-isolation skips).
+**Root cause:** `STALE_DATE_FIXTURE_DRIFT — NOT A PRODUCTION LOGIC DEFECT`
 
-Phase A0.3 (A0.3.1 + A0.3.2 + A0.3.3) is accepted as a verified unit.
+The hardcoded `resultDate: "2026-08-01"` entered the production `resultWithinDaysBlock: 3` event-risk window on 2026-07-29 (`3 <= 3` → gate fires). Fixed by dynamic `t + 30d` offset in `be186dd`. Business assertion unchanged.
+
+**Summary:**
 
 | Acceptance dimension | Status |
 |---|---|
 | VWAP fabrication removed | ✅ `pivotRef` gone; `null` is canonical VWAP-unavailable |
 | VWAP-named parameters carry only authentic VWAP | ✅ `ConfluenceInputs.vwap`, `VetoInputs.vwap` = `number\|null` |
 | Detectors fail closed on null VWAP | ✅ volume-breakout, mean-reversion, trend-continuation |
-| EMA-pullback is VWAP-free | ✅ 0 references confirmed |
+| EMA-pullback is VWAP-free | ✅ `detectEmaPullback` — 0 references to `vwap`/`authVwap` |
 | Permitted spot geometry explicitly disclosed | ✅ `detectBaselineOutlook` stop: `vwapAvailable ? authVwap : spot` |
-| 9-record availability contract | ✅ `computeAllIndexFnoSetupAvailability()` is static + unconditional |
-| No `?? []` on route | ✅ `scanner.ts:239` clean |
-| All 6 route states carry 9 records | ✅ proven by static function |
-| Test regression (Case 10) | ✅ CLOSED — stale fixture, non-A0.3.3 |
-| Workspace typecheck | ✅ 0 errors |
-| No commit/push/deploy | ✅ |
+| 9-record availability contract | ✅ `computeAllIndexFnoSetupAvailability()` — static, unconditional |
+| No `?? []` on availability at route | ✅ `scanner.ts:239` — no fallback |
+| All 6 route states carry 9 records | ✅ proved by static source + routeSerializer 27/27 |
+| Partial-index failure carries 9 records | ✅ per-index catch does not affect static call at return |
+| All-index failure carries 9 records | ✅ same; `out=[]` does not suppress availability |
+| Test regression (Case 10) | ✅ CLOSED — stale fixture; ratified as `STALE_DATE_FIXTURE_DRIFT` |
+| Swing staging file | ✅ 31/31 × 5 runs deterministic |
+| Full API suite | ✅ 4298/4301 (3 pre-existing DB-isolation skips) |
+| Workspace typecheck | ✅ exit 0 |
+| Scanner production build | ✅ exit 0 |
+| API production build | ✅ exit 0 |
+| No commit/push/deploy during blocker closure | ✅ |
+
+Phase A0.3 (A0.3.1 + A0.3.2 + A0.3.3) is accepted as a verified unit.
+
+**Production status:** `PRODUCTION_DEPLOYMENT_STATUS_UNVERIFIED`
+
+Unit acceptance must not be presented as production acceptance.
 
 ---
 
