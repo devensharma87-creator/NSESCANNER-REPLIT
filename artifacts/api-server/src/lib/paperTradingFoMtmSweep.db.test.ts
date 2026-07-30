@@ -1,14 +1,52 @@
-import { afterAll, beforeEach, describe, expect, it } from "vitest";
+import { checkDbTestIsolation } from "../test-infra/dbTestGuard.js";
+
+// ── dynamic module handles (loaded after isolation check) ──────────────────
+let db: Awaited<typeof import("@workspace/db")>["db"];
+let pool: Awaited<typeof import("@workspace/db")>["pool"];
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let paperTradeFoTable: any;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let eq: any;
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let markAllOpenFnoTradesToMarket: any;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let pickLtpFromChain: any;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let getMtmSweepHealth: any;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let __resetMtmSweepHealthForTests: any;
+
+let _loaded = false;
+async function loadDbModules(): Promise<void> {
+  if (_loaded) return;
+  _loaded = true;
+  checkDbTestIsolation();
+  const [dbMod, ormMod, ftMod] = await Promise.all([
+    import("@workspace/db"),
+    import("drizzle-orm"),
+    import("./paperTradingFO.js"),
+  ]);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const _db = dbMod as any;
+  db = _db.db;
+  pool = _db.pool;
+  paperTradeFoTable = _db.paperTradeFoTable;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const _orm = ormMod as any;
+  eq = _orm.eq;
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const _ftMod = ftMod as any;
+  markAllOpenFnoTradesToMarket = _ftMod.markAllOpenFnoTradesToMarket;
+  pickLtpFromChain = _ftMod.pickLtpFromChain;
+  getMtmSweepHealth = _ftMod.getMtmSweepHealth;
+  __resetMtmSweepHealthForTests = _ftMod.__resetMtmSweepHealthForTests;
+}
+
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { TransactionRollbackError } from "drizzle-orm/errors";
-import { eq } from "drizzle-orm";
-import { db, pool, paperTradeFoTable } from "@workspace/db";
 import type { OcResponse } from "./optionChain";
-import {
-  markAllOpenFnoTradesToMarket,
-  pickLtpFromChain,
-  getMtmSweepHealth,
-  __resetMtmSweepHealthForTests,
-} from "./paperTradingFO";
 
 /**
  * P22 — All-Open F&O MTM Coverage tests.
@@ -25,11 +63,9 @@ function swallowIntentionalRollback(err: unknown): void {
   throw err;
 }
 
-const hasDb = Boolean(process.env.DATABASE_URL && !process.env.DATABASE_URL.includes("dummy"));
-const dbit = hasDb ? it : it.skip;
 
 afterAll(async () => {
-  if (hasDb) await pool.end().catch(() => {});
+  await pool.end().catch(() => {});
 });
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -63,6 +99,7 @@ function makeChain(strike: number, ce?: number, pe?: number): OcResponse {
 }
 
 describe("pickLtpFromChain — pure", () => {
+  beforeAll(loadDbModules);
   it("returns CE ltp at the matching strike", () => {
     expect(pickLtpFromChain(makeChain(48000, 712.5, 805.2), 48000, "CE")).toBe(712.5);
   });
@@ -102,7 +139,7 @@ describe("pickLtpFromChain — pure", () => {
 describe("markAllOpenFnoTradesToMarket — fail-safe (no DB required)", () => {
   beforeEach(() => __resetMtmSweepHealthForTests());
 
-  dbit("resolves cleanly when chainFetcher throws (zero considered rows)", async () => {
+  it("resolves cleanly when chainFetcher throws (zero considered rows)", async () => {
     const stats = await markAllOpenFnoTradesToMarket(
       "1999-01-01",
       async () => {
@@ -113,7 +150,7 @@ describe("markAllOpenFnoTradesToMarket — fail-safe (no DB required)", () => {
     expect(stats.errors).toBe(0);
   });
 
-  dbit("chainFetcher throw is swallowed per row; sweep still resolves", async () => {
+  it("chainFetcher throw is swallowed per row; sweep still resolves", async () => {
     await db
       .transaction(async (tx) => {
         await seedTrade(tx, {
@@ -152,7 +189,7 @@ describe("markAllOpenFnoTradesToMarket — fail-safe (no DB required)", () => {
       .catch(swallowIntentionalRollback);
   });
 
-  dbit("strike float-jitter (48000.0000 vs 48000) still matches", async () => {
+  it("strike float-jitter (48000.0000 vs 48000) still matches", async () => {
     await db
       .transaction(async (tx) => {
         const id = await seedTrade(tx, {
@@ -248,7 +285,7 @@ const TEST_DATE = "2099-12-31";
 describe("markAllOpenFnoTradesToMarket — DB integration (rolled back)", () => {
   beforeEach(() => __resetMtmSweepHealthForTests());
 
-  dbit("updates last_premium / max_runup on a favourable move", async () => {
+  it("updates last_premium / max_runup on a favourable move", async () => {
     await db
       .transaction(async (tx) => {
         const id = await seedTrade(tx, {
@@ -300,7 +337,7 @@ describe("markAllOpenFnoTradesToMarket — DB integration (rolled back)", () => 
       .catch(swallowIntentionalRollback);
   });
 
-  dbit("adverse move grows max_drawdown (LEAST)", async () => {
+  it("adverse move grows max_drawdown (LEAST)", async () => {
     await db
       .transaction(async (tx) => {
         const id = await seedTrade(tx, {
@@ -339,7 +376,7 @@ describe("markAllOpenFnoTradesToMarket — DB integration (rolled back)", () => 
       .catch(swallowIntentionalRollback);
   });
 
-  dbit("CLOSED trades are NOT considered or updated", async () => {
+  it("CLOSED trades are NOT considered or updated", async () => {
     await db
       .transaction(async (tx) => {
         const id = await seedTrade(tx, {
@@ -390,7 +427,7 @@ describe("markAllOpenFnoTradesToMarket — DB integration (rolled back)", () => 
       .catch(swallowIntentionalRollback);
   });
 
-  dbit("missing-quote rows do not throw; counted as skippedNoQuote", async () => {
+  it("missing-quote rows do not throw; counted as skippedNoQuote", async () => {
     await db
       .transaction(async (tx) => {
         await seedTrade(tx, {
@@ -424,7 +461,7 @@ describe("markAllOpenFnoTradesToMarket — DB integration (rolled back)", () => 
       .catch(swallowIntentionalRollback);
   });
 
-  dbit("processes multiple OPEN trades and fetches chain once per unique index", async () => {
+  it("processes multiple OPEN trades and fetches chain once per unique index", async () => {
     await db
       .transaction(async (tx) => {
         await seedTrade(tx, {
@@ -497,7 +534,7 @@ describe("markAllOpenFnoTradesToMarket — DB integration (rolled back)", () => 
       .catch(swallowIntentionalRollback);
   });
 
-  dbit("skips rows already freshly marked by the cohort path", async () => {
+  it("skips rows already freshly marked by the cohort path", async () => {
     await db
       .transaction(async (tx) => {
         await seedTrade(tx, {
@@ -537,7 +574,7 @@ describe("markAllOpenFnoTradesToMarket — DB integration (rolled back)", () => 
       .catch(swallowIntentionalRollback);
   });
 
-  dbit("getMtmSweepHealth reflects the last cycle", async () => {
+  it("getMtmSweepHealth reflects the last cycle", async () => {
     await db
       .transaction(async (tx) => {
         await seedTrade(tx, {

@@ -1,11 +1,51 @@
-import { afterAll, describe, expect, it } from "vitest";
-import { and, eq, sql } from "drizzle-orm";
-import { db, pool, optionSignalHistoryTable } from "@workspace/db";
+import { checkDbTestIsolation } from "../test-infra/dbTestGuard.js";
+
+// ── dynamic module handles (loaded after isolation check) ──────────────────
+let db: Awaited<typeof import("@workspace/db")>["db"];
+let pool: Awaited<typeof import("@workspace/db")>["pool"];
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let optionSignalHistoryTable: any;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let and: any;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let eq: any;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let sql: any;
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let recordOrUpdate: any;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let persistOptionPremiums: any;
+
+let _loaded = false;
+async function loadDbModules(): Promise<void> {
+  if (_loaded) return;
+  _loaded = true;
+  checkDbTestIsolation();
+  const [dbMod, ormMod, sigLifMod] = await Promise.all([
+    import("@workspace/db"),
+    import("drizzle-orm"),
+    import("./optionSignalLifecycle.js"),
+  ]);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const _db = dbMod as any;
+  db = _db.db;
+  pool = _db.pool;
+  optionSignalHistoryTable = _db.optionSignalHistoryTable;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const _orm = ormMod as any;
+  and = _orm.and;
+  eq = _orm.eq;
+  sql = _orm.sql;
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const _sigLifMod = sigLifMod as any;
+  recordOrUpdate = _sigLifMod.recordOrUpdate;
+  persistOptionPremiums = _sigLifMod.persistOptionPremiums;
+}
+
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { OptionSignal } from "@workspace/api-zod";
-import {
-  recordOrUpdate,
-  persistOptionPremiums,
-} from "./optionSignalLifecycle";
 
 /**
  * P0-00 — Signal-plan immutability regression tests.
@@ -24,16 +64,11 @@ import {
  * afterAll.
  */
 
-const hasDb = Boolean(
-  process.env.DATABASE_URL && !process.env.DATABASE_URL.includes("dummy"),
-);
-const dbit = hasDb ? it : it.skip;
 
 // Unique per-run key so parallel/repeated runs never collide.
 const TEST_INDEX = `TESTIDX_P000_${process.pid}`;
 
 afterAll(async () => {
-  if (!hasDb) return;
   await db
     .delete(optionSignalHistoryTable)
     .where(eq(optionSignalHistoryTable.indexSymbol, TEST_INDEX))
@@ -121,7 +156,8 @@ async function fetchRow(setupKey: string) {
 }
 
 describe("P0-00 plan immutability", () => {
-  dbit(
+  beforeAll(loadDbModules);
+  it(
     "persistOptionPremiums locks the premium plan exactly once (IS NULL guard + lockedAt stamp)",
     async () => {
       const setupKey = "P000_ONESHOT";
@@ -162,7 +198,7 @@ describe("P0-00 plan immutability", () => {
     },
   );
 
-  dbit(
+  it(
     "strike guard: premiums projected for a drifted ATM strike never backfill the locked row",
     async () => {
       const setupKey = "P000_STRIKEGUARD";
@@ -194,7 +230,7 @@ describe("P0-00 plan immutability", () => {
     },
   );
 
-  dbit(
+  it(
     "PENDING→TRIGGERED transition leaves the locked premium plan untouched",
     async () => {
       const setupKey = "P000_TRIGGER";
@@ -235,7 +271,7 @@ describe("P0-00 plan immutability", () => {
     },
   );
 
-  dbit(
+  it(
     "two-poll stability: repeated polls return an identical locked plan while live projections keep moving",
     async () => {
       const setupKey = "P000_TWOPOLL";
@@ -269,7 +305,7 @@ describe("P0-00 plan immutability", () => {
     },
   );
 
-  dbit(
+  it(
     "plan-audit ledger table exists, is append-only shaped, and enforces the 4-reason CHECK",
     async () => {
       // Structural: the sanctioned-correction path exists in the schema.

@@ -1,24 +1,65 @@
+import { checkDbTestIsolation } from "../../test-infra/dbTestGuard.js";
+
+// ── dynamic module handles (loaded after isolation check) ──────────────────
+let db: Awaited<typeof import("@workspace/db")>["db"];
+let pool: Awaited<typeof import("@workspace/db")>["pool"];
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let indstocksTokenTable: any;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let eq: any;
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let getIndstocksToken: any;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let setIndstocksToken: any;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let clearIndstocksToken: any;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let getIndstocksTokenStatus: any;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let _resetIndstocksTokenCacheForTests: any;
+
+let _loaded = false;
+async function loadDbModules(): Promise<void> {
+  if (_loaded) return;
+  _loaded = true;
+  checkDbTestIsolation();
+  const [dbMod, ormMod, tokenMod] = await Promise.all([
+    import("@workspace/db"),
+    import("drizzle-orm"),
+    import("./indstocksTokenStore.js"),
+  ]);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const _db = dbMod as any;
+  db = _db.db;
+  pool = _db.pool;
+  indstocksTokenTable = _db.indstocksTokenTable;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const _orm = ormMod as any;
+  eq = _orm.eq;
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const _tokenMod = tokenMod as any;
+  getIndstocksToken = _tokenMod.getIndstocksToken;
+  setIndstocksToken = _tokenMod.setIndstocksToken;
+  clearIndstocksToken = _tokenMod.clearIndstocksToken;
+  getIndstocksTokenStatus = _tokenMod.getIndstocksTokenStatus;
+  _resetIndstocksTokenCacheForTests = _tokenMod._resetIndstocksTokenCacheForTests;
+}
+
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
-import { eq } from "drizzle-orm";
-import { db, indstocksTokenTable, type IndstocksTokenRow } from "@workspace/db";
-import {
-  getIndstocksToken,
-  setIndstocksToken,
-  clearIndstocksToken,
-  getIndstocksTokenStatus,
-  _resetIndstocksTokenCacheForTests,
-} from "./indstocksTokenStore";
 
 /**
  * Live-DB round-trip for the hot-swap token store. Auto-skips when DATABASE_URL
  * is unset. Snapshots and restores the single active row so it never clobbers a
  * manually-set dev token.
  */
-const hasDb = !!process.env["DATABASE_URL"] && !process.env["DATABASE_URL"].includes("dummy");
 const ACTIVE_ID = "active";
 
-(hasDb ? describe : describe.skip)("indstocksTokenStore (live DB)", () => {
-  let snapshot: IndstocksTokenRow | null = null;
+describe("indstocksTokenStore (live DB)", () => {
+  beforeAll(loadDbModules);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let snapshot: any = null;
   const prevEnv = process.env["INDSTOCKS_API_TOKEN"];
 
   beforeAll(async () => {

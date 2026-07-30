@@ -1,17 +1,55 @@
-import { afterAll, describe, expect, it } from "vitest";
-import { eq, sql } from "drizzle-orm";
-import {
-  db,
-  pool,
-  paperAccountTable,
-  paperCapitalEventTable,
-} from "@workspace/db";
+import { checkDbTestIsolation } from "../test-infra/dbTestGuard.js";
+
+// ── dynamic module handles (loaded after isolation check) ──────────────────
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let eq: any;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let sql: any;
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let paperAccountTable: any;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let paperCapitalEventTable: any;
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let topupAccount: any;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let withdrawAccount: any;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let getCapitalMovements: any;
+
+let db: Awaited<typeof import("@workspace/db")>["db"];
+let pool: Awaited<typeof import("@workspace/db")>["pool"];
+
+let _loaded = false;
+async function loadDbModules(): Promise<void> {
+  if (_loaded) return;
+  _loaded = true;
+  checkDbTestIsolation();
+  const [ormMod, dbMod2, accMod] = await Promise.all([
+    import("drizzle-orm"),
+    import("@workspace/db"),
+    import("./paperAccount.js"),
+  ]);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const _orm = ormMod as any;
+  eq = _orm.eq;
+  sql = _orm.sql;
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const _dbMod2 = dbMod2 as any;
+  db = _dbMod2.db;
+  pool = _dbMod2.pool;
+  paperAccountTable = _dbMod2.paperAccountTable;
+  paperCapitalEventTable = _dbMod2.paperCapitalEventTable;
+  const _accMod = accMod as any;
+  topupAccount = _accMod.topupAccount;
+  withdrawAccount = _accMod.withdrawAccount;
+  getCapitalMovements = _accMod.getCapitalMovements;
+}
+
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Segment } from "./paperAccount";
-import {
-  topupAccount,
-  withdrawAccount,
-  getCapitalMovements,
-} from "./paperAccount";
 
 /**
  * Live-DB tests for the capital-movement ledger (ADD_CAPITAL /
@@ -28,8 +66,6 @@ import {
  *
  * Skips cleanly when DATABASE_URL is unset (CI without a DB).
  */
-const dbAvailable = Boolean(process.env.DATABASE_URL && !process.env.DATABASE_URL.includes("dummy"));
-const describeDb = dbAvailable ? describe : describe.skip;
 
 // Unique per-process so parallel test files (threads pool) never collide.
 const TEST_SEG = `__CAPTEST_${process.pid}_${Date.now()}__` as Segment;
@@ -52,7 +88,8 @@ async function readAccount(): Promise<{ balance: number; dayRealizedPnl: number 
   return { balance: parseFloat(r.balance), dayRealizedPnl: parseFloat(r.dayRealizedPnl) };
 }
 
-describeDb("paper capital events — add / withdraw / ledger", () => {
+describe("paper capital events — add / withdraw / ledger", () => {
+  beforeAll(loadDbModules);
   afterAll(async () => {
     await cleanup().catch(() => {});
     await pool.end().catch(() => {});

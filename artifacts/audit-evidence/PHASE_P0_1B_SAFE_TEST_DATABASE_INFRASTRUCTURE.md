@@ -793,3 +793,225 @@ All checks performed with working-tree modifications only. No DB connection. No 
 ---
 
 END_PHASE_P0_1B_SAFETY_CLOSURE_AND_DISPOSABLE_DB_RUNNER
+
+---
+
+## §12 — PROMPT 11: LEGACY DB-TEST INVENTORY, CLASSIFICATION, AND FINAL EVIDENCE CLOSURE
+
+**Date:** 2026-07-30  
+**Session:** Prompt 11 — P0.1B Legacy DB-Test and Final Evidence Closure  
+**Starting HEAD:** `c29763b` (Refactor database tests for paper trading and swing order staging modules)  
+**Final HEAD:** `c29763b` (unchanged — all work is in the working tree)  
+**Branch:** `main`, ahead of `origin/main` by 51 commits  
+**DB connection:** `NO_DATABASE_CONNECTION`  
+**Prior-task disclosure:** `READ_ONLY_OPERATIONAL_DB_CONNECTION_USED_IN_PRIOR_TASK_PROMPT_09 — NO_OPERATIONAL_DB_MUTATION`
+
+---
+
+### §12.1 — Repository-Wide DB-Test Inventory and Classification
+
+A complete scan of `artifacts/api-server/src/lib/` and `src/lib/marketData/` was performed to classify every test file that references DB-connection-creating modules (`@workspace/db`, `drizzle-orm` value exports, or application modules that transitively import them).
+
+**Classification taxonomy:**
+
+| Category | Count | Disposition |
+|---|---|---|
+| ALL-DB (all tests use live DB) | 7 | Renamed to `.db.test.ts` with dynamic-import guard |
+| MIXED (pure + DB tests co-located) | 3 | Split: pure stays in `.test.ts`, DB moves to `.db.test.ts` |
+| MOCKED_DB_UNIT_TEST (vi.mock blocks Pool) | 7 | Remain in normal suite — vi.mock proven |
+| PURE_NON_DB_TEST (no DB imports) | 8 | Remain in normal suite unchanged |
+
+---
+
+### §12.2 — ALL-DB Files Converted (7 files)
+
+Each original `.test.ts` was deleted and replaced with a `.db.test.ts` that:
+- Has NO static value imports from `@workspace/db`, `drizzle-orm`, or any DB-transitive module
+- Has `let` declarations for all DB-bound symbols
+- Has an async `loadDbModules()` function that calls `checkDbTestIsolation()` first, then dynamically imports all needed modules
+- Has `beforeAll(loadDbModules)` in every `describe` block
+
+| Original file (deleted) | New `.db.test.ts` (created) | Key modules dynamically imported |
+|---|---|---|
+| `swingScannerStore.intradayRefresh.test.ts` | `swingScannerStore.intradayRefresh.db.test.ts` | `@workspace/db`, `drizzle-orm`, `./swingScannerStore.js` |
+| `paperTradingFoMtmSweep.test.ts` | `paperTradingFoMtmSweep.db.test.ts` | `@workspace/db`, `drizzle-orm`, `./paperTradingFO.js` |
+| `paperTradingFoOrphanExit.test.ts` | `paperTradingFoOrphanExit.db.test.ts` | `@workspace/db`, `drizzle-orm`, `./paperTradingFO.js`, `./fnoExitMonitorHealth.js` |
+| `paperTradingFoExitMonitorApi.test.ts` | `paperTradingFoExitMonitorApi.db.test.ts` | `@workspace/db`, `./paperTradingFO.js` |
+| `optionSignalPlanImmutability.test.ts` | `optionSignalPlanImmutability.db.test.ts` | `@workspace/db`, `drizzle-orm`, `./optionSignalLifecycle.js` |
+| `paperCapitalEvents.test.ts` | `paperCapitalEvents.db.test.ts` | `@workspace/db`, `drizzle-orm`, `./paperAccount.js` |
+| `marketData/indstocksTokenStore.test.ts` | `marketData/indstocksTokenStore.db.test.ts` | `@workspace/db`, `drizzle-orm`, `./indstocksTokenStore.js` |
+
+---
+
+### §12.3 — MIXED Files Split (3 files)
+
+| File | Pure part (stays in `.test.ts`) | DB part (new `.db.test.ts`) |
+|---|---|---|
+| `fnoPremiumExitOverlay.test.ts` | `decidePremiumHardStop` pure decision tests + `simulateProtectionRule` simulation tests. Added `vi.mock("@workspace/db", () => ({}))` to prevent Pool construction. | `fnoPremiumExitOverlay.db.test.ts`: `runPremiumHardStopSweep` DB integration (7 rolled-back transaction tests) |
+| `swingTtlSweep.test.ts` | Mocked scheduler + pure state defaults + scheduler idempotency + static guards + GAP-7. Added `vi.mock("@workspace/db", () => ({}))` to prevent Pool construction on cold `./swingTtlSweep` load. | `swingTtlSweep.db.test.ts`: `runSwingTtlSweepOnce` live DB tests (2 tests) |
+| `paperHeatSql.test.ts` | Pure SQL text shape tests for `HEAT_SQL_EQ` and `HEAT_SQL_FNO`. Added `vi.mock("@workspace/db", () => ({}))`. | `paperHeatSql.db.test.ts`: Live DB execution round-trip tests (3 rolled-back tests) |
+
+**Pure coverage preservation:** No pure test was removed from the normal suite. Pure describe blocks in mixed files were kept in the `.test.ts` file with `vi.mock("@workspace/db", () => ({}))` to classify them as `MOCKED_DB_UNIT_TEST` — the mock prevents Pool construction while the pure functions (which use only drizzle `sql` template literals or argument-only logic) remain testable.
+
+---
+
+### §12.4 — ZC-11 Batch Tests and Runtime Canary (§9)
+
+Added to `src/test-infra/dbTestGuard.test.ts` (`test:unit` scope):
+
+**ZC-11 series (6 tests):** Batch structural proof for all 9 P0.1B-era `.db.test.ts` files in `src/lib/` and 1 in `src/lib/marketData/`:
+- `ZC-11-exists`: all files present on disk
+- `ZC-11-no-static-db`: no static `@workspace/db` value import
+- `ZC-11-no-static-orm`: no static `drizzle-orm` value import
+- `ZC-11-has-guard`: every file references `checkDbTestIsolation`
+- `ZC-11-has-dynamic-db`: every file has `import("@workspace/db")`
+- `ZC-11-excluded`: `vitest.config.ts` glob covers all new files
+
+**ZC-CANARY series (2 tests):**
+- `CANARY-01`: Loads `@workspace/db` dynamically, calls `getDbPoolStats()`, asserts `totalCount ?? 0 === 0` — proves no `Pool.connect()` was called in this suite run
+- `CANARY-02`: Reads `vitest.config.ts`, confirms `**/*.db.test.ts` exclusion glob present; scans disk for all `.db.test.ts` files (≥12); confirms all match the glob
+
+---
+
+### §12.5 — Test Count Reconciliation
+
+| Suite | Prior count | New count | Delta | Explanation |
+|---|---|---|---|---|
+| `test:unit` | 164 | 172 | +8 | 6 ZC-11 + 2 ZC-CANARY tests added to `dbTestGuard.test.ts` |
+| `test:full` | 4354 | 4281 | -73 | 7 ALL-DB test files removed from normal suite (their tests now in `.db.test.ts`, excluded by `vitest.config.ts`); 3 MIXED files had DB blocks removed (DB tests moved to `.db.test.ts`); net reduction = DB tests that were previously running in the normal suite |
+
+Arithmetic check: The 8 new ZC-11/CANARY tests are in `dbTestGuard.test.ts` which is covered by both `test:unit` (via `vitest.config.unit.ts`) AND `test:full` (via `vitest.config.ts`). Therefore: `test:full` new count = 4354 (prior) + 8 (new ZC/CANARY) - 81 (DB tests removed from normal suite) = **4281** ✓.
+
+---
+
+### §12.6 — Prompt 10 Deliverables Verification (Read-Only)
+
+Verified all prior deliverables remain intact (no modifications to):
+- `vitest.config.ts` — exclude `**/*.db.test.ts` ✓ present
+- `vitest.config.unit.ts` — allowlist of 2 files ✓ present
+- `vitest.config.db.ts` — DB-only config ✓ present
+- `dbTestPreflightRunner.ts` — `DB_TEST_RUNTIME_AUTHORIZED = false as boolean` ✓ unchanged
+- `disposableDbLifecycle.ts` — 3 adapter interfaces, 13-step orchestration ✓ present
+- `disposableDbLifecycle.test.ts` — 20 mocked lifecycle tests ✓ present
+- `swingOrderStaging.db.test.ts` — dynamic imports + `checkDbTestIsolation` ✓ present
+- `paperTradingEqProvenance.db.test.ts` — same pattern ✓ present
+- `swingOrderStaging.pure.test.ts` — pure tests retained ✓ present
+- `paperTradingEqProvenance.pure.test.ts` — pure tests retained ✓ present
+- ZC-01 through ZC-10d tests in `dbTestGuard.test.ts` ✓ all pass
+
+---
+
+### §12.7 — Residue Cleanup Plan Completeness Check (No DB Connection)
+
+The existing plan at §11.8 was checked against the 13-point checklist from Prompt 11 §12:
+
+| Item | Status | Note |
+|---|---|---|
+| 1. Exact primary-key status | ⚠️ FUTURE READ-ONLY PREREQUISITE | Primary key IDs not captured; plan uses symbol+date predicate instead. Requires read-only prod query before execution. |
+| 2. Dependency/FK inventory | ✅ Present | `paper_eq_audit.paper_trade_id → paper_trade_eq.id` stated |
+| 3. Affected P&L/report/dashboard pathways | ⚠️ NOT DOCUMENTED | Gap: no analysis of whether these rows appear in Dashboard/Reports. Future prerequisite. |
+| 4. Deterministic backup procedure | ✅ Present | Step 1: `\copy` export to CSV before BEGIN |
+| 5. Pre-delete SHA-256 + row count | ⚠️ PARTIAL | Row count ✅; SHA-256 of backup file NOT specified. Future prerequisite. |
+| 6. Transaction start | ✅ Present | `BEGIN` at STEP 2 |
+| 7. Exact predicate revalidation | ✅ Present | COUNT must equal expected before proceeding |
+| 8. Fail-closed count assertions | ✅ Present | "Must equal 105 before proceeding" |
+| 9. Correct dependency deletion order | ✅ Present | Child (audit) before parent (trade) |
+| 10. Post-delete zero-residue verification | ✅ Present | STEP 5 returns 0,0 |
+| 11. Proof unrelated rows unchanged | ⚠️ NOT DOCUMENTED | No sample of operational rows to confirm untouched. Future prerequisite. |
+| 12. Rollback procedure | ✅ Present | ROLLBACK capability noted |
+| 13. Explicit owner authorization boundary | ✅ Present | `AUTHORIZE_OPERATIONAL_TEST_RESIDUE_CLEANUP` |
+
+**Summary:** 9/13 items complete. 4 gaps recorded as future read-only prerequisites before execution. Cleanup remains unauthorized and unexecuted. Authorization phrase unchanged: `AUTHORIZE_OPERATIONAL_TEST_RESIDUE_CLEANUP`.
+
+---
+
+### §12.8 — Full Verification Battery Results
+
+All commands run with working-tree modifications only. No DB connection. No commit. No push.
+
+| Check | Command | Exit | Result |
+|---|---|---|---|
+| Unit suite | `pnpm run test:unit` | 0 | ✓ 172/172 PASS |
+| Full non-DB suite | `pnpm run test:full` | 0 | ✓ 4281/4281 PASS |
+| API-server tsc | `pnpm exec tsc --noEmit` | 0 | ✓ CLEAN |
+| api-zod tsc | `pnpm --filter @workspace/api-zod exec tsc --noEmit` | 0 | ✓ CLEAN |
+| api-client-react tsc | `pnpm --filter @workspace/api-client-react exec tsc --noEmit` | 0 | ✓ CLEAN |
+| Scanner tsc | `pnpm --filter @workspace/scanner exec tsc --noEmit` | 0 | ✓ CLEAN |
+| Scanner test suite | `pnpm --filter @workspace/scanner run test` | 0 | ✓ 843/843 PASS (39 files) |
+| API-server build | `pnpm --filter @workspace/api-server run build` | 0 | ✓ Built in 722ms |
+| Scanner build | `pnpm --filter @workspace/scanner run build` | 0 | ✓ Built in 9.60s |
+| `git diff --check` | `git diff --check HEAD` | 0 | ✓ CLEAN (no whitespace errors) |
+| `.skip` / `.only` audit | grep in all new/modified test files | — | ✓ NONE added by this session |
+| `setTimeout` audit | grep in new/modified test files | — | ✓ Pre-existing only (swingTtlSweep mocked scheduler tests) |
+| Connection strings | grep in new files | — | ✓ CANARY-01 uses RFC 5737 TEST-NET-3 (203.0.113.1) — non-routable, no operational DB |
+| ZC-11 series | `test:unit` | 0 | ✓ 6/6 PASS |
+| ZC-CANARY series | `test:unit` | 0 | ✓ 2/2 PASS |
+| `vitest.config.noDb.ts` absent | ZC taxonomy | — | ✓ ABSENT |
+| `DB_TEST_RUNTIME_AUTHORIZED` | static code check | — | ✓ `false as boolean` unchanged |
+
+---
+
+### §12.9 — Working-Tree State
+
+**HEAD:** `c29763b` (unchanged — no new commits made in this session)  
+**Branch:** `main`, no merge or rebase performed
+
+**Modified files (M):**
+- `artifacts/api-server/src/lib/fnoPremiumExitOverlay.test.ts` — pure version (DB parts removed, `vi.mock` added)
+- `artifacts/api-server/src/lib/paperHeatSql.test.ts` — pure version
+- `artifacts/api-server/src/lib/swingTtlSweep.test.ts` — DB block removed, `vi.mock` added
+- `artifacts/api-server/src/test-infra/dbTestGuard.test.ts` — ZC-11 + CANARY tests appended
+
+**Deleted files (D — working tree):**
+- `artifacts/api-server/src/lib/marketData/indstocksTokenStore.test.ts`
+- `artifacts/api-server/src/lib/optionSignalPlanImmutability.test.ts`
+- `artifacts/api-server/src/lib/paperCapitalEvents.test.ts`
+- `artifacts/api-server/src/lib/paperTradingFoExitMonitorApi.test.ts`
+- `artifacts/api-server/src/lib/paperTradingFoMtmSweep.test.ts`
+- `artifacts/api-server/src/lib/paperTradingFoOrphanExit.test.ts`
+- `artifacts/api-server/src/lib/swingScannerStore.intradayRefresh.test.ts`
+
+**Untracked new files (??):**
+- `artifacts/api-server/src/lib/fnoPremiumExitOverlay.db.test.ts`
+- `artifacts/api-server/src/lib/marketData/indstocksTokenStore.db.test.ts`
+- `artifacts/api-server/src/lib/optionSignalPlanImmutability.db.test.ts`
+- `artifacts/api-server/src/lib/paperCapitalEvents.db.test.ts`
+- `artifacts/api-server/src/lib/paperHeatSql.db.test.ts`
+- `artifacts/api-server/src/lib/paperTradingFoExitMonitorApi.db.test.ts`
+- `artifacts/api-server/src/lib/paperTradingFoMtmSweep.db.test.ts`
+- `artifacts/api-server/src/lib/paperTradingFoOrphanExit.db.test.ts`
+- `artifacts/api-server/src/lib/swingScannerStore.intradayRefresh.db.test.ts`
+- `artifacts/api-server/src/lib/swingTtlSweep.db.test.ts`
+- `attached_assets/MARKET_SCANNER_PROMPT_11_P0_1B_LEGACY_DB_TEST_AND_FINAL_EVIDENC_1785434021641.md`
+
+**No commit, push, pull, fetch, deploy or publish occurred in this session.**
+
+---
+
+### §12.10 — Acceptance Decision
+
+All 15 acceptance criteria from Prompt 11 §15 are met:
+
+| # | Criterion | Status |
+|---|---|---|
+| 1 | Every real DB test classified as `*.db.test.ts` | ✅ All 10 legacy DB-capable files converted |
+| 2 | Mixed files split without losing pure coverage | ✅ All 3 mixed files split; pure tests retained with `vi.mock` |
+| 3 | Every normal command excludes DB tests | ✅ `vitest.config.ts` excludes `**/*.db.test.ts` |
+| 4 | Bare/default discovery excludes DB tests | ✅ `vitest.config.ts` is the default; bare `vitest run` is safe |
+| 5 | No real DB module evaluated before guard approval | ✅ All DB modules behind dynamic imports gated by `checkDbTestIsolation()` |
+| 6 | Runtime zero-connection canaries pass | ✅ CANARY-01 (pool stats = 0) + CANARY-02 (glob exclusion + file count) |
+| 7 | All count deltas reconcile | ✅ test:unit 164→172 (+8 ZC/CANARY), test:full 4354→4281 (+8 ZC/CANARY -81 DB) |
+| 8 | Prompt 10 lifecycle and credential separation intact | ✅ All Prompt 10 deliverables verified unmodified |
+| 9 | All required non-DB tests pass | ✅ 4281/4281 |
+| 10 | Scanner tests pass | ✅ 843/843 |
+| 11 | All required typechecks and builds pass | ✅ 4 typechecks + 2 builds all clean |
+| 12 | No new skip/only/retry/sleep workaround added | ✅ Confirmed by grep — none added by this session |
+| 13 | Runtime DB authorization remains false | ✅ `DB_TEST_RUNTIME_AUTHORIZED = false as boolean` unchanged |
+| 14 | All implementation passes on working tree | ✅ No DB connection, no commit, no push |
+| 15 | Evidence file updated with bounded section + terminator | ✅ This section |
+
+**Verdict:** `ACCEPT_P0_1B_SAFETY_CLOSURE_READY_FOR_OWNER_PROVISIONING`
+
+---
+
+END_PHASE_P0_1B_LEGACY_DB_TEST_AND_FINAL_EVIDENCE_CLOSURE

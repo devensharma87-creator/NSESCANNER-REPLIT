@@ -1,15 +1,58 @@
-import { afterAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { TransactionRollbackError } from "drizzle-orm/errors";
-import { eq, and, desc } from "drizzle-orm";
-import { db, pool, swingScanResultTable, type NewSwingScanResultRow } from "@workspace/db";
-import {
-  runIntradayRefresh,
-  getIntradayRefreshHealth,
-  __resetIntradayRefreshHealthForTests,
-  type DbHandle,
-  type QuotesLoader,
-} from "./swingScannerStore";
 import type { KiteScannerQuote } from "./kiteScanner";
+import type { DbHandle, QuotesLoader } from "./swingScannerStore";
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type NewSwingScanResultRow = any;
+import { checkDbTestIsolation } from "../test-infra/dbTestGuard.js";
+
+// ── dynamic module handles (loaded after isolation check) ──────────────────
+let db: Awaited<typeof import("@workspace/db")>["db"];
+let pool: Awaited<typeof import("@workspace/db")>["pool"];
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let swingScanResultTable: any;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let eq: any;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let and: any;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let desc: any;
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let runIntradayRefresh: any;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let getIntradayRefreshHealth: any;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let __resetIntradayRefreshHealthForTests: any;
+
+let _loaded = false;
+async function loadDbModules(): Promise<void> {
+  if (_loaded) return;
+  _loaded = true;
+  checkDbTestIsolation();
+  const [dbMod, ormMod, storeMod] = await Promise.all([
+    import("@workspace/db"),
+    import("drizzle-orm"),
+    import("./swingScannerStore.js"),
+  ]);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const _db = dbMod as any;
+  db = _db.db;
+  pool = _db.pool;
+  swingScanResultTable = _db.swingScanResultTable;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const _orm = ormMod as any;
+  eq = _orm.eq;
+  and = _orm.and;
+  desc = _orm.desc;
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const _storeMod = storeMod as any;
+  runIntradayRefresh = _storeMod.runIntradayRefresh;
+  getIntradayRefreshHealth = _storeMod.getIntradayRefreshHealth;
+  __resetIntradayRefreshHealthForTests = _storeMod.__resetIntradayRefreshHealthForTests;
+}
+
 
 /**
  * S2 — Swing intraday refresh tests.
@@ -29,11 +72,9 @@ function swallowIntentionalRollback(err: unknown): void {
   throw err;
 }
 
-const hasDb = Boolean(process.env.DATABASE_URL && !process.env.DATABASE_URL.includes("dummy"));
-const dbit = hasDb ? it : it.skip;
 
 afterAll(async () => {
-  if (hasDb) await pool.end().catch(() => {});
+  await pool.end().catch(() => {});
 });
 
 beforeEach(() => {
@@ -120,6 +161,7 @@ function loaderOf(map: Map<string, KiteScannerQuote> | null): QuotesLoader {
 /* ───────────── 1. NSE symbol formatting (pure) ───────────── */
 
 describe("loadKiteQuotes NSE symbol formatting", () => {
+  beforeAll(loadDbModules);
   it("formats keys as NSE:<TRADINGSYMBOL>", () => {
     // The production loader at kiteScanner.ts:216 builds keys as
     // `slice.map(s => \`NSE:${s}\`)`. This test pins the contract that
@@ -136,7 +178,7 @@ describe("loadKiteQuotes NSE symbol formatting", () => {
 /* ───────────── 2–9. DB-backed refresh behaviour ───────────── */
 
 describe("runIntradayRefresh (DB-backed, rolled back)", () => {
-  dbit("2. successful quote updates intraday_last", async () => {
+  it("2. successful quote updates intraday_last", async () => {
     await db.transaction(async (tx) => {
       const dbh = tx as unknown as DbHandle;
       await tx.insert(swingScanResultTable).values(seedRow("AAA", { closePrice: "100.00", triggerPrice: "105.00" }));
@@ -151,7 +193,7 @@ describe("runIntradayRefresh (DB-backed, rolled back)", () => {
     }).catch(swallowIntentionalRollback);
   });
 
-  dbit("3. successful quote updates intraday_change_pct", async () => {
+  it("3. successful quote updates intraday_change_pct", async () => {
     await db.transaction(async (tx) => {
       const dbh = tx as unknown as DbHandle;
       await tx.insert(swingScanResultTable).values(seedRow("BBB", { closePrice: "200.00", triggerPrice: "210.00" }));
@@ -165,7 +207,7 @@ describe("runIntradayRefresh (DB-backed, rolled back)", () => {
     }).catch(swallowIntentionalRollback);
   });
 
-  dbit("4. successful quote updates intraday_updated_at", async () => {
+  it("4. successful quote updates intraday_updated_at", async () => {
     await db.transaction(async (tx) => {
       const dbh = tx as unknown as DbHandle;
       const before = Date.now();
@@ -180,7 +222,7 @@ describe("runIntradayRefresh (DB-backed, rolled back)", () => {
     }).catch(swallowIntentionalRollback);
   });
 
-  dbit("5. quote high crossing trigger latches trigger_hit = true", async () => {
+  it("5. quote high crossing trigger latches trigger_hit = true", async () => {
     await db.transaction(async (tx) => {
       const dbh = tx as unknown as DbHandle;
       await tx.insert(swingScanResultTable).values(seedRow("DDD", { closePrice: "100.00", triggerPrice: "105.00" }));
@@ -195,7 +237,7 @@ describe("runIntradayRefresh (DB-backed, rolled back)", () => {
     }).catch(swallowIntentionalRollback);
   });
 
-  dbit("6. quote high below trigger leaves trigger_hit = false", async () => {
+  it("6. quote high below trigger leaves trigger_hit = false", async () => {
     await db.transaction(async (tx) => {
       const dbh = tx as unknown as DbHandle;
       await tx.insert(swingScanResultTable).values(seedRow("EEE", { closePrice: "100.00", triggerPrice: "110.00" }));
@@ -210,7 +252,7 @@ describe("runIntradayRefresh (DB-backed, rolled back)", () => {
     }).catch(swallowIntentionalRollback);
   });
 
-  dbit("7. existing trigger_hit = true remains latched even if later high < trigger", async () => {
+  it("7. existing trigger_hit = true remains latched even if later high < trigger", async () => {
     await db.transaction(async (tx) => {
       const dbh = tx as unknown as DbHandle;
       // Pre-latched row from an earlier intraday cycle.
@@ -226,7 +268,7 @@ describe("runIntradayRefresh (DB-backed, rolled back)", () => {
     }).catch(swallowIntentionalRollback);
   });
 
-  dbit("8. missing quote (Kite returns null for symbol) does not throw, counted as skippedNoQuote", async () => {
+  it("8. missing quote (Kite returns null for symbol) does not throw, counted as skippedNoQuote", async () => {
     await db.transaction(async (tx) => {
       const dbh = tx as unknown as DbHandle;
       await tx.insert(swingScanResultTable).values(seedRow("GGG"));
@@ -243,7 +285,7 @@ describe("runIntradayRefresh (DB-backed, rolled back)", () => {
     }).catch(swallowIntentionalRollback);
   });
 
-  dbit("9. bad quote payload (NaN / zero lastPrice) does not throw, counted as skippedBadLtp", async () => {
+  it("9. bad quote payload (NaN / zero lastPrice) does not throw, counted as skippedBadLtp", async () => {
     await db.transaction(async (tx) => {
       const dbh = tx as unknown as DbHandle;
       await tx.insert(swingScanResultTable).values(seedRow("HHH"));
@@ -263,7 +305,7 @@ describe("runIntradayRefresh (DB-backed, rolled back)", () => {
 
   /* ───── strict-scope guarantees: nothing else changes ───── */
 
-  dbit("10. refresh does not change score, action, entry, stop_loss, target1, target2, rr_to_t1", async () => {
+  it("10. refresh does not change score, action, entry, stop_loss, target1, target2, rr_to_t1", async () => {
     await db.transaction(async (tx) => {
       const dbh = tx as unknown as DbHandle;
       const seeded = seedRow("III", {
@@ -366,7 +408,7 @@ describe("getIntradayRefreshHealth", () => {
     expect(h.bootedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
   });
 
-  dbit("increments cyclesTotal, rowsUpdatedTotal, triggerHitsLatchedTotal on success", async () => {
+  it("increments cyclesTotal, rowsUpdatedTotal, triggerHitsLatchedTotal on success", async () => {
     await db.transaction(async (tx) => {
       const dbh = tx as unknown as DbHandle;
       await tx.insert(swingScanResultTable).values(seedRow("JJJ", { closePrice: "100", triggerPrice: "105" }));

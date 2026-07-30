@@ -1,20 +1,63 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { checkDbTestIsolation } from "../test-infra/dbTestGuard.js";
+
+// ── dynamic module handles (loaded after isolation check) ──────────────────
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let and: any;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let eq: any;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let ensureFnoExitMonitorSchemaColumns: any;
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let paperTradeFoTable: any;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let optionSignalHistoryTable: any;
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let evaluateOrphanedOpenTrades: any;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let getOrphanExitSweepHealth: any;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let __resetOrphanExitSweepHealthForTests: any;
+
+let db: Awaited<typeof import("@workspace/db")>["db"];
+let pool: Awaited<typeof import("@workspace/db")>["pool"];
+
+let _loaded = false;
+async function loadDbModules(): Promise<void> {
+  if (_loaded) return;
+  _loaded = true;
+  checkDbTestIsolation();
+  const [ormMod, dbMod, ftMod, exitHealthMod] = await Promise.all([
+    import("drizzle-orm"),
+    import("@workspace/db"),
+    import("./paperTradingFO.js"),
+    import("./fnoExitMonitorHealth.js"),
+  ]);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const _orm = ormMod as any;
+  and = _orm.and;
+  eq = _orm.eq;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const _db = dbMod as any;
+  db = _db.db;
+  pool = _db.pool;
+  paperTradeFoTable = _db.paperTradeFoTable;
+  optionSignalHistoryTable = _db.optionSignalHistoryTable;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const _ft = ftMod as any;
+  evaluateOrphanedOpenTrades = _ft.evaluateOrphanedOpenTrades;
+  getOrphanExitSweepHealth = _ft.getOrphanExitSweepHealth;
+  __resetOrphanExitSweepHealthForTests = _ft.__resetOrphanExitSweepHealthForTests;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const _exitHealth = exitHealthMod as any;
+  ensureFnoExitMonitorSchemaColumns = _exitHealth.ensureFnoExitMonitorSchemaColumns;
+}
+
 import { TransactionRollbackError } from "drizzle-orm/errors";
-import { and, eq } from "drizzle-orm";
-import {
-  db,
-  pool,
-  paperTradeFoTable,
-  optionSignalHistoryTable,
-} from "@workspace/db";
 import type { PaperTradeFoRow } from "@workspace/db";
 import type { OcResponse } from "./optionChain";
-import {
-  evaluateOrphanedOpenTrades,
-  getOrphanExitSweepHealth,
-  __resetOrphanExitSweepHealthForTests,
-} from "./paperTradingFO";
-import { ensureFnoExitMonitorSchemaColumns } from "./fnoExitMonitorHealth";
 
 /**
  * P0 hotfix — Orphaned-OPEN spot-exit re-evaluation tests.
@@ -31,11 +74,9 @@ function swallowIntentionalRollback(err: unknown): void {
   throw err;
 }
 
-const hasDb = Boolean(process.env.DATABASE_URL && !process.env.DATABASE_URL.includes("dummy"));
-const dbit = hasDb ? it : it.skip;
 
 afterAll(async () => {
-  if (hasDb) await pool.end().catch(() => {});
+  await pool.end().catch(() => {});
 });
 
 const TEST_DATE = "2099-12-30";
@@ -203,15 +244,16 @@ function makeTxCloser(
 // ─────────────────────────────────────────────────────────────────────────
 
 describe("evaluateOrphanedOpenTrades — fail-safe", () => {
+  beforeAll(loadDbModules);
   beforeEach(() => __resetOrphanExitSweepHealthForTests());
 
-  dbit("resolves cleanly with zero OPEN rows for an unused date", async () => {
+  it("resolves cleanly with zero OPEN rows for an unused date", async () => {
     const stats = await evaluateOrphanedOpenTrades("1999-01-01");
     expect(stats.considered).toBe(0);
     expect(stats.errors).toBe(0);
   });
 
-  dbit("chainFetcher throw is swallowed per row → counted as staleMtm, no close", async () => {
+  it("chainFetcher throw is swallowed per row → counted as staleMtm, no close", async () => {
     await db
       .transaction(async (tx) => {
         await seedPaper(tx, {
@@ -265,12 +307,12 @@ describe("evaluateOrphanedOpenTrades — DB integration (rolled back)", () => {
   // row locks against via its INSERT) and time out at vitest's default 5s.
   // Same pattern as swingTtlSweep.test.ts's beforeAll.
   beforeAll(async () => {
-    if (hasDb) await ensureFnoExitMonitorSchemaColumns();
+    await ensureFnoExitMonitorSchemaColumns();
   });
 
   beforeEach(() => __resetOrphanExitSweepHealthForTests());
 
-  dbit("BULLISH frozen orphan whose spot breached the stop → STOPPED close", async () => {
+  it("BULLISH frozen orphan whose spot breached the stop → STOPPED close", async () => {
     await db
       .transaction(async (tx) => {
         const id = await seedPaper(tx, {
@@ -333,7 +375,7 @@ describe("evaluateOrphanedOpenTrades — DB integration (rolled back)", () => {
       .catch(swallowIntentionalRollback);
   });
 
-  dbit("CLOSE-FIRST failure safety: closer throw keeps lifecycle non-terminal; next sweep retries → STOPPED", async () => {
+  it("CLOSE-FIRST failure safety: closer throw keeps lifecycle non-terminal; next sweep retries → STOPPED", async () => {
     await db
       .transaction(async (tx) => {
         const id = await seedPaper(tx, {
@@ -427,7 +469,7 @@ describe("evaluateOrphanedOpenTrades — DB integration (rolled back)", () => {
       .catch(swallowIntentionalRollback);
   });
 
-  dbit("residual: close succeeds but lifecycle advance throws → paper still CLOSED, counter records cosmetic miss", async () => {
+  it("residual: close succeeds but lifecycle advance throws → paper still CLOSED, counter records cosmetic miss", async () => {
     await db
       .transaction(async (tx) => {
         const id = await seedPaper(tx, {
@@ -502,7 +544,7 @@ describe("evaluateOrphanedOpenTrades — DB integration (rolled back)", () => {
       .catch(swallowIntentionalRollback);
   });
 
-  dbit("BULLISH spot past T2 → TARGET2_HIT close", async () => {
+  it("BULLISH spot past T2 → TARGET2_HIT close", async () => {
     await db
       .transaction(async (tx) => {
         await seedPaper(tx, {
@@ -554,7 +596,7 @@ describe("evaluateOrphanedOpenTrades — DB integration (rolled back)", () => {
       .catch(swallowIntentionalRollback);
   });
 
-  dbit("BEARISH spot above stop → STOPPED close (direction-correct)", async () => {
+  it("BEARISH spot above stop → STOPPED close (direction-correct)", async () => {
     await db
       .transaction(async (tx) => {
         await seedPaper(tx, {
@@ -590,7 +632,7 @@ describe("evaluateOrphanedOpenTrades — DB integration (rolled back)", () => {
       .catch(swallowIntentionalRollback);
   });
 
-  dbit("T1 touch advances lifecycle to TARGET1_HIT but does NOT close (runner)", async () => {
+  it("T1 touch advances lifecycle to TARGET1_HIT but does NOT close (runner)", async () => {
     await db
       .transaction(async (tx) => {
         const id = await seedPaper(tx, {
@@ -649,7 +691,7 @@ describe("evaluateOrphanedOpenTrades — DB integration (rolled back)", () => {
       .catch(swallowIntentionalRollback);
   });
 
-  dbit("no breach → no exit, no lifecycle change, no close", async () => {
+  it("no breach → no exit, no lifecycle change, no close", async () => {
     await db
       .transaction(async (tx) => {
         await seedPaper(tx, {
@@ -700,7 +742,7 @@ describe("evaluateOrphanedOpenTrades — DB integration (rolled back)", () => {
       .catch(swallowIntentionalRollback);
   });
 
-  dbit("already-terminal lifecycle is skipped (left to reconcile)", async () => {
+  it("already-terminal lifecycle is skipped (left to reconcile)", async () => {
     await db
       .transaction(async (tx) => {
         await seedPaper(tx, {
@@ -739,7 +781,7 @@ describe("evaluateOrphanedOpenTrades — DB integration (rolled back)", () => {
       .catch(swallowIntentionalRollback);
   });
 
-  dbit("OPEN paper trade with no lifecycle row → lifecycleNotFound, no close", async () => {
+  it("OPEN paper trade with no lifecycle row → lifecycleNotFound, no close", async () => {
     await db
       .transaction(async (tx) => {
         await seedPaper(tx, {
@@ -765,7 +807,7 @@ describe("evaluateOrphanedOpenTrades — DB integration (rolled back)", () => {
       .catch(swallowIntentionalRollback);
   });
 
-  dbit("no fresh spot (null chain) → staleMtm, no close", async () => {
+  it("no fresh spot (null chain) → staleMtm, no close", async () => {
     await db
       .transaction(async (tx) => {
         await seedPaper(tx, {
@@ -802,7 +844,7 @@ describe("evaluateOrphanedOpenTrades — DB integration (rolled back)", () => {
       .catch(swallowIntentionalRollback);
   });
 
-  dbit("stop hit but leg has no chain LTP → still STOPPED + staleMtm telemetry", async () => {
+  it("stop hit but leg has no chain LTP → still STOPPED + staleMtm telemetry", async () => {
     await db
       .transaction(async (tx) => {
         await seedPaper(tx, {
@@ -839,7 +881,7 @@ describe("evaluateOrphanedOpenTrades — DB integration (rolled back)", () => {
       .catch(swallowIntentionalRollback);
   });
 
-  dbit("idempotent: a second sweep after exit yields alreadyTerminal", async () => {
+  it("idempotent: a second sweep after exit yields alreadyTerminal", async () => {
     await db
       .transaction(async (tx) => {
         await seedPaper(tx, {
@@ -876,7 +918,7 @@ describe("evaluateOrphanedOpenTrades — DB integration (rolled back)", () => {
       .catch(swallowIntentionalRollback);
   });
 
-  dbit("getOrphanExitSweepHealth reflects the last cycle + closedTotal", async () => {
+  it("getOrphanExitSweepHealth reflects the last cycle + closedTotal", async () => {
     await db
       .transaction(async (tx) => {
         await seedPaper(tx, {
