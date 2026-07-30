@@ -1,16 +1,16 @@
-import { afterAll, describe, expect, it } from "vitest";
-import { eq } from "drizzle-orm";
-import { db, pool, paperTradeEqTable, paperEqAuditTable } from "@workspace/db";
-import { applyPaperEqProvenanceColumns, mapWriteSourceToProvenance } from "./paperTradingEq";
-import { checkDbTestIsolation } from "../test-infra/dbTestGuard";
-
 /**
- * Checkpoint 2 (2026-07-03) — source-stamping + backfill regression tests.
- * See `applyPaperEqProvenanceColumns()` doc comment for the 4-step backfill
- * this pins: correlate by (symbol, IST-day), fall back to LEGACY_UNKNOWN,
- * back-link the audit row. Never fabricates AUTO/MANUAL when unknown.
+ * Paper trading equity provenance — DB integration tests.
  *
- * NOTE: these live-DB tests use real commit + explicit cleanup (NOT the
+ * DB INTEGRATION FILE (.db.test.ts)
+ * ----------------------------------------
+ * These tests require a live PostgreSQL database. They run ONLY via
+ * `pnpm run test:db` (dbTestPreflightRunner) with an isolated test database.
+ * They must never run against the operational DATABASE_URL.
+ *
+ * NOTE: pure mapWriteSourceToProvenance tests have been extracted to
+ * paperTradingEqProvenance.pure.test.ts (P0.1B refactor).
+ *
+ * NOTE: These live-DB tests use real commit + explicit cleanup (NOT the
  * usual tx-rollback pattern) because `applyPaperEqProvenanceColumns()` runs
  * `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` on every call, which always
  * requests an ACCESS EXCLUSIVE lock even when the column already exists.
@@ -22,43 +22,58 @@ import { checkDbTestIsolation } from "../test-infra/dbTestGuard";
  * fno-exit-monitor-ddl-lock-deadlock.md for the general pattern.
  */
 
-function swallowIntentionalRollback(_err: unknown): void {
-  // unused now that we no longer roll back; kept as a no-op stub in case a
-  // future edit reintroduces a tx — see file-level note above.
-}
-void swallowIntentionalRollback;
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { checkDbTestIsolation } from "../test-infra/dbTestGuard.js";
 
-describe("mapWriteSourceToProvenance (pure write-path mapping)", () => {
-  it("maps MANUAL -> MANUAL_BUY", () => {
-    expect(mapWriteSourceToProvenance("MANUAL")).toBe("MANUAL_BUY");
-  });
-
-  it("maps AUTO -> AUTO_STRONG_BUY", () => {
-    expect(mapWriteSourceToProvenance("AUTO")).toBe("AUTO_STRONG_BUY");
-  });
-
-  it("maps undefined -> AUTO_STRONG_BUY (existing callers never pass MANUAL by omission)", () => {
-    expect(mapWriteSourceToProvenance(undefined)).toBe("AUTO_STRONG_BUY");
-  });
-
-  it("never returns SWING_STAGED_APPROVAL — no live caller feeds that source yet", () => {
-    expect(mapWriteSourceToProvenance("AUTO")).not.toBe("SWING_STAGED_APPROVAL");
-    expect(mapWriteSourceToProvenance("MANUAL")).not.toBe("SWING_STAGED_APPROVAL");
-  });
-});
-
-// DB-backed tests require a dedicated isolated test database validated by the
-// P0.1 isolation guard. Using DATABASE_URL (the operational dev/prod database)
-// as a fallback is explicitly forbidden. If TEST_DATABASE_URL is not set, or
-// does not pass the guard, the live-DB suite is skipped and the reason is logged.
+// ---------------------------------------------------------------------------
+// P0.1 Isolation guard — must pass before any DB describe block runs.
+// ---------------------------------------------------------------------------
 const isolationResult = checkDbTestIsolation(process.env as Record<string, string | undefined>);
 if (!isolationResult.ok) {
-  // Log once so CI output explains why the DB suite was skipped.
   console.warn(
     `[paperTradingEqProvenance] DB-backed tests SKIPPED — isolation guard: ${isolationResult.code}: ${isolationResult.reason}`,
   );
 }
 const describeDb = isolationResult.ok ? describe : describe.skip;
+
+// ---------------------------------------------------------------------------
+// P0.1B import-time safety: DB-connected modules are loaded dynamically
+// inside beforeAll() — AFTER the isolation guard passes.
+// ---------------------------------------------------------------------------
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+let db: any;
+let pool: any;
+let paperTradeEqTable: any;
+let paperEqAuditTable: any;
+let applyPaperEqProvenanceColumns: any;
+let eq: any;
+/* eslint-enable @typescript-eslint/no-explicit-any */
+
+let _provModulesLoaded = false;
+async function loadProvModules(): Promise<void> {
+  if (_provModulesLoaded) return;
+  _provModulesLoaded = true;
+  const [dbMod, drizzle, ptMod] = await Promise.all([
+    import("@workspace/db"),
+    import("drizzle-orm"),
+    import("./paperTradingEq.js"),
+  ]);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const dbModAny = dbMod as any;
+  db                          = dbModAny.db;
+  pool                        = dbModAny.pool;
+  paperTradeEqTable           = dbModAny.paperTradeEqTable;
+  paperEqAuditTable           = dbModAny.paperEqAuditTable;
+  eq                          = drizzle.eq;
+  applyPaperEqProvenanceColumns = ptMod.applyPaperEqProvenanceColumns;
+}
+
+function swallowIntentionalRollback(_err: unknown): void {
+  // unused now that we no longer roll back; kept as a no-op stub in case a
+  // future edit reintroduces a tx — see file-level note above.
+}
+void swallowIntentionalRollback;
 
 async function cleanup(symbol: string): Promise<void> {
   await db.delete(paperEqAuditTable).where(eq(paperEqAuditTable.symbol, symbol));
@@ -66,6 +81,10 @@ async function cleanup(symbol: string): Promise<void> {
 }
 
 describeDb("applyPaperEqProvenanceColumns — live DB backfill idempotency", () => {
+  beforeAll(async () => {
+    await loadProvModules();
+  });
+
   afterAll(async () => {
     await pool.end().catch(() => {});
   });

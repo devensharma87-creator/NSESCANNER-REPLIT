@@ -24,41 +24,15 @@
  *   - Missing intraday path → MISSED_PNL_UNAVAILABLE (honest, never fabricated).
  */
 
-import { readFileSync, readdirSync, existsSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { checkDbTestIsolation } from "../test-infra/dbTestGuard";
-import { like, sql } from "drizzle-orm";
-import { db } from "@workspace/db";
-import { swingOrderStagingTable } from "@workspace/db/schema";
-import {
-  approveSwingOrder,
-  buildMissedOpportunity,
-  deriveStageStatus,
-  expireStaleSwingOrders,
-  getSwingOrder,
-  listSwingOrders,
-  markWatchOnlySwingOrder,
-  refreshAndRecheckSwingOrder,
-  rejectSwingOrder,
-  stageSwingOrder,
-} from "./swingOrderStaging";
-import {
-  __resetKillSwitchCacheForTests,
-  getKillSwitch,
-  setKillSwitch,
-  type SwingKillSwitchState,
-} from "./swingKillSwitch";
-import { isLiveCashSwingOrderEnabled } from "./swingLiveExecutionConfig";
-import type { SwingCashCandidate, SwingCashPortfolioState } from "./swingCashTypes";
-import type { SwingLiveQuote, SwingQuoteFetcher } from "./swingCashLiveCandidateAdapter";
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
+import { checkDbTestIsolation } from "../test-infra/dbTestGuard.js";
+// Type-only imports are erased at compile time — no module evaluation, no Pool creation.
+import type { SwingCashCandidate, SwingCashPortfolioState } from "./swingCashTypes.js";
+import type { SwingLiveQuote, SwingQuoteFetcher } from "./swingCashLiveCandidateAdapter.js";
+import type { SwingKillSwitchState } from "./swingKillSwitch.js";
 
 // ---------------------------------------------------------------------------
 // P0.1 Isolation guard — must pass before any DB describe block runs.
-// Both DB-backed describe blocks below use `describeDb` derived from this check.
 // Ordinary DATABASE_URL presence is NOT sufficient — the full isolation
 // contract (TEST_DATABASE_URL, TEST_RUN_ID, confirmation flags) is required.
 // ---------------------------------------------------------------------------
@@ -69,6 +43,69 @@ if (!isolationResult.ok) {
   );
 }
 const describeDb = isolationResult.ok ? describe : describe.skip;
+
+// ---------------------------------------------------------------------------
+// P0.1B import-time safety: all DB-connected modules are loaded dynamically
+// inside beforeAll() — AFTER the isolation guard passes.
+//
+// These module-scope variables are populated by loadDbModules() in each
+// describeDb block's beforeAll(). They remain unset when the guard fails
+// (describeDb = describe.skip), so no pg.Pool is created before isolation
+// is confirmed. If the guard passes, loadDbModules() runs and all variables
+// are set before any test body executes.
+// ---------------------------------------------------------------------------
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+let db: any;
+let like: any;
+let sql: any;
+let swingOrderStagingTable: any;
+let stageSwingOrder: any;
+let approveSwingOrder: any;
+let buildMissedOpportunity: any;
+let expireStaleSwingOrders: any;
+let getSwingOrder: any;
+let listSwingOrders: any;
+let markWatchOnlySwingOrder: any;
+let refreshAndRecheckSwingOrder: any;
+let rejectSwingOrder: any;
+let __resetKillSwitchCacheForTests: any;
+let getKillSwitch: any;
+let setKillSwitch: any;
+let isLiveCashSwingOrderEnabled: any;
+/* eslint-enable @typescript-eslint/no-explicit-any */
+
+let _dbModulesLoaded = false;
+async function loadDbModules(): Promise<void> {
+  if (_dbModulesLoaded) return;
+  _dbModulesLoaded = true;
+  const [dbMod, drizzle, staging, kill, live] = await Promise.all([
+    import("@workspace/db"),
+    import("drizzle-orm"),
+    import("./swingOrderStaging.js"),
+    import("./swingKillSwitch.js"),
+    import("./swingLiveExecutionConfig.js"),
+  ]);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const dbModAny = dbMod as any;
+  db                             = dbModAny.db;
+  swingOrderStagingTable         = dbModAny.swingOrderStagingTable;
+  like                           = drizzle.like;
+  sql                            = drizzle.sql;
+  stageSwingOrder                = staging.stageSwingOrder;
+  approveSwingOrder              = staging.approveSwingOrder;
+  buildMissedOpportunity         = staging.buildMissedOpportunity;
+  expireStaleSwingOrders         = staging.expireStaleSwingOrders;
+  getSwingOrder                  = staging.getSwingOrder;
+  listSwingOrders                = staging.listSwingOrders;
+  markWatchOnlySwingOrder        = staging.markWatchOnlySwingOrder;
+  refreshAndRecheckSwingOrder    = staging.refreshAndRecheckSwingOrder;
+  rejectSwingOrder               = staging.rejectSwingOrder;
+  __resetKillSwitchCacheForTests = kill.__resetKillSwitchCacheForTests;
+  getKillSwitch                  = kill.getKillSwitch;
+  setKillSwitch                  = kill.setKillSwitch;
+  isLiveCashSwingOrderEnabled    = live.isLiveCashSwingOrderEnabled;
+}
 
 // ---------------------------------------------------------------------------
 // Builders — a clean candidate that stages as STAGED in paper_only mode.
@@ -170,6 +207,7 @@ describeDb("swingOrderStaging (DB)", () => {
   let origKill: SwingKillSwitchState;
 
   beforeAll(async () => {
+    await loadDbModules();
     origMode = process.env.SWING_CASH_EXECUTION_MODE;
     origFlag = process.env.LIVE_CASH_SWING_ORDER_ENABLED;
     origKill = await getKillSwitch();
@@ -636,111 +674,13 @@ describeDb("swingOrderStaging (DB)", () => {
   });
 });
 
-// ===========================================================================
-// Pure deriveStageStatus mapping (no DB).
-// ===========================================================================
-
-describe("deriveStageStatus", () => {
-  const base = (over: Record<string, unknown>) =>
-    ({
-      allowed: false,
-      reviewRequired: false,
-      gates: { entry: { watchOnly: false } },
-      ...over,
-    }) as never;
-
-  it("maps a clean allowed decision to STAGED", () => {
-    expect(deriveStageStatus(base({ allowed: true })).status).toBe("STAGED");
-  });
-  it("maps review-required to APPROVAL_REQUIRED (stageable)", () => {
-    const d = deriveStageStatus(base({ reviewRequired: true }));
-    expect(d.status).toBe("APPROVAL_REQUIRED");
-    expect(d.stageable).toBe(true);
-  });
-  it("maps waiting-for-trigger to WATCH_ONLY", () => {
-    expect(deriveStageStatus(base({ gates: { entry: { watchOnly: true } } })).status).toBe(
-      "WATCH_ONLY",
-    );
-  });
-  it("maps an un-reviewable hard block to REJECTED (not stored)", () => {
-    const d = deriveStageStatus(base({}));
-    expect(d.status).toBe("REJECTED");
-    expect(d.stageable).toBe(false);
-  });
-});
-
-// ===========================================================================
-// Static guards (19/20) — no DB required.
-// ===========================================================================
-
-describe("Phase-2 static safety guards", () => {
-  const swingSourceFiles = (): string[] =>
-    readdirSync(__dirname)
-      .filter((f) => f.startsWith("swing") && f.endsWith(".ts") && !f.endsWith(".test.ts"))
-      .map((f) => join(__dirname, f));
-
-  // Strip block + line comments so cautionary docs (e.g. "NEVER drizzle-kit
-  // push") are not mistaken for destructive CODE.
-  const stripComments = (src: string): string =>
-    src.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/(^|[^:])\/\/[^\n]*/g, "$1");
-
-  // 19 ---------------------------------------------------------------------
-  it("Case 19: no destructive schema change in Phase-2 sources", () => {
-    const schemaPath = join(
-      __dirname,
-      "../../../../lib/db/src/schema/swingOrderStaging.ts",
-    );
-    const files = [...swingSourceFiles()];
-    if (existsSync(schemaPath)) files.push(schemaPath);
-
-    const destructive = [
-      /\bDROP\s+TABLE\b/i,
-      /\bDROP\s+COLUMN\b/i,
-      /\bALTER\s+TABLE\b[\s\S]*\bDROP\b/i,
-      /\bTRUNCATE\b/i,
-      /drizzle-kit\s+push/i,
-    ];
-    for (const f of files) {
-      const src = stripComments(readFileSync(f, "utf8"));
-      for (const re of destructive) {
-        expect(re.test(src), `${f} must not contain executable ${re}`).toBe(false);
-      }
-    }
-    // The migration approach is additive: non-destructive CREATE TABLE.
-    if (existsSync(schemaPath)) {
-      expect(readFileSync(schemaPath, "utf8")).toContain("pgTable");
-    }
-  });
-
-  // 20 ---------------------------------------------------------------------
-  it("Case 20: no F&O / option-chain / paper-trade / capital-ledger imports", () => {
-    const forbidden = [
-      /optionSignals/i,
-      /optionChain/i,
-      /\boiLab/i,
-      /fnoPaper/i,
-      /fnoCost/i,
-      /fnoSignal/i,
-      /paperAccount/i,
-      /paperTrade/i,
-      /capitalLedger/i,
-      /kiteOptionChain/i,
-      /kiteFno/i,
-      /kiteIndexQuotes/i,
-    ];
-    const importRe = /(?:from|import)\s*["']([^"']+)["']/g;
-    for (const f of swingSourceFiles()) {
-      const src = readFileSync(f, "utf8");
-      let m: RegExpExecArray | null;
-      while ((m = importRe.exec(src)) !== null) {
-        const source = m[1];
-        for (const re of forbidden) {
-          expect(re.test(source), `${f} imports forbidden module ${source}`).toBe(false);
-        }
-      }
-    }
-  });
-});
+// ---------------------------------------------------------------------------
+// NOTE (P0.1B): Pure/static tests extracted to swingOrderStaging.pure.test.ts:
+//   - deriveStageStatus (4 pure tests)
+//   - Phase-2 static safety guards: Cases 19/20 (2 static tests)
+//   - Case 26: static wiring check (1 static test)
+// Only the 24 DB-dependent tests remain in this file.
+// ---------------------------------------------------------------------------
 
 // ===========================================================================
 // GAP-1: swing approval → paper_trade_eq chain (Cases 21–26)
@@ -752,6 +692,7 @@ describeDb("GAP-1: swing approval → paper_trade_eq chain (DB)", () => {
   const nextOwner = (): string => `${OWNER_PREFIX}${++ownerCounter}`;
 
   beforeAll(async () => {
+    await loadDbModules();
     __resetKillSwitchCacheForTests();
     await setKillSwitch(false, null, null);
   });
@@ -907,14 +848,5 @@ describeDb("GAP-1: swing approval → paper_trade_eq chain (DB)", () => {
     }
   });
 
-  // 26 --------------------------------------------------------------------
-  it("Case 26: static — swingOrderStaging.ts wires openPaperEquityTradeFromStagedOrder (import + call)", () => {
-    const stagingFile = join(__dirname, "swingOrderStaging.ts");
-    if (!existsSync(stagingFile)) return;
-    const src = readFileSync(stagingFile, "utf8");
-    expect(src).toMatch(/import.*openPaperEquityTradeFromStagedOrder.*from\s*["']\.\/paperTradingEq["']/);
-    expect(src).toMatch(/openPaperEquityTradeFromStagedOrder\s*\(/);
-    // Null-safe result is used to derive opened boolean (never assumed truthy without check)
-    expect(src).toMatch(/ptRow\s*!=\s*null|ptRow\s*!==\s*null/);
-  });
+  // Case 26 (static source check) → moved to swingOrderStaging.pure.test.ts
 });

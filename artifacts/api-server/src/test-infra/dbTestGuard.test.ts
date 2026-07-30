@@ -712,17 +712,31 @@ describe("Package-script mandatory preflight enforcement", () => {
     expect(s).toContain("vitest.config.unit.ts");
   });
 
-  it("no package script other than 'test:unit' launches an unguarded vitest run", () => {
-    // Only test:unit may call vitest directly (it uses the strict allowlist config).
-    // All other scripts that run tests must go through the preflight runner.
+  it("no package script other than 'test:unit' and 'test:full' launches an unguarded vitest run", () => {
+    // test:unit uses vitest.config.unit.ts (strict positive allowlist)
+    // test:full uses vitest.config.ts (full non-DB suite, excludes *.db.test.ts)
+    // All other scripts that run tests must route through the preflight runner.
     for (const [name, cmd] of Object.entries(pkg.scripts)) {
-      if (name === "test:unit") continue;
+      if (name === "test:unit") continue; // strict allowlist — safe
+      if (name === "test:full") continue; // noDb config — excludes *.db.test.ts
       const isRawVitest = /\bvitest\s+run\b/.test(cmd);
       expect(
         isRawVitest,
         `script '${name}' = '${cmd}' must not be a raw vitest run bypass`,
       ).toBe(false);
     }
+  });
+
+  it("'test:full' script exists and uses the authoritative default non-DB config (vitest.config.ts)", () => {
+    const s = pkg.scripts["test:full"] ?? "";
+    expect(s, "'test:full' script must be present").not.toBe("");
+    expect(s).toContain("vitest run");
+    expect(s).toContain("vitest.config.ts");
+    // Must NOT reference the DB config or unit config
+    expect(s).not.toContain("vitest.config.db.ts");
+    expect(s).not.toContain("vitest.config.unit.ts");
+    // Must NOT reference any legacy noDb alias
+    expect(s).not.toContain("vitest.config.noDb.ts");
   });
 });
 
@@ -731,7 +745,7 @@ describe("Package-script mandatory preflight enforcement", () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("Positive unit allowlist — strict one-file include", () => {
-  it("vitest.config.unit.ts include contains only the guard test file, no wildcard", async () => {
+  it("vitest.config.unit.ts include contains the confirmed PURE_UNIT files, no wildcard", async () => {
     const { readFileSync } = await import("node:fs");
     const { resolve, dirname } = await import("node:path");
     const { fileURLToPath } = await import("node:url");
@@ -739,6 +753,7 @@ describe("Positive unit allowlist — strict one-file include", () => {
     const configPath = resolve(dir, "../../vitest.config.unit.ts");
     const contents = readFileSync(configPath, "utf8");
     expect(contents).toContain('"src/test-infra/dbTestGuard.test.ts"');
+    expect(contents).toContain('"src/test-infra/disposableDbLifecycle.test.ts"');
     expect(contents).not.toContain('"src/**/*.test.ts"');
     expect(contents).not.toContain('"src/**/*.test.tsx"');
   });
@@ -1521,5 +1536,140 @@ describe("Preflight runner spawn uses DB-scoped config", () => {
     const dir = dirname(fileURLToPath(import.meta.url));
     const runnerSrc = readFileSync(resolve(dir, "dbTestPreflightRunner.ts"), "utf8");
     expect(runnerSrc).toContain("vitest.config.db.ts");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ZC series: Zero-connection safety proof (P0.1B)
+//
+// Proves that the normal (non-DB) test suite makes no pg.Pool connections:
+//   ZC-01  Default config excludes *.db.test.ts
+//   ZC-06  swingOrderStaging.db.test.ts has no static top-level DB imports
+//   ZC-07  paperTradingEqProvenance.db.test.ts same
+//   ZC-08/09 Two-layer executable proof (config + import structure)
+//   ZC-10  Pure test files exist and are in the noDb include scope
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("ZC series: Zero-connection safety proof (P0.1B)", () => {
+  let swingDbSrc = "";
+  let provDbSrc  = "";
+  let defaultCfg = "";
+
+  beforeAll(async () => {
+    const { readFileSync } = await import("node:fs");
+    const { resolve, dirname } = await import("node:path");
+    const { fileURLToPath } = await import("node:url");
+    const dir    = dirname(fileURLToPath(import.meta.url));
+    const apiDir = resolve(dir, "../..");
+    const libDir = resolve(dir, "../lib");
+    swingDbSrc = readFileSync(resolve(libDir, "swingOrderStaging.db.test.ts"), "utf8");
+    provDbSrc  = readFileSync(resolve(libDir, "paperTradingEqProvenance.db.test.ts"), "utf8");
+    defaultCfg = readFileSync(resolve(apiDir, "vitest.config.ts"), "utf8");
+  });
+
+  // ZC-01 -----------------------------------------------------------------
+  it("ZC-01: vitest.config.ts (default config) exists and explicitly excludes **/*.db.test.ts", () => {
+    expect(defaultCfg.length).toBeGreaterThan(0);
+    const excludeIdx  = defaultCfg.indexOf("exclude:");
+    const patternIdx  = defaultCfg.indexOf("**/*.db.test.ts");
+    expect(excludeIdx).toBeGreaterThan(-1);
+    expect(patternIdx).toBeGreaterThan(excludeIdx);
+  });
+
+  it("ZC-01b: vitest.config.ts include list does NOT contain any *.db.test.ts pattern", () => {
+    const includeMatch   = defaultCfg.match(/include:\s*\[([\s\S]*?)\]/);
+    const includeContent = includeMatch ? includeMatch[1] : "";
+    expect(includeContent).not.toContain(".db.test.ts");
+  });
+
+  // ZC-06 -----------------------------------------------------------------
+  it("ZC-06: swingOrderStaging.db.test.ts has no static top-level import from @workspace/db, drizzle-orm, or application DB modules", () => {
+    // Static value imports (not 'import type') from these modules would cause
+    // pg.Pool construction before the isolation guard check.
+    expect(swingDbSrc).not.toMatch(/^import\s+(?!type\s).*from\s+["']@workspace\/db["']/m);
+    expect(swingDbSrc).not.toMatch(/^import\s+(?!type\s).*from\s+["']drizzle-orm["']/m);
+    expect(swingDbSrc).not.toMatch(/^import\s+(?!type\s).*from\s+["']\.\/swingOrderStaging["']/m);
+    expect(swingDbSrc).not.toMatch(/^import\s+(?!type\s).*from\s+["']\.\/swingKillSwitch["']/m);
+    expect(swingDbSrc).not.toMatch(/^import\s+(?!type\s).*from\s+["']\.\/swingLiveExecutionConfig["']/m);
+    // Dynamic imports must be present (only loaded after guard passes in beforeAll).
+    expect(swingDbSrc).toContain("import(\"@workspace/db\")");
+    expect(swingDbSrc).toContain("import(\"drizzle-orm\")");
+    expect(swingDbSrc).toContain("import(\"./swingOrderStaging.js\")");
+  });
+
+  // ZC-07 -----------------------------------------------------------------
+  it("ZC-07: paperTradingEqProvenance.db.test.ts has no static top-level import from @workspace/db, drizzle-orm, or ./paperTradingEq", () => {
+    expect(provDbSrc).not.toMatch(/^import\s+(?!type\s).*from\s+["']@workspace\/db["']/m);
+    expect(provDbSrc).not.toMatch(/^import\s+(?!type\s).*from\s+["']drizzle-orm["']/m);
+    expect(provDbSrc).not.toMatch(/^import\s+(?!type\s).*from\s+["']\.\/paperTradingEq["']/m);
+    expect(provDbSrc).toContain("import(\"@workspace/db\")");
+    expect(provDbSrc).toContain("import(\"drizzle-orm\")");
+    expect(provDbSrc).toContain("import(\"./paperTradingEq.js\")");
+  });
+
+  // ZC-08/09 --------------------------------------------------------------
+  it("ZC-08/ZC-09: two-layer executable proof — config exclusion AND import-structure safety", () => {
+    // Layer 1 (config): vitest.config.ts excludes *.db.test.ts
+    const excludeIdx = defaultCfg.indexOf("exclude:");
+    const dbPattIdx  = defaultCfg.indexOf("**/*.db.test.ts");
+    expect(excludeIdx).toBeGreaterThan(-1);
+    expect(dbPattIdx).toBeGreaterThan(excludeIdx);
+    // Layer 2 (structural, not source-string): DB test files have no static imports
+    // from connection-creating modules → even if files were somehow loaded, no Pool.
+    const staticDbImport = /^import\s+(?!type\s).*from\s+["']@workspace\/db["']/m;
+    expect(staticDbImport.test(swingDbSrc), "swing db file has static @workspace/db import").toBe(false);
+    expect(staticDbImport.test(provDbSrc), "provenance db file has static @workspace/db import").toBe(false);
+    // Together: files excluded + files structurally safe = zero Pool.connect risk.
+  });
+
+  // ZC-10 -----------------------------------------------------------------
+  it("ZC-10: swingOrderStaging.pure.test.ts exists (pure tests retained in normal suite)", async () => {
+    const { existsSync } = await import("node:fs");
+    const { resolve, dirname } = await import("node:path");
+    const { fileURLToPath } = await import("node:url");
+    const libDir = resolve(dirname(fileURLToPath(import.meta.url)), "../lib");
+    expect(existsSync(resolve(libDir, "swingOrderStaging.pure.test.ts"))).toBe(true);
+  });
+
+  it("ZC-10b: paperTradingEqProvenance.pure.test.ts exists", async () => {
+    const { existsSync } = await import("node:fs");
+    const { resolve, dirname } = await import("node:path");
+    const { fileURLToPath } = await import("node:url");
+    const libDir = resolve(dirname(fileURLToPath(import.meta.url)), "../lib");
+    expect(existsSync(resolve(libDir, "paperTradingEqProvenance.pure.test.ts"))).toBe(true);
+  });
+
+  it("ZC-10c: vitest.config.ts includes src/**/*.test.ts pattern (*.pure.test.ts files are in scope)", () => {
+    expect(defaultCfg).toContain("src/**/*.test.ts");
+  });
+});
+
+describe("ZC taxonomy: lifecycle and config file presence", () => {
+  it("disposableDbLifecycle.ts is present in test-infra", async () => {
+    const { existsSync } = await import("node:fs");
+    const { resolve, dirname } = await import("node:path");
+    const { fileURLToPath } = await import("node:url");
+    expect(existsSync(resolve(dirname(fileURLToPath(import.meta.url)), "disposableDbLifecycle.ts"))).toBe(true);
+  });
+
+  it("disposableDbLifecycle.test.ts is present in test-infra", async () => {
+    const { existsSync } = await import("node:fs");
+    const { resolve, dirname } = await import("node:path");
+    const { fileURLToPath } = await import("node:url");
+    expect(existsSync(resolve(dirname(fileURLToPath(import.meta.url)), "disposableDbLifecycle.test.ts"))).toBe(true);
+  });
+
+  it("vitest.config.ts is present as authoritative default non-DB config", async () => {
+    const { existsSync } = await import("node:fs");
+    const { resolve, dirname } = await import("node:path");
+    const { fileURLToPath } = await import("node:url");
+    expect(existsSync(resolve(dirname(fileURLToPath(import.meta.url)), "../../vitest.config.ts"))).toBe(true);
+  });
+
+  it("vitest.config.noDb.ts is absent (replaced by vitest.config.ts)", async () => {
+    const { existsSync } = await import("node:fs");
+    const { resolve, dirname } = await import("node:path");
+    const { fileURLToPath } = await import("node:url");
+    expect(existsSync(resolve(dirname(fileURLToPath(import.meta.url)), "../../vitest.config.noDb.ts"))).toBe(false);
   });
 });

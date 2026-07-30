@@ -10,6 +10,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "tsx src/test-infra/dbTestPreflightRunner.ts",
     "test:unit": "vitest run --config vitest.config.unit.ts --pool=threads",
+    "test:full": "vitest run --config vitest.config.ts --pool=threads",
     "test:db": "tsx src/test-infra/dbTestPreflightRunner.ts",
     "backfill:swing-sector": "tsx ./src/scripts/backfill-swing-sector.ts",
     "rotate:kite-key": "tsx ./src/scripts/rotateKiteTokenEncKey.ts",
