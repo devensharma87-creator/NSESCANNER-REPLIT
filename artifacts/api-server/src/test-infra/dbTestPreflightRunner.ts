@@ -27,7 +27,7 @@
  * test-server identity, TLS/URL policy, network isolation, explicit authorization.
  *
  * When authorized (post-P0.1B), this spawns:
- *   <canonical node> <canonical vitest.mjs> run --pool=threads
+ *   <canonical node> <canonical vitest.mjs> run --pool=threads --config vitest.config.db.ts
  * using fully-qualified executable paths resolved from the installed package,
  * with shell:false and an isolated child environment.
  *
@@ -694,7 +694,10 @@ export async function runPreflightCheck(
     try {
       child = spawnFn(
         runCtx.execInfo.nodePath,
-        [runCtx.execInfo.vitestCliPath, "run", "--pool=threads"],
+        // "--config vitest.config.db.ts" scopes the DB runner to ONLY the
+        // *.db.test.ts integration files, keeping the operational DB test
+        // boundary machine-enforced (naming convention + config include rule).
+        [runCtx.execInfo.vitestCliPath, "run", "--pool=threads", "--config", "vitest.config.db.ts"],
         {
           env:   runCtx.childEnv as NodeJS.ProcessEnv,
           stdio: "inherit",

@@ -1355,3 +1355,171 @@ describe("Terminology — TEST_EXTERNAL_SERVICES_CONFIGURED_DISABLED", () => {
     }
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Tests 108–121: Zero-connection safety — P0.1B taxonomy and isolation proof
+//
+// These static-analysis tests verify the DB/unit naming boundary, config
+// exclusion rules, and absence of the weak DATABASE_URL guard pattern without
+// making any DB connection or loading any application module.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("Test taxonomy — DB integration files use .db.test.ts suffix", () => {
+  const apiServerRoot = (() => {
+    const { fileURLToPath } = require("node:url");
+    const { resolve, dirname } = require("node:path");
+    return resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+  })();
+
+  it("swingOrderStaging.db.test.ts exists (DB integration file has correct suffix)", () => {
+    expect(
+      fs.existsSync(path.join(apiServerRoot, "src/lib/swingOrderStaging.db.test.ts")),
+    ).toBe(true);
+  });
+
+  it("paperTradingEqProvenance.db.test.ts exists (DB integration file has correct suffix)", () => {
+    expect(
+      fs.existsSync(path.join(apiServerRoot, "src/lib/paperTradingEqProvenance.db.test.ts")),
+    ).toBe(true);
+  });
+
+  it("swingOrderStaging.test.ts has been renamed (legacy non-suffixed file absent)", () => {
+    expect(
+      fs.existsSync(path.join(apiServerRoot, "src/lib/swingOrderStaging.test.ts")),
+    ).toBe(false);
+  });
+
+  it("paperTradingEqProvenance.test.ts has been renamed (legacy non-suffixed file absent)", () => {
+    expect(
+      fs.existsSync(path.join(apiServerRoot, "src/lib/paperTradingEqProvenance.test.ts")),
+    ).toBe(false);
+  });
+});
+
+describe("Unit config excludes DB integration files", () => {
+  let unitConfigContents: string;
+
+  beforeAll(async () => {
+    const { fileURLToPath } = await import("node:url");
+    const { resolve, dirname } = await import("node:path");
+    const { readFileSync } = await import("node:fs");
+    const dir = dirname(fileURLToPath(import.meta.url));
+    unitConfigContents = readFileSync(resolve(dir, "../../vitest.config.unit.ts"), "utf8");
+  });
+
+  it("unit config include: array does not contain any .db.test.ts path or pattern", () => {
+    // Extract just the array body of `include: [...]` — excludes surrounding comments.
+    // The intermediate comment may mention ".db.test.ts"; only the array items matter.
+    const includeArrayMatch = unitConfigContents.match(/\binclude:\s*\[([\s\S]*?)\]/);
+    const includeArrayContent = includeArrayMatch ? includeArrayMatch[1] : "";
+    expect(includeArrayContent).not.toContain(".db.test.ts");
+  });
+
+  it("unit config has an explicit exclude: entry for **/*.db.test.ts", () => {
+    expect(unitConfigContents).toContain("**/*.db.test.ts");
+    // The pattern must appear inside the exclude: section (after "exclude:").
+    const excludeStart = unitConfigContents.indexOf("exclude:");
+    const dbPatternIdx = unitConfigContents.indexOf("**/*.db.test.ts");
+    expect(excludeStart).toBeGreaterThan(-1);
+    expect(dbPatternIdx).toBeGreaterThan(excludeStart);
+  });
+});
+
+describe("DB config exists and scopes only *.db.test.ts files", () => {
+  let dbConfigContents: string;
+
+  beforeAll(async () => {
+    const { fileURLToPath } = await import("node:url");
+    const { resolve, dirname } = await import("node:path");
+    const { readFileSync } = await import("node:fs");
+    const dir = dirname(fileURLToPath(import.meta.url));
+    dbConfigContents = readFileSync(resolve(dir, "../../vitest.config.db.ts"), "utf8");
+  });
+
+  it("vitest.config.db.ts exists", () => {
+    expect(dbConfigContents.length).toBeGreaterThan(0);
+  });
+
+  it("DB config include pattern targets *.db.test.ts, not bare *.test.ts", () => {
+    expect(dbConfigContents).toContain("*.db.test.ts");
+    // Must not include a wildcard that admits pure unit tests.
+    expect(dbConfigContents).not.toMatch(/"src\/\*\*\/\*\.test\.ts"/);
+    expect(dbConfigContents).not.toMatch(/"src\/\*\.test\.ts"/);
+  });
+
+  it("DB config does not include the pure-unit guard file in its include: array", () => {
+    // dbTestGuard.test.ts may appear in a comment or exclude: — check only include:.
+    const includeStart = dbConfigContents.indexOf("include:");
+    const excludeStart = dbConfigContents.indexOf("exclude:");
+    const includeSection = includeStart === -1
+      ? ""
+      : dbConfigContents.slice(includeStart, excludeStart === -1 ? undefined : excludeStart);
+    expect(includeSection).not.toContain("dbTestGuard.test.ts");
+  });
+});
+
+describe("DB integration files use checkDbTestIsolation — not weak DATABASE_URL guard", () => {
+  let swingSrc: string;
+  let provenanceSrc: string;
+
+  beforeAll(async () => {
+    const { fileURLToPath } = await import("node:url");
+    const { resolve, dirname } = await import("node:path");
+    const { readFileSync } = await import("node:fs");
+    const dir = dirname(fileURLToPath(import.meta.url));
+    const libDir = resolve(dir, "../lib");
+    swingSrc = readFileSync(resolve(libDir, "swingOrderStaging.db.test.ts"), "utf8");
+    provenanceSrc = readFileSync(resolve(libDir, "paperTradingEqProvenance.db.test.ts"), "utf8");
+  });
+
+  it("swingOrderStaging.db.test.ts imports checkDbTestIsolation", () => {
+    expect(swingSrc).toContain("checkDbTestIsolation");
+  });
+
+  it("swingOrderStaging.db.test.ts does not use the weak describe.skipIf(!DATABASE_URL) guard", () => {
+    expect(swingSrc).not.toContain("describe.skipIf(!process.env.DATABASE_URL)");
+    expect(swingSrc).not.toContain("describe.skipIf(!DATABASE_URL)");
+  });
+
+  it("paperTradingEqProvenance.db.test.ts imports checkDbTestIsolation", () => {
+    expect(provenanceSrc).toContain("checkDbTestIsolation");
+  });
+
+  it("paperTradingEqProvenance.db.test.ts does not use the weak describe.skipIf(!DATABASE_URL) guard", () => {
+    expect(provenanceSrc).not.toContain("describe.skipIf(!process.env.DATABASE_URL)");
+    expect(provenanceSrc).not.toContain("describe.skipIf(!DATABASE_URL)");
+  });
+});
+
+describe("pg.Pool is lazy — no TCP connection at DB client module evaluation", () => {
+  it("lib/db/src/index.ts does not call pool.connect() or pool.query() at the module top level", async () => {
+    const { fileURLToPath } = await import("node:url");
+    const { resolve, dirname } = await import("node:path");
+    const { readFileSync } = await import("node:fs");
+    const dir = dirname(fileURLToPath(import.meta.url));
+    const dbIndexPath = resolve(dir, "../../../../lib/db/src/index.ts");
+    const src = readFileSync(dbIndexPath, "utf8");
+
+    // Strip function/method bodies — keep only top-level statements.
+    // Top-level connection calls (pool.connect, pool.query) at module scope
+    // would open a TCP connection immediately on import.
+    // The Pool constructor itself is lazy and does not open connections.
+    expect(src).not.toMatch(/^pool\.connect\s*\(/m);
+    expect(src).not.toMatch(/^pool\.query\s*\(/m);
+    expect(src).not.toMatch(/^db\.execute\s*\(/m);
+
+    // The Pool constructor must be present (lazy instantiation is OK).
+    expect(src).toContain("new Pool(");
+  });
+});
+
+describe("Preflight runner spawn uses DB-scoped config", () => {
+  it("dbTestPreflightRunner.ts spawn args include --config vitest.config.db.ts", async () => {
+    const { fileURLToPath } = await import("node:url");
+    const { resolve, dirname } = await import("node:path");
+    const { readFileSync } = await import("node:fs");
+    const dir = dirname(fileURLToPath(import.meta.url));
+    const runnerSrc = readFileSync(resolve(dir, "dbTestPreflightRunner.ts"), "utf8");
+    expect(runnerSrc).toContain("vitest.config.db.ts");
+  });
+});

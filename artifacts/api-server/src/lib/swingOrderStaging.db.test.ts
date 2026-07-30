@@ -1,10 +1,17 @@
 /**
- * Swing CASH Live-Readiness — Phase 2 staging service tests (Part L cases 1-20).
+ * Swing CASH Live-Readiness — Phase 2 staging service tests (Part L cases 1-26).
  *
- * DB-backed cases run only when DATABASE_URL is set (dev DB) and are isolated by
- * a per-run ownerKey prefix that is swept in afterAll — they never touch real
- * rows. The static-guard cases (19/20: no destructive schema change, no F&O
- * coupling) need no DB and always run.
+ * DB INTEGRATION TEST FILE (.db.test.ts)
+ * ----------------------------------------
+ * This file MUST only run via the official `pnpm run test:db` command, which
+ * validates the isolation environment via checkDbTestIsolation() before spawning
+ * Vitest with an isolated test database. It MUST NOT be run via a direct
+ * `vitest run` command or via `pnpm run test:unit`.
+ *
+ * Guard: Both DB-backed describe blocks below use the P0.1 isolation guard
+ * (checkDbTestIsolation). Ordinary DATABASE_URL presence alone is NOT sufficient.
+ * The prior weak describe.skipIf guard (now removed) allowed tests to connect
+ * to the operational database; that pattern is replaced by the full isolation check.
  *
  * ABSOLUTE INVARIANTS asserted here:
  *   - Broker execution stays HARD-disabled: an approved order is BROKER_DISABLED
@@ -21,6 +28,7 @@ import { readFileSync, readdirSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { checkDbTestIsolation } from "../test-infra/dbTestGuard";
 import { like, sql } from "drizzle-orm";
 import { db } from "@workspace/db";
 import { swingOrderStagingTable } from "@workspace/db/schema";
@@ -47,6 +55,20 @@ import type { SwingCashCandidate, SwingCashPortfolioState } from "./swingCashTyp
 import type { SwingLiveQuote, SwingQuoteFetcher } from "./swingCashLiveCandidateAdapter";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+
+// ---------------------------------------------------------------------------
+// P0.1 Isolation guard — must pass before any DB describe block runs.
+// Both DB-backed describe blocks below use `describeDb` derived from this check.
+// Ordinary DATABASE_URL presence is NOT sufficient — the full isolation
+// contract (TEST_DATABASE_URL, TEST_RUN_ID, confirmation flags) is required.
+// ---------------------------------------------------------------------------
+const isolationResult = checkDbTestIsolation(process.env as Record<string, string | undefined>);
+if (!isolationResult.ok) {
+  console.warn(
+    `[swingOrderStaging] DB-backed tests SKIPPED — isolation guard: ${isolationResult.code}: ${isolationResult.reason}`,
+  );
+}
+const describeDb = isolationResult.ok ? describe : describe.skip;
 
 // ---------------------------------------------------------------------------
 // Builders — a clean candidate that stages as STAGED in paper_only mode.
@@ -138,7 +160,7 @@ function restoreEnv(key: string, val: string | undefined): void {
 // DB-backed cases (1-18) — isolated by ownerKey prefix.
 // ===========================================================================
 
-describe.skipIf(!process.env.DATABASE_URL)("swingOrderStaging (DB)", () => {
+describeDb("swingOrderStaging (DB)", () => {
   const OWNER_PREFIX = `test-swing-stage-${Date.now()}-${Math.random().toString(36).slice(2, 8)}-`;
   let ownerCounter = 0;
   const nextOwner = (): string => `${OWNER_PREFIX}${++ownerCounter}`;
@@ -724,7 +746,7 @@ describe("Phase-2 static safety guards", () => {
 // GAP-1: swing approval → paper_trade_eq chain (Cases 21–26)
 // ===========================================================================
 
-describe.skipIf(!process.env.DATABASE_URL)("GAP-1: swing approval → paper_trade_eq chain (DB)", () => {
+describeDb("GAP-1: swing approval → paper_trade_eq chain (DB)", () => {
   const OWNER_PREFIX = `test-gap1-${Date.now()}-${Math.random().toString(36).slice(2, 8)}-`;
   let ownerCounter = 0;
   const nextOwner = (): string => `${OWNER_PREFIX}${++ownerCounter}`;
