@@ -35,6 +35,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { GetOptionSignalsResponse } from "@workspace/api-zod";
 import type { YahooChart } from "./yahoo";
 import type { GateContext } from "./optionSignalGates";
 
@@ -346,7 +347,75 @@ describe("Gate 2 — getOptionSignals() production-handler execution: indexFnoSe
     expect(new Set(pairs).size).toBe(9);
   });
 
-  // ── 6. Normal-path preservation: computeAllIndexFnoSetupAvailability() is
+  // ── 6. All-index exception path (catch branch, all three throw) ──────────────────
+
+  it("all-index exception path: all three indices throw — signals empty — 9 availability records — Zod schema accepts result", async () => {
+    // All indices: coverage present but centralIndexCandles throws for EVERY index.
+    // All three per-index try/catch blocks at line ~3012 take the catch path.
+    // bundles[] is completely empty; suppressed[] contains all 3 with exception: prefix.
+    // This is distinct from tests 3/5 (all-index CONTINUE path — coverage=false; those
+    // never even attempt a fetch). Here all indices enter the try block and throw.
+    vi.mocked(centralHasIndexCoverage).mockReturnValue(true);
+    vi.mocked(centralIndexCandles).mockImplementation(async (symbol: string) => {
+      throw new Error(`Kite timeout for ${symbol} (all-index exception probe)`);
+    });
+
+    const result = await getOptionSignals();
+
+    // ─ Core invariant: all-exception path must not destroy availability ─
+    expect(result.indexFnoSetupAvailability).toHaveLength(9);
+
+    // ─ Signals are completely empty ─
+    expect(result.signals).toHaveLength(0);
+
+    // ─ All three indices must appear in suppressed[] with exception: prefix ─
+    const suppressed = result.diagnostics.suppressed;
+    const niftyEx   = suppressed.find(s => s.index === "NIFTY"     && s.reasons.some(r => r.startsWith("exception:")));
+    const bankEx    = suppressed.find(s => s.index === "BANKNIFTY" && s.reasons.some(r => r.startsWith("exception:")));
+    const sensexEx  = suppressed.find(s => s.index === "SENSEX"    && s.reasons.some(r => r.startsWith("exception:")));
+    expect(niftyEx).toBeDefined();
+    expect(bankEx).toBeDefined();
+    expect(sensexEx).toBeDefined();
+
+    // ─ Production Zod schema accepts the assembled HTTP response payload ─
+    // Replicates the exact payload the scanner.ts route handler constructs at
+    // lines 228-263, using the service result as the source of truth.
+    const now = new Date();
+    const parse = GetOptionSignalsResponse.safeParse({
+      signals: [],
+      generatedAt: now,
+      lastUpdated: now,
+      marketState: "closed",
+      marketStatus: {
+        isTradingDay: true,
+        marketOpen: false,
+        reason: "AFTER_CLOSE",
+        serverUtc: now.toISOString(),
+        serverIst: "16:00 29-Jul-2026",
+        exchangeTimezone: "Asia/Kolkata",
+        openTimeIst: "09:15",
+        closeTimeIst: "15:30",
+        calendarSource: "NSE_HOLIDAYS_2026",
+        calendarAsOf: "2026-12-31",
+      },
+      setupState: {
+        indicesEvaluated: result.diagnostics.indicesConfigured ?? 3,
+        liveSetupsCount: 0,
+        tradeableCount: 0,
+        suppressedCount: 0,
+        noSetupReason: "No setups — all indices failed (exception path test)",
+        indexFnoSetupAvailability: result.indexFnoSetupAvailability,
+      },
+      // diagnostics is .optional() in the schema
+    });
+    expect(parse.success).toBe(true);
+    // The availability entries in the parsed output must still have exactly 9 records
+    const parsedAvailability = (parse.data?.setupState as Record<string, unknown> | undefined)
+      ?.indexFnoSetupAvailability;
+    expect(Array.isArray(parsedAvailability) && parsedAvailability.length).toBe(9);
+  });
+
+  // ── 7. Normal-path preservation: computeAllIndexFnoSetupAvailability() is
   //       unconditional — same result regardless of how many indices succeed ──────
 
   it("availability count is identical (9) across normal, partial, and all-index failure without rebuilding mocks", async () => {

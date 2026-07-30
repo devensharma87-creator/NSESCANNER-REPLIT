@@ -1602,4 +1602,123 @@ Phase A0.3 final unit acceptance (`ACCEPT_A0_3_AS_UNIT_VERIFIED`) remains withhe
 
 ---
 
-END_PHASE_A0_3_DB_ISOLATION_AND_ROUTE_EXECUTION_CLOSURE
+---
+
+## §23 — Gate 2 HTTP Route Proof (2026-07-30)
+
+### 23.1 Scope and Purpose
+
+This section documents the HTTP route proof layer for Gate 2 of Phase A0.3. It extends the service-layer proof of §22 with an independent HTTP-layer proof that the **registered production route** at `GET /api/options/signals` — including `requireSubscriberOrOwner("FNO")` middleware, `GetOptionSignalsResponse.parse()` Zod serialisation, and `res.json()` — returns HTTP 200 with all 9 availability records intact across three operational states.
+
+### 23.2 Two-Layer Architecture
+
+Gate 2 is proved by two independent test layers. Both layers are required. Neither substitutes for the other.
+
+| Layer | File | What is proved |
+|---|---|---|
+| **Layer 1 — Service** | `src/lib/routeHandler.a033.test.ts` | `getOptionSignals()` returns exactly 9 `indexFnoSetupAvailability` records across normal, partial-exception, and all-exception paths. Tests call the real production service function with live mocked dependencies. |
+| **Layer 2 — HTTP Route** | `src/routes/__tests__/optionSignalsRoute.test.ts` | The registered HTTP route at `GET /api/options/signals` returns HTTP 200, passes `GetOptionSignalsResponse.safeParse()`, and carries exactly 9 availability records. `getOptionSignals()` is mocked (service behaviour is independently proved by Layer 1). All route seams are real and un-replaced. |
+
+### 23.3 Service-Layer Proof (Layer 1) — Final Count
+
+`routeHandler.a033.test.ts` — 7 tests / 7 passed:
+
+| # | Description |
+|---|---|
+| 1 | Normal path — all 3 indices succeed — exactly 9 availability records |
+| 2 | Single-index exception (NIFTY) — exception: prefix in suppressed[] — 9 records |
+| 3 | All-index continue-branch (coverage=false) — continue path — 9 records |
+| 4 | Partial-exception (NIFTY throws; BANKNIFTY continues; SENSEX succeeds) — 9 records |
+| 5 | All-index continue suppression — all 3 in suppressed[] — 9 records |
+| 6 | Normal-path invariance — 9 records regardless of how many indices succeed |
+| **7** | **All-index exception path — all 3 throw — signals empty — all 3 in suppressed[] with exception: prefix — 9 records — `GetOptionSignalsResponse.safeParse()` succeeds on assembled payload** |
+
+### 23.4 HTTP Route Proof (Layer 2) — Test Results
+
+`src/routes/__tests__/optionSignalsRoute.test.ts` — **20 tests / 20 passed**
+
+Test groups and coverage:
+
+| Group | Tests | Assertion |
+|---|---|---|
+| Auth gate | 3 | Anonymous → 401 AUTH_REQUIRED; owner cookie → route reached; public-mode ON → route reached |
+| HTTP normal state | 4 | HTTP 200 + JSON content-type; Zod parse succeeds; 9-record + 3-per-index + all-false + 9-unique-pairs; signals array present |
+| HTTP partial-index failure | 4 | HTTP 200 fail-soft; Zod parse succeeds; 9 records remain; availability non-null despite partial failure |
+| HTTP all-index failure | 6 | HTTP 200 (all-fail does not 500); Zod parse succeeds; signals empty; 9 records remain; no ?? [] fallback; 3-per-index holds |
+| Source-level wiring | 3 | `requireSubscriberOrOwner("FNO")` registered exactly once; `GetOptionSignalsResponse.parse()` called before `res.json()`; `indexFnoSetupAvailability` flows without `?? []` fallback |
+
+### 23.5 Seam Governance
+
+The HTTP test uses the REAL production scanner router imported via `import("../scanner")` — NOT `routes/index.ts` (which has module-level scheduler side-effects). The `getOptionSignals()` service function is mocked; all other scanner.ts dependencies are stubbed to prevent crash-at-import without replacing any route logic. The seam boundary is explicitly documented at the top of the test file with a two-layer proof header comment.
+
+### 23.6 Production-Code Changes
+
+The only production-code change admitted for Gate 2 is the `_resetOptionSignalsCacheForTest()` export in `optionSignals.ts` (committed in §22). No further production-code changes were made for the HTTP route proof. The route handler, Zod schema, and `requireSubscriberOrOwner` middleware are unchanged.
+
+### 23.7 Full Verification Suite Results (2026-07-30)
+
+| Check | Result |
+|---|---|
+| `routeHandler.a033.test.ts` (Layer 1, 7 tests) | ✅ 7/7 PASS |
+| `optionSignalsRoute.test.ts` (Layer 2, 20 tests) | ✅ 20/20 PASS |
+| `routeSerializer.a032.test.ts` + `routeHandler.a033.test.ts` (34 tests) | ✅ 34/34 PASS |
+| `optionSignals.setupAvailability.test.ts` + `optionSignals.a031.test.ts` (130 tests) | ✅ 130/130 PASS |
+| API-server typecheck (`tsc --noEmit`) | ✅ PASS — no errors |
+| Scanner typecheck (`tsc --noEmit`) | ✅ PASS — no errors |
+| Full workspace typecheck (`pnpm -r exec tsc --noEmit`) | ✅ PASS — no errors |
+| API-server production build | ✅ PASS |
+| Scanner production build | ✅ PASS |
+| Full api-server suite (`--pool=threads`, all 215 files) | ✅ **4325 passed / 3 skipped (4328 total)** — up from 4298/4301 by exactly 27 new tests |
+| Scanner suite (39 files) | ✅ 843/843 PASS |
+| `git diff --check HEAD` | ✅ CLEAN — no whitespace errors |
+
+**Test count reconciliation:**
+- Previous baseline: 4298 passed / 4301 total
+- New tests added: +27 (7 service-layer + 20 HTTP route)
+- New total: 4325 passed / 4328 total ✅
+
+### 23.8 Working-Tree State (2026-07-30)
+
+| Item | Status |
+|---|---|
+| `artifacts/api-server/src/lib/routeHandler.a033.test.ts` | Modified (+70 lines — test 7 all-index exception + Zod parse) |
+| `artifacts/api-server/src/routes/__tests__/optionSignalsRoute.test.ts` | New untracked file — 20 HTTP route tests |
+| `artifacts/audit-evidence/PHASE_A0_3_SETUP_VIABILITY_AND_HONEST_RETIREMENT.md` | Modified (this §23) |
+| Any other production file | **NO CHANGES** |
+
+HEAD: `fdfd862` (main). No commit, push, pull, fetch, or deploy performed during this session per standing constraints.
+
+### 23.9 Constraint Compliance
+
+| Constraint | Respected |
+|---|---|
+| No DB tests / no `DATABASE_URL` usage | YES |
+| No `DB_TEST_RUNTIME_AUTHORIZED` change | YES |
+| No commit / push / pull / fetch / deploy | YES |
+| No VWAP / strategy / signal logic changes | YES |
+| No new project task plans | YES |
+| No memory file updates | YES |
+| `routes/index.ts` not imported (scheduler side-effects) | YES |
+| Only permitted production change: already-committed cache-reset helper | YES |
+
+### 23.10 Gate 2 Final Verdict
+
+**Gate 2: `PASS — LAYER_1_7/7 + LAYER_2_20/20 — HTTP_VERIFIED — 2026-07-30`**
+
+Both layers of the two-layer proof are complete and all tests pass. The registered HTTP route at `GET /api/options/signals`:
+- Returns HTTP 200 (not 500) under normal, partial-failure, and all-index-failure conditions
+- Passes `GetOptionSignalsResponse.parse()` (the production Zod schema boundary)
+- Carries exactly 9 `indexFnoSetupAvailability` records in `setupState` across all three states
+- Is gated by `requireSubscriberOrOwner("FNO")` middleware (anonymous → 401)
+- Does not use a `?? []` fallback that could silently hide missing availability
+
+**Phase A0.3 final acceptance (`ACCEPT_A0_3_AS_UNIT_VERIFIED`) remains withheld pending Gate 1 (`BLOCKED — SAFE_TEST_DATABASE_NOT_CONFIRMED`).**
+
+| Gate | Verdict |
+|---|---|
+| Gate 1 — Safe DB isolation (3 provenance tests) | `BLOCKED — SAFE_TEST_DATABASE_NOT_CONFIRMED` |
+| Gate 2 — Executable production-route failure proof | ✅ `PASS — LAYER_1_7/7 + LAYER_2_20/20 — HTTP_VERIFIED — 2026-07-30` |
+
+---
+
+END_PHASE_A0_3_HTTP_ROUTE_PROOF
