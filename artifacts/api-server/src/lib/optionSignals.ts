@@ -11,7 +11,8 @@ import { classifyRegimeWithHysteresis, type RegimeResult } from "./regimeClassif
 import { recordAtmIv, computeIvMetrics } from "./ivHistory";
 import { logger } from "./logger";
 import { logUpstreamReasoningBatch } from "./fnoSignalReasoningLogger";
-import { fetchOptionChain, type OcRow, type OcSide } from "./optionChain";
+import { type OcRow, type OcSide } from "./optionChain";
+import { getOptionChain } from "./marketData/optionChainProvider";
 import {
   recordOrUpdate as recordLifecycle,
   expireOpenSignalsForToday,
@@ -2460,7 +2461,13 @@ async function enrichBundlesWithOptionLevels(bundles: BundleLike[]): Promise<voi
       const first = b.signals[0]!;
       const expiry = first.leg.expiry;
       try {
-        const chain = await fetchOptionChain(first.index, expiry);
+        // B1.1: use canonical TRADE_GRADE path — Kite-only, no NSE/Yahoo fallback.
+        // fetchOptionChain (legacy) could silently fall back to NSE scrape for
+        // display purposes; TRADE_GRADE rejects that path at the provider level
+        // so a non-Kite chain cannot reach the premium enrichment loop even if
+        // the provenance gate below somehow misfired.
+        const _ocResult = await getOptionChain(first.index, "TRADE_GRADE", expiry);
+        const chain = _ocResult.ok ? (_ocResult.data?.chain ?? null) : null;
         // Premium provenance gate (owner policy 2026-06-10): the option
         // premium/OI that drives optionEntry/optionStopLoss/optionTarget* — and
         // therefore the paper trade and its risk — may ONLY come from a
@@ -2469,7 +2476,7 @@ async function enrichBundlesWithOptionLevels(bundles: BundleLike[]): Promise<voi
         // the signal to INFO_ONLY (so the auto-trader never opens it), and
         // DO NOT project stop/target levels from untrusted premium.
         const prov = buildOptionChainProvenance(chain, {
-          missingReason: `No option chain for ${first.index} ${expiry}.`,
+          missingReason: _ocResult.reason ?? `No option chain for ${first.index} ${expiry}.`,
         });
         const verdict = premiumTrustVerdict(prov);
         for (const s of b.signals) {
@@ -2984,7 +2991,9 @@ export async function getOptionSignals(): Promise<OptionSignalsResult> {
         const expiry = cfg.expiryCadence === "weekly"
           ? nextWeeklyExpiry(cfg.expiryWeekday)
           : nextMonthlyExpiry(cfg.expiryWeekday);
-        const chain = await fetchOptionChain(cfg.symbol, expiry);
+        // B1.1: canonical TRADE_GRADE — no NSE/Yahoo fallback for IV history.
+        const _ivOcResult = await getOptionChain(cfg.symbol, "TRADE_GRADE", expiry);
+        const chain = _ivOcResult.ok ? (_ivOcResult.data?.chain ?? null) : null;
         // Kite-only: NSE/Yahoo-sourced IV must never pollute the IVR/IVP
         // history that feeds signal confidence (owner policy 2026-06-10).
         if (chain && Number.isFinite(chain.spot) && classifyOcSource(chain.source) === "kite") {

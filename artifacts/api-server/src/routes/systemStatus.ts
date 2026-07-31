@@ -23,6 +23,7 @@ import { listReconReports, runEodReconciliation } from "../lib/eodReconciliation
 import { SYSTEM_MODE_RANK } from "../lib/systemModeCache";
 import { getKiteReadiness } from "../lib/kiteReadiness";
 import { buildGlobalDataHealth } from "../lib/globalDataHealth";
+import { getProviderCapabilities } from "../lib/marketData/providerCapability";
 import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
@@ -34,6 +35,9 @@ router.get("/system/mode", requireOwner, async (_req, res) => {
     clockDrift: getClockDriftSnapshot(),
     tokenStaleness: getStalenessSnapshot(),
     instrumentsIntegrity: getInstrumentsIntegrityStatus(),
+    // B1.1 — Machine-readable provider capability snapshot.
+    // Contains no credentials — only state names and safe reason strings.
+    providerCapabilities: getProviderCapabilities(),
   });
 });
 

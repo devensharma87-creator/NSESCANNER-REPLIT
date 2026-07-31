@@ -43,7 +43,7 @@ import {
   type PaperTradeComboRow,
   type PaperTradeComboLegRow,
 } from "@workspace/db";
-import { fetchOptionChain } from "./optionChain";
+import { getOptionChain } from "./marketData/optionChainProvider";
 import { computeAnalytics } from "./optionAnalytics";
 import { enrichAnalyticsWithIv } from "./ivHistory";
 import {
@@ -169,9 +169,15 @@ async function fetchPricedSnapshot(
   | { ok: true; response: CustomStrategyResponse }
   | { ok: false; code: "CHAIN_UNAVAILABLE" | "BUILD_FAILED"; message: string }
 > {
-  const chain = await fetchOptionChain(underlying, expiry);
+  // B1.1: canonical TRADE_GRADE path — no NSE/Yahoo fallback for paper combo valuation.
+  const _ocResult = await getOptionChain(underlying, "TRADE_GRADE", expiry);
+  const chain = _ocResult.ok ? (_ocResult.data?.chain ?? null) : null;
   if (!chain) {
-    return { ok: false, code: "CHAIN_UNAVAILABLE", message: `Live option chain unavailable for ${underlying}.` };
+    return {
+      ok: false,
+      code: "CHAIN_UNAVAILABLE",
+      message: _ocResult.reason ?? `Live option chain unavailable for ${underlying}.`,
+    };
   }
   const analytics = computeAnalytics(chain);
   try {

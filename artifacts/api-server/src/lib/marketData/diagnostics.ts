@@ -18,6 +18,7 @@ import { getValidationStats, type ValidationDayStats } from "./validationStats";
 import type { ValidationResult } from "./sourceValidation";
 import type { MarketQuote, ProviderName } from "./types";
 import type { InstrumentAssetClass } from "@workspace/db";
+import { getProviderCapabilities, type ProviderCapabilitySnapshot } from "./providerCapability";
 
 export type ProviderState = "active" | "degraded" | "inactive" | "disabled";
 
@@ -48,6 +49,13 @@ export interface DataDiagnostics {
     mapSync: MapSyncStats;
     validation: ValidationDayStats;
   };
+  /**
+   * B1.1 — Formal capability snapshot per provider+domain combination.
+   * Machine-readable AVAILABLE/NOT_CONFIGURED/AUTH_EXPIRED/etc. state that
+   * the UI and downstream diagnostics can consume without parsing human text.
+   * Contains NO credential values — only state names and safe reason strings.
+   */
+  providerCapabilities: ProviderCapabilitySnapshot;
 }
 
 export async function buildDataDiagnostics(): Promise<DataDiagnostics> {
@@ -78,6 +86,7 @@ export async function buildDataDiagnostics(): Promise<DataDiagnostics> {
   return {
     generatedAt: new Date().toISOString(),
     authoritative: "kite",
+    providerCapabilities: getProviderCapabilities(),
     indstocks: {
       health: ih,
       mapSync: getMapSyncStats(),
