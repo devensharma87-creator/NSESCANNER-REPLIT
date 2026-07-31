@@ -446,6 +446,8 @@ export async function getMarketEvents(): Promise<MarketEventsResponse> {
   };
 }
 
-// Warm cache on boot
-void getUpcomingEarnings().catch(() => undefined);
-setInterval(() => { void getUpcomingEarnings().catch(() => undefined); }, EARNINGS_TTL_MS);
+// Warm cache on boot (guarded: skip in test env — P0.1B tripwire)
+if (process.env['NODE_ENV'] !== 'test') {
+  void getUpcomingEarnings().catch(() => undefined);
+  setInterval(() => { void getUpcomingEarnings().catch(() => undefined); }, EARNINGS_TTL_MS);
+}

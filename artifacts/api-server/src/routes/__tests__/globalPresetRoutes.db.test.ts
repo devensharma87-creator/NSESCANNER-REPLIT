@@ -55,6 +55,7 @@ vi.mock("../../lib/logger", () => ({
 const globalRouter = (await import("../global")).default;
 const { db, globalScreenerPresetsTable } = await import("@workspace/db");
 const { inArray } = await import("drizzle-orm");
+import { checkDbTestIsolation } from "../../test-infra/dbTestGuard";
 
 // ---------------------------------------------------------------------------
 // HTTP harness — sign the `global_session` cookie the same way cookie-parser
@@ -86,6 +87,7 @@ let baseUrl: string;
 let originalGlobalPassword: string | undefined;
 
 beforeAll(async () => {
+  checkDbTestIsolation();
   // requireGlobalAuth (mounted inside globalRouter as `router.use("/global",
   // requireGlobalAuth)`) short-circuits with 503 when GLOBAL_APP_ACCESS_PASSWORD
   // is unset. In the test harness we don't hit the login path — we forge signed

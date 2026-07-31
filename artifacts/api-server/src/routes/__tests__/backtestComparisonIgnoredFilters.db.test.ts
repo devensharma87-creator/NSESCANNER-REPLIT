@@ -83,6 +83,7 @@ const { isSupportedInstrument, loadHistoricalCandles } = await import(
 );
 const { getStrategy } = await import("../../lib/backtest/strategies");
 const { pool } = await import("@workspace/db");
+import { checkDbTestIsolation } from "../../test-infra/dbTestGuard";
 
 // ---------------------------------------------------------------------------
 // HTTP harness — same signed-cookie owner-session pattern as the other route
@@ -212,6 +213,7 @@ describeDb("Backtest Lab — COMPARE ignoredFilters honesty column over HTTP (li
   let availableSymbol: string | null = null;
 
   beforeAll(async () => {
+    checkDbTestIsolation();
     const app: Express = express();
     app.use(cookieParser(TEST_SECRET));
     app.use(express.json());

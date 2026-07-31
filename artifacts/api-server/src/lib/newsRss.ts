@@ -197,7 +197,9 @@ export async function getMarketNewsLive(count = 30): Promise<NewsItem[]> {
   }
 }
 
-// Warm cache on module load (best-effort, non-blocking).
-void getMarketNewsLive(1).catch(() => undefined);
-// Background refresh every 5 minutes.
-setInterval(() => { void refresh().catch(() => undefined); }, TTL_MS);
+// Warm cache on module load (guarded: skip in test env — P0.1B tripwire).
+if (process.env['NODE_ENV'] !== 'test') {
+  void getMarketNewsLive(1).catch(() => undefined);
+  // Background refresh every 5 minutes.
+  setInterval(() => { void refresh().catch(() => undefined); }, TTL_MS);
+}

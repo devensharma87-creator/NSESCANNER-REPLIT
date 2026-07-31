@@ -251,5 +251,7 @@ export async function resolveSymbols(text: string): Promise<ResolvedSymbol[]> {
   return Array.from(found.entries()).map(([symbol, matched]) => ({ symbol, matched }));
 }
 
-// warm
-void getIndex().catch(() => undefined);
+// warm (guarded: skip in test env — P0.1B tripwire)
+if (process.env['NODE_ENV'] !== 'test') {
+  void getIndex().catch(() => undefined);
+}

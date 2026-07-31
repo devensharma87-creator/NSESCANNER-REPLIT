@@ -1412,6 +1412,40 @@ describe("Test taxonomy — DB integration files use .db.test.ts suffix", () => 
       fs.existsSync(path.join(apiServerRoot, "src/lib/paperTradingEqProvenance.test.ts")),
     ).toBe(false);
   });
+
+  // P0.1B Prompt 13 — route test files reclassified to .db.test.ts
+  const PROMPT13_DB_FILES = [
+    "src/routes/__tests__/portfolioRouteIsolation.db.test.ts",
+    "src/routes/__tests__/portfolioRouteLimits.db.test.ts",
+    "src/routes/__tests__/backtestComparisonIgnoredFilters.db.test.ts",
+    "src/routes/__tests__/backtestTradeTimes.db.test.ts",
+    "src/routes/__tests__/globalPresetRoutes.db.test.ts",
+  ] as const;
+
+  const PROMPT13_DELETED_FILES = [
+    "src/routes/__tests__/portfolioRouteLimits.test.ts",
+    "src/routes/__tests__/backtestComparisonIgnoredFilters.test.ts",
+    "src/routes/__tests__/backtestTradeTimes.test.ts",
+    "src/routes/__tests__/globalPresetRoutes.test.ts",
+  ] as const;
+
+  it("Prompt-13 .db.test.ts files are present on disk", () => {
+    for (const f of PROMPT13_DB_FILES) {
+      expect(
+        fs.existsSync(path.join(apiServerRoot, f)),
+        `${f} must exist`,
+      ).toBe(true);
+    }
+  });
+
+  it("Prompt-13 legacy non-DB-suffixed route test files are absent (renamed)", () => {
+    for (const f of PROMPT13_DELETED_FILES) {
+      expect(
+        fs.existsSync(path.join(apiServerRoot, f)),
+        `${f} must NOT exist (was renamed to .db.test.ts)`,
+      ).toBe(false);
+    }
+  });
 });
 
 describe("Unit config excludes DB integration files", () => {
@@ -1703,6 +1737,16 @@ describe("ZC-11 series: P0.1B-era .db.test.ts files have no static DB imports", 
     "marketData/indstocksTokenStore.db.test.ts",
   ] as const;
 
+  // Route test files reclassified in P0.1B Prompt 13 (formerly leaked DB connections
+  // in the normal suite; now correctly suffixed and guarded with checkDbTestIsolation).
+  const ROUTE_DB_TEST_FILES = [
+    "routes/__tests__/portfolioRouteIsolation.db.test.ts",
+    "routes/__tests__/portfolioRouteLimits.db.test.ts",
+    "routes/__tests__/backtestComparisonIgnoredFilters.db.test.ts",
+    "routes/__tests__/backtestTradeTimes.db.test.ts",
+    "routes/__tests__/globalPresetRoutes.db.test.ts",
+  ] as const;
+
   // Map of filename → source content
   const srcs: Record<string, string> = {};
 
@@ -1711,15 +1755,19 @@ describe("ZC-11 series: P0.1B-era .db.test.ts files have no static DB imports", 
     const { resolve, dirname } = await import("node:path");
     const { fileURLToPath } = await import("node:url");
     const libDir = resolve(dirname(fileURLToPath(import.meta.url)), "../lib");
+    const srcDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
     for (const f of DB_TEST_FILES) {
       srcs[f] = readFileSync(resolve(libDir, f), "utf8");
     }
     for (const f of MARKET_DATA_DB_TEST_FILES) {
       srcs[f] = readFileSync(resolve(libDir, f), "utf8");
     }
+    for (const f of ROUTE_DB_TEST_FILES) {
+      srcs[f] = readFileSync(resolve(srcDir, f), "utf8");
+    }
   });
 
-  const allFiles = [...DB_TEST_FILES, ...MARKET_DATA_DB_TEST_FILES];
+  const allFiles = [...DB_TEST_FILES, ...MARKET_DATA_DB_TEST_FILES, ...ROUTE_DB_TEST_FILES];
 
   it("ZC-11-exists: all P0.1B .db.test.ts files are present on disk", () => {
     for (const f of allFiles) {

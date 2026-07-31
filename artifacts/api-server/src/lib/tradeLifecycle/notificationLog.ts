@@ -86,15 +86,19 @@ export async function initNotificationLog(): Promise<void> {
 }
 
 // Self-init at module load — same pattern as dailyReports.ts
-void (async () => {
-  try {
-    await db.execute(TABLE_DDL);
-    await db.execute(INDEX_DDL);
-    tableReady = true;
-  } catch {
-    // Non-fatal; tableReady stays false → dedup skipped (fail-open)
-  }
-})();
+// Guard: skip in test environment (NODE_ENV=test set by vitest) to prevent
+// pg.Pool connection attempts in the normal test suite (P0.1B tripwire).
+if (process.env['NODE_ENV'] !== 'test') {
+  void (async () => {
+    try {
+      await db.execute(TABLE_DDL);
+      await db.execute(INDEX_DDL);
+      tableReady = true;
+    } catch {
+      // Non-fatal; tableReady stays false → dedup skipped (fail-open)
+    }
+  })();
+}
 
 // ── Hash ───────────────────────────────────────────────────────────────────────
 

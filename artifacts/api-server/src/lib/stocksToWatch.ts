@@ -306,6 +306,8 @@ export async function getStocksToWatch(lookbackHours = 24): Promise<StocksToWatc
   }
 }
 
-// background warm — non-blocking
-void getStocksToWatch().catch(() => undefined);
-setInterval(() => { void getStocksToWatch().catch(() => undefined); }, TTL_MS);
+// background warm — non-blocking (guarded: skip in test env — P0.1B tripwire)
+if (process.env['NODE_ENV'] !== 'test') {
+  void getStocksToWatch().catch(() => undefined);
+  setInterval(() => { void getStocksToWatch().catch(() => undefined); }, TTL_MS);
+}

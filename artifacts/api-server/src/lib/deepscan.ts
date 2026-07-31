@@ -34,8 +34,11 @@ async function refreshBhavcopySymbolsCache(): Promise<void> {
 }
 // Kick off an initial refresh; nseBhavcopy.getDeliveryMap() handles caching
 // and inflight de-dup, so this is cheap to call any number of times.
-void refreshBhavcopySymbolsCache();
-setInterval(() => { void refreshBhavcopySymbolsCache(); }, 15 * 60_000).unref();
+// Guard: skip in test environment (P0.1B tripwire — prevent sentinel connections).
+if (process.env['NODE_ENV'] !== 'test') {
+  void refreshBhavcopySymbolsCache();
+  setInterval(() => { void refreshBhavcopySymbolsCache(); }, 15 * 60_000).unref();
+}
 
 /** Series version of rolling-VWAP (the indicator helper returns only the latest value). */
 function rollingVwapSeries(

@@ -1356,3 +1356,257 @@ All 16 acceptance gates from Prompt 12 §16 are met:
 ---
 
 END_PHASE_P0_1B_ZERO_CONNECTION_CANARY_AND_EVIDENCE_ACCEPTANCE
+
+---
+
+## §14 — Process-Wide DB Network Tripwire: Design, Controls, Results, and Final Acceptance
+
+**Prompt 13 (continuation) — 2026-07-31**
+
+---
+
+### §14.1 — Tripwire Design
+
+The process-wide DB network tripwire is implemented as a Node.js CJS preload module (`src/test-infra/dbNetworkTripwire.preload.cjs`) loaded via `NODE_OPTIONS=--require` in every instrumented process and Vitest worker thread.
+
+**Mechanism:**
+- Patches `net.Socket.prototype.connect` and `tls.connect` at the lowest available Node.js layer, before any application or library code runs.
+- Intercepts any TCP/TLS connection attempt whose target host and port match a per-run sentinel (`127.0.0.1:<TRIPWIRE_SENTINEL_PORT>`). The sentinel port is random per run, set via `TRIPWIRE_SENTINEL_PORT` env var.
+- `DATABASE_URL` is set to `postgresql://tripwire:tripwire@127.0.0.1:<port>/tripwire_only` so the pg driver attempts connections to the sentinel.
+- On intercept: throws `DB_NETWORK_TRIPWIRE_CONNECTION_ATTEMPT` immediately (no actual TCP packet sent), increments `connectionAttempts`, records per-pathway counters and a brief stack trace, and writes a per-process JSON manifest to `TRIPWIRE_MANIFEST_DIR`.
+- Manifest schema: `{ nonce, pid, instanceId, connectionAttempts, perPathway: { netSocketConnect, tlsConnect }, events: [...] }`.
+- All manifests are validated by the harness after the suite run: nonce match, all-numeric fields, no `?? 0` fallback conversions.
+
+**Harness (`src/test-infra/tripwireHarness.ts`):**
+- Spawns controls and the full suite via `spawnSync`.
+- Aggregates manifests; fails if any manifest is invalid or any connection attempt total is non-zero.
+- Invoked via `pnpm run test:tripwire`.
+
+---
+
+### §14.2 — Control Results
+
+| Control | Description | Result |
+|---|---|---|
+| NEG-NET-01 | Deliberate sentinel connection must be intercepted | ✓ PASS — 1 attempt detected, process exited 1 |
+| POS-NET-01 | Harmless control (no connection) — 0 attempts expected | ✓ PASS — 0 attempts, process exited 0 |
+| NEG-NET-03 | 4 corrupt manifests must all be rejected (fails closed) | ✓ PASS — 4/4 rejected: missing field, null, nonce mismatch, missing perPathway |
+
+---
+
+### §14.3 — Full Suite Tripwire Result
+
+```
+Vitest exit code        : 0
+Manifests written       : 296
+Processes/threads instrumented: 296
+Invalid manifests             : 0
+Total DB network attempts     : 0
+✓ all 296 manifests valid
+✓ total DB network attempts = 0 (aggregate exact zero, no ?? 0 conversion)
+✓ .db.test.ts files: 0 collected by vitest
+Tests passed: 4250 in 205 files
+✓ FULL SUITE: PASS
+OVERALL: PASS — P0.1B PROCESS-WIDE ZERO-CONNECTION PROOF COMPLETE ✓
+```
+
+---
+
+### §14.4 — Root-Cause Fixes Applied This Prompt
+
+**Layer A — 7 module-scope DB call sites (NODE_ENV guard):**
+
+All 7 had `void fn()` / `void (async () => { ... })()` calls at module scope that fired on any import, including by test processes:
+
+| File | Module-scope call guarded |
+|---|---|
+| `src/lib/tradeLifecycle/notificationLog.ts` | `void (async () => { await db.execute(TABLE_DDL); ... })()` |
+| `src/lib/dailyReports.ts` | `void ensureDailyReportRunsTable()` |
+| `src/lib/deepscan.ts` | `void refreshBhavcopySymbolsCache()` + setInterval |
+| `src/lib/symbolAlias.ts` | `void getIndex()` |
+| `src/lib/marketEvents.ts` | `void getUpcomingEarnings()` + setInterval |
+| `src/lib/newsRss.ts` | `void getMarketNewsLive(1)` + setInterval |
+| `src/lib/stocksToWatch.ts` | `void getStocksToWatch()` + setInterval |
+
+Fix: wrapped each with `if (process.env['NODE_ENV'] !== 'test') { ... }`.
+
+**Layer B — 3 test files with unguarded DB calls (vi.mock guard):**
+
+| Test File | Cause | Fix Applied |
+|---|---|---|
+| `src/lib/kiteScanner.etf.test.ts` | `checkEtfRecognition()`/`getEtfRecognitionDiagnostics()` call `getRestClient()` → `db.select(kiteSessionTable)` | `vi.mock("./kiteAuth", () => ({ getRestClient: vi.fn().mockReturnValue(null) }))` |
+| `src/lib/paperAccountReconciliation.test.ts` | `reconcilePaperAccount()` calls `db.execute()` 4× in try/catch (test verified fallback shape — intended to be pure) | `vi.mock("@workspace/db", () => ({ db: { execute: vi.fn().mockRejectedValue(...), ... } }))` |
+| `src/lib/fnoSignalReasoningLogger.test.ts` | `logFnoReasoning()`/`logUpstreamReasoningBatch()` call `db.select` (deduplication) in addition to `db.insert` (already spied); 1 connection escaped existing per-test `vi.spyOn` coverage | `vi.mock("@workspace/db", () => ({ db: { execute, select, insert, update, delete: all vi.fn() } }))` |
+
+**Phase 1 — 5 route test files reclassified (Prompt 13 earlier):**
+
+| Original file | Action |
+|---|---|
+| `src/routes/__tests__/portfolioRouteLimits.test.ts` | → `.db.test.ts` |
+| `src/routes/__tests__/backtestComparisonIgnoredFilters.test.ts` | → `.db.test.ts` |
+| `src/routes/__tests__/backtestTradeTimes.test.ts` | → `.db.test.ts` |
+| `src/routes/__tests__/globalPresetRoutes.test.ts` | → `.db.test.ts` |
+| `src/routes/__tests__/portfolioRouteIsolation.test.ts` | Split: pure half retained as `.test.ts`, DB half moved to `.db.test.ts` |
+
+---
+
+### §14.5 — DB-Only File Inventory (17 files, not executed in test:full)
+
+```
+src/lib/fnoPremiumExitOverlay.db.test.ts
+src/lib/marketData/indstocksTokenStore.db.test.ts
+src/lib/optionSignalPlanImmutability.db.test.ts
+src/lib/paperCapitalEvents.db.test.ts
+src/lib/paperHeatSql.db.test.ts
+src/lib/paperTradingEqProvenance.db.test.ts
+src/lib/paperTradingFoExitMonitorApi.db.test.ts
+src/lib/paperTradingFoMtmSweep.db.test.ts
+src/lib/paperTradingFoOrphanExit.db.test.ts
+src/lib/swingOrderStaging.db.test.ts
+src/lib/swingScannerStore.intradayRefresh.db.test.ts
+src/lib/swingTtlSweep.db.test.ts
+src/routes/__tests__/backtestComparisonIgnoredFilters.db.test.ts
+src/routes/__tests__/backtestTradeTimes.db.test.ts
+src/routes/__tests__/globalPresetRoutes.db.test.ts
+src/routes/__tests__/portfolioRouteIsolation.db.test.ts
+src/routes/__tests__/portfolioRouteLimits.db.test.ts
+```
+
+All 17 use `describeDb`/`checkDbTestIsolation()` with dynamic `import("@workspace/db")` inside `beforeAll`. The `dbTestGuard.ts` block prevents execution unless `TEST_DATABASE_URL + TEST_RUN_ID + TEST_DB_ISOLATION_CONFIRMED=true` all pass. `DB_TEST_RUNTIME_AUTHORIZED = false as boolean` remains hard-blocked.
+
+---
+
+### §14.6 — Final Test Count Reconciliation
+
+| Prompt | Command | Files | Tests | Notes |
+|---|---:|---:|---:|---|
+| §13 (Prompt 12 final) | `test:full` | 209 | 4288 | Included 5 route files now reclassified |
+| §14 (this prompt) | `test:unit` | 2 | 181 | Stable unit subset |
+| §14 (this prompt) | `test:full` | 205 | 4250 | −4 files −38 tests: 5 reclassified files net −4 (split file contributes pure half) |
+| §14 (this prompt) | scanner | 39 | 843 | Unchanged |
+
+Reconciliation: 4288 − 38 = 4250. The 38 tests were in the 4 fully-moved DB-only route files (excluded from `test:full`). The split `portfolioRouteIsolation.test.ts` retains its pure tests. ✓
+
+---
+
+### §14.7 — Full Verification Matrix
+
+All commands run on working tree. No DB connection, no commit, no push.
+
+| # | Command | Exit | Files | Passed | Failed |
+|---|---|---:|---:|---:|---:|
+| 1 | `pnpm run test:unit` | 0 | 2 | 181 | 0 |
+| 2 | `pnpm run test:full` | 0 | 205 | 4250 | 0 |
+| 3 | `pnpm run test:tripwire` | 0 | 296 manifests | 4250 suite tests | 0 DB attempts |
+| 4 | `pnpm --filter @workspace/scanner run test` | 0 | 39 | 843 | 0 |
+| 5 | `pnpm exec tsc --noEmit` (api-server) | 0 | — | — | 0 errors |
+| 6 | `pnpm --filter @workspace/scanner run typecheck` | 0 | — | — | 0 errors |
+| 7 | `pnpm --filter @workspace/global run typecheck` | 0 | — | — | 0 errors |
+| 8 | `pnpm --filter @workspace/db exec tsc --noEmit` | 0 | — | — | 0 errors |
+| 9 | `pnpm --filter @workspace/api-client-react exec tsc` (build) | 0 | — | — | 0 errors |
+| 10 | `git diff --check HEAD` | 0 | — | — | 0 whitespace errors |
+
+**Skip/only audit (new diff only):**
+- `.skip` / `.only` added: ✓ NONE
+- `vi.mock` added: ✓ ONLY for `@workspace/db` and `./kiteAuth` in 3 test files; no production code mocked
+- `??0` / `||0` fallback added: ✓ NONE
+- Connection strings to real infrastructure: ✓ NONE
+- Secret values added: ✓ NONE
+
+---
+
+### §14.8 — Residue Status
+
+No change from §13.9. The 115 operational residue rows remain untouched.
+
+Authorization phrase `AUTHORIZE_OPERATIONAL_TEST_RESIDUE_CLEANUP` remains a future owner decision.
+
+---
+
+### §14.9 — Git Record
+
+**HEAD at time of §14:** `7883831` — "Update memory state and expand database test guard coverage"
+
+**Prompt 13 diff (`git diff --stat HEAD`):**
+```
+ artifacts/api-server/package.json                                          |   1 +
+ artifacts/api-server/src/lib/dailyReports.ts                               |   5 +-
+ artifacts/api-server/src/lib/deepscan.ts                                   |   7 +-
+ artifacts/api-server/src/lib/fnoSignalReasoningLogger.test.ts              |  29 ++
+ artifacts/api-server/src/lib/kiteScanner.etf.test.ts                       |  14 +-
+ artifacts/api-server/src/lib/marketEvents.ts                               |   8 +-
+ artifacts/api-server/src/lib/newsRss.ts                                    |  10 +-
+ artifacts/api-server/src/lib/paperAccountReconciliation.test.ts            |  25 +-
+ artifacts/api-server/src/lib/stocksToWatch.ts                              |   8 +-
+ artifacts/api-server/src/lib/symbolAlias.ts                                |   6 +-
+ artifacts/api-server/src/lib/tradeLifecycle/notificationLog.ts             |  22 +-
+ artifacts/api-server/src/routes/__tests__/backtestComparisonIgnoredFilters.test.ts  | 303 ----
+ artifacts/api-server/src/routes/__tests__/backtestTradeTimes.test.ts       | 509 ----
+ artifacts/api-server/src/routes/__tests__/globalPresetRoutes.test.ts       | 228 ----
+ artifacts/api-server/src/routes/__tests__/portfolioRouteIsolation.test.ts  | 286 ----
+ artifacts/api-server/src/routes/__tests__/portfolioRouteLimits.test.ts     | 509 ----
+ artifacts/api-server/src/test-infra/dbTestGuard.test.ts                    |  50 +-
+ 17 files changed, 158 insertions(+), 1862 deletions(-)
+```
+
+**Manual commit:** None  
+**Push / pull / fetch / deploy / publish:** None
+
+---
+
+### §14.10 — Confirmations
+
+| Item | Status |
+|---|---|
+| `NO_DATABASE_CONNECTION` | ✓ Confirmed — 0 DB network attempts across 296 instrumented processes |
+| No DB-backed tests executed | ✓ Confirmed — 0 `.db.test.ts` collected by vitest; tripwire proves zero pg.Pool connections |
+| No provisioning | ✓ Confirmed |
+| No migration | ✓ Confirmed |
+| No operational residue cleanup | ✓ Confirmed — 115 rows untouched |
+| Runtime lock unchanged | ✓ `DB_TEST_RUNTIME_AUTHORIZED = false as boolean` unmodified |
+| No manual commit | ✓ Confirmed |
+| No push / fetch / pull / deploy / publish | ✓ Confirmed |
+| No assertion weakening | ✓ Confirmed |
+| No skip/only/retry added | ✓ Confirmed |
+| No connection string to real infrastructure | ✓ Confirmed |
+| `vi.mock` scope | ✓ Only `@workspace/db` + `./kiteAuth` in 3 test files; all production paths unaffected |
+
+---
+
+### §14.11 — Terminator Count Verification
+
+- §10 terminator: `END_PHASE_P0_1B_SAFETY_CLOSURE_AND_DISPOSABLE_DB_RUNNER` — 1 occurrence ✓
+- §11 terminator: `END_PHASE_P0_1B_LEGACY_DB_TEST_AND_FINAL_EVIDENCE_CLOSURE` — 1 occurrence ✓
+- §12 terminator: `END_PHASE_P0_1B_ZERO_CONNECTION_CANARY_AND_EVIDENCE_ACCEPTANCE` — 1 occurrence ✓
+- §14 terminator: `END_PHASE_P0_1B_PROCESS_WIDE_DB` + `_TRIPWIRE_AND_FINAL_ACCEPTANCE` — 1 occurrence (below) ✓
+
+---
+
+### §14.12 — Final Acceptance
+
+All gates for the process-wide tripwire proof are met:
+
+| # | Gate | Status |
+|---|---|---|
+| 1 | Tripwire intercepts at net.Socket layer before any DB library code | ✓ NEG-NET-01: 1 attempt detected, throw confirmed |
+| 2 | Harmless control produces zero attempts | ✓ POS-NET-01: 0 attempts |
+| 3 | Manifest corruption rejected fails-closed (no ?? 0) | ✓ NEG-NET-03: 4/4 corrupt variants rejected |
+| 4 | Full suite produces zero DB network attempts | ✓ 0 attempts across 296 manifests |
+| 5 | All 296 manifests valid (nonce, numeric fields, perPathway) | ✓ 0 invalid manifests |
+| 6 | No .db.test.ts files collected by vitest | ✓ 0 DB files in test:full |
+| 7 | All non-DB tests pass | ✓ 4250/4250 |
+| 8 | Scanner tests pass | ✓ 843/843 |
+| 9 | test:unit passes | ✓ 181/181 |
+| 10 | All 4 typechecks pass | ✓ api-server, scanner, global, db |
+| 11 | Both builds pass | ✓ api-client-react tsc, db build |
+| 12 | git diff --check clean | ✓ 0 whitespace errors |
+| 13 | No skip/only/assertion-weakening/connection-string in new diff | ✓ Audited clean |
+| 14 | DB-only inventory complete (17 files) | ✓ Listed in §14.5 |
+| 15 | Runtime authorization remains false | ✓ `DB_TEST_RUNTIME_AUTHORIZED = false as boolean` |
+| 16 | No DB connection, test, migration, provisioning, cleanup, secret, commit, push, deploy | ✓ See §14.10 |
+
+**Verdict:** `ACCEPT_P0_1B_SAFETY_CLOSURE_READY_FOR_OWNER_PROVISIONING`
+
+---
+
+END_PHASE_P0_1B_PROCESS_WIDE_DB_TRIPWIRE_AND_FINAL_ACCEPTANCE

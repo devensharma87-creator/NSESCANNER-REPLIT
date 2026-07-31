@@ -5,7 +5,30 @@
  * exercised by the integration test that hits the actual `paper_account`
  * / `paper_trade_fo` tables (kept separate to preserve CI speed).
  */
-import { describe, it, expect } from "vitest";
+/**
+ * vi.mock guard (P0.1B tripwire): reconcilePaperAccount calls db.execute() in
+ * multiple try/catch blocks and returns a well-formed fallback when every query
+ * fails. Mock @workspace/db so no real pg.Pool connections are attempted — the
+ * test verifies the fallback shape, NOT live DB behavior.
+ */
+import { describe, it, expect, vi } from "vitest";
+
+vi.mock("@workspace/db", () => ({
+  db: {
+    execute: vi.fn().mockRejectedValue(new Error("DB mock — no real DB in unit tests")),
+    select: vi.fn().mockReturnValue({ from: vi.fn().mockResolvedValue([]) }),
+    insert: vi.fn().mockReturnValue({ values: vi.fn().mockRejectedValue(new Error("DB mock")) }),
+    update: vi.fn().mockReturnValue({ set: vi.fn().mockReturnValue({ where: vi.fn().mockResolvedValue([]) }) }),
+    delete: vi.fn().mockReturnValue({ where: vi.fn().mockResolvedValue([]) }),
+  },
+  // drizzle-orm re-exports from @workspace/db used by the module
+  sql: Object.assign(
+    (s: TemplateStringsArray, ...v: unknown[]) => ({ sql: String(s), values: v }),
+    { raw: (s: string) => ({ sql: s, values: [] }) },
+  ),
+  kiteSessionTable: {},
+}));
+
 import { reconcilePaperAccount } from "./paperAccountReconciliation";
 
 describe("B.1/B.2 reconcilePaperAccount — pure-shape checks", () => {

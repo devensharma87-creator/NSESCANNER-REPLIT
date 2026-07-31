@@ -17,6 +17,35 @@
  */
 import { describe, it, expect, vi } from "vitest";
 
+/**
+ * P0.1B tripwire guard: fnoSignalReasoningLogger makes DB calls via
+ * db.insert AND db.select (deduplication). Mock @workspace/db so no
+ * real pg.Pool connections are attempted in the normal test suite.
+ * Individual tests that need specific db.insert behaviour use vi.spyOn
+ * on top of this mock (spyOn overrides the factory mock per-test).
+ */
+vi.mock("@workspace/db", () => ({
+  db: {
+    execute: vi.fn().mockRejectedValue(new Error("DB mock")),
+    select: vi.fn().mockReturnValue({
+      from: vi.fn().mockReturnValue({
+        where: vi.fn().mockResolvedValue([]),
+        orderBy: vi.fn().mockResolvedValue([]),
+        limit: vi.fn().mockResolvedValue([]),
+      }),
+    }),
+    insert: vi.fn().mockReturnValue({
+      values: vi.fn().mockRejectedValue(new Error("DB mock")),
+    }),
+    update: vi.fn().mockReturnValue({
+      set: vi.fn().mockReturnValue({ where: vi.fn().mockResolvedValue([]) }),
+    }),
+    delete: vi.fn().mockReturnValue({ where: vi.fn().mockResolvedValue([]) }),
+  },
+  fnoSignalReasoningTable: {},
+  kiteSessionTable: {},
+}));
+
 import {
   buildEmittedRow,
   buildPreEmissionRejectedRows,

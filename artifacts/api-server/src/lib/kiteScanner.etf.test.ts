@@ -1,4 +1,16 @@
-import { describe, it, expect } from "vitest";
+/**
+ * vi.mock guard (P0.1B tripwire): checkEtfRecognition and
+ * getEtfRecognitionDiagnostics call getRestClient() which queries
+ * kiteSessionTable via @workspace/db. Mock kiteAuth so getRestClient
+ * returns null → "kite_offline" path, which is already handled by
+ * the test expectations below.
+ */
+import { describe, it, expect, vi } from "vitest";
+
+vi.mock("./kiteAuth", () => ({
+  getRestClient: vi.fn().mockReturnValue(null),
+}));
+
 import {
   looksLikeEtf,
   isWhitelistedEtf,

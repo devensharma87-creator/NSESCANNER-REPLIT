@@ -62,6 +62,7 @@ vi.mock("../../lib/logger", () => ({
 const portfolioRouter = (await import("../portfolio")).default;
 const { db, portfoliosTable, usersTable } = await import("@workspace/db");
 const { inArray } = await import("drizzle-orm");
+import { checkDbTestIsolation } from "../../test-infra/dbTestGuard";
 
 // ---------------------------------------------------------------------------
 // HTTP harness — same cookie-signing pattern as the other route tests.
@@ -85,6 +86,7 @@ let server: http.Server;
 let baseUrl: string;
 
 beforeAll(async () => {
+  checkDbTestIsolation();
   const app: Express = express();
   app.use(cookieParser(TEST_SECRET));
   app.use(express.json({ limit: "5mb" }));

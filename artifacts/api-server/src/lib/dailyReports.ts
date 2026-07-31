@@ -1676,7 +1676,10 @@ export async function maybeRunPostMarketReport(): Promise<void> {
 
 // ── Module-load side-effect: ensure table + install 60s tick ─────────────────
 
-void ensureDailyReportRunsTable().catch(() => undefined);
+// Guard: skip in test environment to prevent pg.Pool connection in normal suite (P0.1B).
+if (process.env['NODE_ENV'] !== 'test') {
+  void ensureDailyReportRunsTable().catch(() => undefined);
+}
 
 const REPORT_TICK_MS = 60_000;
 setInterval(() => {
