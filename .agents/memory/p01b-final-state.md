@@ -40,8 +40,23 @@ Files that had pure tests + DB tests co-located. Pure tests retained in .test.ts
 - CANARY-01 uses getDbPoolStats() from @workspace/db — pool.totalCount ?? 0 must be 0
 - ZC-11 checks all 10 new .db.test.ts files for: no static @workspace/db, has dynamic import, has checkDbTestIsolation
 
+## Tripwire Architecture (Prompt 12 — final)
+
+- `_suiteWire` counter: 6 required fields (`poolInits`, `poolConnects`, `poolQueries`, `clientInits`, `clientConnects`, `clientQueries`), all plain numbers, no optional/union types
+- `vi.mock("pg")` with pure factory (no importOriginal) installs TrackedPool/TrackedClient; pg need not be a direct dep
+- `_TestPool`/`_TestClient` at module scope: identical logic to vi.mock factory, used by NEG tests to avoid `import("pg")` TypeScript error
+- `_assertWireAllZero`: typeof, isFinite, toBe(0) checks; NO `?? 0` anywhere
+- NEG-01 through NEG-07 all pass; NEG-06 proves undefined → fail (missing telemetry fails closed)
+- CANARY-01 runs BEFORE NEG tests (earlier describe block); NEG tests use afterEach to reset counters
+
+## Final Counts (after Prompt 12)
+
+- `test:unit`: 179/179 (172 + 7 NEG tests)
+- `test:full`: 4288/4288 (4281 + 7 NEG tests)
+- Reconciliation: 4354 − 81 (DB removed) + 8 (P11 ZC/CANARY) + 7 (P12 NEG) = 4288
+
 ## Acceptance Verdict
 
-ACCEPT_P0_1B_SAFETY_CLOSURE_READY_FOR_OWNER_PROVISIONING issued 2026-07-30
+ACCEPT_P0_1B_SAFETY_CLOSURE_READY_FOR_OWNER_PROVISIONING issued 2026-07-31 (Prompt 12)
 
-**Why:** All 15 criteria from Prompt 11 §15 met. See §12 of evidence file.
+**Why:** All 16 criteria from Prompt 12 §16 met. See §13 of evidence file. Canary `?? 0` defect corrected; missing telemetry now fails closed.
