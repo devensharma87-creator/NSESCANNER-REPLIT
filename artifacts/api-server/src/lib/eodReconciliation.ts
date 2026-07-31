@@ -24,7 +24,7 @@
  */
 import { sql } from "drizzle-orm";
 import { db } from "@workspace/db";
-import { getAppState, setAppState } from "./appStateStore";
+import { getAppState, setAppState, setAppStateIfAbsent } from "./appStateStore";
 import { alertOwner } from "./alerting";
 import { logger } from "./logger";
 
@@ -177,7 +177,16 @@ export async function runEodReconciliation(now: Date = new Date(), force = false
   if (!force) {
     if (dow === 0 || dow === 6) return null;
     if (minutes < RUN_AFTER_MIN) return null;
-    if ((await getAppState(`${CLAIM_KEY_PREFIX}${date}`)) !== null) return null;
+    // Atomic execution claim: setAppStateIfAbsent (INSERT ON CONFLICT DO NOTHING) then
+    // re-read. Two racing processes both call setAppStateIfAbsent; at most one inserts.
+    // Any pre-existing value (from a prior run today) also blocks re-execution.
+    await setAppStateIfAbsent(`${CLAIM_KEY_PREFIX}${date}`, "in_progress");
+    const claimCheck = await getAppState(`${CLAIM_KEY_PREFIX}${date}`);
+    // "in_progress" means WE just inserted (ours). Any other value means a prior
+    // run already claimed it — return null to avoid double-execution.
+    // Note: two processes may both read "in_progress" in a tight race window; the
+    // alert-level DB claim (claimSystemAlert inside alertOwner) handles that case.
+    if (claimCheck !== null && claimCheck !== "in_progress") return null;
   }
   await ensureSchema();
   const checks = await buildReconChecks(date);
@@ -197,23 +206,27 @@ export async function runEodReconciliation(now: Date = new Date(), force = false
   if (!force) await setAppState(`${CLAIM_KEY_PREFIX}${date}`, report.status);
 
   if (report.status === "MISMATCH") {
+    // C1: MISMATCH and OK use SEPARATE dedup keys so that an OK after a fixed
+    // MISMATCH can still fire as a recovery transition within the same hour.
     alertOwner(
       "EOD_RECONCILIATION_MISMATCH",
       `EOD reconciliation ${date}: ${mismatches.length} MISMATCH —\n` +
         mismatches.map((m) => `• ${m.id}: ${m.detail}`).join("\n"),
       undefined,
       60 * 60_000,
-      `EOD_RECON::${date}`,
+      `EOD_RECON_MISMATCH::${date}`, // key scoped to MISMATCH only
       "WARN",
     );
   } else {
     // B0: EOD OK is INFO, not WARN. An OK reconciliation is not an emergency.
+    // C1: Separate key from MISMATCH so a recovery-to-OK fires even if
+    // MISMATCH already claimed the shared key within the same hour.
     alertOwner(
       "EOD_RECONCILIATION_OK",
       buildEodOkMessage(date, checks),
       undefined,
       60 * 60_000,
-      `EOD_RECON::${date}`,
+      `EOD_RECON_OK::${date}`, // key scoped to OK only
       "INFO", // ← explicit INFO — never WARN for a successful reconciliation
     );
   }

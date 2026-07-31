@@ -120,10 +120,12 @@ describe("buildAlertText — CLOCK_DRIFT_EXCEEDED", () => {
     expect(text.toLowerCase()).toContain("clock drift");
   });
 
-  it("action text mentions NTP and diagnostics", () => {
+  it("action text does NOT mention host NTP (unavailable in Replit container)", () => {
     const text = buildAlertText("CLOCK_DRIFT_EXCEEDED", "drift 1500ms");
-    expect(text.toLowerCase()).toContain("ntp");
-    expect(text.toLowerCase()).toContain("fno-diagnostics");
+    // C3 fix: 'ntpd' / 'NTP daemon' instructions are invalid in a Replit container;
+    // the action text must instead reference the reachable /system/mode diagnostic route.
+    expect(text.toLowerCase()).not.toContain("ntp");
+    expect(text).toContain("/system/mode");
   });
 
   it("CRITICAL priority → 🔴 header", () => {

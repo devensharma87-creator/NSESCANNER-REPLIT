@@ -888,9 +888,26 @@ function FnoIndexStatusTable({ rows }: { rows: FnoIndexRow[] }) {
 
 export default function OptionsPage() {
   const [tab, setTab] = useState<Tab>("live");
-  const { data, isLoading, isError, refetch } = useGetOptionSignals({
-    query: { refetchInterval: 30000, queryKey: getGetOptionSignalsQueryKey() },
+  const { data, isLoading, isError, dataUpdatedAt, refetch } = useGetOptionSignals({
+    query: {
+      refetchInterval: 30_000,
+      queryKey: getGetOptionSignalsQueryKey(),
+      // C4 — stale closed-state invalidation: mark data stale after one refetch
+      // interval so React Query refetches in the background before the next render
+      // cycle. This reduces the window in which prior-session closed-market data
+      // is served as authoritative.
+      staleTime: 30_000,
+    },
   });
+
+  // C4 — Freshness gate for the closed-market UI card.
+  // "Fresh" = last successful fetch was within 3× the refetch interval (90 s).
+  // A prior-session closed-state response whose dataUpdatedAt is hours old must
+  // not render "Market is closed" while a background refetch is pending.
+  // dataUpdatedAt is 0 when no successful fetch has completed yet.
+  const MARKET_CLOSED_MAX_AGE_MS = 90_000; // 3× refetchInterval
+  const isDataFreshForClosed =
+    dataUpdatedAt > 0 && Date.now() - dataUpdatedAt < MARKET_CLOSED_MAX_AGE_MS;
 
   // Legacy-payload guard: if the cached payload predates the marketStatus field
   // (React Query stale-while-revalidate can serve an old pre-fix entry that has
@@ -1070,7 +1087,7 @@ export default function OptionsPage() {
         <div className="space-y-6">
           {Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-96 w-full" />)}
         </div>
-      ) : (!isError && data?.marketStatus != null && !data.marketStatus.marketOpen) ? (
+      ) : (!isError && isDataFreshForClosed && data?.marketStatus != null && !data.marketStatus.marketOpen) ? (
         <Card>
           <CardContent className="py-12 text-center space-y-2">
             <Clock className="w-8 h-8 text-muted-foreground mx-auto" />

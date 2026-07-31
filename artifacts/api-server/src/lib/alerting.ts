@@ -211,7 +211,11 @@ function getActionText(event: string): string {
     return "Action: Review today's paper-trade records via the EOD Reconciliation report";
   }
   if (event === "CLOCK_DRIFT_EXCEEDED") {
-    return "Action: Verify host NTP daemon is running; inspect clock drift at /fno-diagnostics → System Health";
+    return (
+      "Action: Recheck System Health (/system/mode → Clock Drift). " +
+      "If confirmed drift persists, restart the compute/runtime or escalate to the platform provider. " +
+      "Signal timestamps remain guarded while degraded."
+    );
   }
   if (event.includes("KITE_SESSION")) {
     return "Action: Reconnect Kite/Zerodha (session expired or unreachable)";
