@@ -17,6 +17,10 @@
  *                             (only when the account was reset today).
  *   ACCOUNT_OPEN_COUNT      — paper_account.day_open_count must equal actual
  *                             OPEN row count per segment.
+ *
+ * B0: EOD_RECONCILIATION_OK is always sent at INFO priority (not WARN).
+ * The message distinguishes "checked OK", "skipped — not applicable", and
+ * never claims "all checks OK" using language that obscures skipped checks.
  */
 import { sql } from "drizzle-orm";
 import { db } from "@workspace/db";
@@ -121,7 +125,7 @@ export async function buildReconChecks(istDate: string): Promise<ReconCheck[]> {
         : `FNO day P&L mismatch: ledger ₹${ledger.toFixed(2)} vs Σ trades ₹${sumToday.toFixed(2)} (Δ ₹${diff.toFixed(2)})`,
     });
   } else {
-    checks.push({ id: "ACCOUNT_DAY_PNL", status: "SKIPPED", detail: "FNO account not reset today (no trading day state)" });
+    checks.push({ id: "ACCOUNT_DAY_PNL", status: "SKIPPED", detail: "FNO account not reset today (no trading activity for this check)" });
   }
 
   for (const seg of ["FNO", "EQUITY"] as const) {
@@ -142,6 +146,30 @@ export async function buildReconChecks(istDate: string): Promise<ReconCheck[]> {
     });
   }
   return checks;
+}
+
+/**
+ * PURE — build the EOD reconciliation success message.
+ *
+ * Exported for unit testing. Deliberately avoids "all checks OK" phrasing
+ * when skipped checks exist, so the summary is always honest about coverage.
+ */
+export function buildEodOkMessage(
+  istDate: string,
+  checks: ReconCheck[],
+): string {
+  const okCount = checks.filter((c) => c.status === "OK").length;
+  const skipCount = checks.filter((c) => c.status === "SKIPPED").length;
+  const totalCount = checks.length;
+
+  if (skipCount === 0) {
+    return `EOD reconciliation ${istDate}: all ${okCount} checks passed. Paper ledgers are consistent.`;
+  }
+  return (
+    `EOD reconciliation ${istDate}: ${okCount} of ${totalCount} checks passed; ` +
+    `${skipCount} skipped (not applicable — no trading activity for those checks). ` +
+    `Paper ledgers are consistent for active checks.`
+  );
 }
 
 export async function runEodReconciliation(now: Date = new Date(), force = false): Promise<ReconReport | null> {
@@ -176,15 +204,17 @@ export async function runEodReconciliation(now: Date = new Date(), force = false
       undefined,
       60 * 60_000,
       `EOD_RECON::${date}`,
+      "WARN",
     );
   } else {
+    // B0: EOD OK is INFO, not WARN. An OK reconciliation is not an emergency.
     alertOwner(
       "EOD_RECONCILIATION_OK",
-      `EOD reconciliation ${date}: all ${checks.filter((c) => c.status === "OK").length} checks OK ` +
-        `(${checks.filter((c) => c.status === "SKIPPED").length} skipped). Paper ledgers are consistent.`,
+      buildEodOkMessage(date, checks),
       undefined,
       60 * 60_000,
       `EOD_RECON::${date}`,
+      "INFO", // ← explicit INFO — never WARN for a successful reconciliation
     );
   }
   logger.info({ date, status: report.status, mismatches: mismatches.length }, "EOD reconciliation complete (BUG-31)");

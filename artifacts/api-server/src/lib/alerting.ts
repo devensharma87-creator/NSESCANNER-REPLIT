@@ -138,12 +138,12 @@ function formatIstTime(isoString: string): string {
   }
 }
 
-// ── Priority tiers (BUG-87) ───────────────────────────────────────────────────
+// ── Priority tiers ────────────────────────────────────────────────────────────
 // Every owner alert carries a priority. WARN is the historical default
-// (all existing callers → WARN implicitly), so behaviour is unchanged.
-// The prefix is prepended to the message so the receiving Telegram
-// client shows it inline; nothing in the routing / dedup pipeline
-// changes based on priority.
+// (all existing callers → WARN implicitly), so behaviour is unchanged for
+// existing alerts. INFO is for success/recovery events; CRITICAL for
+// severe threshold breaches. The prefix is prepended only for generic
+// F&O alerts where it disambiguates severity inline.
 export type AlertPriority = "CRITICAL" | "WARN" | "INFO";
 
 const PRIORITY_PREFIX: Record<AlertPriority, string> = {
@@ -152,17 +152,108 @@ const PRIORITY_PREFIX: Record<AlertPriority, string> = {
   INFO: "ℹ️ [INFO]",
 };
 
-function buildTelegramText(event: string, message: string, metadata?: AlertMetadata, priority: AlertPriority = "WARN"): string {
-  const isRecovery = event === "FNO_DATA_RECOVERED";
-  const baseHeader = isRecovery ? "✅ F&O DATA RECOVERED" : "🚨 F&O DATA ALERT";
-  // Priority prefix visible in the Telegram client; WARN is the historical
-  // default so pre-BUG-87 messages render exactly as before.
-  const header = `${PRIORITY_PREFIX[priority]} ${baseHeader}`;
-  const lines: string[] = [header, ""];
-  lines.push(`Event: ${event}`);
-  if (!isRecovery) {
-    lines.push(`Detail: ${message}`);
+// ── Event-category routing ────────────────────────────────────────────────────
+
+/**
+ * Events whose alerts represent a resolved / successful state.
+ * These receive a ✅ header and show message as completion text (no "Detail:" prefix).
+ */
+const SUCCESS_EVENTS = new Set([
+  "EOD_RECONCILIATION_OK",
+  "INSTRUMENTS_REFRESH_RECOVERED",
+  "CLOCK_DRIFT_RECOVERED",
+  "FNO_DATA_RECOVERED",
+]);
+
+/**
+ * Per-event header. Generic F&O/Kite events fall through to the default
+ * "🚨 F&O DATA ALERT" with a priority prefix, preserving the historical
+ * visual identity for the Telegram client.
+ */
+function getAlertHeader(event: string, priority: AlertPriority): string {
+  switch (event) {
+    case "EOD_RECONCILIATION_OK":
+      return "✅ EOD Reconciliation — OK";
+    case "EOD_RECONCILIATION_MISMATCH":
+      return "⚠️ EOD Reconciliation — MISMATCH";
+    case "INSTRUMENTS_REFRESH_FAILED":
+      return "⚠️ Instruments Refresh — FAILED";
+    case "INSTRUMENTS_REFRESH_RECOVERED":
+      return "✅ Instruments Refresh — RECOVERED";
+    case "INSTRUMENTS_CONTRACT_CHANGED":
+      return "ℹ️ Instruments Contract Changed";
+    case "CLOCK_DRIFT_EXCEEDED":
+      return priority === "CRITICAL"
+        ? "🔴 Clock Drift — CRITICAL"
+        : "⚠️ Clock Drift — ALERT";
+    case "CLOCK_DRIFT_RECOVERED":
+      return "✅ Clock Drift — RECOVERED";
+    case "FNO_DATA_RECOVERED":
+      return "✅ F&O DATA RECOVERED";
+    default:
+      // Generic F&O/Kite operational alerts (existing Telegram identity preserved).
+      return `${PRIORITY_PREFIX[priority]} 🚨 F&O DATA ALERT`;
   }
+}
+
+/**
+ * Per-event actionable instruction. Success events have no action line.
+ * Generic events fall back to the historical "/fno-diagnostics" text.
+ */
+function getActionText(event: string): string {
+  if (event === "INSTRUMENTS_REFRESH_FAILED") {
+    return "Action: Admin → Live Feed → Refresh Instruments (ensure Kite session is active first)";
+  }
+  if (event === "INSTRUMENTS_CONTRACT_CHANGED") {
+    return "Action: Review changed contract parameters before next F&O trade; verify lot sizes in /fno-diagnostics";
+  }
+  if (event === "EOD_RECONCILIATION_MISMATCH") {
+    return "Action: Review today's paper-trade records via the EOD Reconciliation report";
+  }
+  if (event === "CLOCK_DRIFT_EXCEEDED") {
+    return "Action: Verify host NTP daemon is running; inspect clock drift at /fno-diagnostics → System Health";
+  }
+  if (event.includes("KITE_SESSION")) {
+    return "Action: Reconnect Kite/Zerodha (session expired or unreachable)";
+  }
+  if (event.includes("DAILY_HISTORY")) {
+    return "Action: Kite session is active — F&O daily bars unavailable. Check /fno-diagnostics";
+  }
+  return "Action: Check /fno-diagnostics";
+}
+
+/**
+ * Build the full Telegram message text for an alert event.
+ *
+ * Exported as a PURE function so it is directly unit-testable without
+ * any delivery infrastructure. Never call Telegram or modify state here.
+ *
+ * Design principles:
+ *  - SUCCESS_EVENTS receive a ✅ header; their `message` is shown as the
+ *    completion summary (no "Detail:" prefix).
+ *  - Failure/warning events receive an event-specific header and action line.
+ *  - Generic F&O/Kite events keep the historical "🚨 F&O DATA ALERT" brand
+ *    with a priority prefix so the Telegram client shows severity inline.
+ *  - A priority prefix is NEVER combined with a contradictory ✅ header.
+ *  - A priority prefix is ONLY prepended for generic F&O events; all
+ *    named operational events have their own header that encodes severity.
+ */
+export function buildAlertText(
+  event: string,
+  message: string,
+  metadata?: AlertMetadata,
+  priority: AlertPriority = "WARN",
+): string {
+  const isSuccess = SUCCESS_EVENTS.has(event);
+  const header = getAlertHeader(event, priority);
+  const lines: string[] = [header, ""];
+
+  lines.push(`Event: ${event}`);
+
+  // Failure events: show detail labeled as "Detail:"
+  // Success events: the summary goes at the bottom as the completion line
+  if (!isSuccess && message) lines.push(`Detail: ${message}`);
+
   if (metadata?.affectedIndices?.length) {
     lines.push(`Affected: ${metadata.affectedIndices.join(", ")}`);
   }
@@ -185,24 +276,33 @@ function buildTelegramText(event: string, message: string, metadata?: AlertMetad
         : "Type: Market condition (not data issue)",
     );
   }
+
   lines.push("");
-  if (isRecovery) {
-    lines.push("Signal cycle resumed.");
+
+  if (isSuccess) {
+    // For FNO_DATA_RECOVERED the existing "Signal cycle resumed." is preserved
+    // for backward readability; all other success events show their message.
+    lines.push(event === "FNO_DATA_RECOVERED" ? "Signal cycle resumed." : (message || "Incident resolved."));
   } else {
-    let action: string;
-    if (event.includes("KITE_SESSION")) {
-      action = "Action: Reconnect Kite/Zerodha (session expired or unreachable)";
-    } else if (event.includes("DAILY_HISTORY")) {
-      action = "Action: Kite session is active — F&O daily bars unavailable. Check /fno-diagnostics";
-    } else {
-      action = "Action: Check /fno-diagnostics";
-    }
-    lines.push(action);
+    lines.push(getActionText(event));
   }
-  if (metadata?.dashboardPath) {
+
+  if (!isSuccess && metadata?.dashboardPath) {
     lines.push(`Dashboard: ${metadata.dashboardPath}`);
   }
+
   return lines.join("\n");
+}
+
+// Internal alias kept for naming continuity — all production paths now go
+// through the exported buildAlertText.
+function buildTelegramText(
+  event: string,
+  message: string,
+  metadata?: AlertMetadata,
+  priority: AlertPriority = "WARN",
+): string {
+  return buildAlertText(event, message, metadata, priority);
 }
 
 // ── Telegram send ─────────────────────────────────────────────────────────────
@@ -264,14 +364,7 @@ async function sendTelegramText(text: string): Promise<string> {
 /**
  * Fire the actual WARN log + Telegram send, gated on a DB-backed claim so
  * multiple replicas/workers racing the same in-memory dedup key still send
- * at most one Telegram message per (dedupKey, windowMs) — see systemAlertDedup.ts.
- *
- * The in-memory `lastAlerted` check in alertOwner/alertOwnerRaw remains the
- * same-process fast path (avoids spawning this async claim at all for calls
- * this process already knows are within-window); the DB claim here is the
- * cross-process source of truth. The WARN log is intentionally emitted AFTER
- * the claim succeeds (not before), so logs never claim a send that the claim
- * layer actually suppressed.
+ * at most one Telegram message per (dedupKey, windowMs).
  */
 function dispatchTelegramBackground(
   event: string,
@@ -320,7 +413,7 @@ function dispatchTelegramBackground(
 
 /**
  * Lower-level alert sender for alert types that build their own Telegram text.
- * Caller supplies pre-built `telegramText`; `buildTelegramText` is NOT called.
+ * Caller supplies pre-built `telegramText`; `buildAlertText` is NOT called.
  * Supports an optional custom dedup window (defaults to DEDUP_WINDOW_MS = 1h).
  * Never throws. Best-effort Telegram delivery in the background.
  */
@@ -342,12 +435,12 @@ export function alertOwnerRaw(
  * Always logs at WARN level. If Telegram is configured, delivers via Telegram
  * in the background — best-effort, never blocks the caller, never throws.
  *
- * @param dedupWindowMs  Override the 1-hour default dedup window (e.g. 2h for data alerts).
+ * @param dedupWindowMs  Override the 1-hour default dedup window.
  * @param customDedupKey Override the dedup map key. Use this to scope dedup to a trading date
- *                       (e.g. `FNO_DAILY_HISTORY_UNAVAILABLE::2026-07-01`) so the same event on
- *                       a new day is treated as a new incident, and the event logged is still `event`.
- * @param priority       BUG-87 tier — CRITICAL / WARN (default) / INFO. Prefixed to the
- *                       Telegram message body; dedup/routing pipeline is not affected.
+ *                       (e.g. `FNO_DAILY_HISTORY_UNAVAILABLE::2026-07-01`).
+ * @param priority       CRITICAL / WARN (default) / INFO.
+ *                       INFO is appropriate for success/recovery events.
+ *                       CRITICAL escalates the header for the most urgent alerts.
  */
 export function alertOwner(
   event: string,

@@ -888,7 +888,7 @@ function FnoIndexStatusTable({ rows }: { rows: FnoIndexRow[] }) {
 
 export default function OptionsPage() {
   const [tab, setTab] = useState<Tab>("live");
-  const { data, isLoading, refetch } = useGetOptionSignals({
+  const { data, isLoading, isError, refetch } = useGetOptionSignals({
     query: { refetchInterval: 30000, queryKey: getGetOptionSignalsQueryKey() },
   });
 
@@ -1070,7 +1070,7 @@ export default function OptionsPage() {
         <div className="space-y-6">
           {Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-96 w-full" />)}
         </div>
-      ) : (data?.marketStatus != null && !data.marketStatus.marketOpen) ? (
+      ) : (!isError && data?.marketStatus != null && !data.marketStatus.marketOpen) ? (
         <Card>
           <CardContent className="py-12 text-center space-y-2">
             <Clock className="w-8 h-8 text-muted-foreground mx-auto" />

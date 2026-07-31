@@ -12,12 +12,18 @@
  * per-date failure flag consumed by SystemMode (DEGRADED → auto-opens blocked
  * for the day, per fix file).
  *
+ * B0: adds markInstrumentsRefreshRecovered() — callable by the admin
+ * instruments-refresh route to emit exactly one INFO recovery alert after
+ * the owner manually resolves a refresh failure (e.g. by renewing Kite and
+ * triggering a forced refresh). The failure flag and in-memory cache are
+ * cleared so SystemMode can exit DEGRADED on the next tick.
+ *
  * Lives inside lib/marketData/ (guard-exempt) — needs kiteAuth directly.
  */
 import fs from "fs";
 import path from "path";
 import { forceRefreshInstruments, exportInstrumentsCache, getActiveSession } from "../kiteAuth";
-import { getAppState, setAppState } from "../appStateStore";
+import { getAppState, setAppState, deleteAppState } from "../appStateStore";
 import { alertOwner } from "../alerting";
 import { logger } from "../logger";
 
@@ -84,6 +90,33 @@ export async function hydrateInstrumentsFailureFlag(now: Date = new Date()): Pro
   status = { ...status, failedToday: failedDateCache !== null };
 }
 
+/**
+ * Mark a manual instruments refresh as recovered after a prior failure.
+ *
+ * Call this from the admin instruments-refresh route when a forced refresh
+ * succeeds after today's scheduler had already recorded a failure. Emits
+ * exactly one INFO recovery alert and clears the failure state so SystemMode
+ * can exit DEGRADED on the next tick.
+ *
+ * If there was no failure recorded for `date`, this is a no-op.
+ */
+export async function markInstrumentsRefreshRecovered(date: string): Promise<void> {
+  if (failedDateCache !== date) return; // not failed today — nothing to recover
+  failedDateCache = null;
+  status = { ...status, failedToday: false, lastResult: "OK", lastCheckedDate: date, checkedAt: new Date().toISOString() };
+  // Clear the DB failure flag so a process restart doesn't re-hydrate it.
+  await deleteAppState(`${FAIL_KEY_PREFIX}${date}`).catch(() => undefined);
+  alertOwner(
+    "INSTRUMENTS_REFRESH_RECOVERED",
+    `Daily instruments refresh recovered for ${date}. Auto-opens are unblocked (SystemMode can exit DEGRADED).`,
+    undefined,
+    2 * 60 * 60_000,
+    `INSTRUMENTS_REFRESH_RECOVERED::${date}`,
+    "INFO",
+  );
+  logger.info({ date }, "instruments refresh recovered — failure flag cleared (BUG-35)");
+}
+
 function extractFnoSubset(): Record<string, BaselineRow> | null {
   const cache = exportInstrumentsCache();
   if (!cache) return null;
@@ -137,8 +170,8 @@ async function markFailed(date: string, reason: string): Promise<void> {
   await setAppState(`${FAIL_KEY_PREFIX}${date}`, reason);
   alertOwner(
     "INSTRUMENTS_REFRESH_FAILED",
-    `Daily instruments dump refresh FAILED (${reason}). Auto-opens are blocked for ${date} ` +
-      `(SystemMode DEGRADED) until instruments are refreshed via Admin → Live Feed → Refresh Instruments.`,
+    `Daily instruments dump refresh FAILED for ${date} (${reason}). ` +
+      `Auto-opens are blocked (SystemMode DEGRADED) until instruments are refreshed.`,
     undefined,
     2 * 60 * 60_000,
     `INSTRUMENTS_REFRESH_FAILED::${date}`,
