@@ -283,6 +283,17 @@ async function fetchKiteOnly(
     hasSyntheticFuture: hasSynth,
   });
 
+  // B1.1-C1: Future-timestamp gate — reject chains whose generatedAt is
+  // materially in the future (beyond CLOCK_SKEW_TOLERANCE_SEC). Such timestamps
+  // are unverified and must NOT power trade decisions, paper admission, or
+  // exit monitoring regardless of source tier.
+  if (meta.isFutureTimestamp === true) {
+    const reason =
+      "FUTURE_TIMESTAMP: option chain generatedAt is materially in the future — " +
+      "unverified, not tradeable. This datum cannot power any TRADE_GRADE path.";
+    return { ok: false, data: null, meta: buildUnavailableMeta(reason, "TRADE_GRADE"), reason };
+  }
+
   // Store in shared cache
   chainCache.set(key, { chain: oc, meta, fetchedAt: now });
 

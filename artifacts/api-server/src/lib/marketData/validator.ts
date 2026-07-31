@@ -57,6 +57,13 @@ export function buildMeta(input: BuildMetaInput): DataMeta {
   } else if (input.notForSignals) {
     // Analytics data is never "validated" for trading; it is unvalidated by design.
     validationStatus = "unvalidated";
+  } else if (fresh.isFutureTimestamp) {
+    // B1.1-C1: future provider timestamp — unverified, fail closed.
+    validationStatus = "stale";
+    warnings.push(
+      `FUTURE_TIMESTAMP: provider asOf is ${Math.abs(fresh.rawAgeSec ?? 0).toFixed(1)}s in the future ` +
+      `(beyond CLOCK_SKEW_TOLERANCE_SEC). Not tradeable.`,
+    );
   } else if (fresh.isHardStale) {
     validationStatus = "stale";
     warnings.push(`Data older than the hard-stale budget (${getPolicy().staleBudgetSec}s).`);
@@ -82,6 +89,8 @@ export function buildMeta(input: BuildMetaInput): DataMeta {
     notForTradeDecisions: input.notForTradeDecisions ?? input.notForSignals,
     validationStatus,
     warnings,
+    // Propagate future-timestamp flag so callers can distinguish from "merely old" stale.
+    isFutureTimestamp: fresh.isFutureTimestamp || undefined,
   };
 }
 

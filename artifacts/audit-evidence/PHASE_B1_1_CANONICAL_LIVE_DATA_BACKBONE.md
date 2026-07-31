@@ -1,230 +1,224 @@
-# Phase B1.1 — Canonical Live-Market Data Backbone
-## Production State & Implementation Evidence
+# Phase B1.1 — Canonical Live-Market Data Backbone: Evidence File
 
 **Phase:** B1.1  
-**Prompt:** Prompt 17  
-**Acceptance verdict:** `B1_1_ACCEPTED_WITH_PROVIDER_ACTIVATION_PENDING`  
-**Date:** 2026-07-31
+**Closure gates:** C1 (Future-timestamp honesty), C2 (Fallback provenance from real routing), C3 (Full verification battery)  
+**Status:** ACCEPTED  
+**Accepted at:** 2026-07-31  
+**Acceptance terminator:** `ACCEPT_B1_1_CANONICAL_LIVE_DATA_BACKBONE`  
+**Activation note:** `PROVIDER_ACTIVATION_PENDING — UPSTOX / INDIANAPI NOT_CONFIGURED`
 
 ---
 
-## §1 Provider Inventory and Capability States
+## 1. What Was Built
 
-### Kite Connect (Primary / Authoritative)
-- **Status:** AVAILABLE (session active) | AUTH_EXPIRED (creds present, session inactive) | NOT_CONFIGURED (creds absent)
-- **Trust tier:** `authoritative` — the ONLY source permitted to power signals, paper trades, F&O valuation, and risk sizing
-- **Domains:** index_quote, equity_quote, intraday_candles, daily_candles, instrument_master, option_chain, market_status
-- **Session model:** Daily Zerodha login required; token encrypted at rest (`KITE_TOKEN_ENC_KEY`)
-- **Credentials:** `KITE_API_KEY` ✓ `KITE_API_SECRET` ✓ `KITE_TOKEN_ENC_KEY` ✓ (all present per preflight)
+### 1.1 `lib/marketData/providerCapability.ts` (new)
 
-### Upstox (Secondary — NOT_CONFIGURED)
-- **Status:** NOT_CONFIGURED
-- **Reason:** `UPSTOX_API_KEY` / `UPSTOX_API_SECRET` / `UPSTOX_ACCESS_TOKEN` absent in this deployment
-- **Activation prerequisite:** Configure credentials and implement the Upstox adapter (B1.2 or later)
-- **Fabrication guard:** No synthetic responses, no adapter code, no simulated success
-- **Capability registry:** All domains report NOT_CONFIGURED with explicit reason string
+Formal capability registry. `ProviderCapabilityState` enum (AVAILABLE / NOT_CONFIGURED / AUTH_EXPIRED / UNSUPPORTED / DEGRADED / RATE_LIMITED / UNAVAILABLE) per provider + domain. `getProviderCapabilities()` is synchronous, makes zero network calls, exposes no credential values. Exposed via `/system/mode` response and `/api/data/diagnostics`.
 
-### IndianAPI / INDstocks (Secondary — NOT_CONFIGURED)
-- **Status:** NOT_CONFIGURED
-- **Reason:** `INDIANAPI_KEY` / `INDSTOCKS_API_KEY` absent
-- **Scope note:** Fundamentals, news, FII-DII deferred to B1.2
-- **Fabrication guard:** Existing INDstocks scaffold is present but disabled (`isIndstocksEnabled()=false`); no calls made
+### 1.2 `lib/marketData/freshness.ts` (extended — C1 gate)
 
-### Yahoo Finance (Analytics only — UNSUPPORTED for trade domains)
-- **Status:** AVAILABLE for `daily_candles` (analytics); UNSUPPORTED for all trade-sensitive domains
-- **Trust tier:** `secondary_analytics` — NEVER powers prices, signals, valuation, or F&O
-- **Stamp:** `delayed=true`, `notForSignals=true`, `notForTradeDecisions=true` enforced at `buildMeta()` call site
-- **Consumer:** `analyticsYahoo.ts` — explicitly labelled; no crossover to trusted paths
+**B1.1-C1 fix:** Removed the `Math.max(0, ...)` clamp that silently treated future timestamps as `ageSec=0` (fresh). Replaced with an explicit `FUTURE_TIMESTAMP` classification gate.
 
-### NSE Public Scrape (Display fallback — AVAILABLE for option_chain only)
-- **Status:** AVAILABLE for `option_chain` display mode only
-- **Trust tier:** Display fallback; `notForSignals=true` enforced by `optionChainProvenance.ts` (`classifyOcSource("nse") ≠ "kite"`)
-- **Trade gate:** `premiumTrustVerdict()` rejects NSE-sourced chains for any paper-trade or signal use
+**New exports:**
+- `CLOCK_SKEW_TOLERANCE_SEC = 5` — named, centralised constant. Derived from `clockDrift.ts` `DRIFT_ALERT_MS = 1000 ms` plus buffer for symmetric provider-side drift and network latency (MAX_RTT_FOR_RELIABLE_PROBE_MS). Any provider timestamp more than 5 s in the future fails the honesty check.
+- `Freshness.rawAgeSec: number | null` — signed, unclamped age; negative = future.
+- `Freshness.isFutureTimestamp: boolean` — explicit classification flag.
+- `Freshness.clockSkewSec: number | null` — signed skew preserved for diagnostics.
 
----
+**Behaviour matrix:**
 
-## §2 Canonical Envelope — DataMeta (Accepted, Unchanged)
+| Condition | `isFutureTimestamp` | `isStale` | `freshnessSec` |
+|---|---|---|---|
+| `asOfMs = null / NaN` | `false` | `true` | `null` |
+| `rawAgeSec >= -TOLERANCE` (within tolerance, minor skew) | `false` | by budget | clamped ≥ 0 |
+| `rawAgeSec < -TOLERANCE` (materially future) | **`true`** | **`true`** | **`null`** |
 
-`DataMeta` (in `lib/marketData/types.ts`) is the authoritative per-datum envelope:
+### 1.3 `lib/marketData/types.ts` (extended — C1 gate)
 
-| Field | Purpose | B1.1 Status |
-|-------|---------|-------------|
-| `source: ProviderName` | Upstream provider | ✅ Always set, never null |
-| `trustTier: TrustTier` | authoritative / secondary_validation / secondary_analytics | ✅ Enforced at buildMeta() |
-| `asOf: string \| null` | Exchange/quote timestamp (ISO) | ✅ Null = stale |
-| `fetchedAt: string` | Application receipt time (ISO) | ✅ Always Date.now() at fetch |
-| `freshnessSec: number \| null` | Age in seconds (now − asOf) | ✅ Null when asOf unknown |
-| `isStale: boolean` | Older than freshnessBudgetSec (90s default) | ✅ Computed by computeFreshness() |
-| `delayed: boolean` | Yahoo analytics = always true | ✅ Enforced at call site |
-| `notForSignals: boolean` | Hard gate against signal use | ✅ Yahoo/NSE = always true |
-| `notForTradeDecisions: boolean` | Hard gate against trade use | ✅ Derived from notForSignals |
-| `validationStatus` | validated / stale / incomplete / unavailable | ✅ Set by buildMeta() |
-| `warnings: string[]` | Degradation/fallback notes | ✅ Never silent |
+Added `isFutureTimestamp?: boolean` (optional, additive) to `DataMeta` interface. Absent when not a future-timestamp situation. Present and `true` when the provider timestamp was materially in the future.
 
-**`MarketDataResult<T>`** wraps all provider calls: `{ ok, data: T | null, meta: DataMeta, reason?: string }`.
+### 1.4 `lib/marketData/validator.ts` (extended — C1 gate)
 
-**`sourceStatusFromMeta(meta, hasValue)`** maps DataMeta → `SourceStatus` (TRADE_GRADE / DELAYED / INFO_ONLY / STALE / UNAVAILABLE).
+`buildMeta()` now propagates `isFutureTimestamp` from the `Freshness` result:
+- Sets `validationStatus = "stale"` when `fresh.isFutureTimestamp = true`.
+- Adds a warning message naming the measured skew in seconds.
+- Propagates `isFutureTimestamp: true` into the returned `DataMeta` (omitted when `false`).
 
-**`pointFromMeta(input)`** bridges DataMeta into `MarketDataPoint<T>` for the unified backbone envelope.
+### 1.5 `lib/marketData/optionChainProvider.ts` (extended — C1 + C2 gates)
 
----
+**B1.1-C1 gate in `fetchKiteOnly`:** After building the option chain metadata, explicitly checks `meta.isFutureTimestamp === true`. Returns `ok: false` with reason `"FUTURE_TIMESTAMP: ..."` before entering the cache. This means:
+- Future-stamped chains never reach the cache.
+- Future-stamped chains never power TRADE_DECISION / PAPER_ADMISSION / EXIT_MONITORING paths.
+- The gate is fail-closed: `ok: false` → downstream code reads `null` chain → `buildOptionChainProvenance(null, ...)` → `trustedForSignals: false` → `premiumTrustVerdict(...).trusted: false`.
 
-## §3 New Files Created
+**C2 routing correctness (pre-existing, now proven by tests):**
+- TRADE_GRADE mode (`fetchKiteOnly`): Kite-only, no NSE fallback. `meta.fallbackUsed = false` is set by `buildOptionChainMeta` because `opts.isNseFallback = false`.
+- DISPLAY mode (`fetchWithFallback`): Kite primary, NSE second. If Kite fails and NSE succeeds, `opts.isNseFallback = true` → `meta.fallbackUsed = true`, `meta.notForSignals = true`, `meta.notForTradeDecisions = true`, `meta.visualOnly = true`.
 
-### `lib/marketData/providerCapability.ts` (NEW — B1.1 §7)
+### 1.6 `lib/optionSignals.ts` — TRADE_GRADE migration (previously delivered)
 
-Formal capability registry with:
-- **`ProviderCapabilityState`** enum: `AVAILABLE | NOT_CONFIGURED | AUTH_EXPIRED | UNSUPPORTED | DEGRADED | RATE_LIMITED | UNAVAILABLE`
-- **`DataDomain`** type: `index_quote | equity_quote | intraday_candles | daily_candles | instrument_master | option_chain | market_status`
-- **`getProviderCapabilities()`** — synchronous, pure read, zero network calls, zero credentials in output
-- **`getCapabilityFor(provider, domain, snap?)`** — lookup with UNAVAILABLE fallback for unknown combinations
-- **`TRADE_SENSITIVE_DOMAINS`** — the five domains that require authoritative (Kite) sourcing
-- **`ProviderCapabilitySnapshot`** — includes `tradeAvailableProviders` (Kite-only by policy) and `authoritative: "kite"`
-- Exposed via `/system/mode` (new `providerCapabilities` field) and `/api/data/diagnostics` (new `providerCapabilities` field in `DataDiagnostics`)
+Both `fetchOptionChain()` calls migrated to `getOptionChain("TRADE_GRADE", ...)`. No runtime import of `fetchOptionChain`. Proven:
 
-### `lib/marketData/b1.canonical.test.ts` (NEW — 44 tests)
-
-All 44 required B1.1 test scenarios. **Result: 44/44 PASS**.
-
----
-
-## §4 Highest-Risk Consumer Migrations
-
-### `lib/optionSignals.ts` — F&O signal sweep + IV capture (MIGRATED)
-
-**Before (legacy bypass):**
-```typescript
-import { fetchOptionChain } from "./optionChain";
-// ...
-const chain = await fetchOptionChain(first.index, expiry);  // line 2463
-// ...
-const chain = await fetchOptionChain(cfg.symbol, expiry);   // line 2987
+```
+grep "^import.*fetchOptionChain" lib/optionSignals.ts  →  NONE — fully migrated
 ```
 
-**After (canonical TRADE_GRADE):**
-```typescript
-import { getOptionChain } from "./marketData/optionChainProvider";
-// ...
-const _ocResult = await getOptionChain(first.index, "TRADE_GRADE", expiry);
-const chain = _ocResult.ok ? (_ocResult.data?.chain ?? null) : null;
-// ...
-const _ivOcResult = await getOptionChain(cfg.symbol, "TRADE_GRADE", expiry);
-const chain = _ivOcResult.ok ? (_ivOcResult.data?.chain ?? null) : null;
+### 1.7 `lib/paperTradingCombo.ts` — TRADE_GRADE migration (previously delivered)
+
+Single `fetchOptionChain()` call migrated to `getOptionChain("TRADE_GRADE", ...)`. No runtime import. Proven:
+
+```
+grep "^import.*fetchOptionChain" lib/paperTradingCombo.ts  →  NONE — fully migrated
 ```
 
-**Why this matters:** `fetchOptionChain()` (legacy) fetches Kite first, then falls back to the NSE public scrape for DISPLAY purposes. The TRADE_GRADE mode in `optionChainProvider` explicitly excludes the NSE fallback path — a non-Kite chain cannot reach the premium enrichment loop. The downstream `buildOptionChainProvenance()` + `premiumTrustVerdict()` gate is preserved as-is; the canonical provider adds defence-in-depth.
+### 1.8 Intentionally deferred (non-TRADE_GRADE paths)
 
-The `reason` from `MarketDataResult` is also forwarded to `buildOptionChainProvenance`'s `missingReason` option for honest failure propagation.
+| File | Reason deferred |
+|---|---|
+| `lib/preMarket.ts` (3 calls) | Display path — NSE fallback intentional; not a trade signal source |
+| `lib/dataParity/observe.ts` (2 calls) | Observation/parity path — not a signal or paper-trade path |
 
-### `lib/paperTradingCombo.ts` — Paper combo admission (MIGRATED)
+---
 
-**Before:**
-```typescript
-import { fetchOptionChain } from "./optionChain";
-const chain = await fetchOptionChain(underlying, expiry);
-if (!chain) { return { ok: false, code: "CHAIN_UNAVAILABLE", ... }; }
+## 2. Gate C1 — Future-Timestamp Honesty: Evidence
+
+### 2.1 Boundary test results (§B1.1-C1, 13 tests)
+
+All 13 injected-clock boundary cases in `b1.canonical.test.ts`:
+
+| Test | Scenario | Expected | Result |
+|---|---|---|---|
+| C1-01 | timestamp = now | `isFutureTimestamp=false`, `freshnessSec=0` | ✓ PASS |
+| C1-02 | 1s in future (within tolerance) | `isFutureTimestamp=false`, clamped to 0 | ✓ PASS |
+| C1-03 | (TOLERANCE-1)s in future (inside) | `isFutureTimestamp=false` | ✓ PASS |
+| C1-04 | exactly TOLERANCE seconds in future | `isFutureTimestamp=false` (boundary inclusive) | ✓ PASS |
+| C1-05 | (TOLERANCE+0.1)s in future | `isFutureTimestamp=true`, `freshnessSec=null` | ✓ PASS |
+| C1-06 | 1 hour in future | `isFutureTimestamp=true`, `isStale=true` | ✓ PASS |
+| C1-07 | exactly at fresh/stale boundary | `isStale=false` | ✓ PASS |
+| C1-08 | 1s beyond stale boundary | `isStale=true` | ✓ PASS |
+| C1-09 | missing timestamp (null) | `isStale=true`, `freshnessSec=null` | ✓ PASS |
+| C1-10 | NaN timestamp | `isStale=true`, `freshnessSec=null` | ✓ PASS |
+| C1-11 | freshly received prior-session timestamp | `isStale=true`, `isHardStale=true` | ✓ PASS |
+| C1-12 | future chain → TRADE_DECISION | `ok=false`, reason=FUTURE_TIMESTAMP | ✓ PASS |
+| C1-13 | future chain → PAPER_ADMISSION / EXIT blocked | `trustedForSignals=false` | ✓ PASS |
+
+---
+
+## 3. Gate C2 — Fallback Provenance from Real Routing: Evidence
+
+### 3.1 Routing test results (§B1.1-C2, 8 tests via mocked transports)
+
+All tests exercise the production facades (`getOptionChain()`) with mocked `fetchKiteOptionChain` and `fetchOptionChain (NSE)` — no manually injected `fallbackUsed: true`.
+
+| Test | Scenario | Expected | Result |
+|---|---|---|---|
+| C2-01 | Kite success / TRADE_GRADE | `fallbackUsed=false`, `source=kite`, `ok=true` | ✓ PASS |
+| C2-02 | Kite throws / TRADE_GRADE | `ok=false`; NSE NOT called | ✓ PASS |
+| C2-03 | Kite success / DISPLAY | `fallbackUsed=false`, `source=kite` | ✓ PASS |
+| C2-04 | Kite throws + NSE success / DISPLAY | `fallbackUsed=true`, `notForSignals=true`, `visualOnly=true` | ✓ PASS |
+| C2-05 | NSE DISPLAY fallback → provenance gate | `trustedForSignals=false`, `trusted=false` | ✓ PASS |
+| C2-06 | Both fail / DISPLAY | `ok=false` | ✓ PASS |
+| C2-07 | Upstox/IndianAPI NOT_CONFIGURED | state=NOT_CONFIGURED; no kite mock called | ✓ PASS |
+| C2-08 | Migrated consumer path (TRADE_GRADE) | Correct provenance → `trustedForSignals=true` | ✓ PASS |
+
+### 3.2 Migration proof: no runtime `fetchOptionChain` in trade-sensitive consumers
+
 ```
+grep "^import.*fetchOptionChain" lib/optionSignals.ts     → NONE
+grep "^import.*fetchOptionChain" lib/paperTradingCombo.ts → NONE
 
-**After:**
-```typescript
-import { getOptionChain } from "./marketData/optionChainProvider";
-const _ocResult = await getOptionChain(underlying, "TRADE_GRADE", expiry);
-const chain = _ocResult.ok ? (_ocResult.data?.chain ?? null) : null;
-if (!chain) {
-  return { ok: false, code: "CHAIN_UNAVAILABLE", message: _ocResult.reason ?? `...` };
-}
+grep -n "getOptionChain" lib/optionSignals.ts:
+  line 15: import { getOptionChain } from "./marketData/optionChainProvider"
+  line 2469: await getOptionChain(first.index, "TRADE_GRADE", expiry)
+  line 2995: await getOptionChain(cfg.symbol, "TRADE_GRADE", expiry)
+
+grep -n "getOptionChain" lib/paperTradingCombo.ts:
+  line 46: import { getOptionChain } from "./marketData/optionChainProvider"
+  line 173: await getOptionChain(underlying, "TRADE_GRADE", expiry)
 ```
 
 ---
 
-## §5 Lower-Priority Legacy `fetchOptionChain` Calls (In-Place, Not Yet Migrated)
+## 4. Gate C3 — Full Verification Battery
 
-Two display/observation paths still use `fetchOptionChain` directly:
-- `lib/preMarket.ts` (lines 578, 1162) — pre-market assessment, display-only
-- `lib/dataParity/observe.ts` (line 483) — data parity observation
-
-These are lower-risk (display paths, not trade-sensitive). They are NOT migrated in B1.1 because:
-1. Both are display/observation paths — the data never drives signals, paper trades, or risk sizing
-2. Their use of NSE fallback is intentional and appropriate for display
-3. Migration would require adding DISPLAY-mode `getOptionChain()` calls (which already exist in `optionChainProvider`) — deferred to a targeted cleanup task
-
----
-
-## §6 Diagnostics Extensions
-
-### `/system/mode` (GET, owner-only) — new `providerCapabilities` field
-```json
-{
-  "mode": { ... },
-  "clockDrift": { ... },
-  "tokenStaleness": { ... },
-  "instrumentsIntegrity": { ... },
-  "providerCapabilities": {
-    "evaluatedAt": "2026-07-31T08:57:03.123Z",
-    "authoritative": "kite",
-    "tradeAvailableProviders": ["kite"],
-    "capabilities": [
-      { "provider": "kite", "domain": "index_quote", "state": "AVAILABLE", "reason": "Live: 987 quotes...", "evaluatedAt": "..." },
-      { "provider": "upstox", "domain": "index_quote", "state": "NOT_CONFIGURED", "reason": "UPSTOX_API_KEY / ... absent...", "evaluatedAt": "..." },
-      ...
-    ]
-  }
-}
-```
-
-### `/api/data/diagnostics` (GET, owner-only) — new `providerCapabilities` field in `DataDiagnostics`
-
-`DataDiagnostics.providerCapabilities: ProviderCapabilitySnapshot` added alongside the existing `providers` (legacy ProviderState) and `indstocks` fields.
-
----
-
-## §7 Server-Side Market-Status Freshness (Carry-forward from B0)
-
-The `/api/options/signals` route computes `marketStatus` exclusively from `computeMarketStatus(new Date())` and `getMarketStatusDetail(now)` — both are IST session-calendar functions driven by server system time. They do NOT depend on browser-side React Query `dataUpdatedAt`.
-
-The option chain data freshness is classified by `optionChainProvider`'s `OptionChainMeta` via the `evaluateOptionChain()` function, which checks:
-- Contract expiry against `nowDay` (IST-aware)
-- Chain completeness (`rows.length > 0`, finite `spot`)
-- `generatedAt` asOf timestamp → `isoToMs()` → fed to `computeFreshness()`
-
-The `marketStatus` field in the response is **server-authoritative** — it is never derived from client-side stale data.
-
----
-
-## §8 Test Battery Results
+### 4.1 Test suites
 
 | Suite | Files | Tests | Result |
-|-------|-------|-------|--------|
-| B1.1 canonical (new) | 1 | 44 | ✅ 44/44 PASS |
-| Full api-server (all) | 211 | 4412 | ✅ 4412/4412 PASS |
-| TypeScript: api-server | — | — | ✅ CLEAN |
-| TypeScript: scanner | — | — | ✅ CLEAN |
+|---|---|---|---|
+| api-server (full, `--pool=threads`) | 211 | **4 435** | ✓ PASS |
+| scanner (`vitest run`) | 39 | **843** | ✓ PASS |
+| b1.canonical.test.ts (targeted) | 1 | **67** | ✓ PASS |
+
+### 4.2 TypeScript checks (all 5 packages, `--noEmit`)
+
+| Package | Result |
+|---|---|
+| `artifacts/api-server` | ✓ CLEAN |
+| `artifacts/global` | ✓ CLEAN |
+| `artifacts/scanner` | ✓ CLEAN |
+| `lib/api-client-react` | ✓ CLEAN |
+| `lib/api-zod` | ✓ CLEAN |
+
+### 4.3 Production builds (3)
+
+| Artifact | Result |
+|---|---|
+| `artifacts/api-server` (`pnpm run build`) | ✓ PASS |
+| `artifacts/global` (`pnpm run build`) | ✓ PASS |
+| `artifacts/scanner` (`pnpm run build`) | ✓ PASS |
+
+### 4.4 DB isolation tripwire
+
+`DB_TEST_RUNTIME_AUTHORIZED=false` — zero DB connections in b1.canonical.test.ts (confirmed by no output from the tripwire command). `T41` in §11.7 asserts this inline.
+
+### 4.5 Zero live-provider proof
+
+All network transports (`fetchKiteOptionChain`, `fetchOptionChain/NSE`) are mocked via `vi.mock()` in `b1.canonical.test.ts`. `T40` confirms `vi.mock` is in effect. `T42` confirms `getProviderCapabilities()` makes zero network calls.
+
+### 4.6 Git whitespace check
+
+```
+git diff --check  →  GIT_CHECK_CLEAN
+```
 
 ---
 
-## §9 Acceptance Verdict
+## 5. File SHA-256 Checksums
 
-```
-B1_1_ACCEPTED_WITH_PROVIDER_ACTIVATION_PENDING
-
-Provider capability states (all explicit, no fabrication):
-  Kite:       AVAILABLE (session active) | AUTH_EXPIRED | NOT_CONFIGURED
-  Upstox:     NOT_CONFIGURED — UPSTOX_API_KEY/SECRET/ACCESS_TOKEN absent
-  IndianAPI:  NOT_CONFIGURED — INDIANAPI_KEY absent; fundamentals/news deferred to B1.2
-  Yahoo:      AVAILABLE (analytics) | UNSUPPORTED (trade-sensitive domains)
-  NSE:        AVAILABLE (option_chain display fallback only)
-
-Consumer migrations:
-  optionSignals.ts:    MIGRATED — fetchOptionChain → getOptionChain("TRADE_GRADE") × 2
-  paperTradingCombo.ts: MIGRATED — fetchOptionChain → getOptionChain("TRADE_GRADE") × 1
-  preMarket.ts:        DEFERRED (display path, lower risk)
-  dataParity/observe:  DEFERRED (observation path, lower risk)
-
-No strategy formula changes. No DB runtime lock changes.
-No commit/push/deploy in this session.
-DB_TEST_RUNTIME_AUTHORIZED = false as boolean (unchanged).
-```
+| File (relative to `src/lib/marketData/`) | SHA-256 |
+|---|---|
+| `freshness.ts` | `48ba048286206890ce272d773be427b6d8432fb236f0b5744348220e5b9c1170` |
+| `validator.ts` | `46941e54420139c3e0b1f9ae7ed1a244021da44adcccc67b254d4dc85ad0f077` |
+| `types.ts` | `7a97feaf63f07af4124462607d8b9f053fc95f902a0551767e7e4fe33bf80818` |
+| `optionChainProvider.ts` | `0ac31f695ee2ef010a35a9987639489bf23237d299947dcf4222b98ac193bf2e` |
+| `b1.canonical.test.ts` | `3475d65dcfb0df5e89f61e40cc954062851f8a8911f8da7d124f571d8dd9ffd5` |
 
 ---
 
-END_PHASE_B1_1_CANONICAL_LIVE_DATA_BACKBONE_ACCEPTANCE
+## 6. Provider Activation Status
+
+| Provider | Domain | State |
+|---|---|---|
+| kite | All trade-sensitive domains | AVAILABLE (session active) / AUTH_EXPIRED (session inactive) |
+| upstox | option_chain, index_quote, … | **NOT_CONFIGURED** — `UPSTOX_API_KEY/SECRET/ACCESS_TOKEN` absent |
+| indianapi | index_quote, equity_quote | **NOT_CONFIGURED** — `INDIANAPI_KEY` absent |
+| yahoo | All | UNSUPPORTED (trade) / AVAILABLE (analytics) |
+| nse | option_chain | AVAILABLE (display fallback only; never TRADE_GRADE) |
+
+`PROVIDER_ACTIVATION_PENDING — UPSTOX / INDIANAPI NOT_CONFIGURED`
+
+---
+
+## 7. Acceptance Verdict
+
+All three closure gates are satisfied:
+- **C1:** `computeFreshness` correctly classifies future timestamps as `isFutureTimestamp=true, isStale=true, freshnessSec=null`. Gate is propagated through `DataMeta` and enforced in `fetchKiteOnly` (fail-closed for TRADE_GRADE). 13/13 boundary tests pass.
+- **C2:** Production routing proved via real facades with mocked transports. `fallbackUsed`, `notForSignals`, `notForTradeDecisions`, `visualOnly` are all set by the routing code, not injected manually. 8/8 routing tests pass.
+- **C3:** 4435 + 843 = 5278 total tests pass. 5 TSC clean. 3 builds clean. Zero DB. Zero live providers. Git clean.
+
+`ACCEPT_B1_1_CANONICAL_LIVE_DATA_BACKBONE`  
+`PROVIDER_ACTIVATION_PENDING — UPSTOX / INDIANAPI NOT_CONFIGURED`
+
+---
+
+`END_PHASE_B1_1_FRESHNESS_AND_ACCEPTANCE_CLOSURE`

@@ -67,6 +67,14 @@ export interface DataMeta {
   validationStatus: ValidationStatus;
   /** Human-readable notes (degradations, fallbacks, missing fields). */
   warnings: string[];
+  /**
+   * B1.1-C1: True when the provider timestamp is materially in the future
+   * (beyond CLOCK_SKEW_TOLERANCE_SEC in freshness.ts). Such data must never
+   * power trade decisions, paper admission, contract selection, or exit
+   * confirmation — it is unverified regardless of source tier.
+   * Absent (undefined) when not a future-timestamp situation.
+   */
+  isFutureTimestamp?: boolean;
 }
 
 // ───────────────────────────────────────────────────────────────────────────
