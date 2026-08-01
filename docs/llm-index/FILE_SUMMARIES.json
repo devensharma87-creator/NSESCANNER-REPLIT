@@ -24,6 +24,28 @@
     "hash": "1cd4027c08312568"
   },
   {
+    "path": "artifacts/api-server/src/lib/alerting.b0.test.ts",
+    "purpose": "test",
+    "lines": 247,
+    "exports": [],
+    "externalImports": [
+      "vitest"
+    ],
+    "routes": [],
+    "hash": "9bff1a875eeec113"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/alerting.closure.test.ts",
+    "purpose": "test",
+    "lines": 258,
+    "exports": [],
+    "externalImports": [
+      "vitest"
+    ],
+    "routes": [],
+    "hash": "a9b1235c13c7feba"
+  },
+  {
     "path": "artifacts/api-server/src/lib/alerting.test.ts",
     "purpose": "test",
     "lines": 326,
@@ -37,7 +59,7 @@
   {
     "path": "artifacts/api-server/src/lib/alerting.ts",
     "purpose": "alerting",
-    "lines": 441,
+    "lines": 538,
     "exports": [
       "getSkippedAlertStats",
       "resetSkippedAlertStatsForTest",
@@ -50,6 +72,7 @@
       "AlertMetadata",
       "resetAlertDedup",
       "AlertPriority",
+      "buildAlertText",
       "doSendTelegramMessage",
       "alertOwnerRaw",
       "alertOwner",
@@ -60,7 +83,7 @@
     ],
     "externalImports": [],
     "routes": [],
-    "hash": "9f7c4eeffbe2e262"
+    "hash": "f1e4340d8698093a"
   },
   {
     "path": "artifacts/api-server/src/lib/appStateStore.ts",
@@ -98,6 +121,17 @@
     ],
     "routes": [],
     "hash": "91c2e71416f93cfc"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/b2.uiState.test.ts",
+    "purpose": "test",
+    "lines": 420,
+    "exports": [],
+    "externalImports": [
+      "vitest"
+    ],
+    "routes": [],
+    "hash": "4580dfd90d2d60e4"
   },
   {
     "path": "artifacts/api-server/src/lib/backboneHealth.test.ts",
@@ -993,32 +1027,42 @@
   {
     "path": "artifacts/api-server/src/lib/clockDrift.test.ts",
     "purpose": "test",
-    "lines": 28,
+    "lines": 320,
     "exports": [],
     "externalImports": [
       "vitest"
     ],
     "routes": [],
-    "hash": "739ae6656ad87d89"
+    "hash": "e67cac711e8168d3"
   },
   {
     "path": "artifacts/api-server/src/lib/clockDrift.ts",
     "purpose": "lib",
-    "lines": 161,
+    "lines": 307,
     "exports": [
       "DRIFT_WARN_MS",
       "DRIFT_ALERT_MS",
+      "DRIFT_RECOVERY_MS",
       "CHECK_INTERVAL_MS",
+      "PROBE_ATTEMPTS",
+      "MAX_RTT_FOR_RELIABLE_PROBE_MS",
+      "MIN_VALID_PROBES",
       "ClockDriftStatus",
       "ClockDriftSnapshot",
+      "TimeProbe",
       "classifyDrift",
+      "filterReliableProbes",
+      "computeProbeDrifts",
+      "median",
+      "resetClockDriftStateForTest",
+      "collectTimeProbes",
       "runClockDriftCheck",
       "getClockDriftSnapshot",
       "startClockDriftMonitor"
     ],
     "externalImports": [],
     "routes": [],
-    "hash": "9f0704ece3b1a5ba"
+    "hash": "1f6558a350f48d61"
   },
   {
     "path": "artifacts/api-server/src/lib/columnWidthInvariants.test.ts",
@@ -1067,7 +1111,7 @@
   {
     "path": "artifacts/api-server/src/lib/confluenceEngine.ts",
     "purpose": "lib",
-    "lines": 285,
+    "lines": 293,
     "exports": [
       "Direction",
       "ConfluenceVp",
@@ -1079,18 +1123,18 @@
     ],
     "externalImports": [],
     "routes": [],
-    "hash": "6577c85a6f2dd092"
+    "hash": "85d371dd560c6411"
   },
   {
     "path": "artifacts/api-server/src/lib/confluenceEngine.vwapGuard.test.ts",
     "purpose": "test",
-    "lines": 96,
+    "lines": 101,
     "exports": [],
     "externalImports": [
       "vitest"
     ],
     "routes": [],
-    "hash": "29f7b15193f0a727"
+    "hash": "369f08c07bfb65b7"
   },
   {
     "path": "artifacts/api-server/src/lib/contractMasterFact.test.ts",
@@ -1169,7 +1213,7 @@
   {
     "path": "artifacts/api-server/src/lib/dailyReports.ts",
     "purpose": "lib",
-    "lines": 1686,
+    "lines": 1689,
     "exports": [
       "ensureDailyReportRunsTable",
       "tryClaimScheduledReport",
@@ -1197,7 +1241,7 @@
       "@workspace/db"
     ],
     "routes": [],
-    "hash": "343916b5b4702a6f"
+    "hash": "3835915a8036b669"
   },
   {
     "path": "artifacts/api-server/src/lib/dailyReportsChargesDrag.test.ts",
@@ -1334,7 +1378,7 @@
   {
     "path": "artifacts/api-server/src/lib/deepscan.ts",
     "purpose": "lib",
-    "lines": 511,
+    "lines": 514,
     "exports": [
       "IndexDef",
       "INDEX_LIST",
@@ -1349,7 +1393,7 @@
     ],
     "externalImports": [],
     "routes": [],
-    "hash": "2f7b162db43499bc"
+    "hash": "1c0253b76c6fbc35"
   },
   {
     "path": "artifacts/api-server/src/lib/detectorCooldown.test.ts",
@@ -1419,14 +1463,37 @@
     "hash": "9c442089b49e8901"
   },
   {
+    "path": "artifacts/api-server/src/lib/eodReconciliation.closure.test.ts",
+    "purpose": "test",
+    "lines": 274,
+    "exports": [],
+    "externalImports": [
+      "vitest"
+    ],
+    "routes": [],
+    "hash": "7b16fe01e9e36d8b"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/eodReconciliation.test.ts",
+    "purpose": "test",
+    "lines": 151,
+    "exports": [],
+    "externalImports": [
+      "vitest"
+    ],
+    "routes": [],
+    "hash": "c99a5a6e62155183"
+  },
+  {
     "path": "artifacts/api-server/src/lib/eodReconciliation.ts",
     "purpose": "lib",
-    "lines": 214,
+    "lines": 257,
     "exports": [
       "CheckStatus",
       "ReconCheck",
       "ReconReport",
       "buildReconChecks",
+      "buildEodOkMessage",
       "runEodReconciliation",
       "listReconReports",
       "startEodReconciliationScheduler"
@@ -1436,7 +1503,7 @@
       "@workspace/db"
     ],
     "routes": [],
-    "hash": "6137ddeb1abf9fc5"
+    "hash": "36ed4c56b581727d"
   },
   {
     "path": "artifacts/api-server/src/lib/equityFillEvidence.ts",
@@ -1962,18 +2029,28 @@
     "hash": "a9a9da9867ca3b0b"
   },
   {
-    "path": "artifacts/api-server/src/lib/fnoPremiumExitOverlay.test.ts",
+    "path": "artifacts/api-server/src/lib/fnoPremiumExitOverlay.db.test.ts",
     "purpose": "test",
-    "lines": 480,
+    "lines": 340,
     "exports": [],
     "externalImports": [
       "vitest",
       "drizzle-orm/errors",
-      "drizzle-orm",
       "@workspace/db"
     ],
     "routes": [],
-    "hash": "e13bc12bc4847da2"
+    "hash": "611aa68d129c312a"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/fnoPremiumExitOverlay.test.ts",
+    "purpose": "test",
+    "lines": 147,
+    "exports": [],
+    "externalImports": [
+      "vitest"
+    ],
+    "routes": [],
+    "hash": "ecbd096d9a7c4845"
   },
   {
     "path": "artifacts/api-server/src/lib/fnoPremiumExitOverlay.ts",
@@ -2169,13 +2246,13 @@
   {
     "path": "artifacts/api-server/src/lib/fnoSignalReasoningLogger.test.ts",
     "purpose": "test",
-    "lines": 627,
+    "lines": 656,
     "exports": [],
     "externalImports": [
       "vitest"
     ],
     "routes": [],
-    "hash": "ce333f291b22a1eb"
+    "hash": "09a22c67ac7ce14d"
   },
   {
     "path": "artifacts/api-server/src/lib/fnoSignalReasoningLogger.ts",
@@ -3032,13 +3109,13 @@
   {
     "path": "artifacts/api-server/src/lib/kiteScanner.etf.test.ts",
     "purpose": "test",
-    "lines": 119,
+    "lines": 131,
     "exports": [],
     "externalImports": [
       "vitest"
     ],
     "routes": [],
-    "hash": "bef88862a3f21474"
+    "hash": "db98d0a0322b661e"
   },
   {
     "path": "artifacts/api-server/src/lib/kiteScanner.ts",
@@ -3204,6 +3281,17 @@
     "hash": "0d1c5b2b4f53542f"
   },
   {
+    "path": "artifacts/api-server/src/lib/marketData/b1.canonical.test.ts",
+    "purpose": "test",
+    "lines": 885,
+    "exports": [],
+    "externalImports": [
+      "vitest"
+    ],
+    "routes": [],
+    "hash": "3475d65dcfb0df5e"
+  },
+  {
     "path": "artifacts/api-server/src/lib/marketData/caches.ts",
     "purpose": "lib",
     "lines": 50,
@@ -3258,7 +3346,7 @@
   {
     "path": "artifacts/api-server/src/lib/marketData/diagnostics.ts",
     "purpose": "lib",
-    "lines": 202,
+    "lines": 211,
     "exports": [
       "ProviderState",
       "ProviderDiagnostic",
@@ -3271,20 +3359,21 @@
       "@workspace/db"
     ],
     "routes": [],
-    "hash": "9f86b4403ec60390"
+    "hash": "a781039607fc0407"
   },
   {
     "path": "artifacts/api-server/src/lib/marketData/freshness.ts",
     "purpose": "lib",
-    "lines": 45,
+    "lines": 127,
     "exports": [
-      "Freshness",
+      "CLOCK_SKEW_TOLERANCE_SEC",
       "FreshnessBudget",
+      "Freshness",
       "computeFreshness"
     ],
     "externalImports": [],
     "routes": [],
-    "hash": "39442af0a5975a89"
+    "hash": "48ba048286206890"
   },
   {
     "path": "artifacts/api-server/src/lib/marketData/gateA.nseSourceTruth.test.ts",
@@ -3428,17 +3517,15 @@
     "hash": "62be800775a8fe71"
   },
   {
-    "path": "artifacts/api-server/src/lib/marketData/indstocksTokenStore.test.ts",
+    "path": "artifacts/api-server/src/lib/marketData/indstocksTokenStore.db.test.ts",
     "purpose": "test",
-    "lines": 91,
+    "lines": 132,
     "exports": [],
     "externalImports": [
-      "vitest",
-      "drizzle-orm",
-      "@workspace/db"
+      "vitest"
     ],
     "routes": [],
-    "hash": "e8065850549aa7a3"
+    "hash": "2cc91506bc03c6f9"
   },
   {
     "path": "artifacts/api-server/src/lib/marketData/indstocksTokenStore.ts",
@@ -3531,6 +3618,17 @@
     "hash": "550513335686e403"
   },
   {
+    "path": "artifacts/api-server/src/lib/marketData/instrumentsIntegrity.b0.test.ts",
+    "purpose": "test",
+    "lines": 130,
+    "exports": [],
+    "externalImports": [
+      "vitest"
+    ],
+    "routes": [],
+    "hash": "3d954134c6deda1d"
+  },
+  {
     "path": "artifacts/api-server/src/lib/marketData/instrumentsIntegrity.test.ts",
     "purpose": "test",
     "lines": 44,
@@ -3544,12 +3642,13 @@
   {
     "path": "artifacts/api-server/src/lib/marketData/instrumentsIntegrity.ts",
     "purpose": "lib",
-    "lines": 229,
+    "lines": 262,
     "exports": [
       "InstrumentsIntegrityStatus",
       "getInstrumentsIntegrityStatus",
       "isInstrumentsRefreshFailedToday",
       "hydrateInstrumentsFailureFlag",
+      "markInstrumentsRefreshRecovered",
       "diffBaselines",
       "runInstrumentsCheck",
       "startInstrumentsIntegrityScheduler"
@@ -3559,7 +3658,7 @@
       "path"
     ],
     "routes": [],
-    "hash": "f9f0f8bff3b260bc"
+    "hash": "da9754f2d50638b7"
   },
   {
     "path": "artifacts/api-server/src/lib/marketData/kiteProvider.candleFreshness.test.ts",
@@ -3645,7 +3744,7 @@
   {
     "path": "artifacts/api-server/src/lib/marketData/optionChainProvider.ts",
     "purpose": "fno-engine",
-    "lines": 374,
+    "lines": 385,
     "exports": [
       "OptionChainMode",
       "OptionChainMeta",
@@ -3658,7 +3757,7 @@
     ],
     "externalImports": [],
     "routes": [],
-    "hash": "d04fe5c17ecf384c"
+    "hash": "0ac31f695ee2ef01"
   },
   {
     "path": "artifacts/api-server/src/lib/marketData/policy.ts",
@@ -3703,6 +3802,23 @@
     "externalImports": [],
     "routes": [],
     "hash": "18b2ceb92a9922e3"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/marketData/providerCapability.ts",
+    "purpose": "lib",
+    "lines": 257,
+    "exports": [
+      "ProviderCapabilityState",
+      "DataDomain",
+      "ProviderDomainCapability",
+      "ProviderCapabilitySnapshot",
+      "getProviderCapabilities",
+      "TRADE_SENSITIVE_DOMAINS",
+      "getCapabilityFor"
+    ],
+    "externalImports": [],
+    "routes": [],
+    "hash": "5189da33818fc210"
   },
   {
     "path": "artifacts/api-server/src/lib/marketData/providerImportGuard.test.ts",
@@ -3868,7 +3984,7 @@
   {
     "path": "artifacts/api-server/src/lib/marketData/types.ts",
     "purpose": "lib",
-    "lines": 358,
+    "lines": 366,
     "exports": [
       "TrustTier",
       "ProviderName",
@@ -3893,7 +4009,7 @@
     ],
     "externalImports": [],
     "routes": [],
-    "hash": "822408c558b50164"
+    "hash": "7a97feaf63f07af4"
   },
   {
     "path": "artifacts/api-server/src/lib/marketData/validationStats.ts",
@@ -3914,7 +4030,7 @@
   {
     "path": "artifacts/api-server/src/lib/marketData/validator.ts",
     "purpose": "lib",
-    "lines": 109,
+    "lines": 118,
     "exports": [
       "BuildMetaInput",
       "isQuoteComplete",
@@ -3923,7 +4039,7 @@
     ],
     "externalImports": [],
     "routes": [],
-    "hash": "4622a8b6dc0f4faf"
+    "hash": "46941e54420139c3"
   },
   {
     "path": "artifacts/api-server/src/lib/marketDataHealth.test.ts",
@@ -3972,7 +4088,7 @@
   {
     "path": "artifacts/api-server/src/lib/marketEvents.ts",
     "purpose": "market-data",
-    "lines": 452,
+    "lines": 454,
     "exports": [
       "MarketHoliday",
       "EarningResult",
@@ -3988,7 +4104,7 @@
     ],
     "externalImports": [],
     "routes": [],
-    "hash": "c3dbfa5d7ee2c6de"
+    "hash": "5ee7e507af946ac7"
   },
   {
     "path": "artifacts/api-server/src/lib/marketTrend.ts",
@@ -4006,7 +4122,7 @@
   {
     "path": "artifacts/api-server/src/lib/newsRss.ts",
     "purpose": "lib",
-    "lines": 204,
+    "lines": 206,
     "exports": [
       "getAllMarketNewsLive",
       "getMarketNewsLive"
@@ -4015,7 +4131,7 @@
       "@workspace/api-zod"
     ],
     "routes": [],
-    "hash": "ddfda6e66a55fbb6"
+    "hash": "59599a65b5b2ab52"
   },
   {
     "path": "artifacts/api-server/src/lib/notifications/deadSymbolNotifier.ts",
@@ -4283,18 +4399,16 @@
     "hash": "7d054d43c91ae565"
   },
   {
-    "path": "artifacts/api-server/src/lib/optionSignalPlanImmutability.test.ts",
+    "path": "artifacts/api-server/src/lib/optionSignalPlanImmutability.db.test.ts",
     "purpose": "test",
-    "lines": 319,
+    "lines": 355,
     "exports": [],
     "externalImports": [
       "vitest",
-      "drizzle-orm",
-      "@workspace/db",
       "@workspace/api-zod"
     ],
     "routes": [],
-    "hash": "328ed7450fcc1c97"
+    "hash": "38a693c957fb8f95"
   },
   {
     "path": "artifacts/api-server/src/lib/optionSignalPlanSchema.ts",
@@ -4314,14 +4428,14 @@
   {
     "path": "artifacts/api-server/src/lib/optionSignals.a031.test.ts",
     "purpose": "test",
-    "lines": 852,
+    "lines": 848,
     "exports": [],
     "externalImports": [
       "vitest",
       "@workspace/api-zod"
     ],
     "routes": [],
-    "hash": "a2491c9c55ae87d9"
+    "hash": "53fca8e264399412"
   },
   {
     "path": "artifacts/api-server/src/lib/optionSignals.expiryDay.test.ts",
@@ -4383,7 +4497,7 @@
   {
     "path": "artifacts/api-server/src/lib/optionSignals.ts",
     "purpose": "fno-engine",
-    "lines": 3559,
+    "lines": 3577,
     "exports": [
       "IndexCfg",
       "OPTION_INDICES",
@@ -4401,16 +4515,16 @@
       "getLastFnoCycleState",
       "_getDetectorCooldownMs",
       "_resetDetectorCooldownForTest",
+      "_resetOptionSignalsCacheForTest",
       "_setCooldownForTest",
       "_isDetectorOnCooldownForTest",
-      "_recordDetectorEmitForTest",
-      "getOptionSignals"
+      "_recordDetectorEmitForTest"
     ],
     "externalImports": [
       "@workspace/api-zod"
     ],
     "routes": [],
-    "hash": "6e4589c8629dc1d0"
+    "hash": "71d4658d8e55fff4"
   },
   {
     "path": "artifacts/api-server/src/lib/optionSignals.vwapLabel.test.ts",
@@ -4426,7 +4540,7 @@
   {
     "path": "artifacts/api-server/src/lib/optionSignals.zeroVolume.test.ts",
     "purpose": "test",
-    "lines": 1267,
+    "lines": 1266,
     "exports": [],
     "externalImports": [
       "vitest",
@@ -4434,7 +4548,7 @@
       "path"
     ],
     "routes": [],
-    "hash": "a1efc09ed6ff1e64"
+    "hash": "fb59567a2553e95c"
   },
   {
     "path": "artifacts/api-server/src/lib/optionSignalVetoes.test.ts",
@@ -4450,7 +4564,7 @@
   {
     "path": "artifacts/api-server/src/lib/optionSignalVetoes.ts",
     "purpose": "fno-engine",
-    "lines": 291,
+    "lines": 304,
     "exports": [
       "RECOVERY_VETO",
       "CHASE_VETO",
@@ -4467,7 +4581,7 @@
     ],
     "externalImports": [],
     "routes": [],
-    "hash": "0b76158cacd9eeff"
+    "hash": "bba26a88ffe65c42"
   },
   {
     "path": "artifacts/api-server/src/lib/optionSnapshotAnalytics.test.ts",
@@ -4530,6 +4644,74 @@
     "hash": "25b9c2785a96003c"
   },
   {
+    "path": "artifacts/api-server/src/lib/p19.packTests.test.ts",
+    "purpose": "test",
+    "lines": 617,
+    "exports": [],
+    "externalImports": [
+      "vitest"
+    ],
+    "routes": [],
+    "hash": "b156f1e8b5581b39"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/p20.lifecycleGates.test.ts",
+    "purpose": "test",
+    "lines": 924,
+    "exports": [],
+    "externalImports": [
+      "vitest"
+    ],
+    "routes": [],
+    "hash": "37ffd17f68d6a517"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/p20a.cohortReconciliation.test.ts",
+    "purpose": "test",
+    "lines": 416,
+    "exports": [],
+    "externalImports": [
+      "vitest"
+    ],
+    "routes": [],
+    "hash": "0a426e9a3aa4f5a6"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/p20a.contractSelector.test.ts",
+    "purpose": "test",
+    "lines": 356,
+    "exports": [],
+    "externalImports": [
+      "vitest",
+      "@workspace/api-zod"
+    ],
+    "routes": [],
+    "hash": "26b0ff1ff177b661"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/p20a.schemaParity.test.ts",
+    "purpose": "test",
+    "lines": 352,
+    "exports": [],
+    "externalImports": [
+      "vitest",
+      "@workspace/api-zod"
+    ],
+    "routes": [],
+    "hash": "8e9ed07054562351"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/p20a.telegramGuard.test.ts",
+    "purpose": "test",
+    "lines": 455,
+    "exports": [],
+    "externalImports": [
+      "vitest"
+    ],
+    "routes": [],
+    "hash": "32566508b00662f4"
+  },
+  {
     "path": "artifacts/api-server/src/lib/paperAccount.riskPct.test.ts",
     "purpose": "test",
     "lines": 51,
@@ -4576,13 +4758,13 @@
   {
     "path": "artifacts/api-server/src/lib/paperAccountReconciliation.test.ts",
     "purpose": "test",
-    "lines": 44,
+    "lines": 67,
     "exports": [],
     "externalImports": [
       "vitest"
     ],
     "routes": [],
-    "hash": "cf3e63593b9d95eb"
+    "hash": "a8788038c78c3ceb"
   },
   {
     "path": "artifacts/api-server/src/lib/paperAccountReconciliation.ts",
@@ -4665,16 +4847,15 @@
     "hash": "1e112ef7833d2044"
   },
   {
-    "path": "artifacts/api-server/src/lib/paperCapitalEvents.test.ts",
+    "path": "artifacts/api-server/src/lib/paperCapitalEvents.db.test.ts",
     "purpose": "test",
-    "lines": 151,
+    "lines": 188,
     "exports": [],
     "externalImports": [
-      "vitest",
-      "drizzle-orm"
+      "vitest"
     ],
     "routes": [],
-    "hash": "42d32b14a84433a6"
+    "hash": "8dbd3f9202599f73"
   },
   {
     "path": "artifacts/api-server/src/lib/paperDailySummaryFo.ts",
@@ -4741,19 +4922,29 @@
     "hash": "c82479d5e7eab0ad"
   },
   {
+    "path": "artifacts/api-server/src/lib/paperHeatSql.db.test.ts",
+    "purpose": "test",
+    "lines": 139,
+    "exports": [],
+    "externalImports": [
+      "vitest",
+      "drizzle-orm/errors"
+    ],
+    "routes": [],
+    "hash": "2415c0817a3ee9a1"
+  },
+  {
     "path": "artifacts/api-server/src/lib/paperHeatSql.test.ts",
     "purpose": "test",
-    "lines": 180,
+    "lines": 56,
     "exports": [],
     "externalImports": [
       "vitest",
       "drizzle-orm/pg-core",
-      "drizzle-orm",
-      "drizzle-orm/errors",
-      "@workspace/db"
+      "drizzle-orm"
     ],
     "routes": [],
-    "hash": "304108f3687c35b4"
+    "hash": "301f1dddddf564eb"
   },
   {
     "path": "artifacts/api-server/src/lib/paperReportsEq.ts",
@@ -4855,7 +5046,7 @@
   {
     "path": "artifacts/api-server/src/lib/paperTradingCombo.ts",
     "purpose": "paper-trading",
-    "lines": 658,
+    "lines": 664,
     "exports": [
       "COMBO_MAX_OPEN",
       "COMBO_SEED_EQUITY_RUPEES",
@@ -4877,7 +5068,7 @@
       "drizzle-orm"
     ],
     "routes": [],
-    "hash": "34825b318a617d5b"
+    "hash": "55ed0e780b5c5f56"
   },
   {
     "path": "artifacts/api-server/src/lib/paperTradingEq.ts",
@@ -4911,17 +5102,26 @@
     "hash": "e4e2fa725a400957"
   },
   {
-    "path": "artifacts/api-server/src/lib/paperTradingEqProvenance.test.ts",
+    "path": "artifacts/api-server/src/lib/paperTradingEqProvenance.db.test.ts",
     "purpose": "test",
-    "lines": 186,
+    "lines": 205,
     "exports": [],
     "externalImports": [
-      "vitest",
-      "drizzle-orm",
-      "@workspace/db"
+      "vitest"
     ],
     "routes": [],
-    "hash": "ef0ea0922927925e"
+    "hash": "9232b05a208f16d7"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/paperTradingEqProvenance.pure.test.ts",
+    "purpose": "test",
+    "lines": 47,
+    "exports": [],
+    "externalImports": [
+      "vitest"
+    ],
+    "routes": [],
+    "hash": "52fee91067fcc00d"
   },
   {
     "path": "artifacts/api-server/src/lib/paperTradingFO.premiumPath.test.ts",
@@ -4971,50 +5171,46 @@
     "hash": "3fb7b6bb2a487f3f"
   },
   {
-    "path": "artifacts/api-server/src/lib/paperTradingFoExitMonitorApi.test.ts",
+    "path": "artifacts/api-server/src/lib/paperTradingFoExitMonitorApi.db.test.ts",
     "purpose": "test",
-    "lines": 221,
+    "lines": 250,
     "exports": [],
     "externalImports": [
       "vitest",
-      "drizzle-orm/errors",
-      "@workspace/db"
+      "drizzle-orm/errors"
     ],
     "routes": [],
-    "hash": "02699826739ace1d"
+    "hash": "393c3fa255457c67"
   },
   {
-    "path": "artifacts/api-server/src/lib/paperTradingFoMtmSweep.test.ts",
+    "path": "artifacts/api-server/src/lib/paperTradingFoMtmSweep.db.test.ts",
     "purpose": "test",
-    "lines": 575,
+    "lines": 612,
     "exports": [],
     "externalImports": [
       "vitest",
-      "drizzle-orm/errors",
-      "drizzle-orm",
-      "@workspace/db"
+      "drizzle-orm/errors"
     ],
     "routes": [],
-    "hash": "ab7c57888f7bfe52"
+    "hash": "a0669e93e7584c19"
   },
   {
-    "path": "artifacts/api-server/src/lib/paperTradingFoOrphanExit.test.ts",
+    "path": "artifacts/api-server/src/lib/paperTradingFoOrphanExit.db.test.ts",
     "purpose": "test",
-    "lines": 918,
+    "lines": 960,
     "exports": [],
     "externalImports": [
       "vitest",
       "drizzle-orm/errors",
-      "drizzle-orm",
       "@workspace/db"
     ],
     "routes": [],
-    "hash": "2bcf3f809b2bc4df"
+    "hash": "28fb041a06c08c5c"
   },
   {
     "path": "artifacts/api-server/src/lib/pivotRefInventory.a032.test.ts",
     "purpose": "test",
-    "lines": 243,
+    "lines": 471,
     "exports": [],
     "externalImports": [
       "vitest",
@@ -5022,7 +5218,7 @@
       "node:path"
     ],
     "routes": [],
-    "hash": "3fd4c390e2dca291"
+    "hash": "84b1ffbe174c18b8"
   },
   {
     "path": "artifacts/api-server/src/lib/preMarket.test.ts",
@@ -5114,6 +5310,18 @@
     ],
     "routes": [],
     "hash": "0484aec0b0254a5a"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/routeHandler.a033.test.ts",
+    "purpose": "test",
+    "lines": 454,
+    "exports": [],
+    "externalImports": [
+      "vitest",
+      "@workspace/api-zod"
+    ],
+    "routes": [],
+    "hash": "3bc4f84ef0493fe1"
   },
   {
     "path": "artifacts/api-server/src/lib/routeSerializer.a032.test.ts",
@@ -5459,7 +5667,7 @@
   {
     "path": "artifacts/api-server/src/lib/stocksToWatch.ts",
     "purpose": "lib",
-    "lines": 312,
+    "lines": 314,
     "exports": [
       "WatchSide",
       "WatchSignal",
@@ -5470,7 +5678,7 @@
       "@workspace/api-zod"
     ],
     "routes": [],
-    "hash": "ca93c7a96dffe27b"
+    "hash": "b2da29cd0d885f7f"
   },
   {
     "path": "artifacts/api-server/src/lib/swingAlerts.test.ts",
@@ -5787,21 +5995,29 @@
     "hash": "b22921486a9f42c0"
   },
   {
-    "path": "artifacts/api-server/src/lib/swingOrderStaging.test.ts",
+    "path": "artifacts/api-server/src/lib/swingOrderStaging.db.test.ts",
     "purpose": "test",
-    "lines": 894,
+    "lines": 853,
+    "exports": [],
+    "externalImports": [
+      "vitest"
+    ],
+    "routes": [],
+    "hash": "ebfd36d78e2a4f4a"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/swingOrderStaging.pure.test.ts",
+    "purpose": "test",
+    "lines": 163,
     "exports": [],
     "externalImports": [
       "node:fs",
       "node:url",
       "node:path",
-      "vitest",
-      "drizzle-orm",
-      "@workspace/db",
-      "@workspace/db/schema"
+      "vitest"
     ],
     "routes": [],
-    "hash": "7180f32a4fb2553a"
+    "hash": "60ee3e4820c66dc4"
   },
   {
     "path": "artifacts/api-server/src/lib/swingOrderStaging.ts",
@@ -5926,18 +6142,16 @@
     "hash": "b621db614787c7a0"
   },
   {
-    "path": "artifacts/api-server/src/lib/swingScannerStore.intradayRefresh.test.ts",
+    "path": "artifacts/api-server/src/lib/swingScannerStore.intradayRefresh.db.test.ts",
     "purpose": "test",
-    "lines": 386,
+    "lines": 428,
     "exports": [],
     "externalImports": [
       "vitest",
-      "drizzle-orm/errors",
-      "drizzle-orm",
-      "@workspace/db"
+      "drizzle-orm/errors"
     ],
     "routes": [],
-    "hash": "78beea58f378694d"
+    "hash": "c86e4d4232d63c85"
   },
   {
     "path": "artifacts/api-server/src/lib/swingScannerStore.ts",
@@ -6067,9 +6281,20 @@
     "hash": "1890218d2b4dd315"
   },
   {
+    "path": "artifacts/api-server/src/lib/swingTtlSweep.db.test.ts",
+    "purpose": "test",
+    "lines": 135,
+    "exports": [],
+    "externalImports": [
+      "vitest"
+    ],
+    "routes": [],
+    "hash": "ef4b606281b69fcb"
+  },
+  {
     "path": "artifacts/api-server/src/lib/swingTtlSweep.test.ts",
     "purpose": "test",
-    "lines": 502,
+    "lines": 376,
     "exports": [],
     "externalImports": [
       "node:fs",
@@ -6078,7 +6303,7 @@
       "vitest"
     ],
     "routes": [],
-    "hash": "5128416efb60bdee"
+    "hash": "b489eee3f5f6c159"
   },
   {
     "path": "artifacts/api-server/src/lib/swingTtlSweep.ts",
@@ -6103,13 +6328,13 @@
   {
     "path": "artifacts/api-server/src/lib/symbolAlias.ts",
     "purpose": "lib",
-    "lines": 256,
+    "lines": 258,
     "exports": [
       "resolveSymbols"
     ],
     "externalImports": [],
     "routes": [],
-    "hash": "f0a968f08fcaaa2e"
+    "hash": "72ba18e8e6735b86"
   },
   {
     "path": "artifacts/api-server/src/lib/systemAlertDedup.test.ts",
@@ -6320,7 +6545,7 @@
   {
     "path": "artifacts/api-server/src/lib/tradeLifecycle/notificationLog.ts",
     "purpose": "lib",
-    "lines": 275,
+    "lines": 279,
     "exports": [
       "initNotificationLog",
       "hashMessage",
@@ -6336,7 +6561,7 @@
       "@workspace/db"
     ],
     "routes": [],
-    "hash": "37d796c32432099e"
+    "hash": "a30bc31155a43847"
   },
   {
     "path": "artifacts/api-server/src/lib/tradeLifecycle/parityFixtures.ts",
@@ -6761,9 +6986,9 @@
     "hash": "8cacf604d1d826dc"
   },
   {
-    "path": "artifacts/api-server/src/routes/__tests__/backtestComparisonIgnoredFilters.test.ts",
+    "path": "artifacts/api-server/src/routes/__tests__/backtestComparisonIgnoredFilters.db.test.ts",
     "purpose": "api-route",
-    "lines": 304,
+    "lines": 306,
     "exports": [],
     "externalImports": [
       "vitest",
@@ -6774,12 +6999,12 @@
       "node:net"
     ],
     "routes": [],
-    "hash": "42c59f59d79191ad"
+    "hash": "2c0e07c64da3f519"
   },
   {
-    "path": "artifacts/api-server/src/routes/__tests__/backtestTradeTimes.test.ts",
+    "path": "artifacts/api-server/src/routes/__tests__/backtestTradeTimes.db.test.ts",
     "purpose": "api-route",
-    "lines": 510,
+    "lines": 512,
     "exports": [],
     "externalImports": [
       "vitest",
@@ -6790,7 +7015,7 @@
       "node:net"
     ],
     "routes": [],
-    "hash": "fc27c7e3499c386e"
+    "hash": "45cd58502d7e728e"
   },
   {
     "path": "artifacts/api-server/src/routes/__tests__/buildInfoRoute.test.ts",
@@ -6924,9 +7149,9 @@
     "hash": "028827553162866d"
   },
   {
-    "path": "artifacts/api-server/src/routes/__tests__/globalPresetRoutes.test.ts",
+    "path": "artifacts/api-server/src/routes/__tests__/globalPresetRoutes.db.test.ts",
     "purpose": "api-route",
-    "lines": 229,
+    "lines": 231,
     "exports": [],
     "externalImports": [
       "express",
@@ -6936,7 +7161,7 @@
       "node:net"
     ],
     "routes": [],
-    "hash": "9a46f7d154a57a0b"
+    "hash": "9ff19712a58341c4"
   },
   {
     "path": "artifacts/api-server/src/routes/__tests__/intradayRefreshDiagnostics.test.ts",
@@ -7019,24 +7244,29 @@
     "hash": "37f1b496d4d74086"
   },
   {
-    "path": "artifacts/api-server/src/routes/__tests__/portfolioRouteIsolation.test.ts",
+    "path": "artifacts/api-server/src/routes/__tests__/optionSignalsRoute.test.ts",
     "purpose": "api-route",
-    "lines": 500,
+    "lines": 512,
     "exports": [],
     "externalImports": [
+      "vitest",
+      "@workspace/api-zod",
       "express",
       "cookie-parser",
       "node:http",
       "node:crypto",
-      "node:net"
+      "node:net",
+      "node:fs",
+      "node:path",
+      "node:url"
     ],
     "routes": [],
-    "hash": "583742c29771ed56"
+    "hash": "3a1fb843c1f5f22c"
   },
   {
-    "path": "artifacts/api-server/src/routes/__tests__/portfolioRouteLimits.test.ts",
+    "path": "artifacts/api-server/src/routes/__tests__/portfolioRouteIsolation.db.test.ts",
     "purpose": "api-route",
-    "lines": 510,
+    "lines": 432,
     "exports": [],
     "externalImports": [
       "express",
@@ -7046,7 +7276,37 @@
       "node:net"
     ],
     "routes": [],
-    "hash": "4dcba93e5ba895d4"
+    "hash": "7ff90ddd82aca700"
+  },
+  {
+    "path": "artifacts/api-server/src/routes/__tests__/portfolioRouteIsolation.test.ts",
+    "purpose": "api-route",
+    "lines": 214,
+    "exports": [],
+    "externalImports": [
+      "express",
+      "cookie-parser",
+      "node:http",
+      "node:crypto",
+      "node:net"
+    ],
+    "routes": [],
+    "hash": "89ce1e2ba29e1b75"
+  },
+  {
+    "path": "artifacts/api-server/src/routes/__tests__/portfolioRouteLimits.db.test.ts",
+    "purpose": "api-route",
+    "lines": 512,
+    "exports": [],
+    "externalImports": [
+      "express",
+      "cookie-parser",
+      "node:http",
+      "node:crypto",
+      "node:net"
+    ],
+    "routes": [],
+    "hash": "81e42551ee95e238"
   },
   {
     "path": "artifacts/api-server/src/routes/__tests__/swingStagingSweepSafe.test.ts",
@@ -7749,7 +8009,7 @@
   {
     "path": "artifacts/api-server/src/routes/systemStatus.ts",
     "purpose": "api-route",
-    "lines": 119,
+    "lines": 123,
     "exports": [],
     "externalImports": [
       "express"
@@ -7762,7 +8022,7 @@
       "POST /system/clock-drift/check",
       "GET /metrics"
     ],
-    "hash": "24ccb77c8a4c0eb8"
+    "hash": "2e5dd262bb2f3b72"
   },
   {
     "path": "artifacts/api-server/src/routes/tradingview.ts",
@@ -8373,6 +8633,57 @@
     ],
     "routes": [],
     "hash": "be66fb2e4800c522"
+  },
+  {
+    "path": "artifacts/scanner/src/lib/p19a.foSummary.test.tsx",
+    "purpose": "test",
+    "lines": 310,
+    "exports": [],
+    "externalImports": [
+      "react",
+      "react-dom/client",
+      "vitest",
+      "@/lib/foCockpitView"
+    ],
+    "routes": [],
+    "hash": "edc3f5e29be26b25"
+  },
+  {
+    "path": "artifacts/scanner/src/lib/p19a.indexDetail.test.tsx",
+    "purpose": "test",
+    "lines": 217,
+    "exports": [],
+    "externalImports": [
+      "react",
+      "react-dom/client",
+      "vitest"
+    ],
+    "routes": [],
+    "hash": "d41128fd75277589"
+  },
+  {
+    "path": "artifacts/scanner/src/lib/p20.optionsPageFixes.test.ts",
+    "purpose": "test",
+    "lines": 262,
+    "exports": [],
+    "externalImports": [
+      "vitest"
+    ],
+    "routes": [],
+    "hash": "f07e1b497f934270"
+  },
+  {
+    "path": "artifacts/scanner/src/lib/p20a.uiStatePurity.test.ts",
+    "purpose": "test",
+    "lines": 414,
+    "exports": [],
+    "externalImports": [
+      "vitest",
+      "@workspace/api-client-react",
+      "@/components/global-status-banner"
+    ],
+    "routes": [],
+    "hash": "d1caf86e2c623296"
   },
   {
     "path": "artifacts/scanner/src/lib/participantOi.ts",
@@ -9036,7 +9347,7 @@
   {
     "path": "artifacts/scanner/src/pages/backtest-lab.tsx",
     "purpose": "ui-page",
-    "lines": 2213,
+    "lines": 2227,
     "exports": [],
     "externalImports": [
       "react",
@@ -9045,12 +9356,12 @@
       "@/components/ui/button"
     ],
     "routes": [],
-    "hash": "ec660c0a2de5f0db"
+    "hash": "c3f9c7f4512db84a"
   },
   {
     "path": "artifacts/scanner/src/pages/charting.tsx",
     "purpose": "ui-page",
-    "lines": 914,
+    "lines": 930,
     "exports": [],
     "externalImports": [
       "react",
@@ -9062,7 +9373,7 @@
       "@/data/fnoUniverse"
     ],
     "routes": [],
-    "hash": "03e1a10b04e5283f"
+    "hash": "5d624f5e8756c1cf"
   },
   {
     "path": "artifacts/scanner/src/pages/daily-analysis.tsx",
@@ -9156,8 +9467,10 @@
   {
     "path": "artifacts/scanner/src/pages/index-detail.tsx",
     "purpose": "ui-page",
-    "lines": 331,
-    "exports": [],
+    "lines": 366,
+    "exports": [
+      "ConstituentTable"
+    ],
     "externalImports": [
       "wouter",
       "@tanstack/react-query",
@@ -9170,7 +9483,7 @@
       "@/components/tradingview-chart"
     ],
     "routes": [],
-    "hash": "d5e1bbee5a66e53b"
+    "hash": "aa69637e1887acc8"
   },
   {
     "path": "artifacts/scanner/src/pages/indices.tsx",
@@ -9325,7 +9638,7 @@
   {
     "path": "artifacts/scanner/src/pages/oi-lab.tsx",
     "purpose": "ui-page",
-    "lines": 4664,
+    "lines": 4670,
     "exports": [],
     "externalImports": [
       "react",
@@ -9340,12 +9653,12 @@
       "lucide-react"
     ],
     "routes": [],
-    "hash": "2f28997c678ede55"
+    "hash": "88ee526d7ba8be3a"
   },
   {
     "path": "artifacts/scanner/src/pages/option-chain.tsx",
     "purpose": "ui-page",
-    "lines": 1440,
+    "lines": 1441,
     "exports": [],
     "externalImports": [
       "react",
@@ -9360,12 +9673,12 @@
       "@/components/ui/unified-grade-chip"
     ],
     "routes": [],
-    "hash": "6bdd4cd9fb6951aa"
+    "hash": "c68991c873f74c7d"
   },
   {
     "path": "artifacts/scanner/src/pages/options.tsx",
     "purpose": "ui-page",
-    "lines": 1743,
+    "lines": 1776,
     "exports": [],
     "externalImports": [
       "@/components/ui/card",
@@ -9380,7 +9693,7 @@
       "date-fns"
     ],
     "routes": [],
-    "hash": "b2cccb4e4fcb15ff"
+    "hash": "edb7763f23f55ad6"
   },
   {
     "path": "artifacts/scanner/src/pages/paper-reports.tsx",
@@ -9405,10 +9718,11 @@
   {
     "path": "artifacts/scanner/src/pages/paper-trading.tsx",
     "purpose": "ui-page",
-    "lines": 3005,
+    "lines": 3052,
     "exports": [],
     "externalImports": [
       "react",
+      "lucide-react",
       "@tanstack/react-query",
       "@/components/seo",
       "@/components/ui/button",
@@ -9416,16 +9730,15 @@
       "@/components/ui/tabs",
       "@/components/paper-combo-segment",
       "@/components/ui/skeleton",
-      "@/hooks/use-toast",
-      "@/lib/fno/targetStatus"
+      "@/hooks/use-toast"
     ],
     "routes": [],
-    "hash": "adc26911ec1557e4"
+    "hash": "aa1dbb6941f6aca6"
   },
   {
     "path": "artifacts/scanner/src/pages/portfolio-analyser.tsx",
     "purpose": "ui-page",
-    "lines": 779,
+    "lines": 795,
     "exports": [],
     "externalImports": [
       "react",
@@ -9440,7 +9753,7 @@
       "@/components/portfolio/upload-modal"
     ],
     "routes": [],
-    "hash": "819b4da47ae05fcd"
+    "hash": "e34121385699470f"
   },
   {
     "path": "artifacts/scanner/src/pages/premarket.tsx",
@@ -9465,7 +9778,7 @@
   {
     "path": "artifacts/scanner/src/pages/scanner.tsx",
     "purpose": "ui-page",
-    "lines": 840,
+    "lines": 842,
     "exports": [],
     "externalImports": [
       "wouter",
@@ -9480,7 +9793,7 @@
       "@/components/ui/data-source-badge"
     ],
     "routes": [],
-    "hash": "992f96739df3488c"
+    "hash": "fd7835fb5801195d"
   },
   {
     "path": "artifacts/scanner/src/pages/secrets-vault.tsx",
@@ -9502,7 +9815,7 @@
   {
     "path": "artifacts/scanner/src/pages/sector-detail.tsx",
     "purpose": "ui-page",
-    "lines": 135,
+    "lines": 137,
     "exports": [],
     "externalImports": [
       "wouter",
@@ -9516,7 +9829,7 @@
       "lucide-react"
     ],
     "routes": [],
-    "hash": "dafbd1f2fc42eea7"
+    "hash": "dc935be789df639e"
   },
   {
     "path": "artifacts/scanner/src/pages/sectors.tsx",
@@ -9556,7 +9869,7 @@
   {
     "path": "artifacts/scanner/src/pages/stock-detail.tsx",
     "purpose": "ui-page",
-    "lines": 682,
+    "lines": 702,
     "exports": [],
     "externalImports": [
       "wouter",
@@ -9571,7 +9884,7 @@
       "@/components/ui/signal-badge"
     ],
     "routes": [],
-    "hash": "4fc740eceae147f1"
+    "hash": "e17873fb78708d5e"
   },
   {
     "path": "artifacts/scanner/src/pages/stocks-to-watch.tsx",
@@ -9657,7 +9970,7 @@
   {
     "path": "artifacts/scanner/src/pages/watchlist.tsx",
     "purpose": "ui-page",
-    "lines": 596,
+    "lines": 606,
     "exports": [],
     "externalImports": [
       "react",
@@ -9672,7 +9985,7 @@
       "lucide-react"
     ],
     "routes": [],
-    "hash": "017b6d15a14bd56f"
+    "hash": "e25e59a5b181e109"
   },
   {
     "path": "lib/db/src/schema/appState.ts",

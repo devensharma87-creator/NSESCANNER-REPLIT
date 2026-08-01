@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-28T10:22:18.442Z",
+  "generatedAt": "2026-08-01T15:17:50.693Z",
   "generatorVersion": "1.0.0",
   "files": {
     "artifacts/api-server/src/routes/admin.ts": {
@@ -183,9 +183,9 @@
       "mtime": "2026-04-28T06:41:06.365Z"
     },
     "artifacts/api-server/src/routes/systemStatus.ts": {
-      "hash": "24ccb77c8a4c0eb8",
-      "lines": 119,
-      "mtime": "2026-07-18T09:30:59.872Z"
+      "hash": "2e5dd262bb2f3b72",
+      "lines": 123,
+      "mtime": "2026-07-31T13:49:19.966Z"
     },
     "artifacts/api-server/src/routes/tradingview.ts": {
       "hash": "040bb20ddfd1aa73",
@@ -198,9 +198,9 @@
       "mtime": "2026-05-05T15:19:11.895Z"
     },
     "artifacts/api-server/src/lib/alerting.ts": {
-      "hash": "9f7c4eeffbe2e262",
-      "lines": 441,
-      "mtime": "2026-07-18T09:30:59.856Z"
+      "hash": "f1e4340d8698093a",
+      "lines": 538,
+      "mtime": "2026-07-31T12:50:25.755Z"
     },
     "artifacts/api-server/src/lib/appStateStore.ts": {
       "hash": "f063204b40d05824",
@@ -333,9 +333,9 @@
       "mtime": "2026-07-18T09:30:59.857Z"
     },
     "artifacts/api-server/src/lib/clockDrift.ts": {
-      "hash": "9f0704ece3b1a5ba",
-      "lines": 161,
-      "mtime": "2026-07-18T09:30:59.857Z"
+      "hash": "1f6558a350f48d61",
+      "lines": 307,
+      "mtime": "2026-07-31T12:21:50.075Z"
     },
     "artifacts/api-server/src/lib/compositeBias.ts": {
       "hash": "ec12730293a6ca5d",
@@ -343,9 +343,9 @@
       "mtime": "2026-06-01T13:32:49.391Z"
     },
     "artifacts/api-server/src/lib/confluenceEngine.ts": {
-      "hash": "6577c85a6f2dd092",
-      "lines": 285,
-      "mtime": "2026-07-27T07:51:08.477Z"
+      "hash": "85d371dd560c6411",
+      "lines": 293,
+      "mtime": "2026-07-28T13:53:40.551Z"
     },
     "artifacts/api-server/src/lib/contractMasterFact.ts": {
       "hash": "89133e49d5a02e4f",
@@ -358,9 +358,9 @@
       "mtime": "2026-04-29T13:07:30.486Z"
     },
     "artifacts/api-server/src/lib/dailyReports.ts": {
-      "hash": "343916b5b4702a6f",
-      "lines": 1686,
-      "mtime": "2026-07-18T09:30:59.858Z"
+      "hash": "3835915a8036b669",
+      "lines": 1689,
+      "mtime": "2026-07-31T10:20:28.800Z"
     },
     "artifacts/api-server/src/lib/dataParity/classify.ts": {
       "hash": "176a5e6160adaac1",
@@ -383,9 +383,9 @@
       "mtime": "2026-04-23T13:16:10.482Z"
     },
     "artifacts/api-server/src/lib/deepscan.ts": {
-      "hash": "2f7b162db43499bc",
-      "lines": 511,
-      "mtime": "2026-06-17T03:43:06.642Z"
+      "hash": "1c0253b76c6fbc35",
+      "lines": 514,
+      "mtime": "2026-07-31T10:20:30.748Z"
     },
     "artifacts/api-server/src/lib/diskCache.ts": {
       "hash": "f3994ec83bc4e1aa",
@@ -398,9 +398,9 @@
       "mtime": "2026-07-09T11:14:56.101Z"
     },
     "artifacts/api-server/src/lib/eodReconciliation.ts": {
-      "hash": "6137ddeb1abf9fc5",
-      "lines": 214,
-      "mtime": "2026-07-18T09:30:59.858Z"
+      "hash": "36ed4c56b581727d",
+      "lines": 257,
+      "mtime": "2026-07-31T12:50:50.039Z"
     },
     "artifacts/api-server/src/lib/equityFillEvidence.ts": {
       "hash": "d2cd00f2b4e89326",
@@ -723,14 +723,14 @@
       "mtime": "2026-07-10T08:04:01.125Z"
     },
     "artifacts/api-server/src/lib/marketData/diagnostics.ts": {
-      "hash": "9f86b4403ec60390",
-      "lines": 202,
-      "mtime": "2026-07-18T09:30:59.865Z"
+      "hash": "a781039607fc0407",
+      "lines": 211,
+      "mtime": "2026-07-31T13:49:14.516Z"
     },
     "artifacts/api-server/src/lib/marketData/freshness.ts": {
-      "hash": "39442af0a5975a89",
-      "lines": 45,
-      "mtime": "2026-06-09T10:45:23.940Z"
+      "hash": "48ba048286206890",
+      "lines": 127,
+      "mtime": "2026-07-31T14:47:13.652Z"
     },
     "artifacts/api-server/src/lib/marketData/guard.ts": {
       "hash": "45ff49f48830fa04",
@@ -778,9 +778,9 @@
       "mtime": "2026-06-22T12:58:01.190Z"
     },
     "artifacts/api-server/src/lib/marketData/instrumentsIntegrity.ts": {
-      "hash": "f9f0f8bff3b260bc",
-      "lines": 229,
-      "mtime": "2026-07-18T09:30:59.865Z"
+      "hash": "da9754f2d50638b7",
+      "lines": 262,
+      "mtime": "2026-07-31T12:26:38.272Z"
     },
     "artifacts/api-server/src/lib/marketData/kiteProvider.ts": {
       "hash": "d15c6a2a6146f88a",
@@ -793,9 +793,9 @@
       "mtime": "2026-06-10T11:57:46.093Z"
     },
     "artifacts/api-server/src/lib/marketData/optionChainProvider.ts": {
-      "hash": "d04fe5c17ecf384c",
-      "lines": 374,
-      "mtime": "2026-06-17T03:43:06.652Z"
+      "hash": "0ac31f695ee2ef01",
+      "lines": 385,
+      "mtime": "2026-07-31T14:47:54.268Z"
     },
     "artifacts/api-server/src/lib/marketData/policy.ts": {
       "hash": "453e15ca9c4e2535",
@@ -806,6 +806,11 @@
       "hash": "18b2ceb92a9922e3",
       "lines": 130,
       "mtime": "2026-06-09T12:49:16.021Z"
+    },
+    "artifacts/api-server/src/lib/marketData/providerCapability.ts": {
+      "hash": "5189da33818fc210",
+      "lines": 257,
+      "mtime": "2026-07-31T13:47:54.752Z"
     },
     "artifacts/api-server/src/lib/marketData/providerImportGuard.ts": {
       "hash": "f55185f43a5e8c93",
@@ -843,9 +848,9 @@
       "mtime": "2026-07-18T09:30:59.865Z"
     },
     "artifacts/api-server/src/lib/marketData/types.ts": {
-      "hash": "822408c558b50164",
-      "lines": 358,
-      "mtime": "2026-07-02T06:15:25.520Z"
+      "hash": "7a97feaf63f07af4",
+      "lines": 366,
+      "mtime": "2026-07-31T14:47:17.018Z"
     },
     "artifacts/api-server/src/lib/marketData/validationStats.ts": {
       "hash": "d8b6d73e6f060eff",
@@ -853,9 +858,9 @@
       "mtime": "2026-06-09T11:48:01.970Z"
     },
     "artifacts/api-server/src/lib/marketData/validator.ts": {
-      "hash": "4622a8b6dc0f4faf",
-      "lines": 109,
-      "mtime": "2026-06-15T06:32:57.294Z"
+      "hash": "46941e54420139c3",
+      "lines": 118,
+      "mtime": "2026-07-31T14:47:47.203Z"
     },
     "artifacts/api-server/src/lib/marketDataHealth.ts": {
       "hash": "ad99c1a0836f91a6",
@@ -863,9 +868,9 @@
       "mtime": "2026-07-01T13:27:56.757Z"
     },
     "artifacts/api-server/src/lib/marketEvents.ts": {
-      "hash": "c3dbfa5d7ee2c6de",
-      "lines": 452,
-      "mtime": "2026-07-22T15:12:09.209Z"
+      "hash": "5ee7e507af946ac7",
+      "lines": 454,
+      "mtime": "2026-07-31T10:20:34.368Z"
     },
     "artifacts/api-server/src/lib/marketTrend.ts": {
       "hash": "c5e8780fbb95122e",
@@ -873,9 +878,9 @@
       "mtime": "2026-06-17T03:43:06.658Z"
     },
     "artifacts/api-server/src/lib/newsRss.ts": {
-      "hash": "ddfda6e66a55fbb6",
-      "lines": 204,
-      "mtime": "2026-04-25T08:52:15.917Z"
+      "hash": "59599a65b5b2ab52",
+      "lines": 206,
+      "mtime": "2026-07-31T10:20:36.476Z"
     },
     "artifacts/api-server/src/lib/notifications/deadSymbolNotifier.ts": {
       "hash": "29c481c664e238bb",
@@ -928,9 +933,9 @@
       "mtime": "2026-07-18T20:00:48.859Z"
     },
     "artifacts/api-server/src/lib/optionSignalVetoes.ts": {
-      "hash": "0b76158cacd9eeff",
-      "lines": 291,
-      "mtime": "2026-06-10T15:11:31.826Z"
+      "hash": "bba26a88ffe65c42",
+      "lines": 304,
+      "mtime": "2026-07-28T13:53:55.816Z"
     },
     "artifacts/api-server/src/lib/optionSignals.legacyEmit.bak.ts": {
       "hash": "ded11557380eae0e",
@@ -938,9 +943,9 @@
       "mtime": "2026-05-06T14:27:23.697Z"
     },
     "artifacts/api-server/src/lib/optionSignals.ts": {
-      "hash": "6e4589c8629dc1d0",
-      "lines": 3559,
-      "mtime": "2026-07-28T10:18:56.999Z"
+      "hash": "71d4658d8e55fff4",
+      "lines": 3577,
+      "mtime": "2026-07-31T13:48:11.280Z"
     },
     "artifacts/api-server/src/lib/optionSnapshotAnalytics.ts": {
       "hash": "6f46087c9cd95893",
@@ -1003,9 +1008,9 @@
       "mtime": "2026-07-18T09:30:59.868Z"
     },
     "artifacts/api-server/src/lib/paperTradingCombo.ts": {
-      "hash": "34825b318a617d5b",
-      "lines": 658,
-      "mtime": "2026-05-13T14:26:02.749Z"
+      "hash": "55ed0e780b5c5f56",
+      "lines": 664,
+      "mtime": "2026-07-31T13:48:14.972Z"
     },
     "artifacts/api-server/src/lib/paperTradingEq.ts": {
       "hash": "e4e2fa725a400957",
@@ -1083,9 +1088,9 @@
       "mtime": "2026-06-09T08:08:46.625Z"
     },
     "artifacts/api-server/src/lib/stocksToWatch.ts": {
-      "hash": "ca93c7a96dffe27b",
-      "lines": 312,
-      "mtime": "2026-04-25T09:01:07.488Z"
+      "hash": "b2da29cd0d885f7f",
+      "lines": 314,
+      "mtime": "2026-07-31T10:20:38.094Z"
     },
     "artifacts/api-server/src/lib/swingAlerts.ts": {
       "hash": "0df8eac61b836d69",
@@ -1203,9 +1208,9 @@
       "mtime": "2026-07-02T17:07:11.982Z"
     },
     "artifacts/api-server/src/lib/symbolAlias.ts": {
-      "hash": "f0a968f08fcaaa2e",
-      "lines": 256,
-      "mtime": "2026-06-17T03:43:06.666Z"
+      "hash": "72ba18e8e6735b86",
+      "lines": 258,
+      "mtime": "2026-07-31T10:20:32.255Z"
     },
     "artifacts/api-server/src/lib/systemAlertDedup.ts": {
       "hash": "832d6ad043c16721",
@@ -1253,9 +1258,9 @@
       "mtime": "2026-07-02T11:43:31.686Z"
     },
     "artifacts/api-server/src/lib/tradeLifecycle/notificationLog.ts": {
-      "hash": "37d796c32432099e",
-      "lines": 275,
-      "mtime": "2026-07-02T09:57:53.429Z"
+      "hash": "a30bc31155a43847",
+      "lines": 279,
+      "mtime": "2026-07-31T10:20:27.344Z"
     },
     "artifacts/api-server/src/lib/tradeLifecycle/parityFixtures.ts": {
       "hash": "5ebade748010a795",
@@ -1463,14 +1468,14 @@
       "mtime": "2026-07-18T09:30:59.880Z"
     },
     "artifacts/scanner/src/pages/backtest-lab.tsx": {
-      "hash": "ec660c0a2de5f0db",
-      "lines": 2213,
-      "mtime": "2026-07-07T10:38:51.890Z"
+      "hash": "c3f9c7f4512db84a",
+      "lines": 2227,
+      "mtime": "2026-08-01T13:21:09.425Z"
     },
     "artifacts/scanner/src/pages/charting.tsx": {
-      "hash": "03e1a10b04e5283f",
-      "lines": 914,
-      "mtime": "2026-06-22T12:58:01.206Z"
+      "hash": "5d624f5e8756c1cf",
+      "lines": 930,
+      "mtime": "2026-08-01T13:21:40.995Z"
     },
     "artifacts/scanner/src/pages/daily-analysis.tsx": {
       "hash": "6ca4a3d03d6c3398",
@@ -1498,9 +1503,9 @@
       "mtime": "2026-06-30T10:32:18.660Z"
     },
     "artifacts/scanner/src/pages/index-detail.tsx": {
-      "hash": "d5e1bbee5a66e53b",
-      "lines": 331,
-      "mtime": "2026-05-06T06:23:00.097Z"
+      "hash": "aa69637e1887acc8",
+      "lines": 366,
+      "mtime": "2026-08-01T14:00:28.009Z"
     },
     "artifacts/scanner/src/pages/indices.tsx": {
       "hash": "f2e05710b018ed81",
@@ -1558,19 +1563,19 @@
       "mtime": "2026-04-25T10:50:27.745Z"
     },
     "artifacts/scanner/src/pages/oi-lab.tsx": {
-      "hash": "2f28997c678ede55",
-      "lines": 4664,
-      "mtime": "2026-06-17T03:43:06.672Z"
+      "hash": "88ee526d7ba8be3a",
+      "lines": 4670,
+      "mtime": "2026-08-01T13:28:20.466Z"
     },
     "artifacts/scanner/src/pages/option-chain.tsx": {
-      "hash": "6bdd4cd9fb6951aa",
-      "lines": 1440,
-      "mtime": "2026-07-18T09:30:59.882Z"
+      "hash": "c68991c873f74c7d",
+      "lines": 1441,
+      "mtime": "2026-08-01T13:20:48.516Z"
     },
     "artifacts/scanner/src/pages/options.tsx": {
-      "hash": "b2cccb4e4fcb15ff",
-      "lines": 1743,
-      "mtime": "2026-07-28T07:19:02.135Z"
+      "hash": "edb7763f23f55ad6",
+      "lines": 1776,
+      "mtime": "2026-08-01T14:24:52.221Z"
     },
     "artifacts/scanner/src/pages/paper-reports.tsx": {
       "hash": "bdf9cdfe4482b23a",
@@ -1578,14 +1583,14 @@
       "mtime": "2026-06-05T10:47:11.422Z"
     },
     "artifacts/scanner/src/pages/paper-trading.tsx": {
-      "hash": "adc26911ec1557e4",
-      "lines": 3005,
-      "mtime": "2026-07-22T15:12:09.469Z"
+      "hash": "aa1dbb6941f6aca6",
+      "lines": 3052,
+      "mtime": "2026-08-01T14:00:56.809Z"
     },
     "artifacts/scanner/src/pages/portfolio-analyser.tsx": {
-      "hash": "819b4da47ae05fcd",
-      "lines": 779,
-      "mtime": "2026-06-22T12:58:01.207Z"
+      "hash": "e34121385699470f",
+      "lines": 795,
+      "mtime": "2026-08-01T13:24:11.855Z"
     },
     "artifacts/scanner/src/pages/premarket.tsx": {
       "hash": "78f7b56bbd735042",
@@ -1593,9 +1598,9 @@
       "mtime": "2026-07-18T09:30:59.883Z"
     },
     "artifacts/scanner/src/pages/scanner.tsx": {
-      "hash": "992f96739df3488c",
-      "lines": 840,
-      "mtime": "2026-07-18T09:30:59.884Z"
+      "hash": "fd7835fb5801195d",
+      "lines": 842,
+      "mtime": "2026-08-01T12:49:28.115Z"
     },
     "artifacts/scanner/src/pages/secrets-vault.tsx": {
       "hash": "9c738ee99c2319a9",
@@ -1603,9 +1608,9 @@
       "mtime": "2026-07-18T09:30:59.884Z"
     },
     "artifacts/scanner/src/pages/sector-detail.tsx": {
-      "hash": "dafbd1f2fc42eea7",
-      "lines": 135,
-      "mtime": "2026-07-18T09:30:59.884Z"
+      "hash": "dc935be789df639e",
+      "lines": 137,
+      "mtime": "2026-08-01T13:23:14.287Z"
     },
     "artifacts/scanner/src/pages/sectors.tsx": {
       "hash": "91d1bf0b2ac6fe65",
@@ -1618,9 +1623,9 @@
       "mtime": "2026-05-15T06:49:50.193Z"
     },
     "artifacts/scanner/src/pages/stock-detail.tsx": {
-      "hash": "4fc740eceae147f1",
-      "lines": 682,
-      "mtime": "2026-05-13T05:27:09.174Z"
+      "hash": "e17873fb78708d5e",
+      "lines": 702,
+      "mtime": "2026-08-01T13:20:38.399Z"
     },
     "artifacts/scanner/src/pages/stocks-to-watch.tsx": {
       "hash": "580a59153d63c929",
@@ -1643,9 +1648,9 @@
       "mtime": "2026-07-03T21:43:28.001Z"
     },
     "artifacts/scanner/src/pages/watchlist.tsx": {
-      "hash": "017b6d15a14bd56f",
-      "lines": 596,
-      "mtime": "2026-07-18T09:30:59.885Z"
+      "hash": "e25e59a5b181e109",
+      "lines": 606,
+      "mtime": "2026-08-01T12:53:18.237Z"
     },
     "artifacts/scanner/src/lib/auth-api.ts": {
       "hash": "3842281fb9583141",
