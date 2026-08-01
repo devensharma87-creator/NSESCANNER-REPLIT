@@ -344,6 +344,35 @@ export async function stageSwingOrder(
     return { staged: false, status, reason: "SIZING_QTY_ZERO", decision };
   }
 
+  // Idempotency: prevent duplicate active stages for the same (ownerKey, symbol).
+  // Two active stages for the same symbol would double-invest the position. If an
+  // un-expired active stage already exists, return it rather than inserting again.
+  const existingActive = await db
+    .select()
+    .from(swingOrderStagingTable)
+    .where(
+      and(
+        eq(swingOrderStagingTable.ownerKey, input.ownerKey),
+        eq(swingOrderStagingTable.symbol, candidate.symbol),
+        inArray(swingOrderStagingTable.status, [...ACTIVE_STATUSES]),
+        gt(swingOrderStagingTable.expiresAt, now),
+      ),
+    )
+    .limit(1);
+  if (existingActive.length > 0) {
+    logger.info(
+      { symbol: candidate.symbol, existingId: existingActive[0]!.id, existingStatus: existingActive[0]!.status },
+      "stageSwingOrder: idempotency — returning existing active stage",
+    );
+    return {
+      staged: false,
+      status: existingActive[0]!.status as SwingOrderStatus,
+      reason: "DUPLICATE_ACTIVE_STAGE",
+      decision,
+      row: existingActive[0],
+    };
+  }
+
   const snapshot: SwingStagedSnapshot = { candidate, portfolioState: input.portfolioState };
   const values: NewSwingOrderStagingRow = {
     ownerKey: input.ownerKey,

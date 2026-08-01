@@ -1,3 +1,4 @@
+- [Pack 3 swing lifecycle closure](pack3-swing-lifecycle-closure.md) — D01 stageSwingOrder idempotency + 172 tests (Gates H–K,M,N); ACCEPTED 2026-08-01; api-server 4916, scanner 930.
 - [B2.1 Core UI data-state accuracy](b2-1-ui-data-state.md) — 9 defects fixed (null direction, isError, staleTime, breadth null-exclusion, coverage null-guard); DataProvenanceBadge + 42 pure-function tests; ACCEPTED 2026-08-01.
 - [B1.1 Canonical data backbone](b1-canonical-data-backbone.md) — providerCapability.ts + capability enum; optionSignals+paperTradingCombo migrated to getOptionChain("TRADE_GRADE"); C1/C2/C3 closure gates ALL PASSED; ACCEPTED 2026-07-31.
 - [Future-timestamp gate (B1.1-C1)](future-timestamp-gate.md) — computeFreshness CLOCK_SKEW_TOLERANCE_SEC=5; isFutureTimestamp propagates freshness→DataMeta→optionChainProvider; fetchKiteOnly rejects future chains fail-closed before cache.

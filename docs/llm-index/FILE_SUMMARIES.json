@@ -4712,6 +4712,62 @@
     "hash": "32566508b00662f4"
   },
   {
+    "path": "artifacts/api-server/src/lib/p21.swingCohortReconciliation.test.ts",
+    "purpose": "test",
+    "lines": 344,
+    "exports": [],
+    "externalImports": [
+      "vitest"
+    ],
+    "routes": [],
+    "hash": "34588a7942ad301b"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/p21.swingEqMonitorExit.test.ts",
+    "purpose": "test",
+    "lines": 393,
+    "exports": [],
+    "externalImports": [
+      "vitest"
+    ],
+    "routes": [],
+    "hash": "cdc9f55f6c4641ef"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/p21.swingPnlCharges.test.ts",
+    "purpose": "test",
+    "lines": 304,
+    "exports": [],
+    "externalImports": [
+      "vitest"
+    ],
+    "routes": [],
+    "hash": "86b4beaae69fb086"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/p21.swingSchemaRoutes.test.ts",
+    "purpose": "test",
+    "lines": 542,
+    "exports": [],
+    "externalImports": [
+      "vitest"
+    ],
+    "routes": [],
+    "hash": "99549d33ca0cf243"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/p21.swingTelegramParity.test.ts",
+    "purpose": "test",
+    "lines": 325,
+    "exports": [],
+    "externalImports": [
+      "vitest",
+      "@workspace/db/schema"
+    ],
+    "routes": [],
+    "hash": "670da4bbc570a2a8"
+  },
+  {
     "path": "artifacts/api-server/src/lib/paperAccount.riskPct.test.ts",
     "purpose": "test",
     "lines": 51,
@@ -6022,7 +6078,7 @@
   {
     "path": "artifacts/api-server/src/lib/swingOrderStaging.ts",
     "purpose": "swing-engine",
-    "lines": 885,
+    "lines": 914,
     "exports": [
       "SwingOrderStatus",
       "SwingApprovalStatus",
@@ -6050,7 +6106,7 @@
       "@workspace/db"
     ],
     "routes": [],
-    "hash": "7a5aebaec426f8d2"
+    "hash": "1dc4b881b688fd2d"
   },
   {
     "path": "artifacts/api-server/src/lib/swingRegressionGate.test.ts",
