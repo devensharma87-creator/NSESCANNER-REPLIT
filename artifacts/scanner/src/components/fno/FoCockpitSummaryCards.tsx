@@ -14,6 +14,7 @@
  * read "n/a" with the honest reason "premium path not recorded" rather than
  * fabricating a value or counting placeholder 0s.
  */
+import { AlertTriangle } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toNum, type FoCockpitSummary, type P25Headline, type FoTradeRow } from "@/lib/foCockpitView";
@@ -40,11 +41,16 @@ export function FoCockpitSummaryCards({
   p25,
   loading,
   error,
+  isStale = false,
 }: {
   summary: FoCockpitSummary | null;
   p25: P25Headline;
   loading: boolean;
   error: string | null;
+  /** True when a background refetch failed but stale cached data is still present.
+   *  The data is shown with a visible stale indicator rather than hidden behind
+   *  an amber "metrics unavailable" box — preserves the B2.2-D-168 contract. */
+  isStale?: boolean;
 }) {
   return (
     <Card>
@@ -54,18 +60,32 @@ export function FoCockpitSummaryCards({
       <CardContent className="space-y-4">
         <P25Headline25 p25={p25} />
 
-        {error ? (
-          <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+        {/* INITIAL_ERROR_WITHOUT_DATA: no cached data — show amber box */}
+        {error && !isStale ? (
+          <div
+            className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-200"
+            data-testid="summary-error"
+          >
             Summary metrics unavailable: {error}
           </div>
         ) : loading || !summary ? (
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4" data-testid="summary-loading">
             {Array.from({ length: 8 }).map((_, i) => (
               <Skeleton key={i} className="h-16 w-full" />
             ))}
           </div>
         ) : (
           <>
+            {/* REFETCH_ERROR_WITH_USABLE_CACHED_DATA: data shown with stale banner */}
+            {isStale && (
+              <div
+                className="flex items-center gap-1.5 rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-1.5 text-[11px] text-amber-400"
+                data-testid="summary-stale"
+              >
+                <AlertTriangle className="h-3 w-3 shrink-0" />
+                Background refresh failed — showing last-known values
+              </div>
+            )}
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
               <Tile
                 label="Open positions"

@@ -31,8 +31,11 @@ interface IndexDetail {
   name: string;
   yahoo: string;
   price: number;
-  change: number;
-  changePercent: number;
+  // change and changePercent are typed number in the API schema but CAN be null
+  // at runtime (e.g. first bar of session, no prior close). Typed as | null so
+  // every consumer is forced to guard — the B2.2-D-167 class of bug.
+  change: number | null;
+  changePercent: number | null;
   open?: number;
   high?: number;
   low?: number;
@@ -86,7 +89,13 @@ export default function IndexDetail() {
     );
   }
 
-  const up = data.changePercent >= 0;
+  // B2.2-D-167: changePercent is typed number but can be null at runtime.
+  // null >= 0 coerces to true via ?? 0 or direct compare — explicitly guard.
+  const hasFiniteChange =
+    data.changePercent != null && Number.isFinite(data.changePercent);
+  const up = hasFiniteChange
+    ? (data.changePercent as number) >= 0
+    : null; // null = no-data → neutral/muted presentation
   const total = data.breadth.advancers + data.breadth.decliners + data.breadth.unchanged;
   const advPct = total > 0 ? (data.breadth.advancers / total) * 100 : 0;
   const decPct = total > 0 ? (data.breadth.decliners / total) * 100 : 0;
@@ -105,9 +114,20 @@ export default function IndexDetail() {
         <div className="mt-1 flex flex-wrap items-baseline gap-3">
           <h1 className="text-3xl font-bold font-mono tracking-tight">{data.name}</h1>
           <span className="text-2xl font-mono font-bold tabular-nums">{fmtIN(data.price)}</span>
-          <span className={`text-base font-mono font-semibold inline-flex items-center gap-1 ${up ? "text-signal-strong-buy" : "text-signal-strong-sell"}`}>
-            {up ? <TrendingUp className="w-4 h-4" /> : <TrendingDown className="w-4 h-4" />}
-            {data.change >= 0 ? "+" : ""}{fmtIN(data.change)} ({data.changePercent >= 0 ? "+" : ""}{data.changePercent.toFixed(2)}%)
+          {/* B2.2-D-167: null or non-finite → no icon, muted colour, "—" */}
+          <span className={`text-base font-mono font-semibold inline-flex items-center gap-1 ${
+            up === true ? "text-signal-strong-buy" :
+            up === false ? "text-signal-strong-sell" :
+            "text-muted-foreground"
+          }`} data-testid="index-change-header">
+            {up === true && <TrendingUp className="w-4 h-4" />}
+            {up === false && <TrendingDown className="w-4 h-4" />}
+            {data.change != null && Number.isFinite(data.change)
+              ? `${data.change >= 0 ? "+" : ""}${fmtIN(data.change)}`
+              : "—"}
+            {" "}({hasFiniteChange
+              ? `${(data.changePercent as number) >= 0 ? "+" : ""}${(data.changePercent as number).toFixed(2)}%`
+              : "—"})
           </span>
         </div>
       </div>
@@ -186,8 +206,15 @@ export default function IndexDetail() {
                       <div className="text-[10px] text-muted-foreground truncate max-w-[180px]">{s.name}</div>
                     </TableCell>
                     <TableCell className="text-right font-mono tabular-nums">{fmtIN(s.quote.price)}</TableCell>
-                    <TableCell className={`text-right font-mono tabular-nums ${s.quote.changePercent >= 0 ? "text-signal-strong-buy" : "text-signal-strong-sell"}`}>
-                      {s.quote.changePercent >= 0 ? "+" : ""}{s.quote.changePercent.toFixed(2)}%
+                    {/* B2.2-D-167: constituent changePercent typed number but can be null at runtime. */}
+                    <TableCell className={`text-right font-mono tabular-nums ${
+                      (s.quote.changePercent as number | null) == null || !Number.isFinite(s.quote.changePercent)
+                        ? "text-muted-foreground"
+                        : s.quote.changePercent >= 0 ? "text-signal-strong-buy" : "text-signal-strong-sell"
+                    }`} data-testid={`chg-${s.symbol}`}>
+                      {(s.quote.changePercent as number | null) != null && Number.isFinite(s.quote.changePercent)
+                        ? `${s.quote.changePercent >= 0 ? "+" : ""}${s.quote.changePercent.toFixed(2)}%`
+                        : "—"}
                     </TableCell>
                     <TableCell className="text-right font-mono tabular-nums">{s.indicators?.rsi14?.toFixed(1) ?? "—"}</TableCell>
                     <TableCell className="text-right font-mono tabular-nums">{s.indicators?.volumeRatio != null ? `${s.indicators.volumeRatio.toFixed(1)}×` : "—"}</TableCell>
@@ -206,7 +233,8 @@ export default function IndexDetail() {
   );
 }
 
-function ConstituentTable({ title, rows }: { title: string; rows: StockRow[] }) {
+// Named export so component-level tests can import and render it directly.
+export function ConstituentTable({ title, rows }: { title: string; rows: StockRow[] }) {
   return (
     <Card>
       <CardHeader className="pb-2"><CardTitle className="text-sm font-mono">{title}</CardTitle></CardHeader>
@@ -219,8 +247,15 @@ function ConstituentTable({ title, rows }: { title: string; rows: StockRow[] }) 
             </div>
             <div className="text-right">
               <div className="font-mono tabular-nums text-sm">{fmtIN(s.quote.price)}</div>
-              <div className={`font-mono text-[11px] ${s.quote.changePercent >= 0 ? "text-signal-strong-buy" : "text-signal-strong-sell"}`}>
-                {s.quote.changePercent >= 0 ? "+" : ""}{s.quote.changePercent.toFixed(2)}%
+              {/* B2.2-D-167: null/non-finite changePercent must not be coloured green. */}
+              <div className={`font-mono text-[11px] ${
+                (s.quote.changePercent as number | null) == null || !Number.isFinite(s.quote.changePercent)
+                  ? "text-muted-foreground"
+                  : s.quote.changePercent >= 0 ? "text-signal-strong-buy" : "text-signal-strong-sell"
+              }`} data-testid={`mover-chg-${s.symbol}`}>
+                {(s.quote.changePercent as number | null) != null && Number.isFinite(s.quote.changePercent)
+                  ? `${s.quote.changePercent >= 0 ? "+" : ""}${s.quote.changePercent.toFixed(2)}%`
+                  : "—"}
               </div>
             </div>
           </Link>

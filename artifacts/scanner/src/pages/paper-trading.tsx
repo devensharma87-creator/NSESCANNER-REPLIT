@@ -9,6 +9,7 @@
  * the day's closed trades.
  */
 import { useCallback, useMemo, useState } from "react";
+import { AlertTriangle } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Seo } from "@/components/seo";
 import {
@@ -987,6 +988,35 @@ function GuardrailStatusCard({ account }: { account: PaperAccount }) {
     refetchInterval: 30_000,
   });
 
+  // B2.2-D-168: Distinguish the five required states.
+  // INITIAL_ERROR_WITHOUT_DATA — first fetch failed, skeleton would be misleading.
+  if (summary.isError && !summary.data) {
+    return (
+      <Card>
+        <CardHeader><CardTitle className="text-sm">Why no F&amp;O trade?</CardTitle></CardHeader>
+        <CardContent className="space-y-3">
+          <div
+            className="rounded-md border border-rose-500/40 bg-rose-500/10 px-4 py-3 text-sm text-rose-200"
+            data-testid="guardrail-status-error"
+          >
+            <div className="font-semibold mb-1">Failed to load guardrail status</div>
+            <div className="text-rose-100/80">
+              {summary.error instanceof Error ? summary.error.message : "Unexpected error — please retry."}
+            </div>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => void summary.refetch()}
+            data-testid="guardrail-status-retry"
+          >
+            Retry
+          </Button>
+        </CardContent>
+      </Card>
+    );
+  }
+  // INITIAL_LOADING — first fetch in progress.
   if (summary.isLoading || !summary.data) {
     return (
       <Card>
@@ -995,16 +1025,9 @@ function GuardrailStatusCard({ account }: { account: PaperAccount }) {
       </Card>
     );
   }
-  if (summary.error) {
-    return (
-      <Card>
-        <CardHeader><CardTitle className="text-sm">Why no F&amp;O trade?</CardTitle></CardHeader>
-        <CardContent>
-          <ErrorBlock message={summary.error instanceof Error ? summary.error.message : "failed"} />
-        </CardContent>
-      </Card>
-    );
-  }
+  // From here: summary.data is present. If summary.isError is ALSO true it means
+  // a background refetch failed while old data is still cached (REFETCH_ERROR_WITH_
+  // USABLE_CACHED_DATA). The stale indicator is injected in the Card header below.
 
   const s = summary.data;
   const tradeCap = account.dailyTradeCap;
@@ -1021,6 +1044,16 @@ function GuardrailStatusCard({ account }: { account: PaperAccount }) {
     <Card>
       <CardHeader>
         <CardTitle className="text-sm">Why no F&amp;O trade?</CardTitle>
+        {/* REFETCH_ERROR_WITH_USABLE_CACHED_DATA: stale label inline, data still shown */}
+        {summary.isError && (
+          <div
+            className="mt-1 flex items-center gap-1.5 text-[10px] font-mono text-amber-400"
+            data-testid="guardrail-status-stale"
+          >
+            <AlertTriangle className="w-3 h-3" />
+            Refresh failed — showing last-known values
+          </div>
+        )}
         <CardDescription>
           Live view of today&apos;s safety guardrails and signal-skip reasons.
           The system can be quiet because nothing qualified, or because a
@@ -1799,8 +1832,17 @@ function FOSegment() {
     [mtmSweep.data, cockpitSummary.lastEvaluatedAt, lastClosedAt],
   );
   const summaryLoading = positions.isLoading || trades.isLoading;
-  const summaryError =
-    positions.error instanceof Error
+  // B2.2-D-168: Detect refetch-error-with-cached-data — both .isError and .data
+  // are set simultaneously when a background refetch fails while stale data exists.
+  // In that case, show data + stale label instead of an amber "metrics unavailable" box.
+  const summaryIsStale =
+    (positions.isError && positions.data != null) ||
+    (trades.isError && trades.data != null);
+  // Only surface the error string for INITIAL errors (no cached data).
+  // Refetch errors use summaryIsStale so the data is preserved and labelled.
+  const summaryError = summaryIsStale
+    ? null
+    : positions.error instanceof Error
       ? positions.error.message
       : trades.error instanceof Error
         ? trades.error.message
@@ -1867,6 +1909,7 @@ function FOSegment() {
         p25={p25}
         loading={summaryLoading}
         error={summaryError}
+        isStale={summaryIsStale}
       />
       {account.data && <FoGuardrailLatchBanner account={account.data} />}
       <FoP25EvidencePanel

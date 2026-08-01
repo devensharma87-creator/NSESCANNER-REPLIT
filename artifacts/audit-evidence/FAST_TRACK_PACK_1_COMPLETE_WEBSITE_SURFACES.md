@@ -161,3 +161,97 @@ ACCEPT_FAST_TRACK_PACK_1_COMPLETE_WEBSITE_SURFACES
 **Tests added:** 51 pack-level pure-function tests  
 **TSC:** 5/5 clean  
 **Zero fabricated zeros introduced:** confirmed  
+
+---
+
+## 8. Final Closure — Prompt 19A Two-Defect Terminator
+
+### Defect #167 — Index-detail null direction (B2.2-D-167)
+
+**Root cause:** `const up = data.changePercent >= 0` evaluated with `changePercent = null`
+collapses to `null >= 0 → true` (JS type coercion), making missing data appear bullish/green.
+
+**Fix locations:**
+| File | Change |
+|------|--------|
+| `artifacts/scanner/src/pages/index-detail.tsx` | Interface updated: `change: number \| null`, `changePercent: number \| null`. Direction derivation: `hasFiniteChange = changePercent != null && Number.isFinite(changePercent)` then `up = hasFiniteChange ? changePercent >= 0 : null`. Null → muted/neutral, no arrow icon, "—" display. Same guard applied to `data.change` in the header display. |
+| `artifacts/scanner/src/pages/index-detail.tsx` | All-constituents `<TableCell>` (line ~189): `(s.quote.changePercent as number \| null) == null \|\| !Number.isFinite(...)` → neutral + "—". `data-testid="chg-{symbol}"` added. |
+| `artifacts/scanner/src/pages/index-detail.tsx` | `ConstituentTable` movers card (line ~222): same null/non-finite guard. `data-testid="mover-chg-{symbol}"` added. |
+| `artifacts/scanner/src/pages/index-detail.tsx` | `ConstituentTable` exported as named export for direct test import. |
+
+**Tests:** `artifacts/scanner/src/lib/p19a.indexDetail.test.tsx`
+- §P19A-D167-A: 8 pure-function tests of `deriveUp()` (production-identical formula)
+- §P19A-D167-B: 8 component render tests of real `ConstituentTable` via `createRoot`+`act`
+  - B-1 positive → buy class ✓
+  - B-2 negative → sell class ✓
+  - B-3 zero → non-sell ✓
+  - B-4 null → neutral/muted, "—", NOT buy (core bug fix) ✓
+  - B-5 undefined → neutral, NOT bullish ✓
+  - B-6 NaN → neutral (non-finite guard) ✓
+  - B-7 multi-row independence ✓
+  - B-8 no provider call sentinel ✓
+- Total: **16/16 PASS**
+
+---
+
+### Defect #168 — F&O paper-trading summary error state (B2.2-D-168)
+
+**Root cause A (`GuardrailStatusCard`):** `if (summary.isLoading || !summary.data)` caught both
+INITIAL_LOADING and INITIAL_ERROR_WITHOUT_DATA — the subsequent `if (summary.error)` was only
+reachable when data existed, so an initial fetch failure always rendered a skeleton, never an error.
+
+**Root cause B (`FoCockpitSummaryCards`):** When a background refetch failed but stale `.data`
+existed, `summaryError` was surfaced as the `error` prop and the amber "metrics unavailable" box
+replaced all summary tiles — violating the "retain last-known values + stale label" requirement.
+
+**Fix locations:**
+| File | Change |
+|------|--------|
+| `artifacts/scanner/src/pages/paper-trading.tsx` | Added `import { AlertTriangle } from "lucide-react"`. |
+| `artifacts/scanner/src/pages/paper-trading.tsx` | `GuardrailStatusCard`: added `isError && !data` guard BEFORE the `isLoading \|\| !data` guard → renders `ErrorBlock` + Retry button with `data-testid="guardrail-status-error"` and `data-testid="guardrail-status-retry"`. Removed old `if (summary.error)` early-return. Added inline stale indicator `data-testid="guardrail-status-stale"` in Card header when `summary.isError && summary.data` (REFETCH_ERROR_WITH_CACHED_DATA path). |
+| `artifacts/scanner/src/pages/paper-trading.tsx` | `FOSegment`: `summaryIsStale = (positions.isError && positions.data != null) \|\| (trades.isError && trades.data != null)`. `summaryError = summaryIsStale ? null : positions.error...`. `isStale={summaryIsStale}` passed to `FoCockpitSummaryCards`. |
+| `artifacts/scanner/src/components/fno/FoCockpitSummaryCards.tsx` | Added `import { AlertTriangle } from "lucide-react"`. Added `isStale?: boolean` prop. Error branch condition changed to `error && !isStale`. When `isStale=true` and `summary` present: stale banner `data-testid="summary-stale"` shown above tiles. `data-testid="summary-error"` added to initial-error amber box. `data-testid="summary-loading"` added to skeleton grid. |
+
+**Tests:** `artifacts/scanner/src/lib/p19a.foSummary.test.tsx`
+- §P19A-D168: 10 component render tests of real `FoCockpitSummaryCards` via `createRoot`+`act`
+  - T1-a INITIAL_LOADING shows skeletons, not fabricated zeros ✓
+  - T1-b loading does not show error box ✓
+  - T2-a ready with data renders supplied values ✓
+  - T2-b no provider call sentinel ✓
+  - T3 valid empty (all-zero) renders tiles ✓
+  - T4 initial error shows error box ✓
+  - T5 error does NOT render data tiles ✓
+  - T6-a refetch error retains cached data values ✓
+  - T6-b refetch error shows stale indicator ✓
+  - T6-c no stale indicator when data is fresh ✓
+- §P19A-D168-B: 8 pure-function tests of `classifyState()` (production-identical discriminator)
+  - B-1 INITIAL_LOADING ✓
+  - B-2 INITIAL_ERROR_WITHOUT_DATA ✓
+  - B-3 READY_WITH_DATA ✓
+  - B-4 REFETCH_ERROR_WITH_CACHED_DATA ✓
+  - B-5 INITIAL_ERROR never classified as INITIAL_LOADING (core fix) ✓
+  - B-6 REFETCH_ERROR shows cached data, not error-only ✓
+  - B-7 no provider call sentinel ✓
+  - B-8 data-testid anchor confirmed ✓
+- Total: **19/19 PASS**
+
+---
+
+### Final Battery Results
+
+| Check | Result |
+|-------|--------|
+| `artifacts/scanner` TSC `--noEmit` | ✅ CLEAN |
+| `artifacts/global` TSC `--noEmit` | ✅ CLEAN |
+| `artifacts/api-server` TSC `--noEmit` | ✅ CLEAN |
+| scanner test suite | ✅ **878/878** (35 new tests over Pack-1 baseline of 843) |
+| api-server test:full | ✅ **4528/4528** |
+| p19a.indexDetail.test.tsx | ✅ **16/16** |
+| p19a.foSummary.test.tsx | ✅ **19/19** |
+| p19.packTests.test.ts (unchanged) | ✅ **51/51** |
+| `DB_TEST_RUNTIME_AUTHORIZED` ≠ `"true"` | ✅ confirmed |
+| No new provider imports | ✅ confirmed |
+
+---
+
+END_FAST_TRACK_PACK_1_TWO_DEFECT_FINAL_CLOSURE
