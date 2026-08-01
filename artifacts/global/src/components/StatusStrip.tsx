@@ -221,10 +221,16 @@ function DeadCandidatesPopover({
 }
 
 export function StatusStrip() {
-  const { data } = useGetGlobalSourceStatus({
+  const { data, isLoading } = useGetGlobalSourceStatus({
     query: { queryKey: getGetGlobalSourceStatusQueryKey(), refetchInterval: 30_000, refetchOnWindowFocus: false },
   });
 
+  // B2.1-D7: Distinguish loading from error/empty — don't silently hide both.
+  if (isLoading) {
+    return (
+      <span className="text-xs text-muted-foreground animate-pulse">Connecting to data sources…</span>
+    );
+  }
   if (!data) return null;
 
   const deadCandidates = data.deadCandidates ?? [];
@@ -265,8 +271,9 @@ export function StatusStrip() {
           disabled={disabledInstruments}
         />
       )}
+      {/* B2.1-D6: null counts must show "?" — not 0 (which implies zero instruments). */}
       <span className="text-muted-foreground ml-2">
-        Universe: {data.universeCounts.crypto} crypto · {data.universeCounts.commodity} commodities · {data.universeCounts.forex} forex · {data.universeCounts.equity ?? 0} equities · {data.universeCounts.index ?? 0} indices
+        Universe: {data.universeCounts.crypto ?? "?"} crypto · {data.universeCounts.commodity ?? "?"} commodities · {data.universeCounts.forex ?? "?"} forex · {data.universeCounts.equity ?? "?"} equities · {data.universeCounts.index ?? "?"} indices
       </span>
     </div>
   );

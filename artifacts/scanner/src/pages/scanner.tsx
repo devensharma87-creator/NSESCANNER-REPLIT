@@ -627,13 +627,15 @@ export default function ScannerPage() {
               // overstates reality whenever the broker session is offline
               // or upstream rate-limits cull a portion of each cycle.
               const universe = fullMeta?.universeSize ?? 0;
-              const failures = fullMeta?.failures ?? 0;
-              const live = Math.max(0, universe - failures);
+              // B2.1-D9: Don't default failures to 0 when metadata is absent.
+              // "0 no-feed" is a fabricated zero — show "…" until metadata arrives.
+              const failures = fullMeta != null ? (fullMeta.failures ?? 0) : null;
+              const live = universe && failures != null ? Math.max(0, universe - failures) : 0;
               return (
                 <>
                   Universe <span className="font-mono text-foreground">{universe ? universe.toLocaleString("en-IN") : "…"}</span>
-                  {" · "}live feed <span className="font-mono text-foreground">{universe ? live.toLocaleString("en-IN") : "…"}</span>
-                  {" · "}no feed this cycle <span className="font-mono text-foreground">{failures.toLocaleString("en-IN")}</span>
+                  {" · "}live feed <span className="font-mono text-foreground">{universe && failures != null ? live.toLocaleString("en-IN") : "…"}</span>
+                  {" · "}no feed this cycle <span className="font-mono text-foreground">{failures != null ? failures.toLocaleString("en-IN") : "…"}</span>
                   {" · "}sortable column headers · screen presets narrow the view · hover any row for the top reasons behind its signal.
                 </>
               );

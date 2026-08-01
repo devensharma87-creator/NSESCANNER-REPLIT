@@ -18,6 +18,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { StatusStrip } from "@/components/StatusStrip";
+import { DataProvenanceBadge } from "@/components/ui/DataProvenanceBadge";
 import {
   Star, StarOff, ArrowUpRight, ArrowDownRight, Loader2,
   ArrowUp, ArrowDown, AlertTriangle, Search, X,
@@ -262,9 +263,20 @@ function DashboardTable({
   const qc = useQueryClient();
   const now = useNow();
   const [sort, setSort] = useState<{ key: SortKey; dir: SortDir }>({ key: "changePct", dir: "desc" });
-  const { data, isLoading } = useGetGlobalDashboard(
+  const { data, isLoading, isError } = useGetGlobalDashboard(
     { asset },
-    { query: { queryKey: getGetGlobalDashboardQueryKey({ asset }), refetchInterval: 30_000, refetchOnWindowFocus: false } },
+    {
+      query: {
+        queryKey: getGetGlobalDashboardQueryKey({ asset }),
+        refetchInterval: 30_000,
+        refetchOnWindowFocus: false,
+        // staleTime slightly below refetchInterval to avoid background
+        // refetch storms while still keeping the cache hot.
+        staleTime: 25_000,
+        // Bounded retry: 1 retry on error to avoid amplifying provider outages.
+        retry: 1,
+      },
+    },
   );
   const wl = useGetGlobalWatchlist({ query: { queryKey: getGetGlobalWatchlistQueryKey(), refetchOnWindowFocus: false } });
   const watched = new Set((wl.data?.items ?? []).map((i) => i.symbol));
@@ -342,6 +354,20 @@ function DashboardTable({
     );
   }
 
+  // B2.1-D2: API error must be shown explicitly — not conflated with "warming up" empty state.
+  if (isError) {
+    return (
+      <div className="space-y-3">
+        {filterInput}
+        <Card className="p-8 text-center text-muted-foreground">
+          <AlertTriangle className="h-5 w-5 mx-auto mb-2 text-amber-500" />
+          <p className="text-sm">Could not load market data. The data provider may be temporarily unavailable.</p>
+          <p className="text-xs mt-1 opacity-70">Auto-retrying every 30 seconds.</p>
+        </Card>
+      </div>
+    );
+  }
+
   if (sorted.length === 0) {
     return (
       <div className="space-y-3">
@@ -389,7 +415,10 @@ function DashboardTable({
           </thead>
           <tbody>
             {visible.map((r) => {
-              const up = (r.changePct ?? 0) >= 0;
+              // B2.1-D1: null/missing changePct must NOT be classified as positive (green).
+              // Treat it as unknown direction so the cell renders neutral/muted.
+              const hasChange = r.changePct != null && Number.isFinite(r.changePct);
+              const up = hasChange && r.changePct! >= 0;
               const isWatched = watched.has(r.symbol);
               // Market-status badge is derived client-side from the
               // exchange code the API attaches to equity / index rows.
@@ -440,6 +469,16 @@ function DashboardTable({
                           stale
                         </Badge>
                       )}
+                      {/* B2.1-D8: Yahoo-sourced rows must show "delayed" label — they are
+                          never real-time. Only show when not already showing stale. */}
+                      {!isStale && (
+                        <DataProvenanceBadge
+                          source={r.source}
+                          stale={false}
+                          sourceHealthy={r.sourceHealthy}
+                          ageMs={r.ageMs}
+                        />
+                      )}
                     </div>
                   </td>
                   <td className="px-3 py-2">{r.displayName}</td>
@@ -447,7 +486,8 @@ function DashboardTable({
                     {fmtPrice(r.price ?? null)}
                     {r.currency && <span className="text-xs text-muted-foreground ml-1">{r.currency}</span>}
                   </td>
-                  <td className={`px-3 py-2 text-right font-mono tabular-nums ${isStale ? "text-muted-foreground" : up ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}>
+                  {/* B2.1-D1: use neutral colour when changePct is null/missing. */}
+                  <td className={`px-3 py-2 text-right font-mono tabular-nums ${isStale || !hasChange ? "text-muted-foreground" : up ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}>
                     <span className="inline-flex items-center gap-0.5 justify-end">
                       {!isStale && r.changePct != null && (up ? <ArrowUpRight className="h-3 w-3" /> : <ArrowDownRight className="h-3 w-3" />)}
                       {fmtPct(r.changePct ?? null)}

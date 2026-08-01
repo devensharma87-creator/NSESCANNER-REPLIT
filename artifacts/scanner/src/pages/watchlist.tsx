@@ -115,11 +115,15 @@ export default function Watchlist() {
     });
   }, [rows, filter, trendFilter]);
 
-  // Use the same ±0.05% "flat" threshold as the rest of the app
-  // so summary counts are consistent everywhere.
-  const advancers = rows.filter(r => (r.changePercent ?? 0) > 0.05).length;
-  const decliners = rows.filter(r => (r.changePercent ?? 0) < -0.05).length;
-  const unchanged = rows.length - advancers - decliners;
+  // B2.1-D8: Rows with null changePercent are EXCLUDED from directional counts.
+  // Treating null as 0 (?? 0) incorrectly inflated the "unchanged" bucket and
+  // produced a false breadth conclusion when data was unavailable for some symbols.
+  // "unknown" tracks those rows honestly rather than counting them as flat.
+  const FLAT_THRESHOLD = 0.05; // ±0.05% same threshold as the rest of the app
+  const advancers = rows.filter(r => r.changePercent != null && r.changePercent > FLAT_THRESHOLD).length;
+  const decliners = rows.filter(r => r.changePercent != null && r.changePercent < -FLAT_THRESHOLD).length;
+  const unchanged = rows.filter(r => r.changePercent != null && Math.abs(r.changePercent) <= FLAT_THRESHOLD).length;
+  const noChangeData = rows.filter(r => r.changePercent == null).length;
   const bullCount = rows.filter(r => r.trend?.includes("Bullish")).length;
   const bearCount = rows.filter(r => r.trend?.includes("Bearish")).length;
 
@@ -173,6 +177,12 @@ export default function Watchlist() {
         <Card><CardContent className="p-3">
           <div className="text-[10px] uppercase text-muted-foreground font-mono">Unchanged</div>
           <div className="text-xl font-bold font-mono tabular-nums text-muted-foreground">{unchanged}</div>
+          {/* B2.1-D8: Show "no data" count honestly when some symbols lack change data */}
+          {noChangeData > 0 && (
+            <div className="text-[9px] text-muted-foreground font-mono mt-0.5">
+              +{noChangeData} no data
+            </div>
+          )}
         </CardContent></Card>
         <Card><CardContent className="p-3">
           <div className="text-[10px] uppercase text-muted-foreground font-mono">Trend Bias</div>
