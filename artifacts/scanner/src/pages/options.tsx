@@ -739,8 +739,14 @@ function SetupLifecycleFooter({ sig }: { sig: OptionSignal }) {
       )}
       {(sig.maxFavorableExcursionPts != null || sig.maxAdverseExcursionPts != null) && (
         <div className="flex items-center gap-3 flex-wrap pt-0.5">
-          <span>MFE <span className="text-signal-strong-buy tabular-nums">+{(sig.maxFavorableExcursionPts ?? 0).toFixed(2)}</span> pts</span>
-          <span>MAE <span className="text-signal-strong-sell tabular-nums">-{(sig.maxAdverseExcursionPts ?? 0).toFixed(2)}</span> pts</span>
+          {/* P20-D02: outer guard (||) allows one to be null. Guard each individually
+              to avoid fabricating "0.00" for the missing one. */}
+          {sig.maxFavorableExcursionPts != null && (
+            <span>MFE <span className="text-signal-strong-buy tabular-nums">+{sig.maxFavorableExcursionPts.toFixed(2)}</span> pts</span>
+          )}
+          {sig.maxAdverseExcursionPts != null && (
+            <span>MAE <span className="text-signal-strong-sell tabular-nums">-{sig.maxAdverseExcursionPts.toFixed(2)}</span> pts</span>
+          )}
           {sig.lastSpot != null && (
             <span className="text-muted-foreground/70">last spot {sig.lastSpot.toFixed(2)}</span>
           )}
@@ -836,9 +842,15 @@ function useTriggerToasts(signals: OptionSignal[] | undefined) {
 
       const side = s.leg.type === "CALL" ? "CE" : "PE";
       const dirIcon = s.leg.type === "CALL" ? "BUY CALL" : "BUY PUT";
-      const optBlock = s.optionEntry != null
-        ? `Opt entry ₹${s.optionEntry.toFixed(2)} · T1 ₹${(s.optionTarget1 ?? 0).toFixed(2)} · SL ₹${(s.optionStopLoss ?? 0).toFixed(2)}`
-        : "";
+      // P20-D03: fabricated "T1 ₹0.00 · SL ₹0.00" when target/stop are null.
+      // Build the opt block incrementally — only include T1/SL when actually present.
+      let optBlock = "";
+      if (s.optionEntry != null) {
+        const optParts = [`Opt entry ₹${s.optionEntry.toFixed(2)}`];
+        if (s.optionTarget1 != null) optParts.push(`T1 ₹${s.optionTarget1.toFixed(2)}`);
+        if (s.optionStopLoss != null) optParts.push(`SL ₹${s.optionStopLoss.toFixed(2)}`);
+        optBlock = optParts.join(" · ");
+      }
       toast({
         title: `${s.indexName} — ${dirIcon} ${s.leg.strike} ${side} triggered`,
         description: [
@@ -1132,7 +1144,11 @@ export default function OptionsPage() {
         <div className="space-y-4">
           {grouped.map(grp => {
             const changePctDisplay = grp.spotChangePctVsPrevClose ?? grp.spotChangePercent;
-            const up = (changePctDisplay ?? 0) >= 0;
+            // P20-D01: null ?? 0 coerces null changePct to 0 → bullish (same class as D-167).
+            // Derive up as boolean|null — null rendered spans are guarded by != null above.
+            const up = changePctDisplay != null && Number.isFinite(changePctDisplay)
+              ? changePctDisplay >= 0
+              : null;
             return (
               <Card key={grp.index} className="border-border">
                 <CardContent className="p-4 space-y-4">
