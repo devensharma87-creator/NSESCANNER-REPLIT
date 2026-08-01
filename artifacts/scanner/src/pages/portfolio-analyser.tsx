@@ -640,6 +640,22 @@ export default function PortfolioAnalyser() {
         )}
       </div>
 
+      {/* B2.2-D-PA-1: Portfolio list loading/error was silent — not rendered anywhere.
+          A failed list load silently fell through to the "no holdings" empty state,
+          misleading the user into thinking they have no portfolios. */}
+      {pf.listLoading && !pf.listReady && (
+        <div className="flex items-center gap-2 rounded-md border border-border/50 bg-muted/20 px-3 py-2 text-xs text-muted-foreground" data-testid="portfolio-list-loading">
+          <div className="h-3 w-3 animate-spin rounded-full border border-muted border-t-primary" />
+          Loading saved portfolios…
+        </div>
+      )}
+      {pf.listError && !pf.listReady && (
+        <div className="flex items-center gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-400" data-testid="portfolio-list-error">
+          <AlertTriangle className="h-4 w-4 shrink-0" />
+          Could not load saved portfolios — working in local mode. Changes will not be persisted until the connection recovers.
+        </div>
+      )}
+
       {isSample && (
         <div
           className="flex items-center justify-between gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-400"

@@ -232,12 +232,14 @@ function QuoteStrip({ detail }: { detail: GlobalInstrumentDetail | undefined }) 
   if (!detail) return null;
   const q = detail.quote;
   if (!q) return <Card className="p-3 text-sm text-muted-foreground">Live quote not yet available</Card>;
-  const up = (q.changePct ?? 0) >= 0;
+  // B2.2-D-ID-1: ?? 0 treated null as zero → coloured positive even when value shows "—".
+  const hasChangePct = q.changePct != null && Number.isFinite(q.changePct);
+  const up = hasChangePct && q.changePct! >= 0;
   return (
     <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
       <Stat label="Price" value={fmt(q.price)} sub={detail.instrument.currency ?? undefined} />
-      <Stat label="Δ" value={q.changeAbs != null ? `${q.changeAbs >= 0 ? "+" : ""}${fmt(q.changeAbs)}` : "—"} tone={up ? "pos" : "neg"} />
-      <Stat label="Δ%" value={q.changePct != null ? `${q.changePct >= 0 ? "+" : ""}${q.changePct.toFixed(2)}%` : "—"} tone={up ? "pos" : "neg"} />
+      <Stat label="Δ" value={q.changeAbs != null ? `${q.changeAbs >= 0 ? "+" : ""}${fmt(q.changeAbs)}` : "—"} tone={hasChangePct ? (up ? "pos" : "neg") : undefined} />
+      <Stat label="Δ%" value={hasChangePct ? `${q.changePct! >= 0 ? "+" : ""}${q.changePct!.toFixed(2)}%` : "—"} tone={hasChangePct ? (up ? "pos" : "neg") : undefined} />
       <Stat label="Day H/L" value={`${fmt(q.dayHigh)} / ${fmt(q.dayLow)}`} />
       <Stat label="Volume" value={fmtVol(q.volume)} />
     </div>

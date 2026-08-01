@@ -1426,7 +1426,8 @@ function SnapshotTab() {
                     ) : (
                       <>
                         <td className="py-2 pr-3 text-right">{it.spot != null ? it.spot.toFixed(2) : "—"}</td>
-                        <td className={`py-2 pr-3 text-right ${(it.changePercent ?? 0) >= 0 ? "text-green-400" : "text-red-400"}`}>{fmtPct(it.changePercent)}</td>
+                        {/* B2.2-D-OIL-1: null changePercent must not be coloured green (JS: null >= 0 → true via ?? 0). */}
+                        <td className={`py-2 pr-3 text-right ${it.changePercent == null ? "text-muted-foreground" : it.changePercent >= 0 ? "text-green-400" : "text-red-400"}`}>{fmtPct(it.changePercent)}</td>
                         <td className="py-2 pr-3 text-right">{it.atmStrike ?? "—"}</td>
                         <td className="py-2 pr-3 text-right">{it.maxPain ?? "—"}</td>
                         <td className="py-2 pr-3 text-right font-medium">{it.pcrOi != null ? it.pcrOi.toFixed(2) : "—"}</td>
@@ -1443,8 +1444,9 @@ function SnapshotTab() {
                           }`}>{it.ivRank ?? "—"}</td>
                         <td className="py-2 pr-3 text-right">{fmtNum(it.totalCallOi)}</td>
                         <td className="py-2 pr-3 text-right">{fmtNum(it.totalPutOi)}</td>
-                        <td className={`py-2 pr-3 text-right ${(it.callOiAdded ?? 0) >= 0 ? "text-amber-400" : "text-green-400"}`}>{fmtNum(it.callOiAdded)}</td>
-                        <td className={`py-2 pr-3 text-right ${(it.putOiAdded ?? 0) >= 0 ? "text-green-400" : "text-amber-400"}`}>{fmtNum(it.putOiAdded)}</td>
+                        {/* B2.2-D-OIL-2: null OI-added coerced to 0 falsely implies no OI change. */}
+                        <td className={`py-2 pr-3 text-right ${it.callOiAdded == null ? "text-muted-foreground" : it.callOiAdded >= 0 ? "text-amber-400" : "text-green-400"}`}>{fmtNum(it.callOiAdded)}</td>
+                        <td className={`py-2 pr-3 text-right ${it.putOiAdded == null ? "text-muted-foreground" : it.putOiAdded >= 0 ? "text-green-400" : "text-amber-400"}`}>{fmtNum(it.putOiAdded)}</td>
                         <td className="py-2 pr-3">
                           <Badge variant={it.bias === "BULLISH" ? "default" : it.bias === "BEARISH" ? "destructive" : "secondary"}>
                             {it.bias}
@@ -1594,7 +1596,8 @@ function HeatmapTab() {
                       <tr key={r.symbol}>
                         <td className="py-1.5 pr-3 font-medium">{r.symbol}</td>
                         <td className="py-1.5 pr-3 text-right">{r.ltp != null ? r.ltp.toFixed(2) : "—"}</td>
-                        <td className={`py-1.5 pr-3 text-right ${(r.priceChgPct ?? 0) >= 0 ? "text-green-400" : "text-red-400"}`}>
+                        {/* B2.2-D-OIL-3: null priceChgPct coerced to 0 falsely implies flat price. */}
+                        <td className={`py-1.5 pr-3 text-right ${r.priceChgPct == null ? "text-muted-foreground" : r.priceChgPct >= 0 ? "text-green-400" : "text-red-400"}`}>
                           {fmtPct(r.priceChgPct)}
                         </td>
                         <td className="py-1.5 pr-3 text-right">{fmtNum(r.oi)}</td>
@@ -1710,10 +1713,12 @@ function TrackerTab() {
         putOi: s.totalPutOi,
         atmIv: s.atmIv,
         maxPain: s.maxPain,
-        callOiAdded: s.callOiAdded ?? 0,
-        putOiAdded: s.putOiAdded ?? 0,
-        // Net flow: positive = puts being written more than calls (bullish)
-        netFlow: (s.putOiAdded ?? 0) - (s.callOiAdded ?? 0),
+        // B2.2-D-OIL-4: null OI-added must NOT become zero in chart series — null means absent data.
+        // Use null so Recharts omits the point rather than fabricating a zero on the axis.
+        callOiAdded: s.callOiAdded ?? null,
+        putOiAdded: s.putOiAdded ?? null,
+        // Net flow: null when either leg is missing — don't fabricate directional bias.
+        netFlow: s.putOiAdded != null && s.callOiAdded != null ? s.putOiAdded - s.callOiAdded : null,
       }));
   }, [series, chartUnderlying]);
 
@@ -1897,19 +1902,20 @@ function TrackerTab() {
                         label="Total Call OI"
                         value={fmtNum(latest.callOi)}
                         accent="text-rose-400"
-                        sub={{ text: `Δ ${latest.callOiAdded >= 0 ? "+" : ""}${fmtNum(latest.callOiAdded)}`, cls: tone(latest.callOiAdded) }}
+                        sub={{ text: latest.callOiAdded != null ? `Δ ${latest.callOiAdded >= 0 ? "+" : ""}${fmtNum(latest.callOiAdded)}` : "Δ —", cls: tone(latest.callOiAdded) }}
                       />
                       <Tile
                         label="Total Put OI"
                         value={fmtNum(latest.putOi)}
                         accent="text-emerald-400"
-                        sub={{ text: `Δ ${latest.putOiAdded >= 0 ? "+" : ""}${fmtNum(latest.putOiAdded)}`, cls: tone(latest.putOiAdded) }}
+                        sub={{ text: latest.putOiAdded != null ? `Δ ${latest.putOiAdded >= 0 ? "+" : ""}${fmtNum(latest.putOiAdded)}` : "Δ —", cls: tone(latest.putOiAdded) }}
                       />
+                      {/* B2.2-D-OIL-4: netFlow is null when either OI-added leg is absent — show "—". */}
                       <Tile
                         label="Net Flow (PE−CE)"
-                        value={`${latest.netFlow >= 0 ? "+" : ""}${fmtNum(latest.netFlow)}`}
-                        accent={latest.netFlow > 0 ? "text-emerald-400" : latest.netFlow < 0 ? "text-rose-400" : "text-foreground"}
-                        sub={{ text: latest.netFlow > 0 ? "put writers ahead (bullish)" : latest.netFlow < 0 ? "call writers ahead (bearish)" : "balanced", cls: "text-muted-foreground" }}
+                        value={latest.netFlow != null ? `${latest.netFlow >= 0 ? "+" : ""}${fmtNum(latest.netFlow)}` : "—"}
+                        accent={latest.netFlow == null ? "text-muted-foreground" : latest.netFlow > 0 ? "text-emerald-400" : latest.netFlow < 0 ? "text-rose-400" : "text-foreground"}
+                        sub={{ text: latest.netFlow == null ? "data unavailable" : latest.netFlow > 0 ? "put writers ahead (bullish)" : latest.netFlow < 0 ? "call writers ahead (bearish)" : "balanced", cls: "text-muted-foreground" }}
                       />
                     </div>
                   </div>

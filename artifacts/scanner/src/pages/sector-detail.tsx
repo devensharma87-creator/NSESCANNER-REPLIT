@@ -47,10 +47,11 @@ export default function SectorDetail() {
             value={data.summary.avgScore > 0 ? `+${data.summary.avgScore}` : String(data.summary.avgScore)}
             tone={data.summary.avgScore > 0 ? "buy" : data.summary.avgScore < 0 ? "sell" : "neutral"}
           />
+          {/* B2.2-D-SEC-1: null avgChangePercent must not be coloured as bullish. */}
           <StatCard
             label="Avg Change"
-            value={fmtPct(data.summary.avgChangePercent ?? 0)}
-            tone={(data.summary.avgChangePercent ?? 0) >= 0 ? "buy" : "sell"}
+            value={data.summary.avgChangePercent != null ? fmtPct(data.summary.avgChangePercent) : "—"}
+            tone={data.summary.avgChangePercent == null ? "neutral" : data.summary.avgChangePercent >= 0 ? "buy" : "sell"}
           />
           <StatCard
             label="Breadth"
@@ -101,9 +102,10 @@ export default function SectorDetail() {
                       </TableCell>
                       <TableCell className="text-xs text-muted-foreground truncate max-w-[260px]">{s.name}</TableCell>
                       <TableCell className="text-right font-mono text-sm">{s.quote.price.toFixed(2)}</TableCell>
-                      <TableCell className={`text-right font-mono text-sm font-medium ${s.quote.changePercent >= 0 ? "text-signal-strong-buy" : "text-signal-strong-sell"}`}>
-                        {s.quote.changePercent >= 0 ? <TrendingUp className="inline w-3 h-3 mr-0.5" /> : <TrendingDown className="inline w-3 h-3 mr-0.5" />}
-                        {fmtPct(s.quote.changePercent)}
+                      {/* B2.2-D-SEC-2: constituent null changePercent must be neutral, not green. */}
+                      <TableCell className={`text-right font-mono text-sm font-medium ${s.quote.changePercent == null ? "text-muted-foreground" : s.quote.changePercent >= 0 ? "text-signal-strong-buy" : "text-signal-strong-sell"}`}>
+                        {s.quote.changePercent != null && (s.quote.changePercent >= 0 ? <TrendingUp className="inline w-3 h-3 mr-0.5" /> : <TrendingDown className="inline w-3 h-3 mr-0.5" />)}
+                        {s.quote.changePercent != null ? fmtPct(s.quote.changePercent) : "—"}
                       </TableCell>
                       <TableCell className="text-right font-mono text-sm">{s.indicators?.rsi14?.toFixed(1) ?? "—"}</TableCell>
                       <TableCell className="text-right font-mono text-sm">{s.indicators?.volumeRatio?.toFixed(2) ?? "—"}×</TableCell>

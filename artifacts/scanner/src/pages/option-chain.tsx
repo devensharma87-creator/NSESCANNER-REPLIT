@@ -718,11 +718,12 @@ export default function OptionChainPage() {
             </div>
             {analytics && (
               <div className="text-[11px] font-mono mt-1">
-                <span className={(analytics.callOiAdded ?? 0) >= 0 ? "text-signal-strong-buy" : "text-signal-strong-sell"}>
+                {/* B2.2-D-OC-1: null OI-added must be neutral, not green (JS: null >= 0 → true via ?? 0). */}
+                <span className={analytics.callOiAdded == null ? "text-muted-foreground" : analytics.callOiAdded >= 0 ? "text-signal-strong-buy" : "text-signal-strong-sell"}>
                   CE Δ {fmtKL(analytics.callOiAdded)}
                 </span>
                 <span className="text-muted-foreground"> · </span>
-                <span className={(analytics.putOiAdded ?? 0) >= 0 ? "text-signal-strong-buy" : "text-signal-strong-sell"}>
+                <span className={analytics.putOiAdded == null ? "text-muted-foreground" : analytics.putOiAdded >= 0 ? "text-signal-strong-buy" : "text-signal-strong-sell"}>
                   PE Δ {fmtKL(analytics.putOiAdded)}
                 </span>
               </div>

@@ -2047,6 +2047,13 @@ export default function BacktestLab() {
         <Card>
           <CardContent className="py-12 text-center text-sm text-muted-foreground">Loading run…</CardContent>
         </Card>
+      ) : runQ.isError ? (
+        /* B2.2-D-BT-1: run fetch error must be visible — not fall-through to null summary. */
+        <Card>
+          <CardContent className="py-8 text-center text-sm text-rose-300">
+            Could not load backtest run. Please retry.
+          </CardContent>
+        </Card>
       ) : run?.status === "FAILED" ? (
         <Card>
           <CardContent className="py-8 text-center text-sm text-rose-300">
@@ -2117,7 +2124,8 @@ export default function BacktestLab() {
                   </div>
                   <div>
                     <span className="text-muted-foreground">Net P&L </span>
-                    <span className={(summary.totalNetPnl ?? 0) >= 0 ? "text-emerald-400" : "text-rose-400"}>{money(summary.totalNetPnl ?? summary.totalPnl)}</span>
+                    {/* B2.2-D-BT-4: null totalNetPnl must not be coloured green (null >= 0 → true via ?? 0). */}
+                    <span className={summary.totalNetPnl == null ? "text-muted-foreground" : summary.totalNetPnl >= 0 ? "text-emerald-400" : "text-rose-400"}>{money(summary.totalNetPnl ?? summary.totalPnl)}</span>
                   </div>
                   <div className="text-muted-foreground" title="All real-world NSE F&O cost items: brokerage, STT, exchange txn, SEBI, GST, stamp, bid-ask spread">
                     <span className="italic">cost model: 2026-04-01 NSE rates</span>
@@ -2179,8 +2187,11 @@ export default function BacktestLab() {
               </Button>
             </CardHeader>
             <CardContent>
+              {/* B2.2-D-BT-2: trade fetch error must be explicit, not silently treated as empty. */}
               {tradesQ.isLoading ? (
                 <div className="py-8 text-center text-xs text-muted-foreground">Loading trades…</div>
+              ) : tradesQ.isError ? (
+                <div className="py-6 text-center text-xs text-rose-300">Could not load trades. Please retry.</div>
               ) : (
                 <TradesTable trades={trades} showAttribution={runIsStrategy} />
               )}
@@ -2198,8 +2209,11 @@ export default function BacktestLab() {
               </CardTitle>
             </CardHeader>
             <CardContent>
+              {/* B2.2-D-BT-3: blocked fetch error must be explicit, not silently treated as empty. */}
               {blockedQ.isLoading ? (
                 <div className="py-6 text-center text-xs text-muted-foreground">Loading…</div>
+              ) : blockedQ.isError ? (
+                <div className="py-6 text-center text-xs text-rose-300">Could not load blocked signals. Please retry.</div>
               ) : (
                 <BlockedTable rows={blocked} showAttribution={runIsStrategy} />
               )}

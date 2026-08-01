@@ -1242,9 +1242,11 @@ function EqPositionRow({ p }: { p: OpenEqPosition }) {
     p.unrealizedPnl > 0 ? "text-emerald-300" :
     p.unrealizedPnl < 0 ? "text-rose-300" : "text-foreground";
   const upnlPct = p.unrealizedPnlPct ?? (p.capitalDeployed > 0 ? (p.unrealizedPnl / p.capitalDeployed) * 100 : 0);
-  const dayPnl = p.dayPnl ?? 0;
-  const dayPnlPct = p.dayPnlPct ?? 0;
+  // B2.2-D-PT-1: null dayPnl coerced to 0 fabricates a flat day — show "—" when unavailable.
+  const dayPnl = p.dayPnl;
+  const dayPnlPct = p.dayPnlPct;
   const dayTone =
+    dayPnl == null ? "text-muted-foreground/60" :
     dayPnl > 0 ? "text-emerald-300" :
     dayPnl < 0 ? "text-rose-300" : "text-foreground";
   return (
@@ -1275,10 +1277,12 @@ function EqPositionRow({ p }: { p: OpenEqPosition }) {
         {upnlPct >= 0 ? "+" : ""}{upnlPct.toFixed(2)}%
       </td>
       <td className={`py-2 pr-3 text-right tabular-nums font-medium ${dayTone}`}>
-        {inrDec(dayPnl)}
+        {/* B2.2-D-PT-1: dayPnl null → show "—" not ₹0.00 */}
+        {dayPnl != null ? inrDec(dayPnl) : "—"}
       </td>
       <td className={`py-2 pr-3 text-right tabular-nums ${dayTone}`}>
-        {dayPnlPct >= 0 ? "+" : ""}{dayPnlPct.toFixed(2)}%
+        {/* B2.2-D-PT-1: dayPnlPct null → show "—" not +0.00% */}
+        {dayPnlPct != null ? `${dayPnlPct >= 0 ? "+" : ""}${dayPnlPct.toFixed(2)}%` : "—"}
       </td>
       <td className="py-2 pr-3 text-[12px] text-muted-foreground whitespace-nowrap">
         <span>{fmtDateTime(p.openedAt)}</span>

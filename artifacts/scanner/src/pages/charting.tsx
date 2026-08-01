@@ -377,6 +377,9 @@ export default function ChartingPage() {
   const isLoading = candlesQ.isLoading;
   const isError = candlesQ.isError;
   const hasNoData = !isLoading && !isError && source === "none";
+  // B2.2-D-CH-1: distinguish "source returned valid response but zero candles" from "no source"
+  // so the user sees an informative empty state rather than a blank card.
+  const hasEmptyCandles = !isLoading && !isError && source !== "none" && candles.length === 0;
   const hasData = !isLoading && !isError && candles.length > 0;
 
   const [methodologyOpen, setMethodologyOpen] = useState(false);
@@ -782,6 +785,19 @@ export default function ChartingPage() {
             <AlertTriangle className="h-7 w-7 text-muted-foreground" />
             <div className="max-w-md text-sm text-muted-foreground">
               {resp?.message ?? "No data available for this instrument / timeframe right now."}
+            </div>
+            <Button variant="outline" size="sm" onClick={() => candlesQ.refetch()}>
+              Retry
+            </Button>
+          </div>
+        )}
+
+        {/* B2.2-D-CH-1: valid source returned zero candles — distinct from no-source and error. */}
+        {hasEmptyCandles && (
+          <div className="flex flex-col items-center justify-center gap-3 text-center" style={{ height: effectiveHeight }} data-testid="chart-empty-candles">
+            <AlertTriangle className="h-7 w-7 text-muted-foreground" />
+            <div className="max-w-md text-sm text-muted-foreground">
+              No candles available for the selected timeframe. The source responded but returned no data.
             </div>
             <Button variant="outline" size="sm" onClick={() => candlesQ.refetch()}>
               Retry

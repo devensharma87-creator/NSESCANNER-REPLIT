@@ -31,8 +31,8 @@ export default function StockDetail() {
   const symbol = params?.symbol ? decodeURIComponent(params.symbol).toUpperCase() : "";
   const [range, setRange] = useState<Range>("6mo");
 
-  const { data: detail, isLoading } = useGetStockDetail(symbol, {
-    query: { enabled: !!symbol, refetchInterval: 30_000, queryKey: getGetStockDetailQueryKey(symbol) },
+  const { data: detail, isLoading, isError } = useGetStockDetail(symbol, {
+    query: { enabled: !!symbol, refetchInterval: 30_000, staleTime: 20_000, retry: 1, queryKey: getGetStockDetailQueryKey(symbol) },
   });
   const { data: history, isLoading: histLoading } = useGetStockHistory(symbol, { range }, {
     query: { enabled: !!symbol, queryKey: getGetStockHistoryQueryKey(symbol, { range }) },
@@ -44,7 +44,7 @@ export default function StockDetail() {
   const fmtPct = (p: number) => `${p > 0 ? "+" : ""}${p.toFixed(2)}%`;
   const fmtPrice = (p: number) => p.toFixed(2);
 
-  if (isLoading || !detail) {
+  if (isLoading) {
     return (
       <div className="w-full max-w-none px-4 py-6 space-y-4">
         <Skeleton className="h-10 w-64" />
@@ -54,8 +54,24 @@ export default function StockDetail() {
     );
   }
 
+  // B2.2-D-SD-3: API error must be visible — not silently treated as empty/loading.
+  if (isError || !detail) {
+    return (
+      <div className="w-full max-w-none px-4 py-6">
+        <Card className="p-8 text-center">
+          <AlertTriangle className="h-5 w-5 mx-auto mb-2 text-amber-500" />
+          <p className="text-sm text-muted-foreground">
+            {isError ? "Could not load stock data. Please try again." : "Stock not found."}
+          </p>
+        </Card>
+      </div>
+    );
+  }
+
   const { profile, quote, indicators, recommendation, financials, holdings } = detail;
-  const upDay = quote.changePercent >= 0;
+  // B2.2-D-SD-1: JS coerces null >= 0 → true; null changePercent must not be coloured green.
+  const hasChangePct = quote.changePercent != null && Number.isFinite(quote.changePercent);
+  const upDay = hasChangePct && quote.changePercent! >= 0;
 
 
   return (
@@ -76,11 +92,15 @@ export default function StockDetail() {
         <div className="text-right space-y-1">
           <div className="flex items-baseline gap-3 justify-end">
             <span className="text-3xl font-mono font-bold tabular-nums">₹{fmtPrice(quote.price)}</span>
-            <span className={`font-mono text-sm font-semibold inline-flex items-center gap-1 ${upDay ? "text-signal-strong-buy" : "text-signal-strong-sell"}`}>
-              {upDay ? <TrendingUp className="w-4 h-4" /> : <TrendingDown className="w-4 h-4" />}
-              {fmtPct(quote.changePercent)}
-              <span className="text-xs text-muted-foreground ml-1">({quote.change >= 0 ? "+" : ""}{quote.change.toFixed(2)})</span>
-            </span>
+            {hasChangePct && (
+              <span className={`font-mono text-sm font-semibold inline-flex items-center gap-1 ${upDay ? "text-signal-strong-buy" : "text-signal-strong-sell"}`}>
+                {upDay ? <TrendingUp className="w-4 h-4" /> : <TrendingDown className="w-4 h-4" />}
+                {fmtPct(quote.changePercent!)}
+                {quote.change != null && (
+                  <span className="text-xs text-muted-foreground ml-1">({quote.change >= 0 ? "+" : ""}{quote.change.toFixed(2)})</span>
+                )}
+              </span>
+            )}
           </div>
           <div className="text-xs text-muted-foreground font-mono">
             Updated {formatDistanceToNow(new Date(quote.updatedAt))} ago
