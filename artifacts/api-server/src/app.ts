@@ -8,6 +8,7 @@ import router from "./routes";
 import authRouter from "./routes/auth";
 import globalRouter from "./routes/global";
 import { logger } from "./lib/logger";
+import { validateProductionConfig, PROD_CONFIG_CODES } from "./lib/productionConfigValidator";
 import { requireAuth, logAuthBootState } from "./lib/auth";
 import { logGlobalAuthBootState } from "./lib/global/auth";
 import { startGlobalDataPump } from "./lib/global/dataLayer";
@@ -28,10 +29,22 @@ const app: Express = express();
 // rate-limit keys, and `secure` cookie behavior work correctly.
 app.set("trust proxy", 1);
 
-const SESSION_SECRET = process.env["SESSION_SECRET"];
-if (!SESSION_SECRET) {
-  throw new Error("SESSION_SECRET env var is required (used to sign session cookies).");
+// Validate critical production configuration before any route/middleware setup.
+// Uses the shared productionConfigValidator so tests and bootstrap follow
+// identical rules. Throws with the stable error code if invalid so index.ts
+// can emit a clean diagnostic before any route/scheduler/provider initializes.
+// (index.ts runs this first via the bootstrap; app.ts re-runs it as a defence
+// against direct import in development/test hot-reload scenarios.)
+{
+  const _cfgResult = validateProductionConfig(process.env);
+  if (!_cfgResult.valid) {
+    const codes = _cfgResult.errors.map(e => e.code).join(", ");
+    throw new Error(`Production config invalid [${codes}]. See productionConfigValidator.ts for details.`);
+  }
 }
+// Safe non-null assertion: validateProductionConfig guarantees SESSION_SECRET
+// is present and non-empty when valid===true.
+const SESSION_SECRET = process.env["SESSION_SECRET"] as string;
 
 // Content Security Policy — was disabled because Vite's HMR client used inline
 // scripts. In production the SPA is built and served by the API; there's no
@@ -121,10 +134,13 @@ const corsAllowAny = corsOriginsRaw === "*";
 // Hard-fail at startup if someone leaves `CORS_ORIGINS=*` set in production.
 // Reflective CORS + credentials is the broad-CORS antipattern we just fixed;
 // allowing it back in via env in prod would silently re-create the hole.
+// CORS wildcard in production is already rejected by validateProductionConfig()
+// above — this branch is unreachable. The condition is kept as a defence-in-
+// depth assertion so the intent is visible to future readers.
 if (corsAllowAny && isProd) {
+  // validateProductionConfig() should have already thrown PROD_CONFIG_INVALID:CORS_WILDCARD.
   throw new Error(
-    'CORS_ORIGINS="*" is not allowed in production (NODE_ENV=production). ' +
-    "Set an explicit comma-separated origin list, or unset for same-origin only.",
+    `[${PROD_CONFIG_CODES.CORS_WILDCARD}] CORS_ORIGINS="*" is not allowed in production.`,
   );
 }
 const corsAllowlist = corsOriginsRaw && !corsAllowAny

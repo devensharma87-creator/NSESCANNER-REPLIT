@@ -303,4 +303,38 @@ This was a regression in Pack 4 (the mock lacked `db.select`) — confirmed fixe
 
 ---
 
+---
+
+## 9. Production Configuration Error Codes (Prompt 22B — 2026-08-03)
+
+The following stable error codes are emitted to stderr when the server exits at startup due to invalid configuration. All codes are safe to log — they name the requirement but never echo secret values.
+
+| Code | Meaning | Action |
+|------|---------|--------|
+| `PROD_CONFIG_INVALID:SESSION_SECRET_MISSING` | `SESSION_SECRET` env var is absent or empty | Set a strong random value (≥20 chars) in your deployment environment |
+| `PROD_CONFIG_INVALID:SESSION_SECRET_WEAK` | `SESSION_SECRET` is set but shorter than 20 characters in production | Rotate to a longer value |
+| `PROD_CONFIG_INVALID:CORS_WILDCARD` | `CORS_ORIGINS="*"` with `NODE_ENV=production` | Replace with a comma-separated list of explicit allowed origins |
+
+### Bootstrap order (enforced)
+
+```
+1. validateProductionConfig(process.env)
+   → if invalid: stderr PROD_CONFIG_INVALID:* codes + exit(1)
+   → routes / schedulers / DB: NEVER reached
+2. if valid: dynamic import of app.ts
+3. app.listen(port)
+```
+
+### Re-running G3 config rejection tests
+
+```bash
+# Exact G3 tests (Prompt 22B — 39 tests, ~10s)
+pnpm --filter @workspace/api-server exec vitest run --pool=threads "src/lib/p22b.configRejectionExact"
+
+# All seven p22* files (165 tests, ~30s)
+pnpm --filter @workspace/api-server exec vitest run --pool=threads "src/lib/p22"
+```
+
+---
+
 END_MARKET_SCANNER_OWNER_RELEASE_AND_ROLLBACK_RUNBOOK

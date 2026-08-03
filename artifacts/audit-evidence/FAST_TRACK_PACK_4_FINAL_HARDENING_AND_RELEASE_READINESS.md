@@ -406,6 +406,176 @@ DATABASE_URL=SENTINEL_DB_URL_YY88
 
 ---
 
+---
+
+## §13 — G3 Exact Runtime Configuration Closure (Prompt 22B)
+
+**Date:** 2026-08-03  
+**HEAD at time of work:** `35decbbc48576410aa429f6c157c969d8166c379`  
+**Working-tree state:** modified (all changes are test/source files — no commit/push/deploy/DB actions taken)  
+
+---
+
+### §13.1 Previous G3 Claim Correction
+
+```
+Previous probe invalid: probes ran `tsx src/app.ts` which triggered an
+ESM __dirname error in a route-harness file before reaching the
+SESSION_SECRET / CORS_WILDCARD guards. The process exited non-zero but
+for the wrong reason. The source proof was supplementary and did not
+satisfy runtime rejection of the specific configuration guard.
+```
+
+---
+
+### §13.2 Production Validator / Bootstrap Change
+
+**New file created:** `artifacts/api-server/src/lib/productionConfigValidator.ts`
+
+Pure, side-effect-free validator. Zero imports from routes, schedulers, providers, DB, or any module that causes side effects. Safe to import in complete isolation.
+
+Stable error codes introduced:
+```
+PROD_CONFIG_INVALID:SESSION_SECRET_MISSING   — SESSION_SECRET absent or empty
+PROD_CONFIG_INVALID:SESSION_SECRET_WEAK      — SESSION_SECRET < 20 chars in production
+PROD_CONFIG_INVALID:CORS_WILDCARD            — CORS_ORIGINS="*" in production
+```
+
+**Bootstrap order correction — `artifacts/api-server/src/index.ts`:**
+
+```
+1. PORT validation
+2. validateProductionConfig(process.env)  ← before any dynamic app import
+3. if invalid: emit exact PROD_CONFIG_INVALID:* code(s) + exit(1)
+   — routes, schedulers, providers, DB: never initialized
+4. CONFIG_ONLY=1 probe mode: emit CONFIG_VALID + exit(0) without app init
+5. await import("./app.js")  ← dynamic; only runs after validation passes
+6. app.listen(port)
+```
+
+**Bootstrap order hook — `artifacts/api-server/src/app.ts`:**
+
+`validateProductionConfig(process.env)` is called as the first module-body statement before any `app.use(...)` call, as a defence-in-depth layer for dev/test hot-reload scenarios.
+
+**Probe script created:** `artifacts/api-server/src/probe/configBootstrapProbe.ts`
+
+Imports ONLY `productionConfigValidator.ts` — zero routes, zero schedulers, zero modules with `__dirname` references.
+
+---
+
+### §13.3 Child Environment Policy
+
+All probes use a **strict allowlist** built from scratch — no `{...process.env}` spread. Only these keys are passed:
+
+```
+PATH          = <system PATH — needed for tsx binary resolution>
+NODE_ENV      = production
+CORS_ORIGINS  = https://probe.example.invalid   (valid fake)
+SESSION_SECRET = FAKE_SESSION_SECRET_PROBE_0001_NOT_REAL   (fake sentinel)
+```
+
+Specific tests remove or replace keys via override; all other Replit secrets are excluded.
+
+---
+
+### §13.4 Exact Exit Codes and Safe Error Codes
+
+| Probe | Config | Exit | Output contains | Output does NOT contain |
+|-------|--------|------|-----------------|------------------------|
+| CORS wildcard | CORS_ORIGINS=* | 1 | `PROD_CONFIG_INVALID:CORS_WILDCARD` | `SESSION_SECRET_MISSING`, `__dirname is not defined`, fake secret value |
+| Missing session | SESSION_SECRET absent | 1 | `PROD_CONFIG_INVALID:SESSION_SECRET_MISSING` | `CORS_WILDCARD`, `__dirname is not defined`, CORS_ORIGINS value |
+| Both invalid | CORS=* + no SESSION | 1 | Both codes (SESSION first, CORS second — deterministic) | `__dirname is not defined` |
+| Valid config | All fields valid | 0 | `CONFIG_VALID` | `PROD_CONFIG_INVALID:`, `__dirname is not defined`, fake secret values |
+| Bootstrap order | CONFIG_ONLY=1 + valid | 0 | `CONFIG_VALID` | app startup logs, `__dirname is not defined`, listener output |
+| Bootstrap order | CONFIG_ONLY=1 + no SESSION | 1 | `SESSION_SECRET_MISSING` | app startup logs, `__dirname is not defined` |
+
+---
+
+### §13.5 Explicit Absence of Unrelated ESM Errors
+
+All p22b probes run `configBootstrapProbe.ts` (not `app.ts`). That script has exactly one import (`productionConfigValidator.ts` which has zero further imports). No `__dirname` references exist anywhere in that import chain.
+
+Tested assertions (all pass):
+- CORS rejection probe: `__dirname is not defined` absent ✅
+- Session rejection probe: `__dirname is not defined` absent ✅  
+- Valid config probe: `__dirname is not defined` absent ✅
+- Bootstrap order probe (index.ts + CONFIG_ONLY): `__dirname is not defined` absent ✅
+
+---
+
+### §13.6 Proof App/Routes/Listener Not Initialized on Invalid Config
+
+- `configBootstrapProbe.ts` never imports `app.ts` — structurally impossible to initialize routes
+- `index.ts` with `CONFIG_ONLY=1` exits after `CONFIG_VALID` without calling `await import("./app.js")`
+- Runtime assertion (G3-EXACT-7c): index.ts with invalid SESSION_SECRET + CONFIG_ONLY exits 1, no app startup markers in output
+- No `Server listening` text appears in any failure probe output (G3-EXACT-8a/8b/8c)
+- No scheduler text appears in any failure probe output (G3-EXACT-9a/9b)
+
+---
+
+### §13.7 Valid-Config No-Listen Result
+
+- `configBootstrapProbe.ts` with valid fake env: exits 0, stdout = `CONFIG_VALID\n`, no PROD_CONFIG_INVALID codes, no __dirname errors ✅
+- `index.ts` with `CONFIG_ONLY=1` + valid fake env + PORT=9999: exits 0, stdout = `CONFIG_VALID\n`, no app initialization logs ✅
+
+---
+
+### §13.8 Test / Typecheck / Build Results (Prompt 22B)
+
+| Check | Result |
+|-------|--------|
+| `p22b.configRejectionExact.test.ts` — 39 new tests (§4.1–§4.12) | ✅ 39/39 |
+| `p22a.configRejection.test.ts` — updated G3-1b, G3-8 | ✅ 17/17 |
+| All seven p22* files (22a × 6, 22b × 1) | ✅ 126 + 39 = 165 |
+| Full api-server non-DB suite | ✅ **5,282/5,282** (was 5,243; +39 from p22b) |
+| scanner suite | ✅ 947/947 |
+| api-server TSC | ✅ 0 errors |
+| api-zod TSC | ✅ 0 errors |
+| api-client-react TSC | ✅ 0 errors |
+| scanner TSC | ✅ 0 errors |
+| global TSC | ✅ 0 errors |
+| api-server production build | ✅ |
+| scanner production build | ✅ |
+| global production build | ✅ |
+| `git diff --check` | ✅ 0 whitespace errors |
+
+---
+
+### §13.9 Changed-File Inventory
+
+| File | Change |
+|------|--------|
+| `artifacts/api-server/src/lib/productionConfigValidator.ts` | **NEW** — pure validator, stable error codes |
+| `artifacts/api-server/src/probe/configBootstrapProbe.ts` | **NEW** — minimal probe script (only imports validator) |
+| `artifacts/api-server/src/lib/p22b.configRejectionExact.test.ts` | **NEW** — 39 exact runtime tests |
+| `artifacts/api-server/src/index.ts` | **MODIFIED** — validate before dynamic app import; CONFIG_ONLY mode |
+| `artifacts/api-server/src/app.ts` | **MODIFIED** — calls validateProductionConfig() instead of inline throws |
+| `artifacts/api-server/src/lib/p22a.configRejection.test.ts` | **MODIFIED** — G3-1b and G3-8 updated to reference new validator module |
+| `artifacts/audit-evidence/FAST_TRACK_PACK_4_FINAL_HARDENING_AND_RELEASE_READINESS.md` | **MODIFIED** — this §13 section added |
+| `artifacts/audit-evidence/MARKET_SCANNER_OWNER_RELEASE_AND_ROLLBACK_RUNBOOK.md` | **MODIFIED** — §9 added (new stable error codes) |
+
+---
+
+### §13.10 Confirmation — No Unauthorized Actions
+
+- ✅ No commit, push, pull, fetch performed
+- ✅ No publish or deployment performed
+- ✅ No PostgreSQL connection opened
+- ✅ No `.db.test.ts` suite run
+- ✅ No live Kite / Telegram / broker call
+- ✅ No secret values appear in evidence, bundles, or test output
+- ✅ No trading behavior changed
+
+---
+
+### §13.11 Runbook Update
+
+Updated `MARKET_SCANNER_OWNER_RELEASE_AND_ROLLBACK_RUNBOOK.md` §9 with the new stable error codes and the production bootstrap order. See that file for re-run commands.
+
+---
+
+END_FAST_TRACK_PACK_4_G3_EXACT_RUNTIME_CONFIG_CLOSURE
+
 END_FAST_TRACK_PACK_4_FINAL_RUNTIME_RELEASE_BOUNDARY_CLOSURE
 
 END_FAST_TRACK_PACK_4_FINAL_HARDENING_AND_RELEASE_READINESS

@@ -39,6 +39,9 @@ import { describe, it, expect, afterEach, vi } from "vitest";
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import {
+  validateProductionConfig as _validateProductionConfig,
+} from "./productionConfigValidator";
 
 // ---------------------------------------------------------------------------
 // Mocks — applied globally, including within vi.isolateModules() contexts.
@@ -206,19 +209,26 @@ describe("P22A/Gate3 — module-level startup guard: SESSION_SECRET", () => {
     expect(ok).toBe(false);
   });
 
-  it("G3-1b: SESSION_SECRET guard code is present and correct in app.ts (source+logic proof)", () => {
-    const src = readSrc("src/app.ts");
-    // Guard must be present at module level (not inside a function)
-    expect(src).toMatch(/const SESSION_SECRET\s*=\s*process\.env\["SESSION_SECRET"\]/);
-    expect(src).toMatch(/if\s*\(!SESSION_SECRET\)/);
-    expect(src).toMatch(/SESSION_SECRET env var is required/);
-    // Verify the exact logic: !undefined = true (throws), !"" = true (throws), !"x" = false (does not throw)
-    const checkGuard = (val: string | undefined) => {
-      if (!val) throw new Error("SESSION_SECRET env var is required");
-    };
-    expect(() => checkGuard(undefined)).toThrow("SESSION_SECRET");
-    expect(() => checkGuard("")).toThrow("SESSION_SECRET");
-    expect(() => checkGuard("valid-32-char-session-secret!!!")).not.toThrow();
+  it("G3-1b: SESSION_SECRET guard implemented in shared validator (source+logic proof)", () => {
+    // The guard has been extracted to productionConfigValidator.ts (Prompt 22B).
+    // app.ts calls validateProductionConfig() rather than an inline throw.
+    const appSrc       = readSrc("src/app.ts");
+    const validatorSrc = readSrc("src/lib/productionConfigValidator.ts");
+
+    // app.ts must call the shared validator
+    expect(appSrc).toMatch(/validateProductionConfig\(process\.env\)/);
+    // validator must define SESSION_SECRET_MISSING code
+    expect(validatorSrc).toMatch(/SESSION_SECRET_MISSING.*PROD_CONFIG_INVALID/);
+    // validator error message must name the env var but never echo its value
+    expect(validatorSrc).toMatch(/SESSION_SECRET.*required|required.*SESSION_SECRET/i);
+
+    // Verify the exact logic via the real validator function
+    const missing = _validateProductionConfig({ NODE_ENV: "test" });
+    expect(missing.valid).toBe(false);
+    expect(missing.errors[0].code).toBe("PROD_CONFIG_INVALID:SESSION_SECRET_MISSING");
+
+    const present = _validateProductionConfig({ NODE_ENV: "test", SESSION_SECRET: "valid-secret-32-chars-long!!!!!" });
+    expect(present.valid).toBe(true);
   });
 });
 
@@ -299,12 +309,30 @@ describe("P22A/Gate3 — runtime config function behavior", () => {
   });
 
   it("G3-8: config error messages do not echo secret values", () => {
-    // Verify that the startup guard error text doesn't expose secret content
-    const srcApp = readSrc("src/app.ts");
-    // SESSION_SECRET error should not include the actual value
-    expect(srcApp).toMatch(/SESSION_SECRET.*required|required.*SESSION_SECRET/);
-    // Confirm the error throw does NOT include process.env value in the message
-    expect(srcApp).not.toMatch(/throw.*process\.env\["SESSION_SECRET"\]/);
+    // The guard logic now lives in productionConfigValidator.ts (Prompt 22B).
+    // Verify that error messages name the variable but never echo its value.
+    const validatorSrc = readSrc("src/lib/productionConfigValidator.ts");
+
+    // Must mention the variable NAME
+    expect(validatorSrc).toMatch(/SESSION_SECRET.*required|required.*SESSION_SECRET/i);
+    // Must NOT echo the value via process.env[...] in the message string
+    expect(validatorSrc).not.toMatch(/message:.*process\.env/);
+    // Must NOT use template literal that embeds the actual secret value
+    expect(validatorSrc).not.toMatch(/`\${.*SESSION_SECRET.*}`/);
+
+    // Runtime verification: error code and message contain no real/fake secret values
+    const r = _validateProductionConfig({ NODE_ENV: "test", SESSION_SECRET: "MY_SECRET_VALUE_XYZ" });
+    // When the secret IS present and valid, no error mentions it
+    expect(r.valid).toBe(true);
+    // Even on a weak-secret error, the message must not echo the value.
+    // Use "abc123" (not "short") — the word "short" appears in validator messages.
+    const r2 = _validateProductionConfig({ NODE_ENV: "production", SESSION_SECRET: "abc123" });
+    if (!r2.valid) {
+      for (const e of r2.errors) {
+        expect(e.message).not.toContain("abc123");
+        expect(e.code).toMatch(/^PROD_CONFIG_INVALID:/);
+      }
+    }
   });
 
   it("G3-9: absent CORS_ORIGINS in production → no wildcard fallback", () => {

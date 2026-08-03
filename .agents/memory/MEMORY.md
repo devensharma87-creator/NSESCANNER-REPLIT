@@ -1,3 +1,4 @@
+- [Pack 4 G3 exact closure (22B)](pack4-g3-exact-closure-22b.md) — productionConfigValidator.ts + index.ts bootstrap order; 39 p22b tests; api-server 5282; ACCEPTED 2026-08-03.
 - [Pack 4 runtime closure (22A)](pack4-runtime-closure-22a.md) — 126 new tests (6 p22a files, Gates G1-G7); api-server 5243, scanner 947; 5-pkg TSC clean; sentinel build 0 leaks; ACCEPTED 2026-08-03.
 - [Pack 4 hardening closure](pack4-hardening-closure.md) — 118 new tests (6 files Gates A–O); api-server 5117, scanner 947; 5-pkg TSC clean; evidence+runbook written; ACCEPTED 2026-08-03.
 - [Pack 3 swing lifecycle closure](pack3-swing-lifecycle-closure.md) — D01 stageSwingOrder idempotency + 172 tests (Gates H–K,M,N); ACCEPTED 2026-08-01; api-server 4916, scanner 930.
