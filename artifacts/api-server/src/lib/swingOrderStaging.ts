@@ -16,7 +16,7 @@
  *   - Missing data is labelled, never fabricated.
  */
 
-import { and, desc, eq, gt, inArray, lt } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, lt, sql } from "drizzle-orm";
 import { db } from "@workspace/db";
 import {
   swingOrderStagingTable,
@@ -344,35 +344,17 @@ export async function stageSwingOrder(
     return { staged: false, status, reason: "SIZING_QTY_ZERO", decision };
   }
 
-  // Idempotency: prevent duplicate active stages for the same (ownerKey, symbol).
-  // Two active stages for the same symbol would double-invest the position. If an
-  // un-expired active stage already exists, return it rather than inserting again.
-  const existingActive = await db
-    .select()
-    .from(swingOrderStagingTable)
-    .where(
-      and(
-        eq(swingOrderStagingTable.ownerKey, input.ownerKey),
-        eq(swingOrderStagingTable.symbol, candidate.symbol),
-        inArray(swingOrderStagingTable.status, [...ACTIVE_STATUSES]),
-        gt(swingOrderStagingTable.expiresAt, now),
-      ),
-    )
-    .limit(1);
-  if (existingActive.length > 0) {
-    logger.info(
-      { symbol: candidate.symbol, existingId: existingActive[0]!.id, existingStatus: existingActive[0]!.status },
-      "stageSwingOrder: idempotency — returning existing active stage",
-    );
-    return {
-      staged: false,
-      status: existingActive[0]!.status as SwingOrderStatus,
-      reason: "DUPLICATE_ACTIVE_STAGE",
-      decision,
-      row: existingActive[0],
-    };
-  }
-
+  // Atomic claim: serialize all concurrent stage-claim attempts for this
+  // owner+symbol under a PostgreSQL advisory xact lock so two parallel requests
+  // cannot both race past the idempotency check and both insert a row. The lock
+  // is released automatically on COMMIT or ROLLBACK.
+  //
+  // Magic key: 8274615 — "swing stage claim". Different from 7593721 (combo open
+  // cap) so the two locks never serialize each other unnecessarily.
+  //
+  // Why this is required: without a shared lock, two concurrent HTTP requests can
+  // both read an empty result (TOCTOU) and both insert — double-investing the
+  // position. A pre-insert SELECT outside a transaction does NOT prevent this.
   const snapshot: SwingStagedSnapshot = { candidate, portfolioState: input.portfolioState };
   const values: NewSwingOrderStagingRow = {
     ownerKey: input.ownerKey,
@@ -413,8 +395,50 @@ export async function stageSwingOrder(
     updatedAt: now,
   };
 
-  const [row] = await db.insert(swingOrderStagingTable).values(values).returning();
-  // Alert after successful DB write — fire-and-forget, never rolls back staging.
+  const txResult = await db.transaction(async (tx) => {
+    // Acquire advisory lock for this process-wide "swing stage" operation.
+    // All concurrent stageSwingOrder calls share this lock — exactly one proceeds
+    // at a time per PostgreSQL backend. The lock is xact-scoped (auto-released).
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(8274615)`);
+
+    // Re-check under the lock — this SELECT and the INSERT below are now atomic.
+    const existingActive = await tx
+      .select()
+      .from(swingOrderStagingTable)
+      .where(
+        and(
+          eq(swingOrderStagingTable.ownerKey, input.ownerKey),
+          eq(swingOrderStagingTable.symbol, candidate.symbol),
+          inArray(swingOrderStagingTable.status, [...ACTIVE_STATUSES]),
+          gt(swingOrderStagingTable.expiresAt, now),
+        ),
+      )
+      .limit(1);
+
+    if (existingActive.length > 0) {
+      return { isDuplicate: true as const, row: existingActive[0]! };
+    }
+
+    const [insertedRow] = await tx.insert(swingOrderStagingTable).values(values).returning();
+    return { isDuplicate: false as const, row: insertedRow };
+  });
+
+  if (txResult.isDuplicate) {
+    logger.info(
+      { symbol: candidate.symbol, existingId: txResult.row.id, existingStatus: txResult.row.status },
+      "stageSwingOrder: idempotency — returning existing active stage (atomic lock)",
+    );
+    return {
+      staged: false,
+      status: txResult.row.status as SwingOrderStatus,
+      reason: "DUPLICATE_ACTIVE_STAGE",
+      decision,
+      row: txResult.row,
+    };
+  }
+
+  const row = txResult.row;
+  // Alert after successful DB write — fire-and-forget, never blocks or rolls back staging.
   if (row) {
     try { alertSwingOrderStaged(row); } catch { /* safe-fail */ }
   }
