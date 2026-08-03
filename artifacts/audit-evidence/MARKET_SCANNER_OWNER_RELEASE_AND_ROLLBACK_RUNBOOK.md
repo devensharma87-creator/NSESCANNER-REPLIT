@@ -251,4 +251,56 @@ lib/
 
 ---
 
+---
+
+## 8. Runtime Release-Boundary Verification (Prompt 22A — 2026-08-03)
+
+The following runtime gates were closed as part of the final release-boundary closure.
+All checks are automated (vitest + spawnSync probes + sentinel build grep).
+
+### 8.1 Automated gate summary
+
+| Gate | What it proves | Test file |
+|------|---------------|-----------|
+| G1 (D12 fix) | Auth boundary: getUserById null/missing/disabled → 401 not 500 | p22a.d12Auth.test.ts (23 tests) |
+| G2 | Input/routing boundaries: 400 / 413 / 404 / sanitized 500 / CORS / CSP | p22a.runtimeBoundaries.test.ts (21 tests) |
+| G3 | Config startup rejection: missing SESSION_SECRET; CORS=* in prod | p22a.configRejection.test.ts (17 tests) |
+| G4 | Sentinel build scan: zero secret leaks in JS/CSS/HTML output | Build grep (manual CI step) |
+| G5 | Broker hard-block matrix: all LIVE_CASH / execution-mode combinations | p22a.brokerHardBlock.test.ts (28 tests) |
+| G6 | Scheduler/cache runtime: scan cache contract; sweep tick idempotency | p22a.schedulerCache.test.ts (13 tests) |
+| G7 | Owner journeys J1–J4: read / F&O safety / swing safety / failure paths | p22a.ownerJourneys.test.ts (24 tests) |
+
+### 8.2 Re-running the runtime gates
+
+```bash
+# Run all 6 new p22a gate test files (takes ~30–60s)
+pnpm --filter @workspace/api-server exec vitest run --pool=threads "src/lib/p22a\."
+# Expected: 6 test files, 126 tests, 0 failures
+
+# Re-run full api-server suite (takes ~2min)
+pnpm --filter @workspace/api-server exec vitest run --pool=threads
+# Expected: 5,243 tests, 0 failures
+
+# Re-run sentinel build check
+SESSION_SECRET=SENTINEL_SESS_SECRET_XQ99 APP_ACCESS_PASSWORD=SENTINEL_APP_PASS_RZ44 \
+  KITE_API_SECRET=SENTINEL_KITE_SECRET_PW77 KITE_TOKEN_ENC_KEY=SENTINEL_ENC_KEY_MM33 \
+  TELEGRAM_BOT_TOKEN=SENTINEL_TG_BOT_HH11 DATABASE_URL=SENTINEL_DB_URL_YY88 \
+  VITE_API_BASE_URL=/scanner pnpm --filter @workspace/scanner run build
+grep -r "SENTINEL_" artifacts/scanner/dist/    # expect 0 lines
+
+SESSION_SECRET=SENTINEL_SESS_SECRET_XQ99 APP_ACCESS_PASSWORD=SENTINEL_APP_PASS_RZ44 \
+  KITE_API_SECRET=SENTINEL_KITE_SECRET_PW77 KITE_TOKEN_ENC_KEY=SENTINEL_ENC_KEY_MM33 \
+  TELEGRAM_BOT_TOKEN=SENTINEL_TG_BOT_HH11 DATABASE_URL=SENTINEL_DB_URL_YY88 \
+  VITE_API_BASE_URL=/global pnpm --filter @workspace/global run build
+grep -r "SENTINEL_" artifacts/global/dist/     # expect 0 lines
+```
+
+### 8.3 D12 auth boundary production note
+
+`GET /api/user/me` uses `getUserById` which calls `db.select().from(usersTable).where(…).limit(1)`.
+If the DB row is missing or the user is disabled, the route returns **401 AUTH_REQUIRED** (not 500).
+This was a regression in Pack 4 (the mock lacked `db.select`) — confirmed fixed and tested in G1.
+
+---
+
 END_MARKET_SCANNER_OWNER_RELEASE_AND_ROLLBACK_RUNBOOK
