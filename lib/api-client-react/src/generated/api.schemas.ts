@@ -6513,3 +6513,52 @@ export type RunSwingTtlSweepNow200 = {
   scanned: number;
   durationMs: number;
 };
+
+// ---------------------------------------------------------------------------
+// Pack 5 23A — StockFundamentals (IndianAPI reference data)
+// ---------------------------------------------------------------------------
+
+export interface FundamentalsStockProfile {
+  companyName:  string | null;
+  symbol:       string;
+  isin:         string | null;
+  sector:       string | null;
+  industry:     string | null;
+  marketCap:    number | null;
+  currency:     string | null;
+}
+
+export interface FundamentalsStockRatios {
+  symbol:        string;
+  pe:            number | null;
+  pb:            number | null;
+  eps:           number | null;
+  dividendYield: number | null;
+  roe:           number | null;
+  debtToEquity:  number | null;
+  period:        string | null;
+}
+
+export interface StockFundamentalsMeta {
+  source:               string;
+  trustTier:            string;
+  asOf:                 string | null;
+  fetchedAt:            string;
+  notForSignals:        boolean;
+  notForTradeDecisions: boolean;
+  validationStatus:     string;
+  warnings:             string[];
+}
+
+export interface StockFundamentals {
+  ok:            boolean;
+  symbol:        string;
+  fetchedAt:     string;
+  /** NOT_CONFIGURED | AVAILABLE | ERROR | RATE_LIMITED */
+  providerState: string;
+  plan:          string | null;
+  profile:       FundamentalsStockProfile | null;
+  ratios:        FundamentalsStockRatios  | null;
+  warnings:      string[];
+  meta:          StockFundamentalsMeta;
+}

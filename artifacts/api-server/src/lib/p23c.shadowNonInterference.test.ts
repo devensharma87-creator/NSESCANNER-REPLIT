@@ -125,7 +125,7 @@ describe("P23C/Shadow — §12.5 shadow non-interference", () => {
   it("P23C-5a: canonical quote is IDENTICAL before and after shadow dispatch (absurd shadow)", async () => {
     vi.stubEnv("UPSTOX_ACCESS_TOKEN", "FAKE_TOKEN");
     const fakeClient = createUpstoxClient({
-      config: { baseUrl: "https://api.upstox.com/v2", accessToken: "FAKE_TOKEN", timeoutMs: 5_000, maxRetries: 0, retryBaseMs: 10 },
+      config: { baseUrl: "https://api.upstox.com/v2", authMode: "ANALYTICS_TOKEN", accessToken: "FAKE_TOKEN", timeoutMs: 5_000, maxRetries: 0, retryBaseMs: 10 },
       fetchImpl: async () => makeAbsurdQuoteResponse(),
     });
     __setUpstoxClientForTests(fakeClient);
@@ -152,7 +152,7 @@ describe("P23C/Shadow — §12.5 shadow non-interference", () => {
   it("P23C-5b: absurd shadow values do not change canonical LTP", async () => {
     vi.stubEnv("UPSTOX_ACCESS_TOKEN", "FAKE_TOKEN");
     const fakeClient = createUpstoxClient({
-      config: { baseUrl: "https://api.upstox.com/v2", accessToken: "FAKE_TOKEN", timeoutMs: 5_000, maxRetries: 0, retryBaseMs: 10 },
+      config: { baseUrl: "https://api.upstox.com/v2", authMode: "ANALYTICS_TOKEN", accessToken: "FAKE_TOKEN", timeoutMs: 5_000, maxRetries: 0, retryBaseMs: 10 },
       fetchImpl: async () => makeAbsurdQuoteResponse(),
     });
     __setUpstoxClientForTests(fakeClient);
@@ -169,7 +169,7 @@ describe("P23C/Shadow — §12.5 shadow non-interference", () => {
   it("P23C-5c: canonical series is IDENTICAL before and after shadow candle dispatch (absurd)", async () => {
     vi.stubEnv("UPSTOX_ACCESS_TOKEN", "FAKE_TOKEN");
     const fakeClient = createUpstoxClient({
-      config: { baseUrl: "https://api.upstox.com/v2", accessToken: "FAKE_TOKEN", timeoutMs: 5_000, maxRetries: 0, retryBaseMs: 10 },
+      config: { baseUrl: "https://api.upstox.com/v2", authMode: "ANALYTICS_TOKEN", accessToken: "FAKE_TOKEN", timeoutMs: 5_000, maxRetries: 0, retryBaseMs: 10 },
       fetchImpl: async () => makeAbsurdCandleResponse(),
     });
     __setUpstoxClientForTests(fakeClient);
@@ -187,7 +187,7 @@ describe("P23C/Shadow — §12.5 shadow non-interference", () => {
   it("P23C-5d: shadow failure (500) does not throw into caller and canonical is preserved", async () => {
     vi.stubEnv("UPSTOX_ACCESS_TOKEN", "FAKE_TOKEN");
     const fakeClient = createUpstoxClient({
-      config: { baseUrl: "https://api.upstox.com/v2", accessToken: "FAKE_TOKEN", timeoutMs: 5_000, maxRetries: 0, retryBaseMs: 10 },
+      config: { baseUrl: "https://api.upstox.com/v2", authMode: "ANALYTICS_TOKEN", accessToken: "FAKE_TOKEN", timeoutMs: 5_000, maxRetries: 0, retryBaseMs: 10 },
       fetchImpl: async () => new Response(JSON.stringify({ status: "error" }), { status: 500, headers: { "content-type": "application/json" } }),
     });
     __setUpstoxClientForTests(fakeClient);
@@ -216,7 +216,7 @@ describe("P23C/Shadow — §12.5 shadow non-interference", () => {
     vi.stubEnv("UPSTOX_ACCESS_TOKEN", "");
     let fetchCalled = false;
     const fakeClient = createUpstoxClient({
-      config: { baseUrl: "https://api.upstox.com/v2", accessToken: null, timeoutMs: 5_000, maxRetries: 0, retryBaseMs: 10 },
+      config: { baseUrl: "https://api.upstox.com/v2", authMode: "NOT_CONFIGURED", accessToken: null, timeoutMs: 5_000, maxRetries: 0, retryBaseMs: 10 },
       fetchImpl: async () => { fetchCalled = true; return makeAbsurdQuoteResponse(); },
     });
     __setUpstoxClientForTests(fakeClient);
@@ -233,7 +233,7 @@ describe("P23C/Shadow — §12.5 shadow non-interference", () => {
     vi.stubEnv("UPSTOX_ACCESS_TOKEN", "FAKE_TOKEN");
     let fetchCalled = false;
     const fakeClient = createUpstoxClient({
-      config: { baseUrl: "https://api.upstox.com/v2", accessToken: "FAKE_TOKEN", timeoutMs: 5_000, maxRetries: 0, retryBaseMs: 10 },
+      config: { baseUrl: "https://api.upstox.com/v2", authMode: "ANALYTICS_TOKEN", accessToken: "FAKE_TOKEN", timeoutMs: 5_000, maxRetries: 0, retryBaseMs: 10 },
       fetchImpl: async () => { fetchCalled = true; return makeAbsurdQuoteResponse(); },
     });
     __setUpstoxClientForTests(fakeClient);

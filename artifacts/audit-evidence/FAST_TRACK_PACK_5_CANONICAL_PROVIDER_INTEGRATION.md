@@ -216,13 +216,120 @@ When `INDIANAPI_API_KEY` is set:
 
 ---
 
-## §11 — Known Limitations (Pack 5 Scope)
+## §11 — Known Limitations (Pack 5 Scope — superseded by §12 below)
 
-- **Static instrument key mapping only**: Upstox shadow dispatch fires for NIFTY, BANKNIFTY, SENSEX only. Full equity mapping (CSV-based ISIN → Upstox key) is a follow-on task.
-- **Router dispatch not wired in getEquityQuote/getEquityCandles**: `shadowDispatch.ts` provides `dispatchShadowQuote` and `dispatchShadowCandles`, but the router integration is available as a call site — not auto-inserted — because the canonical router requires a session-context guard to avoid firing during test runs. Wiring is the first action when Upstox credentials arrive.
-- **No historical parity data**: Ring buffer is in-memory only; restart clears it. DB-backed parity store is a follow-on pack.
-- **IndianAPI fundamentals not surfaced in UI**: Data is available via API; UI integration is a separate task.
+- **Static instrument key mapping only (RESOLVED in 23A)**: Full BOD instrument master cache implemented with ISIN-based equity mapping, index bootstrap, and derivative key resolution.
+- **Router dispatch not wired (RESOLVED in 23A)**: `dispatchShadowQuote`/`dispatchShadowCandles` now called from `router.ts` `getEquityQuote`, `getIndexQuote`, `getEquityCandles`.
+- **No historical parity data**: Ring buffer is in-memory only; restart clears it. DB-backed parity store remains a follow-on pack.
+- **IndianAPI fundamentals not surfaced in UI (RESOLVED in 23A)**: UI FundamentalsCard + fundamentals tab implemented in stock-detail.tsx.
 
 ---
 
-END_FAST_TRACK_PACK_5_CANONICAL_PROVIDER_INTEGRATION
+## §12 — Prompt 23A: Production Wiring and Canonical Consumption Closure
+
+**Date:** 2026-08-04
+**Verdict:** `FAST_TRACK_PACK_5_23A_ACCEPTED`
+
+### Gate A — Upstox Authentication Semantics
+
+| Item | Evidence |
+|------|----------|
+| `UpstoxAuthMode` type added | `upstoxClient.ts`: `"ANALYTICS_TOKEN" \| "STANDARD_DAILY_TOKEN" \| "NOT_CONFIGURED"` |
+| Preference: `UPSTOX_ANALYTICS_TOKEN` | `resolveUpstoxConfig()` checks analytics first, standard fallback |
+| Error message sanitised | No env var names in error messages; uses `authMode=NOT_CONFIGURED` |
+| Tests | `p23a2.upstoxAuthMode.test.ts` — 9 tests (A-1 through A-9) — all pass |
+
+### Gate B — Instrument Mapping (BOD Cache)
+
+| Item | Evidence |
+|------|----------|
+| New module | `marketData/upstoxInstrumentMap.ts` — 520 lines |
+| Static index bootstrap | NIFTY/^NSEI → `NSE_INDEX\|Nifty 50`, BANKNIFTY/^NSEBANK, SENSEX, NIFTYMIDCAP100 |
+| ISIN-based equity mapping | BOD cache → `byIsin` map; NSE wins over BSE for same ISIN |
+| Derivative key mapping | `segment:underlying:expiry:strike:optionType` composite key |
+| Schema validation | `isValidInstrumentRow()` rejects incomplete rows in both passes |
+| Rejection kinds | SCHEMA_INVALID, DUPLICATE_KEY, EXPIRED, SUSPENDED, NOT_IN_MAP, AMBIGUOUS |
+| Test seam | `__setInstrumentMapForTests()`, `__resetInstrumentMapForTests()`, `__buildCacheForTests()` |
+| shadowDispatch updated | `shadowDispatch.ts` now imports `resolveInstrumentKey`; static 5-symbol map removed |
+| Dedup window | `shouldDispatch()` suppresses duplicate calls within 15s |
+| Tests | `p23b2.instrumentMap.test.ts` — 16 tests (B-1 through B-16) — all pass |
+
+### Gate C — Router Wiring
+
+| Item | Evidence |
+|------|----------|
+| `getEquityQuote` | `dispatchShadowQuote(sym, live)` after live quote; `dispatchShadowQuote(sym, q)` after batch result |
+| `getIndexQuote` | `dispatchShadowQuote(key, q)` after batch result |
+| `getEquityCandles` | `dispatchShadowCandles(...)` after canonical series validated |
+| Fire-and-forget | No `await` on dispatch calls; never modifies canonical result |
+| Tests | `p23c2.routerWiring.test.ts` — 11 tests (C-1 through C-11) — all pass |
+
+### Gate D — IndianAPI Host Allowlist
+
+| Item | Evidence |
+|------|----------|
+| `INDIANAPI_HOST_ALLOWLIST` | `Set(["api.indianapi.in", "api2.indianapi.in"])` — no others accepted |
+| `detectIndianApiPlan()` | api.indianapi.in→INDIVIDUAL, api2→ENTERPRISE, other→UNKNOWN |
+| `resolveIndianApiConfig()` | Rejects non-allowlisted `INDIANAPI_BASE_URL`; falls back to default |
+| `RATE_LIMITED` kind | Added to `IndianApiErrorKind` alongside existing `rate_limit` |
+| Plan field | `IndianApiConfig.plan: IndianApiPlan` — INDIVIDUAL/STARTUP/ENTERPRISE/UNKNOWN |
+| Tests | `p23d2.indianApiHostAllowlist.test.ts` — 14 tests (D-1 through D-14) — all pass |
+
+### Gate E — Canonical API / Client / UI Consumption
+
+| Item | Evidence |
+|------|----------|
+| Server route | `artifacts/api-server/src/routes/fundamentals.ts` — `GET /data/fundamentals/:symbol` |
+| Route registration | `routes/data.ts` mounts `fundamentalsRouter` under `requireOwner` middleware |
+| NOT_CONFIGURED state | HTTP 200 with `providerState: "NOT_CONFIGURED"` when key absent (no 500) |
+| meta guards | `notForSignals: true`, `notForTradeDecisions: true` always set |
+| OpenAPI spec | `lib/api-spec/openapi.yaml` — `StockFundamentals` schema + `getStockFundamentals` op |
+| api-zod types | `lib/api-zod/src/generated/types/stockFundamentals.ts`; exported from `src/index.ts` |
+| api-client-react types | `StockFundamentals`, `FundamentalsStockProfile`, `FundamentalsStockRatios` in `api.schemas.ts` |
+| api-client-react hook | `useGetStockFundamentals()`, `getGetStockFundamentalsQueryKey()`, URL `/api/data/fundamentals/` |
+| UI component | `artifacts/scanner/src/components/fundamentals-card.tsx` — 220 lines |
+| UI consumer | `artifacts/scanner/src/pages/stock-detail.tsx` — new "Fundamentals" tab |
+| 6 states handled | loading \| error \| NOT_CONFIGURED \| RATE_LIMITED \| stale \| available |
+| Tests | `p23e.fundamentalsRoute.test.ts` — 13 tests (E-1 through E-13) — all pass |
+
+### Gate F — Cross-Tab Parity Tests
+
+| Item | Evidence |
+|------|----------|
+| stock-detail.tsx imports | Only `@workspace/api-client-react`; no direct IndianAPI/Upstox imports |
+| Fundamentals hook URL | `/api/data/fundamentals/` — canonical server path only |
+| Shadow dispatch fire-and-forget | `dispatchShadowQuote` returns void; never `await`ed in router |
+| Shadow non-interference | Canonical result finalized before dispatch; dispatch cannot mutate it |
+| Query key isolation | `/api/data/fundamentals/` ≠ `/api/stocks/` — no cache collision |
+| Tests | `p23f.crossTabParity.test.ts` — 12 tests (F-1 through F-12) — all pass |
+
+### §12 — Gate G — Closing Battery
+
+| Floor metric | Required | Actual | Status |
+|---|---|---|---|
+| api-server tests | ≥5,352 | **5,427** (+75) | ✅ PASS |
+| scanner tests | ≥947 | **947** | ✅ PASS |
+| TSC api-server | clean | 0 errors | ✅ PASS |
+| TSC api-client-react | clean | 0 errors | ✅ PASS |
+| TSC api-zod | clean | 0 errors | ✅ PASS |
+| TSC scanner | clean | 0 errors | ✅ PASS |
+| TSC global | clean | 0 errors | ✅ PASS |
+| scanner build | clean | ✓ 2946 modules | ✅ PASS |
+
+### §12 — New Test Files (Pack 5 23A contribution)
+
+| File | Tests | Gates |
+|------|-------|-------|
+| `p23a2.upstoxAuthMode.test.ts` | 9 | Gate A |
+| `p23b2.instrumentMap.test.ts` | 16 | Gate B |
+| `p23c2.routerWiring.test.ts` | 11 | Gate C |
+| `p23d2.indianApiHostAllowlist.test.ts` | 14 | Gate D |
+| `p23e.fundamentalsRoute.test.ts` | 13 | Gate E |
+| `p23f.crossTabParity.test.ts` | 12 | Gate F |
+| **Total new** | **75** | **A–F** |
+
+Previously passing: 5,352. New total: **5,427**.
+
+---
+
+END_FAST_TRACK_PACK_5_PRODUCTION_WIRING_AND_CANONICAL_CONSUMPTION_CLOSURE

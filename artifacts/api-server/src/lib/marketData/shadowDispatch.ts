@@ -12,31 +12,9 @@
 
 import { fireShadow, assertCanonicalUnchanged } from "./shadowState";
 import { shadowFetchQuote, shadowFetchCandles, isUpstoxConfigured } from "./upstoxProvider";
+import { resolveInstrumentKey } from "./upstoxInstrumentMap";
 import { getPolicy } from "./policy";
 import type { MarketQuote, CandleSeries, TrustedQuote, TrustedCandleSeries } from "./types";
-
-// ---------------------------------------------------------------------------
-// Instrument key resolution (stub — no mapping file in Pack 5)
-// ---------------------------------------------------------------------------
-
-/**
- * Resolve canonical symbol → Upstox instrument_key.
- * Pack 5: static lookup for well-known indices and equities.
- * Full CSV-based mapping is a follow-on pack.
- */
-function resolveUpstoxKey(symbol: string): string | null {
-  // Index instrument keys (Upstox V2 format)
-  const STATIC_INDEX_MAP: Record<string, string> = {
-    "^NSEI":        "NSE_INDEX|Nifty 50",
-    "^NSEBANK":     "NSE_INDEX|Nifty Bank",
-    "NIFTY":        "NSE_INDEX|Nifty 50",
-    "BANKNIFTY":    "NSE_INDEX|Nifty Bank",
-    "SENSEX":       "BSE_INDEX|SENSEX",
-  };
-  const upper = symbol.toUpperCase();
-  return STATIC_INDEX_MAP[upper] ?? null;
-  // Equity mapping requires ISIN lookup — deferred to mapping pack.
-}
 
 // ---------------------------------------------------------------------------
 // Shadow dispatch for quotes
@@ -47,18 +25,46 @@ function resolveUpstoxKey(symbol: string): string | null {
  * Returns the canonical quote unchanged. Shadow errors and timeouts are silently
  * swallowed — this is a pure side-effect dispatch.
  */
+// ---------------------------------------------------------------------------
+// Single-flight deduplication (prevents duplicate shadow calls per snapshot)
+// ---------------------------------------------------------------------------
+
+const _inflightQuotes = new Map<string, number>(); // symbol → last dispatch epochMs
+const DEDUP_WINDOW_MS = 15_000; // suppress duplicate shadow calls within 15s
+
+function shouldDispatch(symbol: string): boolean {
+  const now  = Date.now();
+  const last = _inflightQuotes.get(symbol);
+  if (last !== undefined && now - last < DEDUP_WINDOW_MS) return false;
+  _inflightQuotes.set(symbol, now);
+  return true;
+}
+
+/** Reset dedup state — for tests only. */
+export function __resetShadowDispatchForTests(): void {
+  _inflightQuotes.clear();
+}
+
+// ---------------------------------------------------------------------------
+// Quote dispatch
+// ---------------------------------------------------------------------------
+
 export function dispatchShadowQuote(
   symbol:        string,
   canonicalQuote: MarketQuote,
+  opts?: { isin?: string; exchange?: string },
 ): void {
   const policy = getPolicy();
   if (!policy.upstoxShadowEnabled || !isUpstoxConfigured()) return;
+  if (!shouldDispatch(symbol)) return; // deduplicated
 
-  const instrumentKey = resolveUpstoxKey(symbol);
-  if (!instrumentKey) return; // No static mapping for this symbol; skip
+  // Resolve via canonical instrument mapper (indices via static bootstrap;
+  // equities via ISIN from BOD cache).
+  const diagnostic = resolveInstrumentKey(symbol, { isin: opts?.isin, exchange: opts?.exchange });
+  if (!diagnostic.ok || !diagnostic.upstoxKey) return; // no mapping — suppress silently
 
+  const instrumentKey = diagnostic.upstoxKey;
   fireShadow(async () => {
-    // Shadow fetch — result discarded; only parity sample is stored
     await shadowFetchQuote(symbol, instrumentKey, canonicalQuote);
   });
 }
@@ -73,12 +79,15 @@ export function dispatchShadowCandles(
   interval:        string,
   from:            string,
   to:              string,
+  opts?: { isin?: string; exchange?: string },
 ): void {
   const policy = getPolicy();
   if (!policy.upstoxShadowEnabled || !isUpstoxConfigured()) return;
 
-  const instrumentKey = resolveUpstoxKey(symbol);
-  if (!instrumentKey) return;
+  const diagnostic = resolveInstrumentKey(symbol, { isin: opts?.isin, exchange: opts?.exchange });
+  if (!diagnostic.ok || !diagnostic.upstoxKey) return;
+
+  const instrumentKey = diagnostic.upstoxKey;
 
   // Map canonical interval names to Upstox interval names
   const INTERVAL_MAP: Record<string, string> = {

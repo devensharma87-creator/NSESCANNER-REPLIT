@@ -1,19 +1,41 @@
 /**
- * Upstox V2 low-level HTTP client.
+ * Upstox low-level HTTP client — read-only market data only.
  *
- * Thin, dependency-injectable transport wrapper over the Upstox REST API V2.
- * Knows: authentication, URL building, request batching, typed errors, retry
- * with bounded backoff, circuit breaker, rate-limit (Retry-After) handling.
- * Does NOT know: trust tiers, canonical types, shadow state, mapping.
+ * ## Authentication modes (Gate A — Pack 5 23A)
  *
- * Authentication: access token passed as `Authorization: Bearer <token>`.
- * Tokens are short-lived OAuth2 access tokens. Token acquisition/rotation is
- * the owner's concern; this module accepts a token provider function.
+ * Two distinct token types are supported. They share the same bearer header
+ * at transport level but have different expiry semantics:
  *
- * The `fetchImpl` constructor seam makes every method fully unit-testable
- * with a fake fetch — no live credentials required.
+ *   ANALYTICS_TOKEN  — UPSTOX_ANALYTICS_TOKEN env var.
+ *                      One-year read-only token. Supports market-data APIs
+ *                      listed below. Cannot place orders.
+ *                      Preferred mode for this shadow-parity integration.
  *
- * Pack 5 constraint: read-only market data only. No order placement.
+ *   STANDARD_DAILY_TOKEN — UPSTOX_ACCESS_TOKEN env var.
+ *                           Short-lived daily OAuth2 token. Fallback if the
+ *                           analytics token is not set.
+ *                           Only use if this codebase separately needs the
+ *                           standard flow for another identified purpose.
+ *
+ * Configuration ALWAYS prefers UPSTOX_ANALYTICS_TOKEN over UPSTOX_ACCESS_TOKEN.
+ * They are never silently treated as interchangeable in diagnostics.
+ *
+ * ## Endpoint inventory (all Upstox REST API V2 unless noted)
+ *
+ *   GET /market-quote/quotes           — Upstox Market Quote API V2
+ *   GET /historical-candle/{key}/...   — Upstox Historical Candle API V2
+ *   GET /option/chain                  — Upstox Options Chain API V2
+ *
+ * The Market Data Feed (streaming) uses a V3 authorization path
+ * (/v3/feed/market-data-feed/authorize). NOT implemented in Pack 5.
+ *
+ * ## Order placement
+ * This adapter contains NO order, portfolio-mutation, or trading endpoints.
+ * The Upstox Order API V2 is intentionally excluded.
+ *
+ * ## Seam
+ * The `fetchImpl` constructor parameter makes every method fully unit-testable
+ * without live credentials.
  */
 
 export type FetchImpl = typeof fetch;
@@ -49,11 +71,33 @@ export class UpstoxError extends Error {
 // Configuration
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Authentication mode (Gate A)
+// ---------------------------------------------------------------------------
+
+/**
+ * Which token type is active. NEVER expose the token itself in any diagnostic
+ * or error output — only the mode enum value is safe to surface.
+ */
+export type UpstoxAuthMode =
+  | "ANALYTICS_TOKEN"      // UPSTOX_ANALYTICS_TOKEN — 1-year, read-only, preferred
+  | "STANDARD_DAILY_TOKEN" // UPSTOX_ACCESS_TOKEN    — daily OAuth2, fallback
+  | "NOT_CONFIGURED";      // No token present; all calls suppressed
+
+// ---------------------------------------------------------------------------
+// Configuration
+// ---------------------------------------------------------------------------
+
 export interface UpstoxConfig {
   /** Base URL without trailing slash. */
   baseUrl: string;
-  /** Bearer access token resolver (returns null when not configured). */
+  /**
+   * Bearer token — NEVER logged or included in error messages.
+   * null when neither UPSTOX_ANALYTICS_TOKEN nor UPSTOX_ACCESS_TOKEN is set.
+   */
   accessToken: string | null;
+  /** Which auth mode sourced the token. */
+  authMode: UpstoxAuthMode;
   /** Per-request timeout in ms. */
   timeoutMs: number;
   /** Maximum retry attempts for retryable failures. */
@@ -67,16 +111,39 @@ const DEFAULT_TIMEOUT   = 15_000;
 const DEFAULT_MAX_RETRY = 2;
 const DEFAULT_BASE_MS   = 500;
 
+/**
+ * Resolve Upstox configuration from environment variables.
+ *
+ * Preference order: UPSTOX_ANALYTICS_TOKEN > UPSTOX_ACCESS_TOKEN.
+ * These two token types have different expiry semantics and must not be
+ * silently interchanged.
+ */
 export function resolveUpstoxConfig(): UpstoxConfig {
-  const token = process.env["UPSTOX_ACCESS_TOKEN"]?.trim() || null;
-  const base  = (process.env["UPSTOX_API_BASE_URL"] || DEFAULT_BASE_URL).replace(/\/+$/, "");
+  const analyticsToken = process.env["UPSTOX_ANALYTICS_TOKEN"]?.trim() || null;
+  const standardToken  = process.env["UPSTOX_ACCESS_TOKEN"]?.trim()    || null;
+
+  let accessToken: string | null;
+  let authMode: UpstoxAuthMode;
+  if (analyticsToken) {
+    accessToken = analyticsToken;
+    authMode    = "ANALYTICS_TOKEN";
+  } else if (standardToken) {
+    accessToken = standardToken;
+    authMode    = "STANDARD_DAILY_TOKEN";
+  } else {
+    accessToken = null;
+    authMode    = "NOT_CONFIGURED";
+  }
+
+  const base    = (process.env["UPSTOX_API_BASE_URL"] || DEFAULT_BASE_URL).replace(/\/+$/, "");
   const timeout = Number(process.env["UPSTOX_TIMEOUT_MS"]);
   return {
-    baseUrl:      base,
-    accessToken:  token,
-    timeoutMs:    Number.isFinite(timeout) && timeout > 0 ? timeout : DEFAULT_TIMEOUT,
-    maxRetries:   DEFAULT_MAX_RETRY,
-    retryBaseMs:  DEFAULT_BASE_MS,
+    baseUrl:     base,
+    accessToken,
+    authMode,
+    timeoutMs:   Number.isFinite(timeout) && timeout > 0 ? timeout : DEFAULT_TIMEOUT,
+    maxRetries:  DEFAULT_MAX_RETRY,
+    retryBaseMs: DEFAULT_BASE_MS,
   };
 }
 
@@ -243,7 +310,7 @@ export function createUpstoxClient(
     params: Record<string, string> = {},
   ): Promise<T> {
     if (!cfg.accessToken) {
-      throw new UpstoxError("UPSTOX_ACCESS_TOKEN not configured.", "config");
+      throw new UpstoxError("Upstox not configured (authMode=NOT_CONFIGURED).", "config");
     }
     if (!circuitAllow()) {
       throw new UpstoxError("Upstox circuit breaker open — requests suppressed.", "network");

@@ -7,6 +7,8 @@ import {
   getGetStockHistoryQueryKey,
   useGetNews,
   getGetNewsQueryKey,
+  useGetStockFundamentals,
+  getGetStockFundamentalsQueryKey,
 } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -22,6 +24,7 @@ import { InAppCandleChart } from "@/components/in-app-candle-chart";
 import StockStatements from "@/components/stock-statements";
 import { KiteOfflineBanner } from "@/components/kite-offline-banner";
 import { formatDistanceToNow } from "date-fns";
+import { FundamentalsCard } from "@/components/fundamentals-card";
 
 const RANGES = ["1mo", "3mo", "6mo", "1y", "2y"] as const;
 type Range = typeof RANGES[number];
@@ -260,6 +263,7 @@ export default function StockDetail() {
           <TabsTrigger value="overview" className="font-mono text-xs uppercase">Overview</TabsTrigger>
           <TabsTrigger value="chart" className="font-mono text-xs uppercase">Chart</TabsTrigger>
           <TabsTrigger value="insights" className="font-mono text-xs uppercase">Insights</TabsTrigger>
+          <TabsTrigger value="fundamentals" className="font-mono text-xs uppercase">Fundamentals</TabsTrigger>
           <TabsTrigger value="financials" className="font-mono text-xs uppercase">Financials</TabsTrigger>
           <TabsTrigger value="holdings" className="font-mono text-xs uppercase">Holdings</TabsTrigger>
           <TabsTrigger value="news" className="font-mono text-xs uppercase">News</TabsTrigger>
@@ -418,6 +422,10 @@ export default function StockDetail() {
               )}
             </CardContent>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="fundamentals" className="space-y-4">
+          <FundamentalsCard symbol={symbol} />
         </TabsContent>
 
         <TabsContent value="financials" className="space-y-4">

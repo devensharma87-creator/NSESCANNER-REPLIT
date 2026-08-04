@@ -10,6 +10,7 @@ import {
   setIndstocksToken,
   clearIndstocksToken,
 } from "../lib/marketData";
+import fundamentalsRouter from "./fundamentals";
 import { resolveInstrument } from "../lib/marketData/instrumentResolver";
 import { getChartCandles } from "../lib/chartDatafeed";
 import { UNIVERSE } from "../lib/universe";
@@ -378,5 +379,8 @@ router.delete("/data/indstocks/token", requireOwnerStrict, async (_req, res, nex
     next(err);
   }
 });
+
+// Gate E — canonical IndianAPI fundamentals (owner-only via parent requireOwner middleware)
+router.use(fundamentalsRouter);
 
 export default router;

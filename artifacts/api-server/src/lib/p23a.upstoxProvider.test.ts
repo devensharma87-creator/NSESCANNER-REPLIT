@@ -71,6 +71,7 @@ function makeConfiguredClient(fakeFetch: (url: string, init?: RequestInit) => Pr
     config: {
       baseUrl:     "https://api.upstox.com/v2",
       accessToken: "FAKE_TOKEN_NOT_REAL",
+      authMode:    "ANALYTICS_TOKEN" as const,
       timeoutMs:   5_000,
       maxRetries:  1,
       retryBaseMs: 10,
@@ -103,7 +104,7 @@ describe("P23A/Upstox — §12.1 provider configuration", () => {
     vi.stubEnv("UPSTOX_ACCESS_TOKEN", "");
     let fetchCalled = false;
     const fakeClient = createUpstoxClient({
-      config: { baseUrl: "https://api.upstox.com/v2", accessToken: null, timeoutMs: 5_000, maxRetries: 0, retryBaseMs: 10 },
+      config: { baseUrl: "https://api.upstox.com/v2", authMode: "NOT_CONFIGURED", accessToken: null, timeoutMs: 5_000, maxRetries: 0, retryBaseMs: 10 },
       fetchImpl: async () => { fetchCalled = true; return makeQuoteResponse(); },
     });
     __setUpstoxClientForTests(fakeClient);
@@ -125,7 +126,7 @@ describe("P23A/Upstox — §12.1 provider configuration", () => {
 
   it("P23A-1d: getQuotes with missing token → throws UpstoxError with kind=config", async () => {
     const client = createUpstoxClient({
-      config: { baseUrl: "https://api.upstox.com/v2", accessToken: null, timeoutMs: 5_000, maxRetries: 0, retryBaseMs: 10 },
+      config: { baseUrl: "https://api.upstox.com/v2", authMode: "NOT_CONFIGURED", accessToken: null, timeoutMs: 5_000, maxRetries: 0, retryBaseMs: 10 },
       fetchImpl: async () => makeQuoteResponse(),
     });
     await expect(client.getQuotes(["NSE_INDEX|Nifty 50"])).rejects.toThrow(UpstoxError);
@@ -135,7 +136,7 @@ describe("P23A/Upstox — §12.1 provider configuration", () => {
   it("P23A-1e: token must never appear in error messages", async () => {
     const sensitiveToken = "FAKE_TOKEN_SENSITIVE_XYZ789";
     const client = createUpstoxClient({
-      config: { baseUrl: "https://api.upstox.com/v2", accessToken: sensitiveToken, timeoutMs: 5_000, maxRetries: 0, retryBaseMs: 10 },
+      config: { baseUrl: "https://api.upstox.com/v2", accessToken: sensitiveToken, authMode: "ANALYTICS_TOKEN" as const, timeoutMs: 5_000, maxRetries: 0, retryBaseMs: 10 },
       fetchImpl: async () => makeErrorResponse(401, "Unauthorized"),
     });
     try {
@@ -176,7 +177,7 @@ describe("P23A/Upstox — §12.3 transport resilience", () => {
   it("P23A-3d: 429 with Retry-After → throws UpstoxError kind=rate_limit with retryAfterMs", async () => {
     // Use maxRetries:0 so no sleep before throwing (avoids 5s timeout in tests)
     const client = createUpstoxClient({
-      config: { baseUrl: "https://api.upstox.com/v2", accessToken: "FAKE_TOKEN_NOT_REAL", timeoutMs: 5_000, maxRetries: 0, retryBaseMs: 10 },
+      config: { baseUrl: "https://api.upstox.com/v2", authMode: "ANALYTICS_TOKEN", accessToken: "FAKE_TOKEN_NOT_REAL", timeoutMs: 5_000, maxRetries: 0, retryBaseMs: 10 },
       fetchImpl: async () => new Response(
         JSON.stringify({ status: "error", message: "Too Many Requests" }),
         { status: 429, headers: { "Retry-After": "5", "content-type": "application/json" } },
@@ -217,7 +218,7 @@ describe("P23A/Upstox — §12.3 transport resilience", () => {
 
   it("P23A-3i: timeout (AbortError) → kind=timeout", async () => {
     const client = createUpstoxClient({
-      config: { baseUrl: "https://api.upstox.com/v2", accessToken: "TOKEN", timeoutMs: 1, maxRetries: 0, retryBaseMs: 10 },
+      config: { baseUrl: "https://api.upstox.com/v2", authMode: "ANALYTICS_TOKEN", accessToken: "TOKEN", timeoutMs: 1, maxRetries: 0, retryBaseMs: 10 },
       fetchImpl: async (_url, init) => {
         // Simulate abort
         return new Promise((_resolve, reject) => {

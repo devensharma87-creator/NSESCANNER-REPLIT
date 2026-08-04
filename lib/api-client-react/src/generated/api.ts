@@ -10050,3 +10050,94 @@ export function useGetGlobalSourceStatus<
 
   return { ...query, queryKey: queryOptions.queryKey };
 }
+
+// ---------------------------------------------------------------------------
+// Pack 5 23A — GET /data/fundamentals/:symbol (IndianAPI reference data)
+// ---------------------------------------------------------------------------
+
+import type { StockFundamentals } from "./api.schemas";
+
+/**
+ * @summary Canonical IndianAPI fundamentals — company profile and financial ratios.
+ * Reference data only; NOT for trading decisions. Owner-only.
+ * Returns providerState=NOT_CONFIGURED cleanly when key absent.
+ */
+export const getGetStockFundamentalsUrl = (symbol: string) => {
+  return `/api/data/fundamentals/${symbol}`;
+};
+
+export const getStockFundamentals = async (
+  symbol: string,
+  options?: RequestInit,
+): Promise<StockFundamentals> => {
+  return customFetch<StockFundamentals>(getGetStockFundamentalsUrl(symbol), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetStockFundamentalsQueryKey = (symbol: string) => {
+  return [`/api/data/fundamentals/${symbol}`] as const;
+};
+
+export const getGetStockFundamentalsQueryOptions = <
+  TData = Awaited<ReturnType<typeof getStockFundamentals>>,
+  TError = ErrorType<unknown>,
+>(
+  symbol: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getStockFundamentals>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+  const queryKey = queryOptions?.queryKey ?? getGetStockFundamentalsQueryKey(symbol);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getStockFundamentals>>> = ({
+    signal,
+  }) => getStockFundamentals(symbol, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!symbol,
+    staleTime: 5 * 60_000, // 5 min — reference data changes slowly
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getStockFundamentals>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetStockFundamentalsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getStockFundamentals>>
+>;
+export type GetStockFundamentalsQueryError = ErrorType<unknown>;
+
+export function useGetStockFundamentals<
+  TData = Awaited<ReturnType<typeof getStockFundamentals>>,
+  TError = ErrorType<unknown>,
+>(
+  symbol: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getStockFundamentals>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetStockFundamentalsQueryOptions(symbol, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}

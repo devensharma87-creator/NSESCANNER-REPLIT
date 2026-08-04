@@ -18,11 +18,13 @@ export type FetchImpl = typeof fetch;
 // Error types
 // ---------------------------------------------------------------------------
 
+/** Gate D: RATE_LIMITED is a distinct state from the transient rate_limit retry kind. */
 export type IndianApiErrorKind =
   | "config"      // API key absent
   | "auth"        // 401 / 403
   | "not_found"   // 404
-  | "rate_limit"  // 429
+  | "rate_limit"    // 429 — transient; will be retried
+  | "rate_limited"  // 429 — permanent within session; surfaced as RATE_LIMITED state
   | "server"      // 5xx
   | "timeout"
   | "network"
@@ -41,12 +43,41 @@ export class IndianApiError extends Error {
 }
 
 // ---------------------------------------------------------------------------
-// Configuration
+// Configuration — Gate D: Plan/host allowlist
 // ---------------------------------------------------------------------------
+
+/**
+ * IndianAPI subscription plans and their documented base URLs.
+ * Never mark a host as allowed unless it appears in IndianAPI's official
+ * plan documentation. Reject any INDIANAPI_BASE_URL not in this allowlist.
+ */
+export type IndianApiPlan = "INDIVIDUAL" | "STARTUP" | "ENTERPRISE" | "UNKNOWN";
+
+/** Allowlist of documented IndianAPI hosts. */
+export const INDIANAPI_HOST_ALLOWLIST: ReadonlySet<string> = new Set([
+  "api.indianapi.in",
+  "api2.indianapi.in",  // documented enterprise host
+]);
+
+/**
+ * Detect plan from base URL.
+ * Returns UNKNOWN for allowlisted hosts without a plan-specific subdomain.
+ */
+export function detectIndianApiPlan(baseUrl: string): IndianApiPlan {
+  try {
+    const host = new URL(baseUrl).hostname;
+    if (host === "api2.indianapi.in") return "ENTERPRISE";
+    if (host === "api.indianapi.in")  return "INDIVIDUAL";
+    return "UNKNOWN";
+  } catch {
+    return "UNKNOWN";
+  }
+}
 
 export interface IndianApiConfig {
   baseUrl:     string;
   apiKey:      string | null;
+  plan:        IndianApiPlan;
   timeoutMs:   number;
   maxRetries:  number;
   retryBaseMs: number;
@@ -57,13 +88,35 @@ const DEFAULT_TIMEOUT  = 12_000;
 const DEFAULT_RETRIES  = 1;
 const DEFAULT_BASE_MS  = 1_000;
 
+/**
+ * Resolve IndianAPI configuration.
+ * Rejects INDIANAPI_BASE_URL values outside the documented host allowlist.
+ * Missing key → NOT_CONFIGURED (no startup crash).
+ */
 export function resolveIndianApiConfig(): IndianApiConfig {
   const key  = process.env["INDIANAPI_API_KEY"]?.trim() || null;
-  const base = (process.env["INDIANAPI_BASE_URL"] || DEFAULT_BASE).replace(/\/+$/, "");
+  const rawBase = (process.env["INDIANAPI_BASE_URL"] || DEFAULT_BASE).replace(/\/+$/, "");
   const timeout = Number(process.env["INDIANAPI_TIMEOUT_MS"]);
+
+  // Gate D: reject non-allowlisted hosts
+  let base: string;
+  try {
+    const host = new URL(rawBase).hostname;
+    if (!INDIANAPI_HOST_ALLOWLIST.has(host)) {
+      // Fall back to default safe host; log the rejection
+      console.warn(`[IndianAPI] Rejected non-allowlisted base URL host: ${host}. Falling back to default.`);
+      base = DEFAULT_BASE;
+    } else {
+      base = rawBase;
+    }
+  } catch {
+    base = DEFAULT_BASE;
+  }
+
   return {
     baseUrl:     base,
     apiKey:      key,
+    plan:        detectIndianApiPlan(base),
     timeoutMs:   Number.isFinite(timeout) && timeout > 0 ? timeout : DEFAULT_TIMEOUT,
     maxRetries:  DEFAULT_RETRIES,
     retryBaseMs: DEFAULT_BASE_MS,

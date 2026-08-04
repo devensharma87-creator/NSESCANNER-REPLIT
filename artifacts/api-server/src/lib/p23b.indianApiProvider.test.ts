@@ -59,6 +59,7 @@ function makeConfiguredClient(fakeFetch: (url: string, init?: RequestInit) => Pr
     config: {
       baseUrl:     "https://api.indianapi.in",
       apiKey:      "FAKE_API_KEY_NOT_REAL",
+      plan:        "INDIVIDUAL" as const,
       timeoutMs:   5_000,
       maxRetries:  1,
       retryBaseMs: 10,
@@ -83,7 +84,7 @@ describe("P23B/IndianAPI — §12.1 provider configuration", () => {
     vi.stubEnv("INDIANAPI_API_KEY", "");
     let fetchCalled = false;
     const fakeClient = createIndianApiClient({
-      config: { baseUrl: "https://api.indianapi.in", apiKey: null, timeoutMs: 5_000, maxRetries: 0, retryBaseMs: 10 },
+      config: { baseUrl: "https://api.indianapi.in", plan: "UNKNOWN", apiKey: null, timeoutMs: 5_000, maxRetries: 0, retryBaseMs: 10 },
       fetchImpl: async () => { fetchCalled = true; return makeProfileResponse(); },
     });
     __setIndianApiClientForTests(fakeClient);
@@ -97,7 +98,7 @@ describe("P23B/IndianAPI — §12.1 provider configuration", () => {
     vi.stubEnv("INDIANAPI_API_KEY", "");
     let fetchCalled = false;
     const fakeClient = createIndianApiClient({
-      config: { baseUrl: "https://api.indianapi.in", apiKey: null, timeoutMs: 5_000, maxRetries: 0, retryBaseMs: 10 },
+      config: { baseUrl: "https://api.indianapi.in", plan: "UNKNOWN", apiKey: null, timeoutMs: 5_000, maxRetries: 0, retryBaseMs: 10 },
       fetchImpl: async () => { fetchCalled = true; return makeRatiosResponse(); },
     });
     __setIndianApiClientForTests(fakeClient);
@@ -110,7 +111,7 @@ describe("P23B/IndianAPI — §12.1 provider configuration", () => {
   it("P23B-1d: NOT_CONFIGURED result meta has notForSignals and notForTradeDecisions", async () => {
     vi.stubEnv("INDIANAPI_API_KEY", "");
     __setIndianApiClientForTests(createIndianApiClient({
-      config: { baseUrl: "https://api.indianapi.in", apiKey: null, timeoutMs: 5_000, maxRetries: 0, retryBaseMs: 10 },
+      config: { baseUrl: "https://api.indianapi.in", plan: "UNKNOWN", apiKey: null, timeoutMs: 5_000, maxRetries: 0, retryBaseMs: 10 },
       fetchImpl: async () => makeProfileResponse(),
     }));
     const result = await getStockProfile("RELIANCE");
@@ -121,7 +122,7 @@ describe("P23B/IndianAPI — §12.1 provider configuration", () => {
   it("P23B-1e: API key must not appear in error messages", async () => {
     const sensitiveKey = "FAKE_API_KEY_SENSITIVE_ABC123";
     const client = createIndianApiClient({
-      config: { baseUrl: "https://api.indianapi.in", apiKey: sensitiveKey, timeoutMs: 5_000, maxRetries: 0, retryBaseMs: 10 },
+      config: { baseUrl: "https://api.indianapi.in", apiKey: sensitiveKey, plan: "INDIVIDUAL" as const, timeoutMs: 5_000, maxRetries: 0, retryBaseMs: 10 },
       fetchImpl: async () => makeErrorResponse(401),
     });
     try {
@@ -142,7 +143,7 @@ describe("P23B/IndianAPI — §12.1 provider configuration", () => {
 describe("P23B/IndianAPI — §12.3 transport resilience", () => {
   it("P23B-3a: config error (null key) → throws IndianApiError kind=config", async () => {
     const client = createIndianApiClient({
-      config: { baseUrl: "https://api.indianapi.in", apiKey: null, timeoutMs: 5_000, maxRetries: 0, retryBaseMs: 10 },
+      config: { baseUrl: "https://api.indianapi.in", plan: "UNKNOWN", apiKey: null, timeoutMs: 5_000, maxRetries: 0, retryBaseMs: 10 },
       fetchImpl: async () => makeProfileResponse(),
     });
     await expect(client.getStockProfile("RELIANCE")).rejects.toMatchObject({ kind: "config" });
@@ -166,7 +167,7 @@ describe("P23B/IndianAPI — §12.3 transport resilience", () => {
   it("P23B-3e: 429 with Retry-After → throws IndianApiError kind=rate_limit, retryAfterMs set", async () => {
     // Use maxRetries:0 so no sleep before throwing (avoids Retry-After sleep in tests)
     const client = createIndianApiClient({
-      config: { baseUrl: "https://api.indianapi.in", apiKey: "FAKE_API_KEY_NOT_REAL", timeoutMs: 5_000, maxRetries: 0, retryBaseMs: 10 },
+      config: { baseUrl: "https://api.indianapi.in", plan: "INDIVIDUAL", apiKey: "FAKE_API_KEY_NOT_REAL", timeoutMs: 5_000, maxRetries: 0, retryBaseMs: 10 },
       fetchImpl: async () => new Response(
         JSON.stringify({ error: "rate_limit" }),
         { status: 429, headers: { "Retry-After": "10", "content-type": "application/json" } },

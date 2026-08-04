@@ -947,6 +947,26 @@ paths:
                 properties:
                   error: { type: string }
 
+  /data/fundamentals/{symbol}:
+    get:
+      operationId: getStockFundamentals
+      tags: [market]
+      summary: >-
+        Canonical IndianAPI fundamentals — company profile and financial ratios
+        for a symbol. Reference data only; never for trading decisions.
+        Owner-only. Returns NOT_CONFIGURED state cleanly when key absent.
+      parameters:
+        - in: path
+          name: symbol
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StockFundamentals" }
+
   /data/diagnostics:
     get:
       operationId: getDataDiagnostics
@@ -2482,6 +2502,60 @@ components:
         forwardPe: { type: number }
         priceToSales: { type: number }
         promoterHolding: { type: number, description: "%" }
+
+    StockFundamentals:
+      type: object
+      required: [ok, symbol, fetchedAt, providerState, warnings, meta]
+      description: >-
+        Canonical fundamentals from IndianAPI reference provider.
+        NOT for trading decisions. All financial fields nullable.
+        providerState=NOT_CONFIGURED when key absent (HTTP 200, not 500).
+      properties:
+        ok:            { type: boolean }
+        symbol:        { type: string }
+        fetchedAt:     { type: string, format: date-time }
+        providerState: { type: string, description: "NOT_CONFIGURED | AVAILABLE | ERROR | RATE_LIMITED" }
+        plan:          { type: string, nullable: true }
+        profile:
+          nullable: true
+          type: object
+          properties:
+            companyName:  { type: string, nullable: true }
+            symbol:       { type: string }
+            isin:         { type: string, nullable: true }
+            sector:       { type: string, nullable: true }
+            industry:     { type: string, nullable: true }
+            marketCap:    { type: number, nullable: true }
+            currency:     { type: string, nullable: true }
+        ratios:
+          nullable: true
+          type: object
+          properties:
+            symbol:        { type: string }
+            pe:            { type: number, nullable: true }
+            pb:            { type: number, nullable: true }
+            eps:           { type: number, nullable: true }
+            dividendYield: { type: number, nullable: true }
+            roe:           { type: number, nullable: true }
+            debtToEquity:  { type: number, nullable: true }
+            period:        { type: string, nullable: true, description: "e.g. TTM" }
+        warnings:
+          type: array
+          items: { type: string }
+        meta:
+          type: object
+          required: [source, trustTier, fetchedAt, notForSignals, notForTradeDecisions, validationStatus, warnings]
+          properties:
+            source:               { type: string }
+            trustTier:            { type: string }
+            asOf:                 { type: string, nullable: true }
+            fetchedAt:            { type: string }
+            notForSignals:        { type: boolean }
+            notForTradeDecisions: { type: boolean }
+            validationStatus:     { type: string }
+            warnings:
+              type: array
+              items: { type: string }
 
     StockDetail:
       type: object

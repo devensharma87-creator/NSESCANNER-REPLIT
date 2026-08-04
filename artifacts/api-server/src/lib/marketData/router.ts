@@ -20,6 +20,7 @@ import { unavailableMeta, isQuoteComplete } from "./validator";
 import { getVerifiedIndstocksScrip } from "./instrumentMapStore";
 import { validateQuotePair, type ValidationResult } from "./sourceValidation";
 import { recordValidation, recordFailover } from "./validationStats";
+import { dispatchShadowQuote, dispatchShadowCandles } from "./shadowDispatch";
 import type { InstrumentAssetClass } from "@workspace/db";
 import type {
   BatchQuoteResult,
@@ -124,11 +125,18 @@ export async function getEquityQuote(symbol: string): Promise<MarketDataResult<T
   const sym = symbol.toUpperCase();
   const live = kite.getEquityLiveQuote(sym);
   if (live && isTradeableMeta(live.meta)) {
-    return { ok: true, data: assertTradeable(live), meta: live.meta };
+    const result: MarketDataResult<TrustedQuote> = { ok: true, data: assertTradeable(live), meta: live.meta };
+    // Gate C: fire-and-forget shadow parity dispatch (non-blocking)
+    dispatchShadowQuote(sym, live);
+    return result;
   }
   const batch = await getEquityQuotes([sym]);
   const q = batch.quotes.get(sym);
-  if (q) return { ok: true, data: q, meta: q.meta };
+  if (q) {
+    // Gate C: fire-and-forget shadow dispatch after canonical result is finalized
+    dispatchShadowQuote(sym, q);
+    return { ok: true, data: q, meta: q.meta };
+  }
   const reason = batch.missing.find(m => m.symbol === sym)?.reason ?? KITE_OFFLINE_REASON;
   return {
     ok: false,
@@ -169,7 +177,11 @@ export async function getIndexQuotes(): Promise<BatchQuoteResult> {
 export async function getIndexQuote(key: string): Promise<MarketDataResult<TrustedQuote>> {
   const batch = await getIndexQuotes();
   const q = batch.quotes.get(key);
-  if (q) return { ok: true, data: q, meta: q.meta };
+  if (q) {
+    // Gate C: fire-and-forget shadow dispatch for supported index symbols
+    dispatchShadowQuote(key, q);
+    return { ok: true, data: q, meta: q.meta };
+  }
   const reason =
     batch.meta.validationStatus === "unavailable"
       ? KITE_OFFLINE_REASON
@@ -206,6 +218,10 @@ export async function getEquityCandles(
       reason: series.meta.warnings[0] ?? "Candles not tradeable.",
     };
   }
+  // Gate C: fire-and-forget shadow candle dispatch
+  const toDate   = new Date().toISOString().slice(0, 10);
+  const fromDate = new Date(Date.now() - daysBack * 86_400_000).toISOString().slice(0, 10);
+  dispatchShadowCandles(symbol.toUpperCase(), series, interval, fromDate, toDate);
   return { ok: true, data: series as TrustedCandleSeries, meta: series.meta };
 }
 

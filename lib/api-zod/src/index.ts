@@ -31,6 +31,12 @@ export type { Signal } from "./generated/types/signal";
 export type { SignalReason } from "./generated/types/signalReason";
 export type { StockDetail } from "./generated/types/stockDetail";
 export type { StockHistory } from "./generated/types/stockHistory";
+export type {
+  StockFundamentals,
+  StockProfile as FundamentalsStockProfile,
+  StockRatios as FundamentalsStockRatios,
+  StockFundamentalsMeta,
+} from "./generated/types/stockFundamentals";
 export type { StockRow } from "./generated/types/stockRow";
 export type { TopScans } from "./generated/types/topScans";
 export type { GlobalMarket } from "./generated/types/globalMarket";

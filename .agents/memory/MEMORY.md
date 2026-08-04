@@ -1,3 +1,4 @@
+- [Pack 5 23A closure](pack5-23a-closure.md) — 6-gate production wiring: UpstoxAuthMode, BOD instrument map, router shadow wiring, IndianAPI host allowlist, fundamentals API+UI, cross-tab tests; 75 new tests; api-server 5427; scanner 947; 5-pkg TSC clean; ACCEPTED 2026-08-04.
 - [Pack 5 closure](pack5-closure.md) — Upstox shadow + IndianAPI reference providers; 70 new tests; api-server 5352; scanner 947; 5-pkg TSC clean; ACCEPTED 2026-08-04.
 - [Pack 4 G3 exact closure (22B)](pack4-g3-exact-closure-22b.md) — productionConfigValidator.ts + index.ts bootstrap order; 39 p22b tests; api-server 5282; ACCEPTED 2026-08-03.
 - [Pack 4 runtime closure (22A)](pack4-runtime-closure-22a.md) — 126 new tests (6 p22a files, Gates G1-G7); api-server 5243, scanner 947; 5-pkg TSC clean; sentinel build 0 leaks; ACCEPTED 2026-08-03.
