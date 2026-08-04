@@ -12,9 +12,11 @@
  *   all tests pass, so the process exits cleanly without a 30 s drain wait.
  */
 import { defineConfig } from "vitest/config";
+import react from "@vitejs/plugin-react";
 import path from "node:path";
 
 export default defineConfig({
+  plugins: [react()],
   test: {
     pool: "vmThreads",
     forceExit: true,

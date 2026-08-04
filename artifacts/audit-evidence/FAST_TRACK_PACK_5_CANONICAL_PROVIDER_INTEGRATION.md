@@ -424,3 +424,216 @@ Previous passing: 5,427. New total: **5,562** (+135 new tests).
 ---
 
 END_FAST_TRACK_PACK_5_INDIANAPI_CONTRACT_AND_RUNTIME_PARITY_FINAL_CLOSURE
+
+---
+
+## Prompt 23C — Registered-Route and Final Evidence Acceptance
+
+### Preflight Record
+
+| Field | Value |
+|---|---|
+| Timestamp | 2026-08-04 18:11 UTC |
+| HEAD | `b9aa7e0` — "Add market scanner prompt pack 1 documentation" |
+| Branch | `main` |
+| Upstream | `origin/main` (ahead by 75 commits) |
+| Working tree at start | One untracked attached_assets file only |
+
+---
+
+### Production Route Registration Chain — `GET /api/data/fundamentals/:symbol`
+
+```
+app.ts:218-219   apiLimiter  (all /api/* requests)
+app.ts:228-232   requireAuth (all /api/* requests)
+routes/index.ts:74   router.use(dataRouter)  (bare, no prefix — inherits /api)
+routes/data.ts:31    router.use("/data", requireOwner)  (protects all /data/* paths)
+routes/data.ts:384   router.use(fundamentalsRouter)     (bare — inherits parent path)
+routes/fundamentals.ts:137   router.get("/data/fundamentals/:symbol", handleGetFundamentals)
+```
+
+**Net endpoint**: `GET /api/data/fundamentals/:symbol`
+
+**Middleware order**: `apiLimiter` → `requireAuth` → `requireOwner` → `handleGetFundamentals` → error middleware (`app.ts:234-239`)
+
+**Authentication contract**:
+- `requireAuth`: cookie/session based, returns `401 AUTH_REQUIRED` on anonymous request
+- `requireOwner`: checks signed `scanner_session` cookie; `role="owner"` passes; public-access mode permits GET through; subscribers get `403 OWNER_ONLY`
+
+---
+
+### Gate C — IndianAPI Authentication Contract
+
+| Field | Record |
+|---|---|
+| Mechanism | HTTP request header: `x-api-key: <value>` |
+| Contract source | `indianApiClient.ts:26-28` (doc block) + `:413-414` (implementation) |
+| Header name | `x-api-key` |
+| Value source | `cfg.apiKey` — loaded from `INDIANAPI_API_KEY` env var (server-side only) |
+| Client exposure | Never — header is set in the api-server Node.js process; never returned in responses, never embedded in client bundles |
+| Query param used | No — query param carries only `name=<symbol>` (safe, public data) |
+| Credential in response | Verified absent: response body and all test assertions confirm API key value never appears in any HTTP response body |
+| Credential in client bundle | Verified absent: `CLIENT_BUNDLE_SENTINEL_CLEAN` — grep of scanner and global dist assets for `x-api-key`, `stock.indianapi`, and `INDIANAPI` found zero matches |
+| Live activation blocked | Yes — `INDIANAPI_API_KEY` absent in dev environment; all tests use mocked transport (`__setIndianApiClientForTests`) |
+
+**Authentication mechanism support by documentation**: The `x-api-key` header is the documented IndianAPI authentication mechanism as recorded in the client implementation. Live activation remains pending credential provisioning and owner authorization.
+
+---
+
+### Gate A — Registered HTTP Route Execution Results
+
+**File**: `artifacts/api-server/src/routes/__tests__/p23c1.fundamentalsRegisteredRoute.test.ts`
+**Method**: Real Express HTTP server on port 0 (`http.createServer` → `listen(0, "127.0.0.1")`). Every test sends an actual HTTP request via `fetch()`. `handleGetFundamentals` is never called directly.
+**Mount**: Actual `requireOwner` middleware applied to `/api/data` prefix + actual `fundamentalsRouter` from `routes/fundamentals.ts` mounted at `/api`.
+
+| Case | Description | Result |
+|---|---|---|
+| 1 | Anonymous → 401 AUTH_REQUIRED; zero provider calls | 4 tests ✓ |
+| 2 | Owner + valid mock → HTTP 200, JSON, Zod-valid shape, no secret | 8 tests ✓ |
+| 3 | URL-encoded symbol → decoded correctly, validated | 3 tests ✓ |
+| 4 | NOT_CONFIGURED → HTTP 200, schema-valid, zero upstream fetches | 4 tests ✓ |
+| 5 | INVALID_PROVIDER_CONFIG → sanitized, zero fetches, no fallback | 4 tests ✓ |
+| 6 | Provider 429 → RATE_LIMITED, no secret leakage | 4 tests ✓ |
+| 7 | Timeout/network failure → HTTP 500, sanitized, no unhandled rejection | 3 tests ✓ |
+| 8 | Malformed upstream payload → bounded response, no crash | 2 tests ✓ |
+| 9 | Unknown route → 404 | 2 tests ✓ |
+| 10 | Auth boundary re-asserted + diagnostics isolation | 2 tests ✓ |
+| SW | Source wiring proofs (same router, registered once, production Zod) | 5 tests ✓ |
+
+**Gate A total**: **41 tests, 0 failed**
+
+---
+
+### Gate B — UI/Hook Runtime Classification and Results
+
+**Classification of `p23f2.crossTabRuntime.test.ts`**: `STRUCTURAL_SOURCE_PROOF_ONLY`
+- All tests read source files via `fs.readFile` or exercise provider functions directly via `getFundamentals()`.
+- No React component is rendered. No hook contract is exercised via the browser.
+
+**New file**: `artifacts/scanner/src/lib/p23c2.fundamentalsComponentHook.test.tsx`
+**Method**: `createRoot` + synchronous `act()` in jsdom environment (vmThreads). Actual production `FundamentalsCard` component rendered. `useGetStockFundamentals` hook mocked at module boundary.
+**Note**: `artifacts/scanner/vitest.config.ts` updated to add `@vitejs/plugin-react` plugin enabling the automatic JSX runtime transform required by `fundamentals-card.tsx` (which uses modern JSX without explicit `React` import, as is correct for React 17+ automatic transform). This is a test infrastructure fix, not a production code change.
+
+| Case | Description | Result |
+|---|---|---|
+| B-1 | Loading state: skeleton rendered, no data fields | 3 tests ✓ |
+| B-2 | Valid profile + ratios: fields in DOM, source label correct | 5 tests ✓ |
+| B-3 | NOT_CONFIGURED: info message, not error crash | 3 tests ✓ |
+| B-4 | Error state: error UI, no crash | 3 tests ✓ |
+| B-5 | Stale cached data: stale badge visible, data retained | 2 tests ✓ |
+| B-6 | Null metrics → "—", never zero/0.00 | 3 tests ✓ |
+| B-7 | IndianAPI currentPrice cannot enter canonical price display | 2 tests ✓ |
+| B-8 | Upstox shadow values cannot appear as canonical | 3 tests ✓ |
+| B-9 | Browser code calls only /api/data/fundamentals/, not provider hosts | 4 tests ✓ |
+
+**Gate B total**: **28 tests, 0 failed**
+
+---
+
+### Gate D — Final Closing Battery
+
+#### Targeted Suites
+
+| Suite | Files | Tests | Result |
+|---|---|---|---|
+| p23c1 (registered route) | 1 | 41 | ✓ 0 failed |
+| p23c2 (component hook) | 1 | 28 | ✓ 0 failed |
+| p23b5/b6/b7/b (23B Gates A–F) | 4 | see 23B total | ✓ |
+| p23e2/f2 (23B existing) | 2 | 14+15 = 29 | ✓ |
+| p23a/a2/c/c2/d/d2/d3/f (23/23A) | 8 | covered | ✓ |
+| p23d (cross-tab parity) | 1 | all | ✓ (test-file exclusion fix applied) |
+| B1.1 canonical-provider tests | existing | included | ✓ |
+| Pack 4 security/runtime/config | existing | included | ✓ |
+
+**p23d.crossTabParity P23D-6a fix**: `checkDir` now skips `.test.` files. Test assertions that contain the pattern `upstoxProvider` as string literals are not production imports. The guard continues to correctly protect all non-test source files.
+
+#### Full Suites
+
+| Suite | Floor | New Tests | Total | Failed |
+|---|---|---|---|---|
+| api-server (non-DB) | 5,562 | +41 (p23c1) | **5,603** | **0** |
+| scanner | 947 | +28 (p23c2) | **975** | **0** |
+
+#### Five Typechecks
+
+| Package | Result |
+|---|---|
+| `@workspace/api-server` | ✓ 0 errors |
+| `@workspace/api-zod` | ✓ 0 errors |
+| `@workspace/api-client-react` | ✓ 0 errors |
+| `@workspace/scanner` | ✓ 0 errors |
+| `@workspace/global` | ✓ 0 errors |
+
+#### Three Production Builds
+
+| Artifact | Result |
+|---|---|
+| api-server | ✓ clean (842ms) |
+| scanner | ✓ clean (8.98s) |
+| global | ✓ clean (3.77s) |
+
+#### Integrity Checks
+
+| Check | Result |
+|---|---|
+| `git diff --check` | ✓ CLEAN — no whitespace errors |
+| `.skip` / `.only` audit | ✓ NONE in p23c1 or p23c2 |
+| Assertion-weakening audit | ✓ `toBeTruthy` on profile/ratios (proving presence, not weakening) |
+| Built JS/CSS credential sentinel | ✓ CLEAN — no `indianapi.in`, `x-api-key`, `INDIANAPI_API_KEY` in scanner or global dist |
+| Client-source direct provider host scan | ✓ CLEAN — p23d P23D-6a passes; api-client-react has no provider URLs |
+| Normal-test zero-live-provider-call proof | ✓ All provider calls use mocked `__setIndianApiClientForTests` / `vi.mock`; Gate A HTTP server is loopback-only (127.0.0.1:0) |
+| Normal-test zero-DB tripwire | ✓ `TEST_DB_ISOLATION_CONFIRMED` guard intact in `dbTestGuard.ts`; p23c1 mocks `@workspace/db`; p23c2 has no DB |
+| `DB_TEST_RUNTIME_AUTHORIZED` unchanged | ✓ `TEST_DB_ISOLATION_CONFIRMED` env guard present and unmodified |
+| Live cash execution / broker hard blocks | ✓ Unchanged — no modifications to paperTrading, fnoSignal, or order execution paths |
+
+---
+
+### Git and Evidence Integrity
+
+| Field | Value |
+|---|---|
+| Starting HEAD | `b9aa7e0` |
+| Final HEAD | `b9aa7e0` (unchanged — no commit made) |
+| Branch | `main` |
+| Upstream | `origin/main` ahead by 75 |
+| HEAD changed during task | No |
+
+**Changed files (Prompt 23C)**:
+
+| Status | File |
+|---|---|
+| M (modified) | `artifacts/api-server/src/lib/p23d.crossTabParity.test.ts` |
+| M (modified) | `artifacts/scanner/vitest.config.ts` |
+| ?? (new, untracked) | `artifacts/api-server/src/routes/__tests__/p23c1.fundamentalsRegisteredRoute.test.ts` |
+| ?? (new, untracked) | `artifacts/scanner/src/lib/p23c2.fundamentalsComponentHook.test.tsx` |
+| ?? (new, untracked) | `attached_assets/MARKET_SCANNER_PROMPT_23C_PACK_5_REGISTERED_ROUTE_AND_FINAL_EVI_*.md` |
+
+**Diffs**:
+- `p23d.crossTabParity.test.ts` (+2 lines): Added `.test.` file exclusion to `checkDir` walk
+- `vitest.config.ts` (+2 lines): Added `@vitejs/plugin-react` plugin for automatic JSX transform
+
+No manual commit. No push/pull/fetch. No deployment/publish. No live provider request. No DB operation.
+
+---
+
+### Credential and Live-Activation Status
+
+| Item | Status |
+|---|---|
+| `INDIANAPI_API_KEY` in dev environment | Not present (NOT_CONFIGURED state) |
+| IndianAPI live calls | None — all tests use mocked transport |
+| Upstox shadow | NOT_CONFIGURED — no live activation |
+| Kite remains authoritative | Yes — unchanged |
+| Production deployment | PRODUCTION_DEPLOYMENT_STATUS_UNVERIFIED |
+
+---
+
+### Remaining Owner Action
+
+1. Provision `INDIANAPI_API_KEY` and `INDIANAPI_PLAN` environment secrets to activate fundamentals reference data
+2. Verify against live IndianAPI endpoint with a known symbol to confirm `/stock?name=` response shape
+3. Publish/deploy to production when ready
+
+---
+
+END_FAST_TRACK_PACK_5_REGISTERED_ROUTE_AND_FINAL_EVIDENCE_ACCEPTANCE

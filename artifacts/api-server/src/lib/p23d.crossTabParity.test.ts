@@ -36,6 +36,8 @@ describe("P23D/CrossTab — §12.6 cross-tab consistency", () => {
         for (const entry of fs.readdirSync(d, { withFileTypes: true })) {
           if (entry.isDirectory()) { walk(path.join(d, entry.name)); continue; }
           if (!entry.name.endsWith(".ts") && !entry.name.endsWith(".tsx")) continue;
+          // Skip test files — they may contain the pattern as string literals in assertions
+          if (entry.name.includes(".test.")) continue;
           const content = fs.readFileSync(path.join(d, entry.name), "utf8");
           if (pattern.test(content)) violations.push(path.join(d, entry.name));
         }
