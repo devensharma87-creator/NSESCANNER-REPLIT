@@ -333,3 +333,94 @@ Previously passing: 5,352. New total: **5,427**.
 ---
 
 END_FAST_TRACK_PACK_5_PRODUCTION_WIRING_AND_CANONICAL_CONSUMPTION_CLOSURE
+
+---
+
+## §23B — IndianAPI Host Contract & Runtime Parity Final Closure
+*Date: 2026-08-04 | Preceded by: Pack 5 23A (REJECTED: INDIANAPI_HOST_CONTRACT_AND_RUNTIME_PARITY_INCORRECT)*
+
+### Why 23A Was Rejected
+
+Pack 5 23A was rejected because:
+1. `INDIANAPI_HOST_ALLOWLIST` used `api.indianapi.in` and `api2.indianapi.in` — **not** the documented plan hosts.
+2. `getStockRatios()` called an invented `/stock_ratios` endpoint — only `/stock?name=` is documented.
+3. `resolveIndianApiConfig()` silently fell back instead of rejecting on misconfiguration.
+4. No real registered-route runtime tests (only structural source-file reads).
+
+### 23B Deliverables
+
+#### Core Implementation Rewrites
+
+**`indianApiClient.ts`** — Complete rewrite:
+- `IndianApiPlan` type: `FREE | HOBBY | DEVELOPER | GROWTH_ANALYST | PRO`
+- `INDIANAPI_PLAN_HOST` map with **correct documented hosts**:
+  - FREE / HOBBY → `stock.indianapi.in`
+  - DEVELOPER → `dev.indianapi.in`
+  - GROWTH_ANALYST → `analyst.indianapi.in`
+  - PRO → `pro.indianapi.in`
+- `detectIndianApiPlan()` — reverse host→plan lookup; returns `null` for unknown hosts
+- `resolveIndianApiConfig()` — rejects with `INVALID_PROVIDER_CONFIG` (no fallback); validates https-only, no credentials, exact hostname, no non-standard port; empty `INDIANAPI_PLAN` env → defaults to FREE (not invalid)
+- `IndianApiConfigState`: `"VALID" | "INVALID_PROVIDER_CONFIG"`
+- Single `getStock()` method (replaces separate `getStockProfile`/`getStockRatios`)
+- Exported `extractStockProfile()` and `extractStockRatios()` pure normalizers
+
+**`indianApiProvider.ts`** — Updated:
+- `getStockProfile`/`getStockRatios` → call `client().getStock()`, extract sub-fields
+- New `getFundamentals()` — one `/stock` call, returns both profile + ratios
+- `INVALID_PROVIDER_CONFIG` handled in all public functions (zero provider calls)
+- `resolveState()` fixed: not-implemented → `baseStateIfOk` (NOT_CONFIRMED), not `NOT_ENTITLED`
+- Capability manifest: `AVAILABLE` (was `CONFIRMED`) for implemented domains
+
+**`routes/fundamentals.ts`** — Updated:
+- Exports `handleGetFundamentals` for direct unit testing
+- Handles `INVALID_PROVIDER_CONFIG` (HTTP 200, sanitized state, zero provider calls)
+- Uses `getFundamentals()` (single `/stock` call)
+- Plan name surfaced in response; API key and raw URLs never exposed
+- Uses `indianApiHealth()` instead of importing `resolveIndianApiConfig` directly
+
+**`upstoxInstrumentMap.ts`** — Added `validateIndexBootstrap()` (Gate D 23B):
+- Scans BOD cache vs static bootstrap keys for all index entries
+- Returns `IndexBootstrapValidationResult[]` with statuses: `UNCHANGED | CHANGED | MISSING | AMBIGUOUS | WRONG_SEGMENT`
+- `CHANGED` → prefer BOD key; `MISSING` / `AMBIGUOUS` → suppress comparison; `WRONG_SEGMENT` → use bootstrap
+- Read-only: does NOT alter `resolveInstrumentKey()` results
+
+#### Gate Test Files
+
+| File | Tests | Gate | All Pass |
+|------|-------|------|----------|
+| `p23b5.indianApiPlanHost.test.ts` | 37 | A — Plan→host mapping | ✅ |
+| `p23b6.indianApiEndpointContract.test.ts` | 32 | B — /stock endpoint contract | ✅ |
+| `p23b7.indianApiEntitlement.test.ts` | 17 | C — Capability states | ✅ |
+| `p23d2.indianApiHostAllowlist.test.ts` (replaced) | 25 | D — Host allowlist & config | ✅ |
+| `p23d3.upstoxIndexBodValidation.test.ts` | 9 | D3 — Upstox BOD validation | ✅ |
+| `p23e2.registeredRouteRuntime.test.ts` | 14 | E — Registered route handler | ✅ |
+| `p23f2.crossTabRuntime.test.ts` | 15 | F — Cross-tab isolation | ✅ |
+| `p23b.indianApiProvider.test.ts` (updated) | 21 | B/C/E combined | ✅ |
+| **New total** | **170** | **A–F** | ✅ |
+
+#### Gate Verification Table
+
+| Gate | Verdict | Evidence |
+|------|---------|----------|
+| A — Correct plan→host mapping | ✅ PASS | `INDIANAPI_PLAN_HOST` maps all 5 plans; `api.indianapi.in` / `api2.indianapi.in` rejected; D-7/D-8 in p23d2 |
+| B — Single `/stock?name=` endpoint | ✅ PASS | No `/stock_ratios`; all data from one call; B-10 no price contamination |
+| C — Capability states correct | ✅ PASS | AVAILABLE only with key+plan; INVALID_PROVIDER_CONFIG overrides all; NOT_CONFIRMED for unverified |
+| D — Host config no-fallback rejection | ✅ PASS | `resolveIndianApiConfig()` returns INVALID_PROVIDER_CONFIG; D-23 zero fetch calls |
+| D3 — Upstox BOD index validation | ✅ PASS | 5 status classifications; read-only; no Kite side-effects |
+| E — Registered route runtime | ✅ PASS | `handleGetFundamentals` real Express handler tested directly; NOT_CONFIGURED/RATE_LIMITED/INVALID_PROVIDER_CONFIG all produce correct bodies |
+| F — Cross-tab isolation | ✅ PASS | router.ts imports 0 IndianAPI symbols; fundamentals 0 Kite symbols; notForSignals/notForTradeDecisions=true |
+
+### Full Battery Results
+
+| Check | Result | Count |
+|-------|--------|-------|
+| api-server tests | ✅ PASS | **5,562 passed, 0 failed** (floor was 5,427) |
+| 5-package TSC | ✅ PASS | 0 errors |
+| Scanner build | ✅ PASS | 0 errors |
+| Credential sentinel scan | ✅ PASS | No key values in response paths |
+
+Previous passing: 5,427. New total: **5,562** (+135 new tests).
+
+---
+
+END_FAST_TRACK_PACK_5_INDIANAPI_CONTRACT_AND_RUNTIME_PARITY_FINAL_CLOSURE

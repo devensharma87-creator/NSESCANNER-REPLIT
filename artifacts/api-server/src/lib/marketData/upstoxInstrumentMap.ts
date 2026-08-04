@@ -493,6 +493,132 @@ export function resolveInstrumentKey(
   };
 }
 
+// ---------------------------------------------------------------------------
+// Gate D (23B) — Index bootstrap BOD validation
+// ---------------------------------------------------------------------------
+
+export type IndexBootstrapValidationStatus =
+  | "UNCHANGED"      // BOD confirms bootstrap key
+  | "CHANGED"        // BOD has a different key — prefer BOD
+  | "MISSING"        // No BOD entry found — suppress shadow comparison
+  | "AMBIGUOUS"      // Multiple BOD rows match — suppress shadow comparison
+  | "WRONG_SEGMENT"; // BOD row found but segment mismatch — suspicious, use bootstrap
+
+export interface IndexBootstrapValidationResult {
+  canonicalId:   string;
+  bootstrapKey:  string;
+  /** Active key to use for shadow dispatch. null when comparison should be suppressed. */
+  activeKey:     string | null;
+  status:        IndexBootstrapValidationStatus;
+  notes:         string;
+}
+
+/**
+ * Validate static index bootstrap candidates against a real BOD instrument cache.
+ *
+ * For each STATIC_INDEX_MAP entry:
+ *  1. Scan byIndexName for matching segment + tradingSymbol.
+ *  2. If unique match: compare key. UNCHANGED or CHANGED. CHANGED → prefer BOD.
+ *  3. If multiple matches: AMBIGUOUS → suppress.
+ *  4. If no match: MISSING → suppress.
+ *  5. If match but wrong segment: WRONG_SEGMENT → use bootstrap.
+ *
+ * This function is read-only: it does NOT alter resolveInstrumentKey() results.
+ * Callers decide whether to update their active dispatch map.
+ */
+export function validateIndexBootstrap(
+  cache: InstrumentMasterCache,
+): IndexBootstrapValidationResult[] {
+  const results: IndexBootstrapValidationResult[] = [];
+
+  for (const [, staticMapping] of STATIC_INDEX_MAP) {
+    const { canonicalId, upstoxKey: bootstrapKey, segment, tradingSymbol } = staticMapping;
+
+    // Scan all BOD entries by tradingSymbol (segment-agnostic first pass)
+    const matchingBySymbol: CanonicalInstrumentMapping[] = [];
+    for (const mapping of cache.byUpstoxKey.values()) {
+      if (mapping.tradingSymbol === tradingSymbol) {
+        matchingBySymbol.push(mapping);
+      }
+    }
+
+    if (matchingBySymbol.length === 0) {
+      results.push({
+        canonicalId, bootstrapKey,
+        activeKey: null,
+        status:    "MISSING",
+        notes:     `No BOD instrument found for index "${tradingSymbol}". Shadow comparison suppressed.`,
+      });
+      continue;
+    }
+
+    // Check for wrong-segment match before deduplication
+    const correctSegment = matchingBySymbol.filter(m => m.segment === segment);
+    const wrongSegment   = matchingBySymbol.filter(m => m.segment !== segment);
+    if (wrongSegment.length > 0 && correctSegment.length === 0) {
+      results.push({
+        canonicalId, bootstrapKey,
+        activeKey: bootstrapKey,
+        status:    "WRONG_SEGMENT",
+        notes:     `BOD entry for "${tradingSymbol}" has segment "${wrongSegment[0]!.segment}" but expected "${segment}". Using bootstrap key.`,
+      });
+      continue;
+    }
+
+    // Use only correct-segment rows for further comparison
+    const matchingByName = correctSegment.length > 0 ? correctSegment : matchingBySymbol;
+
+    if (matchingByName.length > 1) {
+      // Deduplicate: if all have the same key, treat as UNCHANGED
+      const uniqueKeys = new Set(matchingByName.map(m => m.upstoxKey));
+      if (uniqueKeys.size === 1) {
+        const bodKey = matchingByName[0]!.upstoxKey;
+        results.push({
+          canonicalId, bootstrapKey,
+          activeKey: bodKey,
+          status:    bodKey === bootstrapKey ? "UNCHANGED" : "CHANGED",
+          notes:     bodKey === bootstrapKey
+            ? `BOD confirms bootstrap key for "${tradingSymbol}".`
+            : `BOD has different key for "${tradingSymbol}". BOD preferred: ${bodKey}.`,
+        });
+        continue;
+      }
+      results.push({
+        canonicalId, bootstrapKey,
+        activeKey: null,
+        status:    "AMBIGUOUS",
+        notes:     `Multiple BOD keys for "${tradingSymbol}" — shadow comparison suppressed.`,
+      });
+      continue;
+    }
+
+    const bodMapping = matchingByName[0]!;
+
+    // Check segment agreement
+    if (bodMapping.segment !== segment) {
+      results.push({
+        canonicalId, bootstrapKey,
+        activeKey: bootstrapKey, // Fall back to bootstrap when segment is wrong
+        status:    "WRONG_SEGMENT",
+        notes:     `BOD entry for "${tradingSymbol}" has segment "${bodMapping.segment}" but expected "${segment}". Using bootstrap key.`,
+      });
+      continue;
+    }
+
+    const bodKey = bodMapping.upstoxKey;
+    results.push({
+      canonicalId, bootstrapKey,
+      activeKey: bodKey,
+      status:    bodKey === bootstrapKey ? "UNCHANGED" : "CHANGED",
+      notes:     bodKey === bootstrapKey
+        ? `BOD confirms bootstrap key for "${tradingSymbol}".`
+        : `Mapping change detected for "${tradingSymbol}": bootstrap=${bootstrapKey}, BOD=${bodKey}. Using BOD key.`,
+    });
+  }
+
+  return results;
+}
+
 /**
  * Load (or refresh) the BOD instrument master.
  * Single-flight: concurrent calls share the same in-flight promise.

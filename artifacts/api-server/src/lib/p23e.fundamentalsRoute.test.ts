@@ -146,14 +146,15 @@ describe("Gate E — Provider client injection seam", () => {
   it("E-13: provider test seam accepts a mock client without throwing", () => {
     const mockClient = createIndianApiClient({
       config: {
-        baseUrl: "https://api.indianapi.in",
+        baseUrl: "https://stock.indianapi.in",
         apiKey: "FAKE_TEST_KEY",
-        plan: "INDIVIDUAL" as const,
+        plan: "FREE" as const,
+        configState: "VALID" as const,
         timeoutMs: 5_000,
         maxRetries: 0,
         retryBaseMs: 10,
       },
-      fetchImpl: async () => new Response(JSON.stringify({ data: [] }), { status: 200, headers: { "content-type": "application/json" } }),
+      fetchImpl: async () => new globalThis.Response(JSON.stringify({ data: [] }), { status: 200, headers: { "content-type": "application/json" } }),
     });
     expect(() => __setIndianApiClientForTests(mockClient)).not.toThrow();
     // Clean up

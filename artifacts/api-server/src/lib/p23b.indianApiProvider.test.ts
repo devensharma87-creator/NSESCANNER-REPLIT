@@ -4,6 +4,9 @@
  * Uses the fetchImpl seam — zero live credentials required.
  * Proves: NOT_CONFIGURED behavior, transport resilience, normalization rules,
  * secret non-exposure, capability manifest honesty.
+ *
+ * Updated for 23B: single /stock endpoint; new plan types (FREE/PRO/…);
+ * merged profile+ratios fixture; AVAILABLE state in capability manifest.
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
@@ -22,28 +25,23 @@ import {
 } from "../lib/marketData/indianApiProvider";
 
 // ---------------------------------------------------------------------------
-// Fixtures
+// Fixtures — merged /stock response (Gate B: single endpoint)
 // ---------------------------------------------------------------------------
 
-function makeProfileResponse(overrides: Record<string, unknown> = {}): Response {
+function makeStockResponse(overrides: Record<string, unknown> = {}): Response {
   const body = {
+    // Profile fields
     companyName: "Reliance Industries Limited",
-    symbol:      "RELIANCE",
     isin:        "INE002A01018",
     sector:      "Energy",
     industry:    "Oil & Gas",
     marketCap:   18_500_000_000_000,
     currency:    "INR",
-    ...overrides,
-  };
-  return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
-}
-
-function makeRatiosResponse(): Response {
-  const body = {
+    // Ratios fields — from the same /stock response
     pe: 24.5, pb: 2.1, eps: 92.3,
     dividendYield: 0.4, roe: 8.7, debtToEquity: 0.32,
     period: "TTM",
+    ...overrides,
   };
   return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
 }
@@ -57,9 +55,10 @@ function makeErrorResponse(status: number): Response {
 function makeConfiguredClient(fakeFetch: (url: string, init?: RequestInit) => Promise<Response>) {
   return createIndianApiClient({
     config: {
-      baseUrl:     "https://api.indianapi.in",
+      baseUrl:     "https://stock.indianapi.in",
       apiKey:      "FAKE_API_KEY_NOT_REAL",
-      plan:        "INDIVIDUAL" as const,
+      plan:        "FREE" as const,
+      configState: "VALID" as const,
       timeoutMs:   5_000,
       maxRetries:  1,
       retryBaseMs: 10,
@@ -84,8 +83,11 @@ describe("P23B/IndianAPI — §12.1 provider configuration", () => {
     vi.stubEnv("INDIANAPI_API_KEY", "");
     let fetchCalled = false;
     const fakeClient = createIndianApiClient({
-      config: { baseUrl: "https://api.indianapi.in", plan: "UNKNOWN", apiKey: null, timeoutMs: 5_000, maxRetries: 0, retryBaseMs: 10 },
-      fetchImpl: async () => { fetchCalled = true; return makeProfileResponse(); },
+      config: {
+        baseUrl: "https://stock.indianapi.in", plan: "FREE", apiKey: null,
+        configState: "VALID", timeoutMs: 5_000, maxRetries: 0, retryBaseMs: 10,
+      },
+      fetchImpl: async () => { fetchCalled = true; return makeStockResponse(); },
     });
     __setIndianApiClientForTests(fakeClient);
     const result = await getStockProfile("RELIANCE");
@@ -98,8 +100,11 @@ describe("P23B/IndianAPI — §12.1 provider configuration", () => {
     vi.stubEnv("INDIANAPI_API_KEY", "");
     let fetchCalled = false;
     const fakeClient = createIndianApiClient({
-      config: { baseUrl: "https://api.indianapi.in", plan: "UNKNOWN", apiKey: null, timeoutMs: 5_000, maxRetries: 0, retryBaseMs: 10 },
-      fetchImpl: async () => { fetchCalled = true; return makeRatiosResponse(); },
+      config: {
+        baseUrl: "https://stock.indianapi.in", plan: "FREE", apiKey: null,
+        configState: "VALID", timeoutMs: 5_000, maxRetries: 0, retryBaseMs: 10,
+      },
+      fetchImpl: async () => { fetchCalled = true; return makeStockResponse(); },
     });
     __setIndianApiClientForTests(fakeClient);
     const result = await getStockRatios("RELIANCE");
@@ -111,8 +116,11 @@ describe("P23B/IndianAPI — §12.1 provider configuration", () => {
   it("P23B-1d: NOT_CONFIGURED result meta has notForSignals and notForTradeDecisions", async () => {
     vi.stubEnv("INDIANAPI_API_KEY", "");
     __setIndianApiClientForTests(createIndianApiClient({
-      config: { baseUrl: "https://api.indianapi.in", plan: "UNKNOWN", apiKey: null, timeoutMs: 5_000, maxRetries: 0, retryBaseMs: 10 },
-      fetchImpl: async () => makeProfileResponse(),
+      config: {
+        baseUrl: "https://stock.indianapi.in", plan: "FREE", apiKey: null,
+        configState: "VALID", timeoutMs: 5_000, maxRetries: 0, retryBaseMs: 10,
+      },
+      fetchImpl: async () => makeStockResponse(),
     }));
     const result = await getStockProfile("RELIANCE");
     expect(result.meta.notForSignals).toBe(true);
@@ -122,11 +130,14 @@ describe("P23B/IndianAPI — §12.1 provider configuration", () => {
   it("P23B-1e: API key must not appear in error messages", async () => {
     const sensitiveKey = "FAKE_API_KEY_SENSITIVE_ABC123";
     const client = createIndianApiClient({
-      config: { baseUrl: "https://api.indianapi.in", apiKey: sensitiveKey, plan: "INDIVIDUAL" as const, timeoutMs: 5_000, maxRetries: 0, retryBaseMs: 10 },
+      config: {
+        baseUrl: "https://stock.indianapi.in", apiKey: sensitiveKey, plan: "FREE" as const,
+        configState: "VALID", timeoutMs: 5_000, maxRetries: 0, retryBaseMs: 10,
+      },
       fetchImpl: async () => makeErrorResponse(401),
     });
     try {
-      await client.getStockProfile("RELIANCE");
+      await client.getStock("RELIANCE");
       expect.fail("should have thrown");
     } catch (err) {
       expect(err).toBeInstanceOf(IndianApiError);
@@ -143,37 +154,42 @@ describe("P23B/IndianAPI — §12.1 provider configuration", () => {
 describe("P23B/IndianAPI — §12.3 transport resilience", () => {
   it("P23B-3a: config error (null key) → throws IndianApiError kind=config", async () => {
     const client = createIndianApiClient({
-      config: { baseUrl: "https://api.indianapi.in", plan: "UNKNOWN", apiKey: null, timeoutMs: 5_000, maxRetries: 0, retryBaseMs: 10 },
-      fetchImpl: async () => makeProfileResponse(),
+      config: {
+        baseUrl: "https://stock.indianapi.in", plan: "FREE", apiKey: null,
+        configState: "VALID", timeoutMs: 5_000, maxRetries: 0, retryBaseMs: 10,
+      },
+      fetchImpl: async () => makeStockResponse(),
     });
-    await expect(client.getStockProfile("RELIANCE")).rejects.toMatchObject({ kind: "config" });
+    await expect(client.getStock("RELIANCE")).rejects.toMatchObject({ kind: "config" });
   });
 
   it("P23B-3b: 401 → throws IndianApiError kind=auth", async () => {
     const client = makeConfiguredClient(async () => makeErrorResponse(401));
-    await expect(client.getStockProfile("RELIANCE")).rejects.toMatchObject({ kind: "auth", status: 401 });
+    await expect(client.getStock("RELIANCE")).rejects.toMatchObject({ kind: "auth", status: 401 });
   });
 
   it("P23B-3c: 403 → throws IndianApiError kind=auth", async () => {
     const client = makeConfiguredClient(async () => makeErrorResponse(403));
-    await expect(client.getStockProfile("RELIANCE")).rejects.toMatchObject({ kind: "auth", status: 403 });
+    await expect(client.getStock("RELIANCE")).rejects.toMatchObject({ kind: "auth", status: 403 });
   });
 
   it("P23B-3d: 404 → throws IndianApiError kind=not_found", async () => {
     const client = makeConfiguredClient(async () => makeErrorResponse(404));
-    await expect(client.getStockProfile("RELIANCE")).rejects.toMatchObject({ kind: "not_found" });
+    await expect(client.getStock("RELIANCE")).rejects.toMatchObject({ kind: "not_found" });
   });
 
   it("P23B-3e: 429 with Retry-After → throws IndianApiError kind=rate_limit, retryAfterMs set", async () => {
-    // Use maxRetries:0 so no sleep before throwing (avoids Retry-After sleep in tests)
     const client = createIndianApiClient({
-      config: { baseUrl: "https://api.indianapi.in", plan: "INDIVIDUAL", apiKey: "FAKE_API_KEY_NOT_REAL", timeoutMs: 5_000, maxRetries: 0, retryBaseMs: 10 },
+      config: {
+        baseUrl: "https://stock.indianapi.in", plan: "FREE", apiKey: "FAKE_API_KEY_NOT_REAL",
+        configState: "VALID", timeoutMs: 5_000, maxRetries: 0, retryBaseMs: 10,
+      },
       fetchImpl: async () => new Response(
         JSON.stringify({ error: "rate_limit" }),
         { status: 429, headers: { "Retry-After": "10", "content-type": "application/json" } },
       ) as unknown as ReturnType<typeof fetch>,
     });
-    const err = await client.getStockProfile("RELIANCE").catch(e => e);
+    const err = await client.getStock("RELIANCE").catch(e => e);
     expect(err).toBeInstanceOf(IndianApiError);
     expect(err.kind).toBe("rate_limit");
     expect(err.retryAfterMs).toBeGreaterThanOrEqual(10_000);
@@ -182,7 +198,7 @@ describe("P23B/IndianAPI — §12.3 transport resilience", () => {
   it("P23B-3f: 500 → retries, then throws kind=server", async () => {
     let count = 0;
     const client = makeConfiguredClient(async () => { count++; return makeErrorResponse(500); });
-    await expect(client.getStockProfile("RELIANCE")).rejects.toMatchObject({ kind: "server" });
+    await expect(client.getStock("RELIANCE")).rejects.toMatchObject({ kind: "server" });
     expect(count).toBeGreaterThan(1);
   });
 
@@ -190,12 +206,12 @@ describe("P23B/IndianAPI — §12.3 transport resilience", () => {
     const client = makeConfiguredClient(async () =>
       new Response("not json at all", { status: 200, headers: { "content-type": "text/html" } }),
     );
-    await expect(client.getStockProfile("RELIANCE")).rejects.toMatchObject({ kind: "payload" });
+    await expect(client.getStock("RELIANCE")).rejects.toMatchObject({ kind: "payload" });
   });
 
   it("P23B-3h: network error → throws kind=network", async () => {
     const client = makeConfiguredClient(async () => { throw new TypeError("Failed to fetch"); });
-    await expect(client.getStockProfile("RELIANCE")).rejects.toMatchObject({ kind: "network" });
+    await expect(client.getStock("RELIANCE")).rejects.toMatchObject({ kind: "network" });
   });
 });
 
@@ -206,9 +222,9 @@ describe("P23B/IndianAPI — §12.3 transport resilience", () => {
 describe("P23B/IndianAPI — §12.4 normalization", () => {
   afterEach(() => { __setIndianApiClientForTests(null); vi.unstubAllEnvs(); });
 
-  it("P23B-4a: stock profile fields correctly mapped", async () => {
+  it("P23B-4a: stock profile fields correctly mapped from /stock response", async () => {
     vi.stubEnv("INDIANAPI_API_KEY", "FAKE_KEY");
-    const fakeClient = makeConfiguredClient(async () => makeProfileResponse());
+    const fakeClient = makeConfiguredClient(async () => makeStockResponse());
     __setIndianApiClientForTests(fakeClient);
     const result = await getStockProfile("RELIANCE");
     expect(result.ok).toBe(true);
@@ -221,7 +237,7 @@ describe("P23B/IndianAPI — §12.4 normalization", () => {
   it("P23B-4b: null/missing fields in profile mapped to null (not zero, not empty string)", async () => {
     vi.stubEnv("INDIANAPI_API_KEY", "FAKE_KEY");
     const fakeClient = makeConfiguredClient(async () =>
-      makeProfileResponse({ isin: null, sector: undefined, marketCap: null }),
+      makeStockResponse({ isin: null, sector: undefined, marketCap: null }),
     );
     __setIndianApiClientForTests(fakeClient);
     const result = await getStockProfile("RELIANCE");
@@ -231,9 +247,9 @@ describe("P23B/IndianAPI — §12.4 normalization", () => {
     expect(result.data?.marketCap).toBeNull();
   });
 
-  it("P23B-4c: ratios fields correctly mapped, null preserved", async () => {
+  it("P23B-4c: ratios fields correctly mapped from same /stock response", async () => {
     vi.stubEnv("INDIANAPI_API_KEY", "FAKE_KEY");
-    const fakeClient = makeConfiguredClient(async () => makeRatiosResponse());
+    const fakeClient = makeConfiguredClient(async () => makeStockResponse());
     __setIndianApiClientForTests(fakeClient);
     const result = await getStockRatios("RELIANCE");
     expect(result.ok).toBe(true);
@@ -244,7 +260,7 @@ describe("P23B/IndianAPI — §12.4 normalization", () => {
 
   it("P23B-4d: result meta is always notForSignals=true and notForTradeDecisions=true", async () => {
     vi.stubEnv("INDIANAPI_API_KEY", "FAKE_KEY");
-    const fakeClient = makeConfiguredClient(async () => makeProfileResponse());
+    const fakeClient = makeConfiguredClient(async () => makeStockResponse());
     __setIndianApiClientForTests(fakeClient);
     const r = await getStockProfile("RELIANCE");
     expect(r.meta.notForSignals).toBe(true);
@@ -253,7 +269,7 @@ describe("P23B/IndianAPI — §12.4 normalization", () => {
 
   it("P23B-4e: result meta source=indianapi, trustTier=secondary_analytics", async () => {
     vi.stubEnv("INDIANAPI_API_KEY", "FAKE_KEY");
-    const fakeClient = makeConfiguredClient(async () => makeProfileResponse());
+    const fakeClient = makeConfiguredClient(async () => makeStockResponse());
     __setIndianApiClientForTests(fakeClient);
     const r = await getStockProfile("RELIANCE");
     expect(r.meta.source).toBe("indianapi");
@@ -262,26 +278,26 @@ describe("P23B/IndianAPI — §12.4 normalization", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Capability manifest
+// Capability manifest (updated for 23B: AVAILABLE state)
 // ---------------------------------------------------------------------------
 
 describe("P23B/IndianAPI — capability manifest", () => {
   afterEach(() => { vi.unstubAllEnvs(); });
 
-  it("P23B-M1: manifest has company_profile and financial_ratios as CONFIRMED when key present", () => {
+  it("P23B-M1: manifest has company_profile and financial_ratios as AVAILABLE when key present", () => {
     vi.stubEnv("INDIANAPI_API_KEY", "FAKE_KEY");
     const manifest = getIndianApiCapabilityManifest();
     const profile  = manifest.find(e => e.domain === "company_profile");
     const ratios   = manifest.find(e => e.domain === "financial_ratios");
-    expect(profile?.state).toBe("CONFIRMED");
-    expect(ratios?.state).toBe("CONFIRMED");
+    expect(profile?.state).toBe("AVAILABLE");
+    expect(ratios?.state).toBe("AVAILABLE");
   });
 
   it("P23B-M2: unconfirmed domains are NOT_CONFIRMED even when key present", () => {
     vi.stubEnv("INDIANAPI_API_KEY", "FAKE_KEY");
-    const manifest      = getIndianApiCapabilityManifest();
-    const financials    = manifest.find(e => e.domain === "financial_statements");
-    const shareholding  = manifest.find(e => e.domain === "shareholding");
+    const manifest     = getIndianApiCapabilityManifest();
+    const financials   = manifest.find(e => e.domain === "financial_statements");
+    const shareholding = manifest.find(e => e.domain === "shareholding");
     expect(financials?.state).toBe("NOT_CONFIRMED");
     expect(shareholding?.state).toBe("NOT_CONFIRMED");
   });

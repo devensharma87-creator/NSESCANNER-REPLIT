@@ -1,3 +1,4 @@
+- [Pack 5 23B closure](pack5-23b-closure.md) — IndianAPI host contract parity fix: correct plan→host map (stock/dev/analyst/pro.indianapi.in), single /stock endpoint, INVALID_PROVIDER_CONFIG no-fallback, validateIndexBootstrap; 170 new tests; api-server 5562; 5-pkg TSC clean; ACCEPTED 2026-08-04.
 - [Pack 5 23A closure](pack5-23a-closure.md) — 6-gate production wiring: UpstoxAuthMode, BOD instrument map, router shadow wiring, IndianAPI host allowlist, fundamentals API+UI, cross-tab tests; 75 new tests; api-server 5427; scanner 947; 5-pkg TSC clean; ACCEPTED 2026-08-04.
 - [Pack 5 closure](pack5-closure.md) — Upstox shadow + IndianAPI reference providers; 70 new tests; api-server 5352; scanner 947; 5-pkg TSC clean; ACCEPTED 2026-08-04.
 - [Pack 4 G3 exact closure (22B)](pack4-g3-exact-closure-22b.md) — productionConfigValidator.ts + index.ts bootstrap order; 39 p22b tests; api-server 5282; ACCEPTED 2026-08-03.

@@ -9,23 +9,31 @@
  * Never exposes the API key, plan details beyond plan name, or upstream URLs.
  *
  * UI must never call IndianAPI directly — this is the single canonical server path.
+ *
+ * Gate A/B/C/E (23B): INVALID_PROVIDER_CONFIG state; single /stock endpoint;
+ * capability-gated; exported handler for direct route testing.
  */
 
-import { Router, type IRouter } from "express";
+import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
 import {
   isIndianApiConfigured,
-  getStockProfile,
-  getStockRatios,
+  getFundamentals,
   indianApiHealth,
 } from "../lib/marketData/indianApiProvider";
-import type { DataMeta } from "../lib/marketData/types";
 
 const router: IRouter = Router();
 
-// GET /data/fundamentals/:symbol
-router.get("/data/fundamentals/:symbol", async (req, res, next) => {
+// ---------------------------------------------------------------------------
+// Handler (exported for unit testing without HTTP stack)
+// ---------------------------------------------------------------------------
+
+export async function handleGetFundamentals(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
   try {
-    const symbol   = (req.params["symbol"] ?? "").toUpperCase().trim();
+    const symbol    = String(req.params["symbol"] ?? "").toUpperCase().trim();
     const fetchedAt = new Date().toISOString();
 
     if (!symbol || !/^[A-Z0-9.&-]{1,20}$/.test(symbol)) {
@@ -38,66 +46,95 @@ router.get("/data/fundamentals/:symbol", async (req, res, next) => {
       return;
     }
 
-    // Fast-path: report NOT_CONFIGURED cleanly without HTTP 500
-    if (!isIndianApiConfigured()) {
-      const health = indianApiHealth();
+    const health = indianApiHealth();
+
+    // Fast-path: INVALID_PROVIDER_CONFIG — return sanitized state, zero provider calls
+    if (health.configState === "INVALID_PROVIDER_CONFIG") {
       res.json({
-        ok:          false,
+        ok:            false,
         symbol,
         fetchedAt,
-        providerState: "NOT_CONFIGURED",
-        // plan is always safe to surface
-        plan:        null,
-        profile:     null,
-        ratios:      null,
-        warnings:    ["IndianAPI key absent — fundamentals unavailable."],
-        meta: buildUnavailableMeta(fetchedAt, ["IndianAPI not configured."]),
+        providerState: "INVALID_PROVIDER_CONFIG",
+        plan:          health.plan,       // plan name is safe to surface (may be null on fully invalid config)
+        profile:       null,
+        ratios:        null,
+        warnings:      ["IndianAPI provider configuration is invalid. Check INDIANAPI_PLAN and INDIANAPI_BASE_URL."],
+        meta:          buildUnavailableMeta(fetchedAt, ["INVALID_PROVIDER_CONFIG"]),
       });
       return;
     }
 
-    // Parallel fetch — profile and ratios are independent
-    const [profileResult, ratiosResult] = await Promise.all([
-      getStockProfile(symbol),
-      getStockRatios(symbol),
-    ]);
+    // Fast-path: NOT_CONFIGURED — clean HTTP 200 with descriptive state
+    if (!isIndianApiConfigured()) {
+      const health = indianApiHealth();
+      void health; // used for diagnostics in future
+      res.json({
+        ok:            false,
+        symbol,
+        fetchedAt,
+        providerState: "NOT_CONFIGURED",
+        plan:          null,
+        profile:       null,
+        ratios:        null,
+        warnings:      ["IndianAPI key absent — fundamentals unavailable."],
+        meta:          buildUnavailableMeta(fetchedAt, ["IndianAPI not configured."]),
+      });
+      return;
+    }
 
-    // Determine overall state
-    const providerState = profileResult.ok && ratiosResult.ok
-      ? "AVAILABLE"
-      : (!profileResult.ok ? (profileResult.reason ?? "ERROR") : (ratiosResult.reason ?? "ERROR"));
+    // Single /stock call via getFundamentals
+    const result = await getFundamentals(symbol);
 
-    const warnings: string[] = [
-      ...(profileResult.meta.warnings ?? []),
-      ...(ratiosResult.meta.warnings ?? []),
-    ];
+    if (!result.ok) {
+      // Distinguish RATE_LIMITED from generic errors for the UI
+      const isRateLimited = result.reason === "RATE_LIMITED"
+        || (result.reason ?? "").toLowerCase().includes("rate_limit");
+
+      res.json({
+        ok:            false,
+        symbol,
+        fetchedAt,
+        providerState: isRateLimited ? "RATE_LIMITED" : (result.reason ?? "ERROR"),
+        plan:          health.plan,
+        profile:       null,
+        ratios:        null,
+        warnings:      result.meta.warnings ?? [],
+        meta:          buildUnavailableMeta(fetchedAt, result.meta.warnings ?? []),
+      });
+      return;
+    }
+
+    const warnings: string[] = (result.meta.warnings ?? []);
     const uniqueWarnings = [...new Set(warnings)];
 
-    // Build canonical response — nulls always preserved
     res.json({
-      ok:          profileResult.ok || ratiosResult.ok,
+      ok:            true,
       symbol,
       fetchedAt,
-      providerState,
-      plan:        "INDIVIDUAL", // safe to surface; never expose key
-      profile:     profileResult.ok ? profileResult.data ?? null : null,
-      ratios:      ratiosResult.ok  ? ratiosResult.data  ?? null : null,
-      warnings:    uniqueWarnings,
+      providerState: "AVAILABLE",
+      plan:          health.plan,  // plan name is safe to surface; never expose key
+      profile:       result.profile,
+      ratios:        result.ratios,
+      providerAsOf:  result.providerAsOf ?? null,
+      warnings:      uniqueWarnings,
       meta: {
         source:               "indianapi",
         trustTier:            "secondary_analytics",
-        asOf:                 profileResult.meta.asOf ?? fetchedAt,
+        asOf:                 result.providerAsOf ?? fetchedAt,
         fetchedAt,
         notForSignals:        true,
         notForTradeDecisions: true,
-        validationStatus:     profileResult.ok ? "validated" : "unavailable",
+        validationStatus:     "validated",
         warnings:             uniqueWarnings,
-      } satisfies Partial<DataMeta> & Record<string, unknown>,
+      },
     });
   } catch (err) {
     next(err);
   }
-});
+}
+
+// Register route
+router.get("/data/fundamentals/:symbol", handleGetFundamentals);
 
 // ---------------------------------------------------------------------------
 // Helpers
