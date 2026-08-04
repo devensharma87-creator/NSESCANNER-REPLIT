@@ -15,6 +15,7 @@ import type { ProviderName, TrustTier } from "./types";
 export type ProviderRole =
   | "primary"
   | "secondary_validation"
+  | "shadow"       // Pack 5: read-only shadow comparison only
   | "analytics"
   | "disabled";
 
@@ -33,7 +34,7 @@ export interface ProviderPolicy {
 }
 
 export interface MarketDataPolicy {
-  providers: Record<"kite" | "indstocks" | "yahoo", ProviderPolicy>;
+  providers: Record<"kite" | "indstocks" | "yahoo" | "upstox" | "indianapi", ProviderPolicy>;
   /** When true, stale data is rejected from trusted paths (not just flagged). */
   strictFreshness: boolean;
   /** When true, cross-provider mismatches hard-fail (INDstocks task). */
@@ -43,6 +44,10 @@ export interface MarketDataPolicy {
   /** Hard-stale budget (seconds) — beyond this, validation = "stale". */
   staleBudgetSec: number;
   indstocksEnabled: boolean;
+  /** Upstox shadow is active only when token is present. Never auto-promoted. */
+  upstoxShadowEnabled: boolean;
+  /** IndianAPI reference data enabled when key is present. */
+  indianApiEnabled: boolean;
 }
 
 function envFlag(name: string, def: boolean): boolean {
@@ -64,13 +69,18 @@ function envInt(name: string, def: number): number {
 
 /** Resolve the active policy from environment + standing rules. */
 export function getPolicy(): MarketDataPolicy {
-  const indstocksEnabled = envFlag("INDSTOCKS_ENABLED", false);
+  const indstocksEnabled    = envFlag("INDSTOCKS_ENABLED", false);
+  const upstoxShadowEnabled = (process.env["UPSTOX_ACCESS_TOKEN"]?.trim() || "") !== "";
+  const indianApiEnabled    = (process.env["INDIANAPI_API_KEY"]?.trim() || "") !== "";
+
   return {
-    strictFreshness: envFlag("MARKETDATA_STRICT_FRESHNESS", false),
-    strictMismatch: envFlag("MARKETDATA_STRICT_MISMATCH", false),
+    strictFreshness:    envFlag("MARKETDATA_STRICT_FRESHNESS", false),
+    strictMismatch:     envFlag("MARKETDATA_STRICT_MISMATCH",  false),
     freshnessBudgetSec: envInt("MARKETDATA_FRESHNESS_BUDGET_SEC", 90),
-    staleBudgetSec: envInt("MARKETDATA_STALE_BUDGET_SEC", 600),
+    staleBudgetSec:     envInt("MARKETDATA_STALE_BUDGET_SEC", 600),
     indstocksEnabled,
+    upstoxShadowEnabled,
+    indianApiEnabled,
     providers: {
       kite: {
         name: "kite",
@@ -88,14 +98,38 @@ export function getPolicy(): MarketDataPolicy {
         enabled: indstocksEnabled,
         trustTier: "secondary_validation",
         role: indstocksEnabled ? "secondary_validation" : "disabled",
-        // Even when enabled it is validation/failover, not a trading primary,
-        // until its adapter + mismatch guards ship in the next task.
         allowedForTrading: false,
         allowedForSignals: false,
         allowedForValuation: false,
         notes: indstocksEnabled
-          ? "INDstocks — secondary validation/failover. Adapter not yet implemented."
-          : "INDstocks — DISABLED (scaffold only). Enable via INDSTOCKS_ENABLED once the adapter ships.",
+          ? "INDstocks — secondary validation/failover."
+          : "INDstocks — DISABLED. Enable via INDSTOCKS_ENABLED.",
+      },
+      upstox: {
+        name: "upstox",
+        enabled: upstoxShadowEnabled,
+        trustTier: "secondary_analytics",
+        // PACK 5 HARD RULE: shadow only, never primary/secondary_validation.
+        // Cannot be promoted to APPROVED_SECONDARY without explicit owner action.
+        role: upstoxShadowEnabled ? "shadow" : "disabled",
+        allowedForTrading:  false, // NEVER
+        allowedForSignals:  false, // NEVER
+        allowedForValuation: false, // NEVER
+        notes: upstoxShadowEnabled
+          ? "Upstox — SHADOW_ONLY. Read-only parity comparison; never affects canonical data or trading decisions. Pack 5: promotion requires separate owner action."
+          : "Upstox — NOT_CONFIGURED. Set UPSTOX_ACCESS_TOKEN to enable shadow mode.",
+      },
+      indianapi: {
+        name: "indianapi",
+        enabled: indianApiEnabled,
+        trustTier: "secondary_analytics",
+        role: indianApiEnabled ? "analytics" : "disabled",
+        allowedForTrading:  false,
+        allowedForSignals:  false,
+        allowedForValuation: false,
+        notes: indianApiEnabled
+          ? "IndianAPI — reference/fundamentals data. Confirmed: company profile, ratios. NOT for signals or trade decisions."
+          : "IndianAPI — NOT_CONFIGURED. Set INDIANAPI_API_KEY to enable reference data.",
       },
       yahoo: {
         name: "yahoo",

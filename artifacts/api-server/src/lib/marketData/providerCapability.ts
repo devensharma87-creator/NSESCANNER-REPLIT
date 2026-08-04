@@ -11,6 +11,9 @@
  */
 
 import { kiteHealth, kiteSessionActive } from "./kiteProvider";
+import { getShadowRoutingState } from "./shadowState";
+import { isUpstoxConfigured } from "./upstoxProvider";
+import { isIndianApiConfigured, getIndianApiCapabilityManifest } from "./indianApiProvider";
 
 // ── Capability state vocabulary ──────────────────────────────────────────────
 // Maps precisely to Prompt 17 §7 capability states.
@@ -94,54 +97,83 @@ function kiteCapabilities(evaluatedAt: string): ProviderDomainCapability[] {
 // ── Upstox capability evaluation ─────────────────────────────────────────────
 
 function upstoxCapabilities(evaluatedAt: string): ProviderDomainCapability[] {
-  // No Upstox env vars are configured in this deployment.
-  // Do not fabricate endpoints, sessions, or successful fixtures.
-  const state: ProviderCapabilityState = "NOT_CONFIGURED";
-  const reason =
-    "UPSTOX_API_KEY / UPSTOX_API_SECRET / UPSTOX_ACCESS_TOKEN absent. " +
-    "Upstox is not an active secondary source in this deployment. " +
-    "Prerequisite to activate: configure credentials and implement the Upstox adapter.";
+  const configured = isUpstoxConfigured();
+  const routingState = getShadowRoutingState("upstox");
 
-  const UPSTOX_DOMAINS: DataDomain[] = [
-    "index_quote",
-    "equity_quote",
-    "intraday_candles",
-    "daily_candles",
-    "instrument_master",
-    "option_chain",
-    "market_status",
+  let state: ProviderCapabilityState;
+  let reason: string;
+
+  if (!configured) {
+    state  = "NOT_CONFIGURED";
+    reason = "UPSTOX_ACCESS_TOKEN absent. Set to enable shadow-only read mode. " +
+             "Pack 5: Upstox is shadow-only and will not affect trading decisions.";
+  } else if (routingState === "DISABLED") {
+    state  = "UNAVAILABLE";
+    reason = "Upstox shadow is administratively disabled or auth expired.";
+  } else {
+    // Configured: shadow comparison active. NOT trade-available.
+    state  = "AVAILABLE";
+    reason = `SHADOW_ONLY (${routingState}): Upstox running shadow comparisons. ` +
+             "Never trade-grade. Promotion requires separate owner action.";
+  }
+
+  // Upstox supports live quotes, candles, option chain, and instrument master.
+  // Does NOT support market_status (not a direct Upstox domain).
+  const SHADOW_DOMAINS: DataDomain[] = [
+    "index_quote", "equity_quote", "intraday_candles", "daily_candles",
+    "instrument_master", "option_chain",
   ];
+  const unsupportedReason = "Upstox does not provide market session state in this integration.";
 
-  return UPSTOX_DOMAINS.map((domain) => ({ provider: "upstox", domain, state, reason, evaluatedAt }));
+  return [
+    ...SHADOW_DOMAINS.map((domain) => ({
+      provider: "upstox" as const, domain, state, reason, evaluatedAt,
+    })),
+    {
+      provider:  "upstox" as const,
+      domain:    "market_status" as const,
+      state:     "UNSUPPORTED" as const,
+      reason:    unsupportedReason,
+      evaluatedAt,
+    },
+  ];
 }
 
 // ── IndianAPI capability evaluation ──────────────────────────────────────────
 
 function indianApiCapabilities(evaluatedAt: string): ProviderDomainCapability[] {
-  // No IndianAPI credentials are configured in this deployment.
-  // B1.1 defers fundamentals/news/FII-DII to B1.2; only note as NOT_CONFIGURED.
-  const state: ProviderCapabilityState = "NOT_CONFIGURED";
-  const reason =
-    "INDIANAPI_KEY / INDIAN_API_KEY absent. " +
-    "IndianAPI is not an active source in this deployment. " +
-    "Prerequisite to activate: obtain API key and verified contracted endpoint specification. " +
-    "Fundamentals / news / FII-DII deferred to B1.2.";
+  const configured = isIndianApiConfigured();
+  const manifest   = getIndianApiCapabilityManifest();
 
-  // IndianAPI does NOT support live trade-sensitive domains in B1.1.
-  const NOT_SUPPORTED: DataDomain[] = [
-    "index_quote", "equity_quote", "intraday_candles", "daily_candles", "option_chain",
+  // Trade-sensitive domains are always UNSUPPORTED for IndianAPI.
+  const UNSUPPORTED_DOMAINS: DataDomain[] = [
+    "index_quote", "equity_quote", "intraday_candles", "daily_candles",
+    "option_chain", "market_status",
   ];
-  const DEFERRED: DataDomain[] = ["instrument_master", "market_status"];
+  const unsupportedReason =
+    "IndianAPI is reference/fundamentals only. Not used for live quotes, candles, or F&O.";
+
+  // instrument_master: partially confirmed (company profile / ISIN available).
+  const instrumentMasterState: ProviderCapabilityState = configured ? "AVAILABLE" : "NOT_CONFIGURED";
+  const instrumentMasterReason = configured
+    ? `IndianAPI: company profile + ratios confirmed. ${manifest.length} capability entries.`
+    : "INDIANAPI_API_KEY absent. Set to enable reference data.";
 
   return [
-    ...NOT_SUPPORTED.map((domain) => ({
-      provider: "indianapi" as const, domain,
-      state: "NOT_CONFIGURED" as const, reason, evaluatedAt,
+    ...UNSUPPORTED_DOMAINS.map((domain) => ({
+      provider:  "indianapi" as const,
+      domain,
+      state:     "UNSUPPORTED" as const,
+      reason:    unsupportedReason,
+      evaluatedAt,
     })),
-    ...DEFERRED.map((domain) => ({
-      provider: "indianapi" as const, domain,
-      state: "NOT_CONFIGURED" as const, reason, evaluatedAt,
-    })),
+    {
+      provider:  "indianapi" as const,
+      domain:    "instrument_master" as const,
+      state:     instrumentMasterState,
+      reason:    instrumentMasterReason,
+      evaluatedAt,
+    },
   ];
 }
 

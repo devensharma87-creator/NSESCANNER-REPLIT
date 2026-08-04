@@ -22,7 +22,7 @@ export type TrustTier =
   | "secondary_validation"
   | "secondary_analytics";
 
-export type ProviderName = "kite" | "indstocks" | "yahoo" | "nse" | "cache" | "none";
+export type ProviderName = "kite" | "indstocks" | "upstox" | "indianapi" | "yahoo" | "nse" | "cache" | "none";
 
 /**
  * Per-datum validation outcome.

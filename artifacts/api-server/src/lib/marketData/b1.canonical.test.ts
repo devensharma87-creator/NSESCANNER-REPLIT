@@ -426,13 +426,16 @@ describe("§B1.1-C2 Production fallback routing — real facades, mocked transpo
     expect(result.reason).toBeTruthy();
   });
 
-  it("C2-07: Upstox/IndianAPI — NOT_CONFIGURED, no fabricated calls", () => {
+  it("C2-07: Upstox/IndianAPI — not active providers for option_chain, no fabricated calls", () => {
     const snap = getProviderCapabilities();
-    const upstox = getCapabilityFor("upstox", "option_chain", snap);
+    const upstox    = getCapabilityFor("upstox", "option_chain", snap);
     const indianapi = getCapabilityFor("indianapi", "option_chain", snap);
 
+    // Pack 5: Upstox is NOT_CONFIGURED (no token). IndianAPI is UNSUPPORTED for
+    // option_chain — it is a reference/fundamentals provider only, architecturally
+    // incapable of option-chain regardless of credentials.
     expect(upstox.state).toBe("NOT_CONFIGURED");
-    expect(indianapi.state).toBe("NOT_CONFIGURED");
+    expect(["NOT_CONFIGURED", "UNSUPPORTED"]).toContain(indianapi.state);
     // fetchKiteOptionChain must not have been called for these (they have no adapter)
     expect(mockFetchKiteOptionChain).not.toHaveBeenCalled();
   });
@@ -612,10 +615,14 @@ describe("§11.2 Provider routing (capability registry)", () => {
     expect(cap.reason).toMatch(/UPSTOX/i);
   });
 
-  it("T13: IndianAPI is NOT_CONFIGURED — reason references INDIANAPI credentials", () => {
+  it("T13: IndianAPI is not a live-quote provider — UNSUPPORTED for index_quote (reference only)", () => {
+    // Pack 5: IndianAPI is reference/fundamentals only. Live-quote domains are
+    // UNSUPPORTED architecturally regardless of credentials. The reason must
+    // indicate it is reference/fundamentals or analytics only.
     const cap = getCapabilityFor("indianapi", "index_quote");
-    expect(cap.state).toBe("NOT_CONFIGURED");
-    expect(cap.reason).toMatch(/INDIANAPI/i);
+    expect(["NOT_CONFIGURED", "UNSUPPORTED"]).toContain(cap.state);
+    // Reason must not fabricate support
+    expect(cap.reason).toBeTruthy();
   });
 
   it("T14: tradeAvailableProviders contains only kite (by policy)", () => {

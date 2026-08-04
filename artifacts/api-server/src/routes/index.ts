@@ -35,6 +35,7 @@ import dataParityRouter from "./dataParity";
 import buildInfoRouter from "./buildInfo";
 import observabilityRouter from "./observability";
 import replayRecorderRouter from "./replayRecorder";
+import providerDiagnosticsRouter from "./providerDiagnostics";
 import { startInstFlowsRefresher } from "../lib/instFlows";
 import { triggerKiteWarmup } from "../lib/kiteWarmup";
 import { scheduleBootJob, BOOT_STAGGER_MS } from "../lib/bootScheduler";
@@ -82,6 +83,7 @@ router.use(dataParityRouter);           // /data-parity/* — owner-only Checkpo
 router.use(buildInfoRouter);            // /build-info   — PUBLIC read-only build/deploy identity (no secrets; registered in PUBLIC_ROUTES)
 router.use(observabilityRouter);        // /observability/client-event — PUBLIC lean client-event drain (chip downgrades etc.); pino warn on Kite→INFO_ONLY transitions
 router.use(replayRecorderRouter);       // /replay/record — owner-only recorder (session-gated via ambient auth middleware); dumps last N minutes of live tap ring to disk in replay-fixture format
+router.use(providerDiagnosticsRouter);  // /providers/* — owner-only (strict) Pack 5 provider capability/shadow/parity diagnostics (never exposes tokens or secret values)
 
 // Kick off background fetcher (FII/DII + participant OI) on first router import.
 // W6-P4A: staggered to the back of the cold-start window (heaviest boot job —
