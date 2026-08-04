@@ -201,6 +201,10 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
   return (
     <div className={`min-h-[100dvh] flex flex-col bg-background text-foreground selection:bg-primary/30 selection:text-primary ${publicMode ? "pt-9" : ""}`}>
+      {/* Accessibility: skip navigation for keyboard users */}
+      <a href="#main-content" className="skip-to-content">
+        Skip to main content
+      </a>
       {publicMode && <PublicModeBanner />}
       <ContainmentBanner />
       <GlobalStatusBanner />

@@ -63,6 +63,18 @@
   --color-signal-sell: hsl(var(--signal-sell));
   --color-signal-strong-sell: hsl(var(--signal-strong-sell));
 
+  /* Semantic data-state tokens */
+  --color-positive: hsl(var(--positive));
+  --color-positive-foreground: hsl(var(--positive-foreground));
+  --color-negative: hsl(var(--negative));
+  --color-negative-foreground: hsl(var(--negative-foreground));
+  --color-warning: hsl(var(--warning));
+  --color-warning-foreground: hsl(var(--warning-foreground));
+  --color-info: hsl(var(--info));
+  --color-info-foreground: hsl(var(--info-foreground));
+  --color-stale: hsl(var(--stale));
+  --color-stale-foreground: hsl(var(--stale-foreground));
+
   --font-sans: var(--app-font-sans);
   --font-serif: var(--app-font-serif);
   --font-mono: var(--app-font-mono);
@@ -119,6 +131,18 @@
   --signal-sell: 0 72% 51%; /* Red 500 */
   --signal-strong-sell: 348 83% 47%; /* Rose 600 */
 
+  /* Semantic data-state tokens (dark base) */
+  --positive: 142 71% 45%;
+  --positive-foreground: 222 47% 7%;
+  --negative: 0 72% 51%;
+  --negative-foreground: 210 40% 98%;
+  --warning: 38 92% 50%;
+  --warning-foreground: 222 47% 7%;
+  --info: 210 90% 65%;
+  --info-foreground: 222 47% 7%;
+  --stale: 38 60% 55%;
+  --stale-foreground: 222 47% 7%;
+
   --chart-1: 142 71% 45%;
   --chart-2: 0 72% 51%;
   --chart-3: 215 20.2% 65.1%;
@@ -170,6 +194,18 @@ html.theme-light {
   --opaque-button-border-intensity: -9;
   --elevate-1: rgba(0,0,0, .035);
   --elevate-2: rgba(0,0,0, .07);
+
+  /* Semantic data-state tokens (light) */
+  --positive: 142 71% 38%;
+  --positive-foreground: 0 0% 100%;
+  --negative: 0 72% 48%;
+  --negative-foreground: 0 0% 100%;
+  --warning: 38 92% 40%;
+  --warning-foreground: 0 0% 100%;
+  --info: 210 90% 45%;
+  --info-foreground: 0 0% 100%;
+  --stale: 38 60% 45%;
+  --stale-foreground: 0 0% 100%;
 
   --background: 210 20% 98%;
   --foreground: 222 47% 11%;
@@ -226,6 +262,17 @@ html.theme-carbon {
   --elevate-1: rgba(148, 184, 224, .045);
   --elevate-2: rgba(148, 184, 224, .09);
 
+  --positive: 152 70% 50%;
+  --positive-foreground: 218 28% 8%;
+  --negative: 4 78% 58%;
+  --negative-foreground: 215 25% 95%;
+  --warning: 38 90% 52%;
+  --warning-foreground: 218 28% 8%;
+  --info: 210 85% 62%;
+  --info-foreground: 218 28% 8%;
+  --stale: 38 55% 55%;
+  --stale-foreground: 218 28% 8%;
+
   --background: 218 28% 8%;
   --foreground: 215 25% 95%;
 
@@ -280,6 +327,17 @@ html.theme-royal {
   --opaque-button-border-intensity: 9;
   --elevate-1: rgba(250, 204, 102, .05);
   --elevate-2: rgba(250, 204, 102, .10);
+
+  --positive: 145 72% 50%;
+  --positive-foreground: 224 60% 9%;
+  --negative: 4 80% 60%;
+  --negative-foreground: 45 50% 96%;
+  --warning: 38 90% 55%;
+  --warning-foreground: 224 60% 9%;
+  --info: 210 80% 62%;
+  --info-foreground: 224 60% 9%;
+  --stale: 38 58% 55%;
+  --stale-foreground: 224 60% 9%;
 
   --background: 224 60% 9%;
   --foreground: 45 50% 96%;
@@ -336,6 +394,17 @@ html.theme-ocean {
   --elevate-1: rgba(125, 211, 252, .05);
   --elevate-2: rgba(125, 211, 252, .10);
 
+  --positive: 158 75% 48%;
+  --positive-foreground: 200 60% 7%;
+  --negative: 8 80% 58%;
+  --negative-foreground: 195 30% 96%;
+  --warning: 38 88% 52%;
+  --warning-foreground: 200 60% 7%;
+  --info: 188 80% 55%;
+  --info-foreground: 200 60% 7%;
+  --stale: 38 56% 55%;
+  --stale-foreground: 200 60% 7%;
+
   --background: 200 60% 7%;
   --foreground: 195 30% 96%;
 
@@ -391,6 +460,51 @@ html.theme-ocean {
     @apply font-sans antialiased bg-background text-foreground;
     /* Safe globally — affects rendering quality only, not metrics. */
     text-rendering: optimizeLegibility;
+  }
+
+  /* Tabular numerals for prices, quantities, P&L, OI and timestamps */
+  .tabular-nums,
+  [data-tabular],
+  td[data-numeric],
+  th[data-numeric] {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum";
+  }
+
+  /* Accessible skip-to-content link */
+  .skip-to-content {
+    position: absolute;
+    top: -100%;
+    left: 0;
+    z-index: 9999;
+    padding: 0.5rem 1rem;
+    background: hsl(var(--primary));
+    color: hsl(var(--primary-foreground));
+    font-size: 0.875rem;
+    font-weight: 600;
+    border-radius: 0 0 0.375rem 0;
+    transition: top 150ms ease;
+  }
+  .skip-to-content:focus {
+    top: 0;
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 2px;
+  }
+
+  /* Accessible focus ring */
+  :focus-visible {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 2px;
+  }
+
+  /* Reduced motion */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+    .animate-pulse { animation: none !important; }
   }
 
   /*
