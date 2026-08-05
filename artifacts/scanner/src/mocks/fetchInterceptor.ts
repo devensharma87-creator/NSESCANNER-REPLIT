@@ -594,6 +594,7 @@ const F_OI_LAB_UNIVERSE = {
 
 // OI Lab bulk snapshot — production-shaped rendered data for NIFTY.
 // sentimentLabel is shown in "Market Sentiment (based on OI)" badge.
+// Fields use `oi` (not callOi/putOi) per InsightResp topResistance/topSupport type.
 const F_OI_LAB_SNAPSHOT = {
   items: [
     {
@@ -612,8 +613,8 @@ const F_OI_LAB_SNAPSHOT = {
       atmIv: 12.4,
       ivPercentile: 0.38,
       ivRank: 0.31,
-      topResistance: [{ strike: 25000, callOi: 4_200_000 }, { strike: 25200, callOi: 3_100_000 }],
-      topSupport:    [{ strike: 24800, putOi:  3_800_000 }, { strike: 24600, putOi:  2_900_000 }],
+      topResistance: [{ strike: 25000, oi: 4_200_000 }, { strike: 25200, oi: 3_100_000 }],
+      topSupport:    [{ strike: 24800, oi: 3_800_000 }, { strike: 24600, oi: 2_900_000 }],
       windowBufferCount: 0,
       windowMode: "none",
       generatedAt: NOW_ISO,
@@ -621,44 +622,117 @@ const F_OI_LAB_SNAPSHOT = {
   ],
 };
 
-// OI Lab insights for individual underlying.
-// windowBufferCount=0 triggers "No snapshots buffered" in windowed mode.
-// Fields required by UnderlyingPicker: expiries[], changePercent, atmStrike, strikeStep.
-const F_OI_LAB_INSIGHTS_NIFTY = {
+// ── OI Lab Insights — complete InsightResp fixture (production-shaped) ────────
+//
+// The InsightResp type requires many non-optional numeric fields. A previous
+// fixture omitted `intradayFlow` (non-optional, -1..+1 range), which caused
+// `.toFixed()` crashes in OverviewTab. This fixture supplies ALL required fields.
+//
+// Gate 0B proof states are selected via the page URL's `?oifix=<state>` param
+// which the fixture interceptor reads from window.location.search.
+//
+// Five states: LOADING | RENDERED | NO_SNAPSHOTS | BUFFER_WARMING | ERROR
+
+// ── 5 InsightStrike rows spanning the ATM region ─────────────────────────────
+function makeStrike(
+  strike: number,
+  isAtm: boolean,
+): Record<string, unknown> {
+  const ceOi = isAtm ? 4_200_000 : strike < 25000 ? 2_100_000 : 3_400_000;
+  const peOi = isAtm ? 3_800_000 : strike < 25000 ? 4_100_000 : 1_900_000;
+  return {
+    strike,
+    isAtm,
+    ceOi,     ceOiChg: Math.round(ceOi * 0.06), ceVolume: Math.round(ceOi * 0.12), ceLtp: isAtm ? 82.5 : strike < 25000 ? 210.3 : 12.4, ceIv: isAtm ? 12.4 : null, ceBuildup: isAtm ? "LONG_BUILDUP" : "NEUTRAL",
+    peOi,     peOiChg: Math.round(peOi * 0.04), peVolume: Math.round(peOi * 0.08), peLtp: isAtm ? 75.3 : strike < 25000 ? 10.2 : 185.6, peIv: isAtm ? 12.1 : null, peBuildup: isAtm ? "SHORT_COVERING" : "NEUTRAL",
+    pcr: peOi / ceOi,
+    painValue: Math.abs(strike - 24987) * (ceOi + peOi) / 1e9,
+  };
+}
+
+const SAMPLE_STRIKES = [
+  makeStrike(24800, false),
+  makeStrike(24900, false),
+  makeStrike(25000, true),   // ATM
+  makeStrike(25100, false),
+  makeStrike(25200, false),
+];
+
+// ── Base insight response — all required InsightResp fields ───────────────────
+const F_OI_LAB_INSIGHTS_BASE = {
   underlying: "NIFTY",
+  kind: "INDEX" as const,
   spot: 24987,
-  change: 87.5,
+  prevClose: 24899.5,
   changePercent: 0.35,
   expiry: "2026-08-14",
   expiries: ["2026-08-14", "2026-08-21", "2026-08-28", "2026-09-25"],
   atmStrike: 25000,
   strikeStep: 50,
   lotSize: 25,
-  sentiment: "MILDLY_BULLISH",
-  sentimentLabel: "Mildly Bullish (based on OI)",
-  sentimentScore: 0.62,
-  kiteAuthenticated: true,
+  source: "kite",
+  generatedAt: NOW_ISO,
+  spotSource: "kite",
+  spotTrusted: true,
+  futurePrice: null,    // gated by futurePrice != null — shows "—" cleanly
+  syntheticFuture: null,
+  syntheticFutureModelled: false,
   pcrOi: 1.24,
+  intradayFlow: 0.42,           // required non-optional field — was missing → crash
+  intradayOiTrue: false as const,
   pcrVolume: 1.11,
   maxPain: 24800,
+  maxPainDeviation: 0.75,
+  atmIv: 12.4,
   totalCallOi: 12_450_000,
   totalPutOi: 15_450_000,
   callOiAdded: 825_000,
   putOiAdded: 1_140_000,
-  atmIv: 12.4,
-  ivPercentile: 0.38,
-  ivRank: 0.31,
-  topResistance: [{ strike: 25000, callOi: 4_200_000 }, { strike: 25200, callOi: 3_100_000 }],
-  topSupport:    [{ strike: 24800, putOi:  3_800_000 }, { strike: 24600, putOi:  2_900_000 }],
-  strikes: [],
-  windowBufferCount: 0,
-  windowMode: "none",
+  topResistance: [{ strike: 25000, oi: 4_200_000 }, { strike: 25200, oi: 3_100_000 }],
+  topSupport:    [{ strike: 24800, oi: 3_800_000 }, { strike: 24600, oi: 2_900_000 }],
+  sentiment: "MILDLY_BULLISH" as const,
+  sentimentScore: 0.62,
+  sentimentLabel: "Mildly Bullish (based on OI)",
+  sentimentStrengthPct: 62,
+  marketInsight: "Put writers are active at 24800 PE, providing strong support near current levels.",
+  analysis: "OI buildup at 25000 CE indicates resistance. Put writing at 24800 PE signals bears are unwilling to push significantly lower.",
+  strikes: SAMPLE_STRIKES,
+  windowMs: null,
+  windowMode: "none" as const,
   windowBaselineAt: null,
+  windowBaselineSpot: null,
   windowBufferOldestAt: null,
+  windowBufferCount: 0,
   windowTotals: null,
   windowPcr: null,
-  marketStatus: { marketOpen: false, serverIst: SERVER_IST, reason: "AFTER_CLOSE" },
-  generatedAt: NOW_ISO,
+  kiteAuthenticated: true,
+};
+
+// RENDERED state — full valid data (200 OK, windowBufferCount=0)
+const F_OI_LAB_INSIGHTS_RENDERED = { ...F_OI_LAB_INSIGHTS_BASE };
+
+// NO_SNAPSHOTS state — explicit "No snapshots buffered" text in windowed mode
+// windowBufferCount=0 triggers the exact "No snapshots buffered — falling back to
+// broker since-open Δ" text proven in p25b.gate3and4 tests.
+const F_OI_LAB_INSIGHTS_NO_SNAPSHOTS = {
+  ...F_OI_LAB_INSIGHTS_BASE,
+  windowMode: "none" as const,
+  windowBufferCount: 0,
+};
+
+// BUFFER_WARMING state — "Buffer warming up (1 snapshot)…" text
+const F_OI_LAB_INSIGHTS_BUFFER_WARMING = {
+  ...F_OI_LAB_INSIGHTS_BASE,
+  windowMode: "approx" as const,
+  windowBufferCount: 1,
+  windowBaselineAt: new Date(Date.now() - 300_000).toISOString(), // 5 min ago
+};
+
+// ERROR/UNAVAILABLE state — 503 "kite_login_required"
+const F_OI_LAB_INSIGHTS_ERROR = {
+  error: "kite_login_required",
+  detail: "OI Insights needs an active Kite session. Open the Live Feed page and complete the daily login first.",
+  kiteAuthenticated: false,
 };
 
 // Full NSE scan — production-shaped result (paginated with aggregate counts).
@@ -946,6 +1020,8 @@ type FixtureEntry = {
   test: (url: string, method: string) => boolean;
   data: unknown;
   status?: number;
+  /** Optional artificial delay in ms — used to capture LOADING state screenshots. */
+  delayMs?: number;
 };
 
 function url(u: string): (s: string) => boolean {
@@ -1006,14 +1082,36 @@ const FIXTURES: FixtureEntry[] = [
   // OI Lab — universe + bulk snapshot + per-underlying insights (most specific first)
   { test: url("/api/options/oi-lab/universe"), data: F_OI_LAB_UNIVERSE },
   { test: (u, m) => u.includes("/api/options/oi-lab/snapshot") && m === "POST", data: F_OI_LAB_SNAPSHOT },
-  // Insights returns 503 "kite_login_required" — renders the clean error state instead
-  // of crashing on complex field accesses. Gate 2.5 text (sentimentLabel, bufferCount)
-  // is verified by p25b.gate3and4 tests (34 passing).
-  { test: (u) => /\/api\/options\/oi-lab\/insights\//.test(u), status: 503, data: {
-    error: "kite_login_required",
-    detail: "OI Insights needs an active Kite session. Open the Live Feed page and complete the daily login first.",
-    kiteAuthenticated: false,
-  } },
+
+  // Insights — 5 states selected by page URL ?oifix= parameter (Gate 0B proof)
+  // LOADING:        ?oifix=loading       — slow fixture; screenshot captures skeleton cards
+  // RENDERED:       ?oifix=rendered      — full valid InsightResp (all fields present)
+  // NO_SNAPSHOTS:   ?oifix=no-snapshots  — windowBufferCount=0, windowMode="none"
+  // BUFFER_WARMING: ?oifix=buffer-warming — windowBufferCount=1, windowMode="approx"
+  // ERROR:          ?oifix=error (or no param) — 503 kite_login_required
+
+  // LOADING: 8s delay lets screenshot tool capture skeleton cards
+  { test: (u) => /\/api\/options\/oi-lab\/insights\//.test(u) &&
+      typeof window !== "undefined" && window.location.search.includes("oifix=loading"),
+    data: F_OI_LAB_INSIGHTS_RENDERED, delayMs: 8_000 },
+
+  // RENDERED: complete data, no window (shows full OverviewTab without crash)
+  { test: (u) => /\/api\/options\/oi-lab\/insights\//.test(u) &&
+      typeof window !== "undefined" && window.location.search.includes("oifix=rendered"),
+    data: F_OI_LAB_INSIGHTS_RENDERED },
+
+  // NO_SNAPSHOTS: windowBufferCount=0 triggers explicit "No snapshots buffered" text
+  { test: (u) => /\/api\/options\/oi-lab\/insights\//.test(u) &&
+      typeof window !== "undefined" && window.location.search.includes("oifix=no-snapshots"),
+    data: F_OI_LAB_INSIGHTS_NO_SNAPSHOTS },
+
+  // BUFFER_WARMING: windowBufferCount=1 triggers "Buffer warming up (1 snapshot)" text
+  { test: (u) => /\/api\/options\/oi-lab\/insights\//.test(u) &&
+      typeof window !== "undefined" && window.location.search.includes("oifix=buffer-warming"),
+    data: F_OI_LAB_INSIGHTS_BUFFER_WARMING },
+
+  // ERROR/UNAVAILABLE (default — no oifix param or oifix=error)
+  { test: (u) => /\/api\/options\/oi-lab\/insights\//.test(u), status: 503, data: F_OI_LAB_INSIGHTS_ERROR },
 
   // Options & FNO signals — more specific before less
   { test: url("/api/options/signal-report/dates"), data: F_OPTION_SIGNAL_REPORT_DATES },
@@ -1130,6 +1228,9 @@ export function installScannerFixtures(): void {
 
     for (const entry of FIXTURES) {
       if (entry.test(rawUrl, method)) {
+        if (entry.delayMs && entry.delayMs > 0) {
+          await new Promise<void>((r) => setTimeout(r, entry.delayMs));
+        }
         const body = JSON.stringify(entry.data);
         return new Response(body, {
           status: entry.status ?? 200,

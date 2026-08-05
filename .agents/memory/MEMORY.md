@@ -1,3 +1,4 @@
+- [Pack 7 closure](pack7-closure.md) — Gates 0A/0B/3-7/9/19/20 PASS; parityClassification.ts (9 classes); authMode+shadowImpactStatement in providerDiagnostics; api-server 5881, scanner 1250; 4-pkg TSC clean; COMPLETE 2026-08-05.
 - [Pack 25B closure](pack25b-closure.md) — 2 UI fixes + 125 new tests (Gates 1–6): NET_VS_SEED reordered+relabeled; OI Lab bufLen=0 "No snapshots buffered"; HDFCBANK verdict STALE_OR_EXPIRED_STAGE; 4 test files; scanner 1210, api-server 5673; 4-pkg TSC clean; COMPLETE 2026-08-05.
 - [Pack 25A V2 closure](pack25a-closure.md) — 6 defects fixed (NET_VS_SEED hint, winPct denominator, false-zero extremes, US VIX label, FII gross guard, OI Lab sentiment scope); 64 new tests (18 Gate G); scanner 1176, api-server 5603; COMPLETE 2026-08-05.
 - [Pack 6A closure](pack6a-closure.md) — Fixture harness + route integration + 21 Gate F tests; scanner 1032, api-server 5603; 5-pkg TSC clean; authenticated screenshots captured; COMPLETE 2026-08-05.

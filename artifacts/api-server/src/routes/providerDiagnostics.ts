@@ -20,6 +20,7 @@ import {
   upstoxHealth,
   probeUpstoxConnection,
 } from "../lib/marketData/upstoxProvider";
+import { resolveUpstoxConfig } from "../lib/marketData/upstoxClient";
 import {
   indianApiHealth,
   probeIndianApiConnection,
@@ -43,15 +44,22 @@ router.get("/providers/diagnostics", requireOwnerStrict, (_req, res, next) => {
     const upstox       = upstoxHealth();
     const indianApi    = indianApiHealth();
 
+    // Shadow provider data has no trading impact — monitoring only.
+    // authMode is safe to surface (no raw token exposed).
+    const upstoxCfg = resolveUpstoxConfig();
+
     res.json({
       ok:          true,
       evaluatedAt: capabilities.evaluatedAt,
       authoritative: capabilities.authoritative,
       tradeAvailableProviders: capabilities.tradeAvailableProviders,
       capabilities: capabilities.capabilities,
+      // Shadow observations have no impact on trading, signals, paper trades, P&L, or broker.
+      shadowImpactStatement: "Shadow provider data has no trading, signalling, paper-trading, P&L or broker impact.",
       shadowState: {
         upstox: {
           configured:    upstox.configured,
+          authMode:      upstoxCfg.authMode,  // safe — not the token itself
           routingState:  upstox.routingState,
           circuitState:  upstox.circuitState,
           lastProbeAt:   upstox.lastProbeAt,
@@ -62,6 +70,8 @@ router.get("/providers/diagnostics", requireOwnerStrict, (_req, res, next) => {
         },
         indianapi: {
           configured:    indianApi.configured,
+          plan:          indianApi.plan,
+          configState:   indianApi.configState,
           lastProbeAt:   indianApi.lastProbeAt,
           lastErrorKind: indianApi.lastError
             ? indianApi.lastError.split(":")[0] ?? "error"

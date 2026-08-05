@@ -199,12 +199,14 @@ function probeBootstrap(envOverrides: NodeJS.ProcessEnv): {
 }
 
 describe("P22A/Gate3 — module-level startup guard: SESSION_SECRET", () => {
-  it("G3-1a: app.ts process exits non-zero when SESSION_SECRET is absent", () => {
+  it("G3-1a: app.ts process exits non-zero when SESSION_SECRET is absent", { timeout: 30_000 }, () => {
     // The probe process exits 1 for any startup failure (proven by spawnSync).
     // Note: in the tsx/ESM probe environment, an ESM __dirname error in a route
     // may trigger before the SESSION_SECRET check. The important guarantee is:
     //   (a) the process FAILS (proven here) and
     //   (b) the guard code IS present and correct (proven in G3-1b).
+    // timeout: 30_000 — spawnSync has a 20s internal timeout; vitest default
+    // 5s was racing against the child process startup time on loaded hosts.
     const { ok } = probeBootstrap({ SESSION_SECRET: undefined });
     expect(ok).toBe(false);
   });
