@@ -3748,7 +3748,9 @@ function InsightsTab({ shared }: { shared: SharedOiState }) {
                         </span>
                       ) : tfResolved.mode === "fallback_open" ? (
                         <span className="text-amber-400/90">
-                          buffer warming up ({bufLen} snap{bufLen === 1 ? "" : "s"}) — falling back to broker since-open Δ
+                          {bufLen === 0
+                            ? "No snapshots buffered — falling back to broker since-open Δ"
+                            : `buffer warming up (${bufLen} snap${bufLen === 1 ? "" : "s"}) — falling back to broker since-open Δ`}
                         </span>
                       ) : tfResolved.baselineUsedAt ? (
                         <>

@@ -2083,15 +2083,19 @@ function AccountCard({ data, loading, error, onTopupSuccess }: {
             hint="Max capital risked per F&O trade as a percent of available cash (STANDARD-tier sizing baseline)."
           />
           <Stat
-            label="Net vs. seed (lifetime)"
-            value={inrDec(netVsSeed)}
-            tone={netVsSeed > 0 ? "pos" : netVsSeed < 0 ? "neg" : undefined}
-            hint="Account-balance reconciliation metric only — not strategy P&L. Formula: cash balance + today's realised P&L − seed capital. Includes capital movements (deposits/withdrawals) that are NOT trade-attributed. Primary trade performance is shown in the Analytics tab as Realised P&L."
-          />
-          <Stat
             label="Seed capital"
             value={inr(data.seedCapital)}
             hint="The original starting bankroll for the F&O paper account."
+          />
+          {/* Net-vs-seed is positioned LAST in the grid (after all operational stats)
+              because it is an account-reconciliation metric, not a trading-performance
+              headline. It includes capital movements (deposits/withdrawals) that are
+              not trade-attributed and MUST NOT be read as strategy P&L. */}
+          <Stat
+            label="Net vs. seed — balance only, not strategy P&L"
+            value={inrDec(netVsSeed)}
+            tone={netVsSeed > 0 ? "pos" : netVsSeed < 0 ? "neg" : undefined}
+            hint="ACCOUNT RECONCILIATION METRIC — NOT STRATEGY PERFORMANCE. Formula: cash balance + today's realised P&L − seed capital. Includes capital deposits/withdrawals that are not trade-attributed. See Analytics tab → Realised P&L for trade-attributed performance."
           />
         </div>
         {/* Section B — Risk base, heat & capital movements (new sizing surface) */}
