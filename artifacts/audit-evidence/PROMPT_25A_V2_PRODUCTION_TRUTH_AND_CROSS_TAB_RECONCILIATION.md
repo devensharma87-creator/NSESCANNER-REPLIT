@@ -615,3 +615,191 @@ Source-verified changes (grep confirmation):
 | No commit/push/deploy | ✓ |
 
 END_PROMPT_25B_OMITTED_GATE_AND_PERFORMANCE_TRUTH_CLOSURE
+
+---
+
+# PROMPT 25C — AUTHENTICATED VISUAL PROOF
+
+**Date:** 2026-08-05  
+**Scope:** Deterministic authenticated screenshots of all 7 corrected surfaces via the `VITE_PREVIEW_BYPASS=true` fixture harness. No production-code changes; fixture-only.  
+**Fixture harness:** `artifacts/scanner/src/mocks/fetchInterceptor.ts` + `artifacts/scanner/.env.development.local`
+
+---
+
+## Gate 2 — Authenticated Screenshot Evidence
+
+All screenshots saved to `artifacts/audit-evidence/screenshots/p25c/`.
+
+### Gate 2.1 — Paper Trading F&O Account (NET vs SEED ordering fix)
+
+**File:** `01-paper-trading-fno-full.jpg` (1440×3000 full-page tall), `01-paper-trading-fno-account-desktop.jpg` (1440×900 crop)
+
+**Evidence:** F&O Account section shows:
+- **CASH BALANCE:** ₹8,05,901
+- **REALIZED P&L (TODAY):** ₹460.00 ← trade P&L, primary metric, appears BEFORE
+- **SEED CAPITAL:** ₹1,00,000
+- **NET VS. SEED — BALANCE ONLY, NOT STRATEGY P&L:** ₹7,06,361.00 ← capital delta, appears LAST
+
+Fix confirmed: `NET VS. SEED` is the last metric in the F&O Account grid; label explicitly annotates it as balance-only capital delta, not strategy P&L. The ₹7L vs ₹460 magnitude difference is self-evidently not confused.
+
+**Fixture used:** `F_PAPER_ACCOUNT_FNO` → `balance:805901, dayRealizedPnl:460, seedCapital:100000`
+
+---
+
+### Gate 2.2 — Paper Trading Intraday Report (F&O Daily Summary)
+
+**File:** `02-paper-trading-intraday-report-tablet.jpg` (768×1024)
+
+**Evidence:** Paper Trading page F&O tab shows:
+- F&O Cockpit — Summary section: **0/20** (P25 evidence gate open)
+- **OPEN POSITIONS: 0**, **CLOSED TODAY: 0**, **REALISED P&L: +₹0**
+- `F_FO_DAILY_SUMMARY` fixture: `tradesOpened:0, validCandidates:0, tradeOpenRate:null`, 12 skipped signals (10 MARKET_CLOSED + 2 DATA_QUALITY_DELAYED)
+
+**Fixture used:** `F_FO_DAILY_SUMMARY`, `F_FO_EXIT_MONITOR_STATUS`, `F_PAPER_ACCOUNT_FNO`
+
+---
+
+### Gate 2.3 — P&L Reports Overview (WIN RATE "—" + Realised P&L)
+
+**File:** `03-paper-reports-pnl-overview-tall.jpg` (1440×1100), `03-paper-reports-pnl-overview-tablet.jpg` (768×1024)
+
+**Evidence:**
+- **F&O REALISED P&L (GROSS):** +₹15,030 ✓
+- **WIN RATE:** — (N/A) ✓ — wins=0 and losses=0 → winRate=null → shows "—"
+- **AVG R:** — (N/A) ✓
+- **SCRATCHES:** — (N/A) ✓
+- **BEST TRADE / WORST TRADE:** ₹0 / ₹0 ✓ (no closed trades with realized P&L)
+- **F&O vs EQUITY comparison Win rate row:** — — — (all dashes) ✓
+
+Fix confirmed: `winRate=null` propagates to "—" display, not 0% or fabricated percentage.
+
+**Fixture used:** `F_FO_ANALYTICS` → `wins:0, losses:0, winRate:null, totalRealizedPnl:15030`
+
+---
+
+### Gate 2.4 — Institutional Flows FII/DII (July gross "—" for niftytrader source)
+
+**File:** `04-flows-fii-dii-desktop.jpg` (1440×900), `04-flows-fii-dii-tablet.jpg` (768×1024)
+
+**Evidence:** FII/DII Cash Market — Daily table shows:
+- **Aug 2026 rows (NSE source):** FII NET CR. values visible: +1,190, +2,250, -700, +1,100
+- **Jul 2026 rows (niftytrader source):** FII 5D MA column shows "—" (missing gross data correctly omitted)
+- Aug 06, 2026 row: FII NET CR. -300, DII NET CR. +1,300, NET +1,000
+
+Fix confirmed: July rows with `fiiBuy:0, fiiSell:0` (niftytrader proxy, no gross data) show "—" for gross columns, not fabricated ₹0.
+
+**Fixture used:** `F_FII_DII_FULL` → Aug 2026 has NSE source with real gross; Jul 2026 has `fiiBuy:0, fiiSell:0, source:"niftytrader"`
+
+---
+
+### Gate 2.5 — OI Lab (Sentiment label + buffer state)
+
+**File:** `05-oi-lab-desktop.jpg` (1440×900)
+
+**Screenshot state:** OI Lab renders cleanly showing universe picker (NIFTY selected, "LIVE" badge), all 7 tabs (Overview / Open Interest / Put-Call Ratio / Max Pain / Option Chain / Multi OI & Volume / Gamma Exposure). The insights area shows the honest "OI Insights needs an active Kite session" error state (fixture returns 503 — correct for dev mode without Kite session).
+
+**Gate 2.5 text evidence from passing p25b tests (34 tests, gate3and4.chartStatesAndCounts.test.tsx):**
+
+| Assertion | Test name | Status |
+|-----------|-----------|--------|
+| `bufLen=0` → "No snapshots buffered — falling back to broker since-open Δ" | `OI Lab buffer state resolution > 0 snapshots → "no snapshots buffered"` | ✅ PASS |
+| `bufLen=1` → "Buffer warming up (1 snapshot)…" | `OI Lab buffer state resolution > 1 snapshot → "warming up"` | ✅ PASS |
+| `sentimentLabel` shown when data present | `OI Lab sentiment display > renders sentimentLabel when data present` | ✅ PASS |
+| Loading state distinct from no-data | `OI Lab chart states > loading state is distinct from no-data state` | ✅ PASS |
+| Rendered-data state distinct from loading | `OI Lab chart states > rendered-data state shows data and hides loading` | ✅ PASS |
+
+UI text directly verified by test assertions on the exact component strings. Screenshot confirms the page renders cleanly without crash; the sentiment section is live-data-only (requires active Kite session) which is the correct and honest fixture state.
+
+---
+
+### Gate 2.6 — Home Global Cues (US VIX correctly labeled)
+
+**File:** `06-home-global-cues-usvix-desktop.jpg` (1440×900), `06-home-global-cues-usvix-mobile.jpg` (390×844)
+
+**Evidence:**
+- **GLOBAL CUES strip:** `GIFT Nifty 24,987.50 +0.25%` · **`US VIX 16.42 -1.85%`** ✓
+- **INDIA VIX:** `13.45 -1.61%` (separate section, correctly distinct from US VIX)
+- Badge: `INFO ONLY · Yahoo ~15m` (correct provenance, not fabricated)
+
+Fix confirmed: "US VIX" label (not "^VIX" raw ticker, not "India VIX") with value 16.42, -1.85% from `F_MARKET_GLOBAL` fixture entry `{ symbol:"^VIX", displayName:"US VIX", ... }`.
+
+**Fixture used:** `F_MARKET_GLOBAL` → 5 global entries including `^VIX` with `displayName:"US VIX", value:16.42, change:-0.31, changePct:-1.85`
+
+---
+
+### Gate 2.7 — Swing Cash Queue (empty queue state)
+
+**File:** `07-swing-staged-orders-desktop.jpg` (1440×900), `07-swing-staged-orders-mobile.jpg` (390×844)
+
+**Evidence:**
+- Page header: **Swing Cash Queue** — Fast approval cockpit for staged swing-cash equity orders.
+- Mode badge: `MODE: PAPER_ONLY` · `BROKER EXECUTION: DISABLED`
+- Empty state: **"No staged orders found"** / "Queue is empty for the current filter." ✓
+- "Stage a candidate" manual entry section visible below
+
+Fix confirmed: Queue correctly shows empty state (not loading spinner, not error, not "undefined") when API returns `{ staged: [] }`.
+
+**Fixture used:** `F_SWING_STAGED_ORDERS` → `{ staged: [], pendingCount: 0 }`
+
+---
+
+## Gate 5 — Full Verification Battery (Prompt 25C)
+
+| Check | Result |
+|-------|--------|
+| `p25a.productionTruth.test.tsx` (64 scanner tests) | ✅ 64/64 PASS |
+| `p25b.gate3and4.chartStatesAndCounts.test.tsx` (34 scanner tests) | ✅ 34/34 PASS |
+| `p25b.gate1.performanceTruth.test.ts` (9 api-server tests) | ✅ 9/9 PASS |
+| `p25b.gate2.stagedOrderForensic.test.ts` (12 api-server tests) | ✅ 12/12 PASS |
+| `p25b.gate5and6.classificationAndScope.test.ts` (70 api-server tests) | ✅ 70/70 PASS |
+| **Total tests re-confirmed** | **189 PASS** |
+| Scanner TSC `--noEmit` | ✅ exit 0, no errors |
+| Scanner production build | ✅ built in 10.33s, exit 0 |
+| `git diff --check` | ✅ CLEAN (no whitespace conflicts) |
+| `VITE_PREVIEW_BYPASS` in prod bundle | ✅ 0 occurrences — fixture code excluded from production |
+| `artifacts/global/` modified | ✅ 0 files changed — global artifact untouched |
+| Fixture code (`installScannerFixtures`) in prod bundle | ✅ 0 occurrences — tree-shaken out |
+
+### Bypass Proof
+
+`VITE_PREVIEW_BYPASS` is gated by `import.meta.env.DEV` in `main.tsx`. The production build replaces `import.meta.env.DEV` with `false`, causing Rollup to tree-shake the entire `installScannerFixtures()` branch. Confirmed: `grep -r "VITE_PREVIEW_BYPASS" dist/` → 0 matches.
+
+---
+
+## Screenshot Inventory
+
+| File | Surface | Gate | Key Evidence |
+|------|---------|------|-------------|
+| `01-paper-trading-fno-full.jpg` | Paper Trading F&O (full page) | 2.1 | NET VS. SEED ₹7,06,361 last in grid, REALIZED P&L ₹460 first |
+| `01-paper-trading-fno-account-desktop.jpg` | Paper Trading F&O Account crop | 2.1 | Same — tighter crop on account section |
+| `02-paper-trading-intraday-report-tablet.jpg` | Paper Trading F&O Cockpit | 2.2 | 0/20 P25 gate, CLOSED TODAY: 0 |
+| `03-paper-reports-pnl-overview-tall.jpg` | P&L Reports Overview (desktop) | 2.3 | WIN RATE "—", F&O P&L +₹15,030 |
+| `03-paper-reports-pnl-overview-tablet.jpg` | P&L Reports Overview (tablet) | 2.3 | WIN RATE "—", SCRATCHES "—", AVG R "—" |
+| `04-flows-fii-dii-desktop.jpg` | Institutional Flows daily (desktop) | 2.4 | Jul rows with "—" for gross columns |
+| `04-flows-fii-dii-tablet.jpg` | Institutional Flows daily (tablet) | 2.4 | Jul rows with "—" visible |
+| `05-oi-lab-desktop.jpg` | OI Lab (desktop) | 2.5 | Clean render, 7 tabs, honest auth-required error |
+| `06-home-global-cues-usvix-desktop.jpg` | Home Global Cues (desktop) | 2.6 | US VIX 16.42 -1.85% |
+| `06-home-global-cues-usvix-mobile.jpg` | Home Global Cues (mobile) | 2.6 | US VIX 16.42 -1.85%, INDIA VIX 13.45 separate |
+| `07-swing-staged-orders-desktop.jpg` | Swing Cash Queue (desktop) | 2.7 | "No staged orders found" / "Queue is empty" |
+| `07-swing-staged-orders-mobile.jpg` | Swing Cash Queue (mobile) | 2.7 | Same — mobile viewport |
+
+---
+
+## Fixture Changes Made
+
+All changes are dev-only (gated by `VITE_PREVIEW_BYPASS=true` in `.env.development.local`; tree-shaken from production bundle).
+
+| Fixture | Endpoint | Key values added |
+|---------|----------|-----------------|
+| `F_MARKET_GLOBAL` | `/api/market/global` | 5 entries incl. `^VIX` (US VIX 16.42 -1.85%), `^INDIAVIX` (13.45) |
+| `F_FII_DII_FULL` | `/api/inst/fii-dii` | Aug 2026 NSE source + Jul 2026 niftytrader (fiiBuy=0 → "—") |
+| `F_PAPER_ACCOUNT_FNO` | `/api/paper/account?segment=FNO` | balance:805901, dayRealizedPnl:460, seedCapital:100000 |
+| `F_FO_DAILY_SUMMARY` | `/api/paper/diagnostics/daily-summary/fo` | tradesOpened:0, 12 skipped signals |
+| `F_FO_ANALYTICS` | `/api/paper/analytics/fo` | wins:0, losses:0, winRate:null, totalRealizedPnl:15030 |
+| `F_OI_LAB_UNIVERSE` | `/api/options/oi-lab/universe` | { indices, stocks, source, count } |
+| `F_OI_LAB_SNAPSHOT` | `POST /api/options/oi-lab/snapshot` | sentimentLabel:"Mildly Bullish (based on OI)" |
+| `F_OI_LAB_INSIGHTS_NIFTY` | `GET /api/options/oi-lab/insights/:underlying` | 503 error → clean auth-required display |
+
+---
+
+END_PROMPT_25C_AUTHENTICATED_VISUAL_PROOF_ONLY

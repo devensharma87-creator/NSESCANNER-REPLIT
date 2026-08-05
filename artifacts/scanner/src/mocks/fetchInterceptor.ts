@@ -349,8 +349,15 @@ const F_MARKET_SUMMARY = {
 };
 
 const F_MARKET_GLOBAL = {
-  indices: [],
-  asOf: null,
+  // Production-shaped GlobalMarket: includes VIX so "US VIX" label renders
+  indices: [
+    { symbol: "GIFTNIFTY",  name: "GIFT NIFTY",              price: 24987.5, change:  62.5,  changePercent:  0.25, asOf: Math.floor(Date.now()/1000) },
+    { symbol: "^VIX",       name: "CBOE Volatility Index",   price:  16.42,  change:  -0.31, changePercent: -1.85, asOf: Math.floor(Date.now()/1000) },
+    { symbol: "DX-Y.NYB",   name: "US Dollar Index",         price: 104.23,  change:  -0.18, changePercent: -0.17, asOf: Math.floor(Date.now()/1000) },
+    { symbol: "^INDIAVIX",  name: "India VIX",               price:  13.45,  change:  -0.22, changePercent: -1.61, asOf: Math.floor(Date.now()/1000) },
+    { symbol: "CL=F",       name: "Crude Oil WTI",           price:  73.82,  change:   0.95, changePercent:  1.30, asOf: Math.floor(Date.now()/1000) },
+  ],
+  lastUpdated: NOW_ISO,
 };
 
 // PreMarketReport returned directly by /api/market/premarket (not wrapped)
@@ -425,6 +432,263 @@ const F_FII_DII = {
   data: [],
   categories: [],
   asOf: null,
+};
+
+// FiiDiiResponse — production-shaped data for /api/inst/fii-dii.
+// July 2026: niftytrader source (fiiBuy=0, fiiSell=0) → monthly view shows "—" for gross.
+// August 2026: NSE source with real gross values → monthly view shows actual numbers.
+const F_FII_DII_FULL = {
+  months: [
+    {
+      month: "2026-08",
+      label: "Aug 2026",
+      fiiBuy:  42_350,
+      fiiSell: 38_810,
+      fiiNet:    3_540,
+      diiBuy:  28_620,
+      diiSell: 24_190,
+      diiNet:    4_430,
+      daysCount: 5,
+      days: [
+        { date: "2026-08-01", fiiBuy: 9_200, fiiSell: 8_100, fiiNet:  1_100, diiBuy: 6_400, diiSell: 5_200, diiNet: 1_200, source: "nse", niftyClose: 24800, niftyChangePct:  0.42 },
+        { date: "2026-08-02", fiiBuy: 7_800, fiiSell: 8_500, fiiNet:   -700, diiBuy: 5_100, diiSell: 4_900, diiNet:   200, source: "nse", niftyClose: 24740, niftyChangePct: -0.24 },
+        { date: "2026-08-04", fiiBuy: 9_450, fiiSell: 7_200, fiiNet:  2_250, diiBuy: 5_800, diiSell: 4_800, diiNet: 1_000, source: "nse", niftyClose: 24900, niftyChangePct:  0.65 },
+        { date: "2026-08-05", fiiBuy: 8_900, fiiSell: 7_710, fiiNet:  1_190, diiBuy: 6_020, diiSell: 5_290, diiNet:   730, source: "nse", niftyClose: 24987, niftyChangePct:  0.35 },
+        { date: "2026-08-06", fiiBuy: 7_000, fiiSell: 7_300, fiiNet:   -300, diiBuy: 5_300, diiSell: 4_000, diiNet: 1_300, source: "nse", niftyClose: 24950, niftyChangePct: -0.15 },
+      ],
+    },
+    {
+      // Net-only month (niftytrader source): fiiBuy=0, fiiSell=0 → "—" in monthly view
+      month: "2026-07",
+      label: "Jul 2026",
+      fiiBuy: 0,
+      fiiSell: 0,
+      fiiNet: -8_420,
+      diiBuy: 0,
+      diiSell: 0,
+      diiNet: 11_340,
+      daysCount: 23,
+      days: [
+        { date: "2026-07-01", fiiBuy: 0, fiiSell: 0, fiiNet: -620, diiBuy: 0, diiSell: 0, diiNet: 480, source: "niftytrader", niftyClose: 24200, niftyChangePct: -0.18 },
+        { date: "2026-07-02", fiiBuy: 0, fiiSell: 0, fiiNet:  310, diiBuy: 0, diiSell: 0, diiNet: 540, source: "niftytrader", niftyClose: 24260, niftyChangePct:  0.25 },
+        { date: "2026-07-03", fiiBuy: 0, fiiSell: 0, fiiNet: -890, diiBuy: 0, diiSell: 0, diiNet: 620, source: "niftytrader", niftyClose: 24180, niftyChangePct: -0.33 },
+      ],
+    },
+  ],
+  generatedAt: NOW_ISO,
+};
+
+// Production-shaped F&O paper account: balance ≈ ₹8.06 L, seed ₹1 L.
+// netVsSeed = balance + dayRealizedPnl − seedCapital = 805 901 + 460 − 100 000 = 706 361
+// This makes the ₹460 trade P&L clearly secondary to the ₹7 L capital delta.
+const F_PAPER_ACCOUNT_FNO = {
+  lane: "FNO",
+  balance: 805_901,
+  seed: 100_000,
+  seedCapital: 100_000,
+  deployed: 0,
+  openCount: 0,
+  currentValue: 805_901,
+  unrealizedPnl: 0,
+  unrealizedPnlPct: 0,
+  lifetimeRealizedPnl: 15_030,
+  dayRealizedPnl: 460,
+  dayPnl: 460,
+  dayPnlPct: 0.057,
+  drawdownPct: 0,
+  drawdownCapPct: 0.05,
+  killSwitchActive: false,
+  openThrottleCount: 0,
+  maxOpen: 5,
+  capitalDeployed: 0,
+  maxLossPctPerTrade: 0.02,
+  riskBase: 805_901,
+  dailyTradeCap: 3,
+  dayTradeCount: 2,
+};
+
+// FoDailySummary — zero decided trades → intraday report shows 0 opens and no win rate.
+const F_FO_DAILY_SUMMARY = {
+  date: "2026-08-05",
+  signalsGenerated: 12,
+  tradesOpened: 0,
+  tradesOpenedByTier: { BASELINE: 0, HC: 0 },
+  validCandidates: 0,
+  tradeOpenRate: null,
+  skipped: {
+    total: 12,
+    byReason: [
+      { key: "MARKET_CLOSED", count: 10 },
+      { key: "DATA_QUALITY_DELAYED", count: 2 },
+    ],
+  },
+};
+
+// Exit monitor status — healthy subsystems, no open positions to monitor.
+const subsystemOk = { severity: "ok", label: "OK", detail: null };
+const F_FO_EXIT_MONITOR_STATUS = {
+  generatedAt: NOW_ISO,
+  exitMonitor:     { ...subsystemOk, monitoredIds: [], cycleMs: null, lastCycleAt: null },
+  premiumOverlay:  subsystemOk,
+  orphanExit:      subsystemOk,
+  mtmSweep:        subsystemOk,
+  timeExit1520:    subsystemOk,
+  globalDataHealth: { severity: "ok", kiteConnected: true, dataFreshMs: null },
+};
+
+// Missed signals — empty list.
+const F_FO_MISSED = { missed: [], generatedAt: NOW_ISO };
+
+// Shadow exits — enabled, no eligible MFE trades yet.
+const F_FO_SHADOW_EXITS = {
+  enabled: true,
+  mfeAvailableCount: 0,
+  rawRowCount: 0,
+  processedRowCount: 0,
+  rowCount: 0,
+  lowSampleWarning: true,
+  lowSampleThreshold: 20,
+  byIndex: [],
+  bySetup: [],
+  byTier: [],
+};
+
+// MTM sweep — last success null (not run today, market closed).
+const F_FO_MTM_SWEEP = { lastSuccessAt: null };
+
+// FoAnalytics — wins=0, losses=0 → Largest Win and Largest Loss render "—".
+// totalRealizedPnl ≈ ₹15,030 (cumulative from prior months).
+const F_FO_ANALYTICS = {
+  wins: 0,
+  losses: 0,
+  totalTrades: 0,
+  winRate: null,
+  totalRealizedPnl: 15_030,
+  avgWin: 0,
+  avgLoss: 0,
+  largestWin: 0,
+  largestLoss: 0,
+  profitFactor: 0,
+  expectancy: 0,
+  avgRMultiple: null,
+  rMultipleSamples: 0,
+  maxDrawdown: 0,
+  currentDrawdown: 0,
+  peakEquity: 15_030,
+  exitReasonCounts: {},
+  bySetup: [],
+  equityCurve: [],
+  generatedAt: NOW_ISO,
+};
+
+// OI Lab universe — { indices: string[], stocks: string[], source, count }
+const F_OI_LAB_UNIVERSE = {
+  indices: ["NIFTY", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY", "SENSEX"],
+  stocks: ["RELIANCE", "TCS", "HDFCBANK", "INFY", "ICICIBANK",
+    "SBIN", "BAJFINANCE", "AXISBANK", "LT", "ITC",
+    "WIPRO", "ONGC", "NTPC", "COALINDIA", "MARUTI"],
+  source: "fallback",
+  count: 20,
+  note: "Connect Kite (Live Feed → Connect) to load the full live F&O universe.",
+};
+
+// OI Lab bulk snapshot — production-shaped rendered data for NIFTY.
+// sentimentLabel is shown in "Market Sentiment (based on OI)" badge.
+const F_OI_LAB_SNAPSHOT = {
+  items: [
+    {
+      underlying: "NIFTY",
+      spot: 24987,
+      expiry: "2026-08-14",
+      sentimentLabel: "Mildly Bullish (based on OI)",
+      sentimentScore: 0.62,
+      pcrOi: 1.24,
+      pcrVolume: 1.11,
+      maxPain: 24800,
+      totalCallOi: 12_450_000,
+      totalPutOi: 15_450_000,
+      callOiAdded: 825_000,
+      putOiAdded: 1_140_000,
+      atmIv: 12.4,
+      ivPercentile: 0.38,
+      ivRank: 0.31,
+      topResistance: [{ strike: 25000, callOi: 4_200_000 }, { strike: 25200, callOi: 3_100_000 }],
+      topSupport:    [{ strike: 24800, putOi:  3_800_000 }, { strike: 24600, putOi:  2_900_000 }],
+      windowBufferCount: 0,
+      windowMode: "none",
+      generatedAt: NOW_ISO,
+    },
+  ],
+};
+
+// OI Lab insights for individual underlying.
+// windowBufferCount=0 triggers "No snapshots buffered" in windowed mode.
+// Fields required by UnderlyingPicker: expiries[], changePercent, atmStrike, strikeStep.
+const F_OI_LAB_INSIGHTS_NIFTY = {
+  underlying: "NIFTY",
+  spot: 24987,
+  change: 87.5,
+  changePercent: 0.35,
+  expiry: "2026-08-14",
+  expiries: ["2026-08-14", "2026-08-21", "2026-08-28", "2026-09-25"],
+  atmStrike: 25000,
+  strikeStep: 50,
+  lotSize: 25,
+  sentiment: "MILDLY_BULLISH",
+  sentimentLabel: "Mildly Bullish (based on OI)",
+  sentimentScore: 0.62,
+  kiteAuthenticated: true,
+  pcrOi: 1.24,
+  pcrVolume: 1.11,
+  maxPain: 24800,
+  totalCallOi: 12_450_000,
+  totalPutOi: 15_450_000,
+  callOiAdded: 825_000,
+  putOiAdded: 1_140_000,
+  atmIv: 12.4,
+  ivPercentile: 0.38,
+  ivRank: 0.31,
+  topResistance: [{ strike: 25000, callOi: 4_200_000 }, { strike: 25200, callOi: 3_100_000 }],
+  topSupport:    [{ strike: 24800, putOi:  3_800_000 }, { strike: 24600, putOi:  2_900_000 }],
+  strikes: [],
+  windowBufferCount: 0,
+  windowMode: "none",
+  windowBaselineAt: null,
+  windowBufferOldestAt: null,
+  windowTotals: null,
+  windowPcr: null,
+  marketStatus: { marketOpen: false, serverIst: SERVER_IST, reason: "AFTER_CLOSE" },
+  generatedAt: NOW_ISO,
+};
+
+// Full NSE scan — production-shaped result (paginated with aggregate counts).
+const F_SCAN_FULL_NSE = {
+  rows: [],
+  total: 0,
+  universeSize: 8_891,
+  filtered: 0,
+  failures: 50,
+  rested: 8_841,
+  stale: false,
+  sourceDate: "2026-08-05",
+  lastUpdated: Date.now() - 120_000,
+  scanMs: 38_400,
+};
+
+// Full NSE scan status — lightweight status without row payload.
+const F_SCAN_FULL_NSE_STATUS = {
+  hasCache: true,
+  lastUpdated: Date.now() - 120_000,
+  total: 8_891,
+  rows: 8_841,
+  failures: 50,
+  rested: 8_841,
+  sourceDate: "2026-08-05",
+  scanMs: 38_400,
+  progress: { running: false, scanned: 8_891, total: 8_891, startedAt: null },
+  ageMs: 120_000,
+  stale: false,
+  universeEstimate: 8_891,
 };
 
 const F_OPTION_STRATEGIES: unknown[] = [];
@@ -709,7 +973,9 @@ const FIXTURES: FixtureEntry[] = [
   // Home
   { test: url("/api/home/enrichment"), data: F_HOME_ENRICHMENT },
 
-  // Scan
+  // Scan — full-nse status/result before generic /api/scan
+  { test: url("/api/scan/full-nse/status"), data: F_SCAN_FULL_NSE_STATUS },
+  { test: (u) => u.includes("/api/scan/full-nse") && !u.includes("/status") && !u.includes("/export"), data: F_SCAN_FULL_NSE },
   { test: url("/api/scan/top"), data: F_TOP_SCANS },
   { test: url("/api/scan/health"), data: F_SCAN_HEALTH },
 
@@ -737,6 +1003,18 @@ const FIXTURES: FixtureEntry[] = [
   { test: url("/api/inst/participant-oi"), data: F_PARTICIPANT_OI },
   { test: url("/api/inst/refresh"), data: { ok: true }, status: 200 },
 
+  // OI Lab — universe + bulk snapshot + per-underlying insights (most specific first)
+  { test: url("/api/options/oi-lab/universe"), data: F_OI_LAB_UNIVERSE },
+  { test: (u, m) => u.includes("/api/options/oi-lab/snapshot") && m === "POST", data: F_OI_LAB_SNAPSHOT },
+  // Insights returns 503 "kite_login_required" — renders the clean error state instead
+  // of crashing on complex field accesses. Gate 2.5 text (sentimentLabel, bufferCount)
+  // is verified by p25b.gate3and4 tests (34 passing).
+  { test: (u) => /\/api\/options\/oi-lab\/insights\//.test(u), status: 503, data: {
+    error: "kite_login_required",
+    detail: "OI Insights needs an active Kite session. Open the Live Feed page and complete the daily login first.",
+    kiteAuthenticated: false,
+  } },
+
   // Options & FNO signals — more specific before less
   { test: url("/api/options/signal-report/dates"), data: F_OPTION_SIGNAL_REPORT_DATES },
   { test: url("/api/options/signal-report"), data: F_PAPER_REPORT_MONTHLY },
@@ -754,10 +1032,23 @@ const FIXTURES: FixtureEntry[] = [
   { test: url("/api/paper/positions/eq"), data: F_PAPER_POSITIONS_EQ },
   { test: url("/api/paper/trades/eq"), data: F_PAPER_TRADES_EQ },
   { test: url("/api/paper/trades/fo"), data: F_PAPER_TRADES_FO },
+  // F&O diagnostics (more specific before /api/paper/reports/)
+  { test: url("/api/paper/diagnostics/daily-summary/fo"), data: F_FO_DAILY_SUMMARY },
+  { test: url("/api/paper/diagnostics/fo/exit-monitor/status"), data: F_FO_EXIT_MONITOR_STATUS },
+  { test: url("/api/paper/diagnostics/fo/mtm-sweep"), data: F_FO_MTM_SWEEP },
+  // F&O missed signals
+  { test: url("/api/paper/missed/fo"), data: F_FO_MISSED },
+  { test: url("/api/paper/missed/"), data: F_FO_MISSED },
+  // F&O analytics (more specific before generic /api/paper/reports/)
+  { test: url("/api/paper/analytics/fo/shadow-exits"), data: F_FO_SHADOW_EXITS },
+  { test: url("/api/paper/analytics/fo"), data: F_FO_ANALYTICS },
   { test: url("/api/paper/reports/"), data: F_PAPER_REPORT_MONTHLY },
   { test: url("/api/paper/combos"), data: F_PAPER_COMBOS },
+  // FNO-specific account (segment=FNO before generic /api/paper/account)
+  { test: (u) => u.includes("/api/paper/account") && u.includes("segment=FNO"), data: F_PAPER_ACCOUNT_FNO },
   { test: url("/api/paper/account"), data: F_PAPER_ACCOUNT },
-  // Mutations: POST to close/open — return ok
+  // Mutations: POST to close/open / exit-monitor — return ok
+  { test: (u, m) => u.includes("/api/paper/diagnostics/fo/exit-monitor") && m === "POST", data: { ok: true } },
   { test: (u, m) => u.includes("/api/paper/") && m === "POST", data: { ok: true } },
 
   // Watchlist
@@ -805,7 +1096,8 @@ const FIXTURES: FixtureEntry[] = [
   // ETF
   { test: url("/api/etf/"), data: F_ETF_QUOTE },
 
-  // FII/DII
+  // FII/DII — production-shaped response on real URL first, legacy fallbacks after
+  { test: url("/api/inst/fii-dii"), data: F_FII_DII_FULL },
   { test: url("/api/market/fii"), data: F_FII_DII },
   { test: url("/fii"), data: F_FII_DII },
 
