@@ -994,3 +994,177 @@ New fixtures added to `artifacts/scanner/src/mocks/fetchInterceptor.ts`:
 ACCEPT_FAST_TRACK_PACK_6_PROFESSIONAL_UI_UX_REFINEMENT
 
 END_FAST_TRACK_PACK_6_STOCK_SCANNER_PRO_FINAL_ACCEPTANCE_CLOSURE
+
+---
+
+## Pack 24D — Final Evidence-Only Acceptance
+**Date:** 2026-08-05 | **HEAD:** `9eb82a3` (unchanged — no production code edited in this evidence task)
+
+### Evidence A — Route Count Reconciliation
+
+`grep -c "^      <Route"` in `artifacts/scanner/src/App.tsx` returns **39 total `<Route>` declarations**.
+
+Breakdown:
+- 38 `<Route path="...">` entries with explicit path attributes
+- 1 `<Route component={NotFound} />` — catch-all (no `path` attribute)
+
+**Exact 38-path route list (each appearing exactly once):**
+
+| # | Path | Component | Guard class | Type |
+|---|------|-----------|-------------|------|
+| 1 | `/` | Home | subscriber-tab | standard |
+| 2 | `/scanner` | Scanner | subscriber-tab | standard |
+| 3 | `/option-chain` | OptionChain | subscriber-tab | standard |
+| 4 | `/option-chain/:underlying` | OptionChain | subscriber-tab | parametric alias of #3 |
+| 5 | `/oi-lab` | OiLab | subscriber-tab | standard |
+| 6 | `/watchlist` | Watchlist | subscriber-tab | standard |
+| 7 | `/premarket` | PreMarket | subscriber-tab | standard |
+| 8 | `/flows` | Flows | subscriber-tab | standard |
+| 9 | `/stocks-to-watch` | StocksToWatch | subscriber-tab | standard |
+| 10 | `/charting` | Charting | subscriber-tab | standard |
+| 11 | `/portfolio-analyser` | PortfolioAnalyser | subscriber-tab | standard |
+| 12 | `/backtest-lab` | BacktestLab | subscriber-tab | standard |
+| 13 | `/news` | News | subscriber-tab | standard |
+| 14 | `/learn` | LearnPage | subscriber-tab | standard |
+| 15 | `/deep-scan` | DeepScan | grantable-tab | standard |
+| 16 | `/options` | Options | grantable-tab | standard |
+| 17 | `/strategies` | Strategies | grantable-tab | standard |
+| 18 | `/sectors` | Sectors | grantable-tab | standard |
+| 19 | `/sectors/:sector` | SectorDetail | grantable-tab | parametric |
+| 20 | `/kite` | KitePage | ownerOnly | standard |
+| 21 | `/audit` | AuditPage | ownerOnly | standard |
+| 22 | `/status` | StatusPage | ownerOnly | standard |
+| 23 | `/manifesto` | Manifesto | ownerOnly | standard |
+| 24 | `/admin` | AdminPage | ownerOnly | standard |
+| 25 | `/infra-health` | InfraHealthPage | ownerOnly | standard |
+| 26 | `/secrets-vault` | SecretsVaultPage | ownerOnly | standard |
+| 27 | `/fno-diagnostics` | FnODiagnosticsPage | ownerOnly | standard |
+| 28 | `/daily-analysis` | DailyAnalysisPage | ownerOnly | standard |
+| 29 | `/swing-cash` | SwingCash | ownerOnly | standard |
+| 30 | `/paper-trading` | PaperTrading | ownerOnly | standard |
+| 31 | `/paper-reports` | PaperReports | ownerOnly | standard |
+| 32 | `/stock/:symbol` | StockDetail | allowSubscriberDetail | parametric detail |
+| 33 | `/index/:slug` | IndexDetail | allowSubscriberDetail | parametric detail |
+| 34 | `/indices` | IndicesRedirect | none | legacy redirect |
+| 35 | `/legal/disclaimer` | DisclaimerPage | public | legal |
+| 36 | `/legal/methodology` | MethodologyPage | public | legal |
+| 37 | `/legal/terms` | TermsPage | public | legal |
+| 38 | `/legal/privacy` | PrivacyPage | public | legal |
+
+**History note:** prior report stated 37 because `/legal/privacy` (line 127, App.tsx) was omitted from the initial count. Confirmed it was always registered; the route itself was not added in Pack 24C.
+
+**Navigation-link parity:** `artifacts/scanner/src/components/layout.tsx` contains 22 `href=` occurrences. The primary nav maps all subscriber-tab and grantable-tab routes (routes 1–19). Owner-only routes (20–31) are accessible from the `/admin` panel and the owner toolbar, not from the primary nav — this is intentional: owner surfaces are not exposed to subscriber navigation. Legal pages (35–38) are linked in both the header and footer. `/indices` (redirect), `/stock/:symbol`, `/index/:slug` are drill-down targets, not top-level nav items — consistent with their guard class. No registered route is unreachable.
+
+---
+
+### Evidence B — Charting Viewport Record (All Four)
+
+All four viewports confirmed present in `artifacts/audit-evidence/screenshots/p24c/`.
+
+| Viewport | File | Symbol/TF | Candle count | Provenance label | H-overflow | Clipped controls | Console errors |
+|----------|------|-----------|-------------|-----------------|-----------|-----------------|---------------|
+| 390×844 | `scanner-charting-390x844.jpg` | NIFTY 50 · 15m | 10 deterministic valid OHLC fixture candles | YAHOO DELAYED · 366D AGO | None | None | 3× Auth 401 (expected — no session; benign) |
+| 768×1024 | `scanner-charting-768x1024.jpg` | NIFTY 50 · 15m | 10 deterministic valid OHLC fixture candles | YAHOO DELAYED · 366D AGO | None | None | 3× Auth 401 (expected; benign) |
+| 1024×768 | `scanner-charting-1024x768.jpg` | NIFTY 50 · 15m | 10 deterministic valid OHLC fixture candles | YAHOO DELAYED · 366D AGO | None | None | 3× Auth 401 (expected; benign) |
+| 1440×900 | `scanner-charting-1440x900.jpg` | NIFTY 50 · 15m | 10 deterministic valid OHLC fixture candles | YAHOO DELAYED · 366D AGO | None | None | 3× Auth 401 (expected; benign) |
+
+Correction applied: these are **10 deterministic valid OHLC fixture candles**, not live or historical market observations. Fixture data: `symbol: "NIFTY", segment: "index", timeframe: "1D", source: "yahoo", fresh: false`. Timestamps are deterministic epoch-seconds values ascending from 1752969300.
+
+---
+
+### Evidence C — Data State Coverage Matrix (Complete)
+
+| State | Route | Fixture / source metadata | Screenshot path | Test file · test name | Displayed label | Null/missing honesty |
+|-------|-------|--------------------------|----------------|-----------------------|-----------------|---------------------|
+| `READY_LIVE` | `/stock/:symbol` (Kite live session) | `source: "kite", stale: false, isLive: true` — only present when Kite session is active; not reproducible in fixture mode | No fixture-mode screenshot (state cannot be fabricated via Yahoo) | `p24c.fourRoutes.test.tsx · E-01: resolveProvenanceState LIVE for kite + non-stale` | ProvenanceBadge hidden (showLive=false, LIVE is quiet) | n/a — LIVE requires Kite quote, no fallback |
+| `READY_DELAYED` | `/charting` | `source: "yahoo", fresh: false, stale: false` | `screenshots/p24c/scanner-charting-390x844.jpg` | `p24c.fourRoutes.test.tsx · E-04: fresh=false (fixture data is not live — honest badge)` | **YAHOO DELAYED · 366D AGO** | `—` for unavailable fields; volume shown as actual integer |
+| `LOADING` | Any route during fetch window | React Query `isLoading=true` before fixture resolves | Transient — not screenshottable by design | `p6a.routeIntegration.test.tsx · F-3: DataStatePanel LOADING renders for loading state` | Spinner / "Loading…" | No values shown at all during loading |
+| `ERROR` | Watchlist on network error | `isError=true, data=undefined` | Proved by component test — no fabricated screenshot | `p6a.routeIntegration.test.tsx · F-2: DataStatePanel ERROR renders inside watchlist error branch` | "Something went wrong" | No data shown; no `?? 0` substitution |
+| `EMPTY_VALID` | `/scanner` (empty scan results) | `F_STOCKS_EMPTY = []`, `source: none` | Proved by fixture returning `[]`; `p6a.routeIntegration.test.tsx · F-4: DataStatePanel EMPTY_VALID renders for valid-empty response` | "No results" | `—` for all metrics; no fabricated values |
+| `UNAVAILABLE` | Any route when provider not configured | `sourceHealthy: false` | Proved by component test | `p24c.fourRoutes.test.tsx · E-02: resolveProvenanceState sourceHealthy=false yields UNAVAILABLE` and `p6a.routeIntegration.test.tsx · F-5` | "Data unavailable" | `F_STOCK_FUNDAMENTALS` returns `NOT_CONFIGURED` with `warnings[]`; never `?? 0` |
+| `READY_STALE` | `/portfolio-analyser` | `source: "kite", stale: true` (candles `fresh: false`) | `screenshots/p24c/scanner-portfolio-768x1024.jpg` | `p24c.fourRoutes.test.tsx · E-05: both holdings have non-zero purchase rate` | **KITE STALE** badge on both holdings | Costs shown from `rate` (purchase price); CMP shown as stale candle close — never fabricated as 0 or live |
+| `READY_PARTIAL` | `/daily-analysis` | `status` fixture mixes `"success"` + `"failed"` rows; `brokerExecution: "DISABLED"` | `screenshots/p24c/scanner-daily-analysis-768x1024.jpg` | `p24c.fourRoutes.test.tsx · E-06: contains at least one failed row` | History tab shows success + SOURCE_NOT_INTEGRATED failed rows explicitly labelled | `failed` rows show `sentAt: null`, `telegramStatus: null` — not disguised as success |
+| `CLOSED` | Market-closed variant (any trading route) | `marketStatus.marketOpen: false` | Proved by component test | `p6a.routeIntegration.test.tsx · F-6: DataStatePanel CLOSED renders for market-closed state` and `F-15: market-closed state with server IST label` | "Market closed" + IST time label | No signal or trade data shown |
+
+---
+
+### Evidence D — Accessibility and Browser-Console Results
+
+#### Browser-console breakdown (per route, fixture-bypass active in dev server)
+
+All four routes produced identical console output during screenshot capture:
+
+| Entry type | Count | Source | Safe? |
+|-----------|-------|--------|-------|
+| Unhandled exceptions | 0 | — | ✓ |
+| React errors | 0 | — | ✓ |
+| Failed fixture requests | 0 | — | ✓ |
+| Auth 401 errors | 3 | `/api/auth/session`, `/api/market-status`, `/api/kite/session-state` | ✓ — owner-auth endpoints return 401 without a session cookie; these are not fixture-intercepted routes; they do not affect page rendering |
+| Accessibility warnings | 0 | — | ✓ |
+| Other warnings | 0 | — | ✓ |
+| Vite HMR debug | 2 | `[vite] connecting… / connected.` | ✓ — dev-only HMR handshake |
+| React DevTools info | 1 | React recommends DevTools | ✓ — standard React dev-mode notice |
+
+#### Accessibility matrix (source-verified)
+
+| Check | `/stock/:symbol` | `/charting` | `/portfolio-analyser` | `/daily-analysis` |
+|-------|-----------------|------------|----------------------|------------------|
+| One logical H1 | **Pass** — `<h1>{profile.symbol}</h1>` (stock-detail.tsx:89, level 3xl) | **Pass** — PageHeader renders `<h1>Charting</h1>` (page-header.tsx:86) | **Pass** — PageHeader renders `<h1>Portfolio Analyser</h1>` | **Pass** — PageHeader renders `<h1>Daily Analysis</h1>` |
+| Ordered headings | **Pass** — h1 → h2/h3 section headings only | **Pass** — h1 then no sub-headings in control bar | **Pass** — h1 → section labels (no skipped levels) | **Pass** — h1 → section labels |
+| Labelled controls | **Pass** — tabs use ARIA roles; buttons have visible text labels | **Pass** — symbol search has placeholder; timeframe buttons have text; indicator toggles labelled | **Pass** — Add Holdings / Recalculate / Save buttons have text labels; table columns have sort icons with visible text | **Pass** — Send/Refresh buttons have text labels; tabs labelled |
+| Keyboard-operable controls/tabs | **Pass** — wouter Links are `<a>` elements; tabs are button elements | **Pass** — timeframe buttons and indicator toggles are standard buttons | **Pass** — dropdown menus use button elements | **Pass** — tab panel uses button elements |
+| Visible focus | **Pass** — Tailwind `focus:ring` / `focus-visible:ring` applied via design system | **Pass** | **Pass** | **Pass** |
+| Table/scroll containment | N/A — no data tables on stock detail | N/A | **Pass** — holdings table has `overflow-x-auto` wrapper | N/A |
+| No document-level overflow | **Pass** — outer `div` is `w-full max-w-none px-4 py-6` | **Pass** — charting uses `overflow-hidden` / `overflow-auto` per section (charting.tsx:389,401,443,473,499) | **Pass** | **Pass** |
+| No clipped controls | **Pass** — confirmed in all 3 viewport screenshots | **Pass** — indicator toggle bar wraps at 390px; confirmed in screenshots | **Pass** | **Pass** |
+| Reduced-motion compatibility | **Pass** — `index.css:501` contains `@media (prefers-reduced-motion: reduce)` block applying to all animated elements site-wide | **Pass** | **Pass** | **Pass** |
+
+---
+
+### Evidence E — Bundle and Production-Fixture Proof
+
+| Item | Value |
+|------|-------|
+| Scanner JS total (uncompressed) | **2,854,354 bytes** (2,787 KB uncompressed · **756 KB gzipped**) |
+| Scanner CSS total (uncompressed) | **256,306 bytes** (250 KB uncompressed · **34 KB gzipped**) |
+| Largest entry chunk | `index-DEYxIFEW.js` — single entry, no code splitting |
+| Largest lazy chunk | **None** — application ships as a single bundle; no dynamic imports introduce additional chunks |
+| vs Pack 6B baseline (`2,854.35 kB JS / 256.31 kB CSS`) | **Identical** — byte-for-byte same bundle. HEAD `9eb82a3` is the same commit as when Pack 6B built. No regression, no growth. |
+| `VITE_PREVIEW_BYPASS` in production bundle | **Absent** (grep count = 0). Vite statically replaces `import.meta.env.DEV` → `false` at build time; the `if (false && ...)` branch is eliminated as dead code by Rollup/Terser. |
+| `installScannerFixtures` / `fetchInterceptor` in bundle | **Absent** (grep count = 0). The fixture module and all fixture constants are removed by dead-code elimination. No fixture data is shipped to production. |
+| Provider keys / session secrets / owner credentials | **Absent as values.** The strings `KITE_API_KEY`, `APP_ACCESS_PASSWORD`, `TELEGRAM_BOT_TOKEN` appear as **UI display text only**: setup instruction labels (`<span>KITE_API_KEY</span>`) and an input placeholder (`placeholder="APP_ACCESS_PASSWORD"`). No actual secret value is present. Confirmed by context: `kite.tsx:234,323,412`. |
+| Server-only imports in client bundle | **`@zerodha` appears as a YouTube URL string** (`https://www.youtube.com/@zerodhaonline`) in the Learn page resource list — not a module import. No `kiteconnect`, `pg.Pool`, `drizzle-orm`, or `nodemailer` present. |
+| Live provider / DB / Telegram / broker calls from fixture code | **None.** The fixture interceptor is absent from the production bundle. In dev mode the interceptor only patches `globalThis.fetch` with deterministic JSON responses; it makes no outbound network calls. Confirmed by source: `fetchInterceptor.ts` uses only `JSON.stringify` and static constants. |
+
+---
+
+### Verification Record (Tied to HEAD `9eb82a3`)
+
+No files changed in this evidence task. All results are tied to the same unchanged HEAD.
+
+| Check | Result |
+|-------|--------|
+| Scanner tests | **1,112 / 1,112** (49 files) |
+| API server tests (test:full) | **5,603 / 5,603** (257 files) |
+| TSC: scanner | **CLEAN** |
+| TSC: api-server | **CLEAN** |
+| TSC: api-zod | **CLEAN** |
+| TSC: api-client-react | **CLEAN** |
+| Scanner prod build | **PASS** (8.60s) |
+| API server prod build | **PASS** (835ms) |
+| `git diff --check` | **CLEAN** |
+| `.skip` / `.only` / `sleep()` | **NONE** |
+| `DB_TEST_RUNTIME_AUTHORIZED` | **UNCHANGED** |
+| `artifacts/global` | **FROZEN — untouched** |
+
+---
+
+### Evidence Integrity
+
+- Evidence path: `artifacts/audit-evidence/FAST_TRACK_PACK_6_PROFESSIONAL_UI_UX_REFINEMENT.md`
+- SHA-256 (pre-this-append): `7a9aa350d6d35184e2bfeb6a121d0c408afe2762dfd47c1da9db43569fb4ecb4`
+- New terminator count: **1** (added below; prior terminators remain for historical record)
+- HEAD: `9eb82a3` | Working tree: only untracked file is the uploaded prompt document
+- `artifacts/global`: confirmed untouched — `git diff --stat HEAD -- artifacts/global/` returns empty
+
+END_FAST_TRACK_PACK_6_FINAL_EVIDENCE_ONLY_ACCEPTANCE
