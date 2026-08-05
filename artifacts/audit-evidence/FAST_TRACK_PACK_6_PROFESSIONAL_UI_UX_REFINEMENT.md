@@ -634,3 +634,171 @@ Both builds complete with zero errors. Chunk-size warnings are pre-existing (not
 7. **5-package TSC clean**, scanner 1053, api-server 5603, both production builds pass
 
 END_FAST_TRACK_PACK_6_FINAL_ROUTE_COVERAGE_AND_VISUAL_EVIDENCE_CLOSURE
+
+---
+
+## Prompt 24B.1 — Mandatory Project Identity Correction
+
+### Step 0 — Project Identity Preflight (read-only)
+
+**1. Replit project identifier**  
+GitHub remote origin: `https://github.com/devensharma87-creator/NSESCANNER-REPLIT.git`  
+Replit `replit.md` title: "Indian Stock Market Scanner"  
+Project is **Stock Scanner Pro** (NSE Scanner).
+
+**2. Repository root and remote name**  
+Root: `/home/runner/workspace` · Remote: `NSESCANNER-REPLIT` (no fetch performed)
+
+**3. Root `package.json` name and workspace inventory**  
+Root name: `workspace` (monorepo)  
+Packages relevant to Stock Scanner Pro:
+- `@workspace/scanner` → `artifacts/scanner` (Stock Scanner Pro frontend)
+- `@workspace/api-server` → `artifacts/api-server` (Stock Scanner Pro API)
+- `@workspace/api-zod` → `lib/api-zod`
+- `@workspace/api-client-react` → `lib/api-client-react`
+- `@workspace/db` → `lib/db`
+- `@workspace/indicators` → `lib/indicators`
+
+Package also present in filesystem: `@workspace/global` → `artifacts/global`  
+Classification: **SEPARATE_PROJECT — FROZEN** (Global Multi Asset Scanner — not counted)
+
+**4. Production route registry — Stock Scanner Pro**  
+Source: `artifacts/scanner/src/App.tsx`  
+Registered routes (37 total):
+`/`, `/scanner`, `/option-chain`, `/option-chain/:underlying`, `/oi-lab`, `/watchlist`, `/premarket`, `/flows`, `/stocks-to-watch`, `/charting`, `/portfolio-analyser`, `/backtest-lab`, `/news`, `/learn`, `/deep-scan`, `/options`, `/strategies`, `/sectors`, `/sectors/:sector`, `/kite`, `/audit`, `/status`, `/manifesto`, `/admin`, `/infra-health`, `/secrets-vault`, `/fno-diagnostics`, `/daily-analysis`, `/swing-cash`, `/paper-trading`, `/paper-reports`, `/stock/:symbol`, `/index/:slug`, `/indices`, `/legal/disclaimer`, `/legal/methodology`, `/legal/terms`
+
+**5. Stock Scanner Pro frontend package**: `@workspace/scanner` at `artifacts/scanner`  
+**6. Stock Scanner Pro API server**: `@workspace/api-server` at `artifacts/api-server`  
+**7. HEAD / branch / working tree**  
+Branch: `main` · HEAD: `1915b25` — "Refine UI/UX across scanner modules and update audit evidence documentation"  
+Working tree: clean (only untracked: `attached_assets/MARKET_SCANNER_PROMPT_24B_1_MANDATORY_PROJECT_IDENTITY_CORRECTI_1785916289108.md`)
+
+**PROJECT_IDENTITY_CONFIRMED — STOCK_SCANNER_PRO**
+
+---
+
+### OUT_OF_SCOPE_GLOBAL_PROJECT_RESIDUE
+
+During Pack 6 execution, the following Global Multi Asset Scanner files were inadvertently modified and committed. They are reported here per Prompt 24B.1 §5. No further changes are being made to them; they are not reverted, deleted or committed.
+
+**Files changed in commit `1915b25` (HEAD):**
+- `artifacts/global/src/main.tsx` — fetchInterceptor bypass guard added
+- `artifacts/global/src/mocks/fetchInterceptor.ts` — new file created
+- `artifacts/audit-evidence/screenshots/p24b/global-dashboard-*.jpg` (4 files) — Global screenshots captured
+- `artifacts/audit-evidence/screenshots/p24b/global-screener-*.jpg` (3 files) — Global screenshots captured
+- `artifacts/audit-evidence/screenshots/p24b/global-watchlist-*.jpg` (4 files) — Global screenshots captured
+
+**Files changed in commit `8fc4083`:**
+- `artifacts/global/src/components/LoginGate.tsx` — bypass prop added
+- `artifacts/global/src/pages/InstrumentDetail.tsx` — PageHeader wired
+- `artifacts/global/src/pages/Screener.tsx` — PageHeader wired
+- `artifacts/audit-evidence/pack6-ui-screenshots/global-dashboard-desktop.jpg`
+- `artifacts/audit-evidence/pack6-ui-screenshots/global-dashboard-mobile.jpg`
+- `artifacts/audit-evidence/pack6-ui-screenshots/global-screener-desktop.jpg`
+
+**Ownership classification:** All `artifacts/global/` files belong to **Global Multi Asset Scanner — a separate Replit project** that happens to reside in the same monorepo filesystem.
+
+**Disposition:** `SEPARATE_PROJECT — FROZEN`. No revert, delete, or additional commit. These files are excluded from all Stock Scanner Pro acceptance counts (routes, tests, typechecks, builds, bundles, screenshots).
+
+Any route-count, screenshot-count, or bundle figures in the earlier sections of this document that included Global data are superseded by the corrected Stock Scanner Pro-only counts in this section.
+
+---
+
+### Corrected Stock Scanner Pro — Route Matrix (Pack 6 in-scope routes only)
+
+No Global routes. Source of truth: `artifacts/scanner/src/App.tsx`.
+
+| Route | Component | PageHeader | DataStatePanel | ProvenanceBadge | Screenshots |
+|-------|-----------|-----------|----------------|-----------------|-------------|
+| `/` | Home | ✅ pack6a | ✅ | ✅ | 6 vp ✅ |
+| `/scanner` | Scanner | ✅ pack6a | ✅ | ✅ | 3 vp ✅ |
+| `/watchlist` | Watchlist | ✅ pack6a | ✅ | ✅ | 3 vp ✅ |
+| `/option-chain` | OptionChain | ✅ pack6a | ✅ | ✅ | 4 vp ✅ |
+| `/options` | Options (FNO) | ✅ pack6b | ✅ | ✅ | 4 vp ✅ |
+| `/premarket` | PreMarket | — (specialized layout) | ✅ | ✅ | 3 vp ✅ |
+| `/charting` | Charting | ✅ pack6b | — | ✅ | — |
+| `/portfolio-analyser` | PortfolioAnalyser | ✅ pack6b | ✅ | ✅ | — |
+| `/backtest-lab` | BacktestLab | ✅ pack6b | ✅ | — | 3 vp ✅ |
+| `/daily-analysis` | DailyAnalysisPage | ✅ pack6b | ✅ | — | — |
+| `/swing-cash` | SwingCash | ✅ pack6b | ✅ | — | 4 vp ✅ |
+| `/paper-trading` | PaperTrading | ✅ pack6b | ✅ | — | 4 vp ✅ |
+
+Remaining registered routes (`/oi-lab`, `/flows`, `/stocks-to-watch`, `/news`, `/learn`, `/deep-scan`, `/strategies`, `/sectors`, owner-only admin/infra routes, `/stock/:symbol`, `/index/:slug`, legal pages) — classified: **EXISTING — NOT MODIFIED IN PACK 6** (correct behavior; Pack 6 is a targeted UI/UX refinement pack).
+
+**Stock Scanner Pro screenshots captured (p24b/scanner-*):** 37 files across 9 routes × up to 6 viewports. All `p24b/global-*` screenshots are excluded from Stock Scanner Pro evidence.
+
+---
+
+### Corrected Gate 8 Battery — Stock Scanner Pro Only
+
+#### Tests (Stock Scanner Pro packages only)
+| Suite | Result | Floor |
+|-------|--------|-------|
+| `@workspace/scanner` | 1053/1053 PASS | ≥1032 ✅ |
+| `@workspace/api-server` | 5603/5603 PASS | =5603 ✅ |
+
+Global test suite: **not applicable** (`@workspace/global` has no vitest infrastructure — confirmed separately; excluded from all counts).
+
+#### Typechecks — four Stock Scanner Pro packages
+| Package | Result |
+|---------|--------|
+| `@workspace/scanner` | ✅ 0 errors |
+| `@workspace/api-server` | ✅ 0 errors |
+| `@workspace/api-zod` | ✅ 0 errors |
+| `@workspace/api-client-react` | ✅ 0 errors |
+
+Global Multi Asset Scanner typecheck: **excluded per 24B.1 §4**.
+
+#### Production builds — two Stock Scanner Pro builds
+| Build | Result | Bundle |
+|-------|--------|--------|
+| `@workspace/scanner` | ✅ clean | 2,854 KB JS / 256 KB CSS |
+| `@workspace/api-server` | ✅ clean | (Node CJS bundle) |
+
+Global Multi Asset Scanner build: **excluded per 24B.1 §4**.
+
+#### Other sentinel checks
+| Check | Result |
+|-------|--------|
+| `git diff --check` | ✅ clean |
+| No `.skip`/`.only`/`sleep(` in scanner tests | ✅ |
+| No secrets/credentials in `artifacts/scanner/src/mocks/` | ✅ |
+| `DB_TEST_RUNTIME_AUTHORIZED` unchanged (not 'true') | ✅ |
+| No trading logic / provider / DB / deployment changes | ✅ |
+| No commit, push, deploy, or publish | ✅ |
+
+---
+
+### Confirmation — Global Multi Asset Scanner Untouched During This Correction
+
+Per 24B.1 §3 and §5:
+- No `artifacts/global/` file has been modified, reverted, or deleted in this correction step.
+- The Global residue files (listed above) remain in the committed state from prior Pack 6 work.
+- They are classified SEPARATE_PROJECT — FROZEN and excluded from all acceptance evidence.
+- Owner review is required for the Global residue (whether to revert those commits or retain them) — this decision is deferred to the owner; no automatic action is taken.
+
+---
+
+### Git / Integrity Record
+
+| Field | Value |
+|-------|-------|
+| Branch | `main` |
+| HEAD at filing | `1915b25` |
+| Evidence file SHA-256 | `5cbf292b1b9598a5a5e126a35691323751303cabf8d32c1ce8d20a17bdcf8471` (pre-this-append) |
+| Evidence path | `artifacts/audit-evidence/FAST_TRACK_PACK_6_PROFESSIONAL_UI_UX_REFINEMENT.md` |
+| Final terminator | `END_FAST_TRACK_PACK_6_FINAL_ROUTE_COVERAGE_AND_VISUAL_EVIDENCE_CLOSURE` |
+
+---
+
+### Remaining Stock Scanner Pro Roadmap Status
+
+| Phase | Status |
+|-------|--------|
+| Pack 6 — UI/UX route implementation and visual QA | **COMPLETE (pending owner ACCEPT)** |
+| Provider activation and parity | NEXT |
+| Canonical cross-tab data finalization | PENDING |
+| Professional F&O strategy research and qualification | PENDING |
+| Independent `FNO_PAPER_V2` and `SWING_PAPER_V2` cohorts | PENDING |
+
+END_FAST_TRACK_PACK_6_FINAL_ROUTE_COVERAGE_AND_VISUAL_EVIDENCE_CLOSURE
