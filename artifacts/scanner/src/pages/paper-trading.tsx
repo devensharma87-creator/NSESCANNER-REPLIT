@@ -1367,16 +1367,19 @@ function EqTradesCard({ trades, loading, error }: {
   error: string | null;
 }) {
   const totals = useMemo(() => {
-    let realized = 0, wins = 0;
+    let realized = 0, wins = 0, losses = 0;
     for (const t of trades) {
       realized += t.realizedPnl;
       if (t.realizedPnl > 0) wins++;
+      else if (t.realizedPnl < 0) losses++;
     }
     return {
       count: trades.length,
       realized,
       wins,
-      winPct: trades.length === 0 ? 0 : wins / trades.length,
+      losses,
+      // Denominator: decided trades only (wins + losses). Scratches excluded.
+      winPct: wins + losses === 0 ? null : wins / (wins + losses),
     };
   }, [trades]);
   if (error) {
@@ -1402,7 +1405,7 @@ function EqTradesCard({ trades, loading, error }: {
         <CardDescription>
           {totals.count === 0
             ? "Nothing closed yet today."
-            : `${totals.count} closed · realized ${inrDec(totals.realized)} · win-rate ${pct(totals.winPct)}`}
+            : `${totals.count} closed · realized ${inrDec(totals.realized)} · win-rate ${totals.winPct == null ? "—" : pct(totals.winPct)}`}
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -2083,7 +2086,7 @@ function AccountCard({ data, loading, error, onTopupSuccess }: {
             label="Net vs. seed (lifetime)"
             value={inrDec(netVsSeed)}
             tone={netVsSeed > 0 ? "pos" : netVsSeed < 0 ? "neg" : undefined}
-            hint="Lifetime delta from the original seed capital: cash balance + today's realised P&L − seed capital."
+            hint="Account-balance reconciliation metric only — not strategy P&L. Formula: cash balance + today's realised P&L − seed capital. Includes capital movements (deposits/withdrawals) that are NOT trade-attributed. Primary trade performance is shown in the Analytics tab as Realised P&L."
           />
           <Stat
             label="Seed capital"
@@ -2507,13 +2510,15 @@ function AnalyticsCard({ data, loading, error }: {
           />
           <Stat
             label="Largest win"
-            value={inrDec(data.largestWin)}
-            tone={data.largestWin > 0 ? "pos" : undefined}
+            value={data.wins === 0 ? "—" : inrDec(data.largestWin)}
+            tone={data.wins > 0 && data.largestWin > 0 ? "pos" : undefined}
+            hint={data.wins === 0 ? "No winning trades yet." : undefined}
           />
           <Stat
             label="Largest loss"
-            value={inrDec(data.largestLoss)}
-            tone={data.largestLoss < 0 ? "neg" : undefined}
+            value={data.losses === 0 ? "—" : inrDec(data.largestLoss)}
+            tone={data.losses > 0 && data.largestLoss < 0 ? "neg" : undefined}
+            hint={data.losses === 0 ? "No losing trades yet." : undefined}
           />
           <Stat
             label="Current drawdown"
@@ -2549,8 +2554,8 @@ function AnalyticsCard({ data, loading, error }: {
                       {inrDec(s.totalPnl)}
                     </td>
                     <td className="py-2 pr-3 text-right tabular-nums">{inrDec(s.avgPnl)}</td>
-                    <td className="py-2 pr-3 text-right tabular-nums text-emerald-300/80">{inrDec(s.bestTrade)}</td>
-                    <td className="py-2 pr-3 text-right tabular-nums text-rose-300/80">{inrDec(s.worstTrade)}</td>
+                    <td className="py-2 pr-3 text-right tabular-nums text-emerald-300/80">{s.wins === 0 ? "—" : inrDec(s.bestTrade)}</td>
+                    <td className="py-2 pr-3 text-right tabular-nums text-rose-300/80">{s.losses === 0 ? "—" : inrDec(s.worstTrade)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -2942,16 +2947,19 @@ function TradesCard({ trades, loading, error }: {
   error: string | null;
 }) {
   const totals = useMemo(() => {
-    let realized = 0, wins = 0;
+    let realized = 0, wins = 0, losses = 0;
     for (const t of trades) {
       realized += t.realizedPnl;
       if (t.realizedPnl > 0) wins++;
+      else if (t.realizedPnl < 0) losses++;
     }
     return {
       count: trades.length,
       realized,
       wins,
-      winPct: trades.length === 0 ? 0 : wins / trades.length,
+      losses,
+      // Denominator: decided trades only (wins + losses). Scratches excluded.
+      winPct: wins + losses === 0 ? null : wins / (wins + losses),
     };
   }, [trades]);
   if (error) {
@@ -2977,7 +2985,7 @@ function TradesCard({ trades, loading, error }: {
         <CardDescription>
           {totals.count === 0
             ? "Nothing closed yet today."
-            : `${totals.count} closed · realized ${inrDec(totals.realized)} · win-rate ${pct(totals.winPct)}`}
+            : `${totals.count} closed · realized ${inrDec(totals.realized)} · win-rate ${totals.winPct == null ? "—" : pct(totals.winPct)}`}
         </CardDescription>
       </CardHeader>
       <CardContent>

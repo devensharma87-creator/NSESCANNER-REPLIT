@@ -2661,6 +2661,7 @@ function OverviewTab({ shared }: { shared: SharedOiState }) {
               <CardHeader className="pb-2">
                 <CardTitle className="text-xs uppercase font-mono tracking-wider flex items-center gap-2">
                   <Activity className="w-3.5 h-3.5" /> Market Sentiment
+                  <span className="text-[9px] text-muted-foreground normal-case font-normal">(based on OI)</span>
                 </CardTitle>
               </CardHeader>
               <CardContent className="pt-0">

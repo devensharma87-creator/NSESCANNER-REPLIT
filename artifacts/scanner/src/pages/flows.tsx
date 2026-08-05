@@ -368,8 +368,8 @@ function FiiDiiSection() {
                       </TableCell>
                       <TableCell className="font-mono font-semibold py-2">{m.label}</TableCell>
                       <TableCell className="font-mono text-xs text-muted-foreground py-2">{m.daysCount}d</TableCell>
-                      <TableCell className="font-mono text-right py-2">{fmtCr(m.fiiBuy)}</TableCell>
-                      <TableCell className="font-mono text-right py-2">{fmtCr(m.fiiSell)}</TableCell>
+                      <TableCell className="font-mono text-right py-2" title={!m.fiiBuy && !m.fiiSell ? "Net-only source — gross buy/sell unavailable" : undefined}>{m.fiiBuy || m.fiiSell ? fmtCr(m.fiiBuy) : "—"}</TableCell>
+                      <TableCell className="font-mono text-right py-2" title={!m.fiiBuy && !m.fiiSell ? "Net-only source — gross buy/sell unavailable" : undefined}>{m.fiiBuy || m.fiiSell ? fmtCr(m.fiiSell) : "—"}</TableCell>
                       <TableCell className={`text-right py-2 font-semibold ${netClass(m.fiiNet)}`}>
                         <span className="inline-flex items-center gap-1 justify-end">
                           {m.fiiNet >= 0 ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}

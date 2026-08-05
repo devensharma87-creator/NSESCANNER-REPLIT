@@ -10,7 +10,7 @@ const CUES = [
   { symbol: "INR=X", label: "USD/INR", invertColor: true },
   { symbol: "BZ=F", label: "Brent" },
   { symbol: "GC=F", label: "Gold" },
-  { symbol: "^VIX", label: "VIX", invertColor: true, macroSymbol: "^VIX" },
+  { symbol: "^VIX", label: "US VIX", invertColor: true, macroSymbol: "^VIX" },
   { symbol: "DX-Y.NYB", label: "DXY", invertColor: true, macroSymbol: "DX-Y.NYB" },
   { symbol: "^TNX", label: "US 10Y" },
   { symbol: "^INDIAVIX", label: "India VIX", invertColor: true, macroSymbol: "^INDIAVIX" },
