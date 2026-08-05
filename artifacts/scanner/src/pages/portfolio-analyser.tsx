@@ -50,6 +50,7 @@ import {
   type BenchmarkKey,
 } from "@/lib/portfolio/benchmarkPref";
 import { usePortfolios, rawToInput, holdingToRaw } from "@/lib/portfolio/persistence";
+import { PageHeader } from "@/components/ui/page-header";
 import {
   resolveHolding,
   pendingMeta,
@@ -581,11 +582,11 @@ export default function PortfolioAnalyser() {
     <div className="w-full max-w-none px-4 py-6 space-y-4" data-testid="page-portfolio-analyser">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <h1 className="text-lg font-semibold">Portfolio Analyser</h1>
-          <p className="text-xs text-muted-foreground">
-            Read-only structure analytics for your holdings · live prices via Kite / Yahoo · saved
-            privately to your account
-          </p>
+          <PageHeader
+            title="Portfolio Analyser"
+            section="Portfolio"
+            description="Read-only structure analytics for your holdings · live prices via Kite / Yahoo · saved privately to your account"
+          />
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {lastUpdated && (

@@ -35,6 +35,7 @@ import { useKiteReadiness } from "@/components/global-status-banner";
 import { deriveFnoEmptyReason, buildFnoIndexRows, deriveSessionBannerState, type FnoIndexRow, type FnoBannerState } from "@/lib/fnoEmptyState";
 import { useFnoNoSignalGap } from "@/lib/fno/diagnostics-fetch";
 import { IndexFnoSetupAvailabilityStrip } from "@/components/IndexFnoSetupAvailabilityStrip";
+import { PageHeader } from "@/components/ui/page-header";
 
 const API_BASE = import.meta.env.BASE_URL;
 
@@ -976,10 +977,11 @@ export default function OptionsPage() {
     <div className="w-full max-w-none px-4 py-6 space-y-6">
       <div>
         <div className="flex items-center gap-3 flex-wrap">
-          <h1 className="text-2xl font-bold font-mono tracking-tight flex items-center gap-2">
-            <Crosshair className="w-6 h-6 text-primary" />
-            INTRADAY F&O TRADE
-          </h1>
+          <PageHeader
+            title="Intraday F&O Trade"
+            section="Derivatives"
+            className="mb-0"
+          />
           <DataSourceBadge
             source="kite"
             status="live"

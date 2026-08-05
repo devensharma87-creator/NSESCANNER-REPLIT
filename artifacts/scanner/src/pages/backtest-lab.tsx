@@ -70,6 +70,7 @@ import {
   type ChartConfig,
 } from "@/components/ui/chart";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { PageHeader } from "@/components/ui/page-header";
 import { Button } from "@/components/ui/button";
 import {
   FlaskConical,
@@ -1786,13 +1787,11 @@ export default function BacktestLab() {
   return (
     <div className="mx-auto max-w-7xl space-y-4 p-4">
       {/* header */}
-      <div className="flex flex-wrap items-center gap-2">
-        <FlaskConical className="h-5 w-5 text-sky-300" />
-        <h1 className="text-lg font-semibold">Backtest Lab</h1>
-        <span className="text-xs text-muted-foreground">
-          F&amp;O research · official engine · strategy registry · compare
-        </span>
-      </div>
+      <PageHeader
+        title="Backtest Lab"
+        section="Research"
+        description="F&O research · official engine · strategy registry · compare"
+      />
 
       {/* honesty banner */}
       <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-xs text-amber-200">

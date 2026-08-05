@@ -1,4 +1,5 @@
 import { useState, useCallback, useMemo } from "react";
+import { PageHeader } from "@/components/ui/page-header";
 import { useQueryClient } from "@tanstack/react-query";
 import { format, formatDistanceToNow } from "date-fns";
 import { AlertCircle, ShieldAlert, CheckCircle2, RotateCw, XCircle, Eye, Clock, ShieldX, Play, Timer, Zap } from "lucide-react";
@@ -83,16 +84,11 @@ export default function SwingCashLiveQueue() {
 
   return (
     <div className="container mx-auto p-4 max-w-6xl space-y-6">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight text-foreground flex items-center gap-2">
-            Swing Cash Queue
-          </h1>
-          <p className="text-muted-foreground mt-1 text-sm">
-            Fast approval cockpit for staged swing-cash equity orders. 
-          </p>
-        </div>
-      </div>
+      <PageHeader
+        title="Swing Cash Queue"
+        section="Trading Desk"
+        description="Fast approval cockpit for staged swing-cash equity orders."
+      />
 
       <SafetyHeader status={statusResp} onToggleKillSwitch={handleToggleKillSwitch} />
 

@@ -7,7 +7,7 @@ export default function BreadthBar() {
     query: { refetchInterval: 30000, queryKey: getGetMarketTrendQueryKey() },
   });
 
-  if (!data) return null;
+  if (!data || !data.breadth) return null;
 
   const { advancers, decliners, unchanged } = data.breadth;
   const total = advancers + decliners + (unchanged ?? 0);

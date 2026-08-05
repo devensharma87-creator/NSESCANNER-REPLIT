@@ -61,6 +61,7 @@ import {
   type FoShadowExitsResponse,
 } from "@/lib/foCockpitView";
 import { LedgerHealthCard } from "@/components/ledger-health-card";
+import { PageHeader } from "@/components/ui/page-header";
 
 const BASE = import.meta.env.BASE_URL;
 
@@ -372,13 +373,12 @@ export default function PaperTrading() {
   return (
     <div className="container mx-auto px-4 py-6 max-w-7xl">
       <Seo path="/paper-trading" title="Paper Trading" noindex />
-      <div className="mb-6">
-        <h1 className="text-2xl font-semibold">Paper Trading</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Owner-only virtual broker. Auto-trades qualifying signals against a
-          fresh daily bankroll so you can audit the strategy without real money.
-        </p>
-      </div>
+      <PageHeader
+        title="Paper Trading"
+        section="Trading Desk"
+        description="Owner-only virtual broker. Auto-trades qualifying signals against a fresh daily bankroll so you can audit the strategy without real money."
+        className="mb-2"
+      />
       <div className="mb-4">
         <EnvironmentBanner />
       </div>

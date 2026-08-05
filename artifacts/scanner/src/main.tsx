@@ -10,4 +10,13 @@ import { BUILD_MARKERS } from "./lib/buildMarkers";
 // No secrets, no trading logic, no side-effects on app behaviour.
 (window as unknown as Record<string, unknown>)["__buildMarkers__"] = BUILD_MARKERS;
 
+// DEV-only fixture interceptor — zero cost in production:
+// Vite replaces import.meta.env.DEV with `false` in production builds, making
+// this entire block dead code that is tree-shaken away. The fixture module is
+// never included in the production bundle.
+if (import.meta.env.DEV && import.meta.env.VITE_PREVIEW_BYPASS === "true") {
+  const { installScannerFixtures } = await import("./mocks/fetchInterceptor");
+  installScannerFixtures();
+}
+
 createRoot(document.getElementById("root")!).render(<App />);

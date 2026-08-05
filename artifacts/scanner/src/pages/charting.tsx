@@ -58,6 +58,7 @@ import {
   type OptionLevels,
 } from "@/lib/charting/indicators";
 import { findFno } from "@/data/fnoUniverse";
+import { PageHeader } from "@/components/ui/page-header";
 
 function useDebounced<T>(value: T, delayMs: number): T {
   const [v, setV] = useState(value);
@@ -386,6 +387,13 @@ export default function ChartingPage() {
 
   return (
     <div className={isFullscreen ? "fixed inset-0 z-50 overflow-auto bg-background p-3 space-y-3" : "space-y-3"}>
+      {!isFullscreen && (
+        <PageHeader
+          title="Charting"
+          section="Analysis"
+          description="Interactive candlestick chart with indicators, Volume Profile, key levels, and Fibonacci."
+        />
+      )}
       {/* ── Toolbar ─────────────────────────────────────────────── */}
       <Card ref={toolbarRef} className="p-3 space-y-3">
         <div className="flex flex-wrap items-center gap-2">

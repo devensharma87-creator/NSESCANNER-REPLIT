@@ -16,6 +16,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
+import { PageHeader } from "@/components/ui/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -278,17 +279,12 @@ export default function DailyAnalysisPage() {
 
       {/* Page header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-lg bg-amber-500/15 border border-amber-500/30 flex items-center justify-center">
-            <BarChart2 className="w-5 h-5 text-amber-400" />
-          </div>
-          <div>
-            <div className="text-sm font-bold tracking-tight">Daily Analysis Module</div>
-            <div className="text-[10px] font-mono uppercase text-muted-foreground/70 mt-0.5">
-              Pre / Post Market Reports — Owner Only
-            </div>
-          </div>
-        </div>
+        <PageHeader
+          title="Daily Analysis"
+          section="Market Pulse"
+          description="Pre / Post Market Reports — Owner Only"
+          className="mb-0"
+        />
         <div className="flex items-center gap-2">
           <Badge
             variant="outline"
