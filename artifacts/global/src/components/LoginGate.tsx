@@ -12,6 +12,15 @@ export function LoginGate({ children }: { children: React.ReactNode }) {
     query: { queryKey: getGetGlobalAuthStatusQueryKey(), staleTime: 5_000, refetchOnWindowFocus: false },
   });
 
+  // ── Dev-only visual preview fixture harness ───────────────────────────────
+  // PRODUCTION SAFETY: import.meta.env.DEV resolves to the literal `false` in
+  // Vite production builds, making this branch dead code that is tree-shaken
+  // out. It cannot activate in production. No credentials are embedded.
+  if (import.meta.env.DEV && import.meta.env.VITE_PREVIEW_BYPASS === "true") {
+    return <>{children}</>;
+  }
+  // ─────────────────────────────────────────────────────────────────────────
+
   if (status.isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">

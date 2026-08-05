@@ -342,6 +342,17 @@ export function LoginGate({ children }: { children: ReactNode }) {
     return <>{children}</>;
   }
 
+  // ── Dev-only visual preview fixture harness ───────────────────────────────
+  // PRODUCTION SAFETY: import.meta.env.DEV is replaced with the literal
+  // `false` by Vite at build time, so this entire branch becomes dead code
+  // and is eliminated by the JS minifier. It cannot activate in production.
+  // No credentials are embedded; VITE_PREVIEW_BYPASS is a developer-supplied
+  // build env var. No live provider calls or DB writes occur inside this path.
+  if (import.meta.env.DEV && import.meta.env.VITE_PREVIEW_BYPASS === "true") {
+    return <>{children}</>;
+  }
+  // ─────────────────────────────────────────────────────────────────────────
+
   if (state.kind === "loading") {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">

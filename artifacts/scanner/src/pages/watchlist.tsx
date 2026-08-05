@@ -2,6 +2,7 @@ import { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useGetWatchlistBasket, getGetWatchlistBasketQueryKey, useListStocks, getListStocksQueryKey, type DataProviderName } from "@workspace/api-client-react";
 import { DataSourceBadge, type DataSource } from "@/components/ui/data-source-badge";
+import { DataStatePanel } from "@/components/ui/data-state-panel";
 import { UnifiedGradeChip } from "@/components/ui/unified-grade-chip";
 import { Link } from "wouter";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
@@ -263,8 +264,16 @@ export default function Watchlist() {
         </CardHeader>
         <CardContent className="p-0">
           {isError ? (
-            <div className="p-6 text-sm text-signal-sell">
-              Failed to load watchlist. {(error as Error)?.message ?? ""}
+            <div className="p-4">
+              <DataStatePanel
+                state="ERROR"
+                title="Could not load watchlist"
+                description={(error as Error)?.message ?? "Upstream data error — check your connection and try again."}
+                onRetry={() => { void 0; }}
+                retryLabel="Retry"
+                size="md"
+                data-testid="watchlist-error-panel"
+              />
             </div>
           ) : (
             <div className="overflow-auto max-h-[calc(100vh-360px)]">

@@ -36,6 +36,7 @@ import {
   Popover, PopoverContent, PopoverTrigger,
 } from "@/components/ui/popover";
 import { useToast } from "@/hooks/use-toast";
+import { DataStatePanel } from "@/components/ui/DataStatePanel";
 import {
   Loader2, Filter as FilterIcon, ArrowUpRight, ArrowDownRight,
   ArrowUp, ArrowDown, Save, Trash2, Pencil, BookmarkCheck,
@@ -877,9 +878,14 @@ export function ScreenerPage() {
           </Card>
 
           {screener.error && (
-            <Card className="p-3 text-sm text-destructive">
-              Screener failed: {(screener.error as Error)?.message ?? "unknown error"}
-            </Card>
+            <DataStatePanel
+              state="ERROR"
+              title="Screener failed"
+              description={(screener.error as Error)?.message ?? "Could not evaluate screener criteria. Check your filters and try again."}
+              onRetry={run}
+              retryLabel="Retry"
+              size="md"
+            />
           )}
 
           {screener.data && (

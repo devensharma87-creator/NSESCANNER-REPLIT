@@ -32,6 +32,8 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ArrowLeft, Star, StarOff, AlertTriangle } from "lucide-react";
+import { DataProvenanceBadge } from "@/components/ui/DataProvenanceBadge";
+import { DataStatePanel } from "@/components/ui/DataStatePanel";
 
 const TIMEFRAMES: GlobalTimeframe[] = ["1m", "5m", "15m", "1h", "4h", "1d"];
 
@@ -119,11 +121,20 @@ export function InstrumentDetailPage() {
                 <Badge variant="secondary" className="ml-1">{detail.data.instrument.assetClass}</Badge>
               )}
             </h1>
-            <div className="text-xs text-muted-foreground">
-              source: {detail.data?.instrument.source} ·{" "}
-              {detail.data?.quote?.updatedAt
-                ? `updated ${new Date(detail.data.quote.updatedAt).toLocaleTimeString()}`
-                : "no live quote yet"}
+            <div className="flex items-center gap-2 flex-wrap text-xs text-muted-foreground">
+              <DataProvenanceBadge
+                source={detail.data?.instrument.source}
+                stale={false}
+                sourceHealthy={detail.data !== undefined}
+              />
+              {!detail.data?.quote && (
+                <span className="text-muted-foreground/70">no live quote yet</span>
+              )}
+              {detail.data?.quote?.updatedAt && (
+                <span className="font-mono tabular-nums">
+                  updated {new Date(detail.data.quote.updatedAt).toLocaleTimeString()}
+                </span>
+              )}
             </div>
           </div>
         </div>
@@ -212,9 +223,12 @@ export function InstrumentDetailPage() {
         {(candles.isLoading || indicators.isLoading) ? (
           <Skeleton className="h-[420px] w-full" />
         ) : candles.error ? (
-          <Card className="p-6 text-center text-destructive text-sm">
-            Couldn't load candles: {(candles.error as Error)?.message ?? "upstream error"}
-          </Card>
+          <DataStatePanel
+            state="ERROR"
+            title="Cannot load candles"
+            description={(candles.error as Error)?.message ?? "Chart data is temporarily unavailable."}
+            size="md"
+          />
         ) : (
           <ChartView
             candles={candles.data?.candles ?? []}
