@@ -1,0 +1,39 @@
+Route,AuthLevel,Screenshot,LoadState,DataDomain,CanonicalSource,YahooPresent,YahooContained,SignalTradingImpact,OpenIssues,AuditStatus
+/,General,Yes (1440/390),Off-market loaded,Indian indices + global cues + breadth,Kite (indices) + Yahoo (global cues labeled),Yes,Yes (INFO ONLY label),None,India strip shows No data (Kite offline); expected post-market,PASS (off-market)
+/scanner,General,Yes (1440/390),DEGRADED 0/8891 scanned,NSE full universe quotes + indicators,Kite (prices) + Yahoo (indicators),Yes,Yes (canDriveSignals=false),None,0 rows post-market — live verification required,PARTIAL (off-market)
+/option-chain,General,Yes (1440),Stale 26h mixed sources,NIFTY option chain OI/premium,NSE EOD (stale) + Kite (when live),No,N/A,None,Lot size 25 vs ingestor 65 — P34-P2-03,PARTIAL (off-market)
+/option-chain/:underlying,General,No,UNVERIFIED,Underlying option chain,As above,No,N/A,None,Parameterized variant of /option-chain,UNVERIFIED
+/oi-lab,General,No,UNVERIFIED,OI delta time series,Kite option chain snapshots,No,N/A,None,Requires live Kite session,UNVERIFIED
+/watchlist,General,No,UNVERIFIED,Saved symbols + quotes,Kite,No,N/A,None,Null direction handling unverified,UNVERIFIED
+/premarket,General,No,UNVERIFIED,Pre-market indices,Mixed,Yes,UNVERIFIED,None,Source/stale treatment unverified,UNVERIFIED
+/flows,General,No,UNVERIFIED,FII/DII gross vs net,NSE EOD,No,N/A,None,Monthly aggregation/IST date handling unverified,UNVERIFIED
+/stocks-to-watch,General,No,UNVERIFIED,Curated stocks,Kite + scanner,Yes,UNVERIFIED,UNVERIFIED,Deep scan signal source unverified,UNVERIFIED
+/charting,General,No,UNVERIFIED,OHLC candles,Kite,No,N/A,None,Candle ordering/duplicate rejection unverified,UNVERIFIED
+/portfolio-analyser,General,No,UNVERIFIED,Holdings + P&L,Kite (prices) + IndianAPI (fundamentals),Yes (benchmark only),UNVERIFIED,None,Invested/current/P&L arithmetic unverified,UNVERIFIED
+/backtest-lab,General,No,UNVERIFIED,Historical candles,Kite warehouse,No,N/A,None,Query key completeness / zero-trades vs failed unverified,UNVERIFIED
+/news,General,No,UNVERIFIED,News items,NSE/aggregator,No,N/A,None,Freshness labels unverified,UNVERIFIED
+/learn,General,No,UNVERIFIED,Static content,N/A,No,N/A,None,Static page — low risk,UNVERIFIED
+/deep-scan,General,No,UNVERIFIED,NSE deep scan analytics,Kite + Yahoo indicators,Yes,UNVERIFIED,None,Signal provenance unverified,UNVERIFIED
+/options,General,Yes (1440),Market closed (correct),F&O intraday setups,Kite tick-derived,No,N/A,None,0 live setups expected; TradingView webhook off,PASS (off-market)
+/strategies,General,No,UNVERIFIED,Saved strategies,N/A,No,N/A,None,Content unverified,UNVERIFIED
+/sectors,General,No,UNVERIFIED,Sector strength + breadth,Kite + scanner,Yes,UNVERIFIED,None,Breadth derivation from scanner — requires live,UNVERIFIED
+/sectors/:sector,General,No,UNVERIFIED,Sector constituents + scores,As above,Yes,UNVERIFIED,None,Parameterized — same as /sectors,UNVERIFIED
+/kite,OwnerOnly,No,UNVERIFIED,Kite session management,N/A,No,N/A,None,Session health / API key presence unverified,UNVERIFIED
+/audit,OwnerOnly,No,UNVERIFIED,Audit trail,DB,No,N/A,None,Audit evidence display unverified,UNVERIFIED
+/status,OwnerOnly,No,UNVERIFIED,System status,Internal state,No,N/A,None,Process/scheduler status unverified,UNVERIFIED
+/manifesto,OwnerOnly,No,UNVERIFIED,Static content,N/A,No,N/A,None,Static page,UNVERIFIED
+/admin,OwnerOnly,No,UNVERIFIED,Admin controls,Internal,No,N/A,None,Admin actions unverified,UNVERIFIED
+/infra-health,OwnerOnly,No,UNVERIFIED,Infrastructure health,Internal diagnostics,No,N/A,None,Provider health dashboard unverified,UNVERIFIED
+/secrets-vault,OwnerOnly,No,UNVERIFIED,Secret presence check,Env vars (presence only),No,N/A,None,Key redaction / no value exposure unverified,UNVERIFIED
+/fno-diagnostics,OwnerOnly,No,UNVERIFIED,F&O lifecycle diagnostics,F&O paper state,No,N/A,None,Gate waterfall / no-trade reasons unverified,UNVERIFIED
+/daily-analysis,OwnerOnly,No,UNVERIFIED,Daily market report,Scanner + Kite,Yes,UNVERIFIED,None,Prior-day label / partial section errors unverified,UNVERIFIED
+/swing-cash,OwnerOnly,No,UNVERIFIED,Swing staging queue,Kite + scanner,No,N/A,None,Stage classifications unverified,UNVERIFIED
+/paper-trading,OwnerOnly,Yes (1440/768/390),Dev preview loaded,Paper account + positions,Kite (live) + DB (paper ledger),No,N/A,None,CohortSelector (Pack 32) visible in dev; not in production,PARTIAL (dev only)
+/paper-reports,OwnerOnly,No,UNVERIFIED,Paper P&L history,DB paper ledger,No,N/A,None,P&L arithmetic / win-rate denominator unverified,UNVERIFIED
+/stock/:symbol,SubscriberDetail,No,UNVERIFIED,Stock detail + fundamentals,Kite + IndianAPI + Yahoo,Yes,UNVERIFIED,None,Provenance / freshness display unverified,UNVERIFIED
+/index/:slug,SubscriberDetail,No,UNVERIFIED,Index detail + constituents,Kite,No,N/A,None,Constituent null-direction behavior unverified,UNVERIFIED
+/indices,Redirect,No,N/A,Redirect to /index/slug,N/A,No,N/A,None,Redirect target unverified,UNVERIFIED
+/legal/disclaimer,Public,No,UNVERIFIED,Static legal page,N/A,No,N/A,None,Static,UNVERIFIED
+/legal/methodology,Public,No,UNVERIFIED,Static methodology,N/A,No,N/A,None,Static,UNVERIFIED
+/legal/terms,Public,No,UNVERIFIED,Static terms,N/A,No,N/A,None,Static,UNVERIFIED
+/legal/privacy,Public,No,UNVERIFIED,Static privacy,N/A,No,N/A,None,Static,UNVERIFIED
