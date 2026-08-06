@@ -104,6 +104,36 @@ export const optionChainSnapshotTable = pgTable(
     /* provenance */
     source: varchar("source", { length: 32 }).notNull(),
 
+    /**
+     * Schema/contract version — bumped when the capture semantics change in a
+     * way that breaks replay compatibility (e.g. lot-size convention change,
+     * new Greek model). Current: "v1".
+     */
+    schemaVersion: varchar("schema_version", { length: 8 }).default("v1"),
+
+    /**
+     * Date-effective NSE lot size for the underlying at capture time.
+     * Populated from the static LOT_SIZES map in the ingestor. Null for
+     * legacy rows or when the underlying is not in the map.
+     */
+    lotSize: integer("lot_size"),
+
+    /**
+     * Market/session state at the moment of capture. One of:
+     *   "open"      — within regular NSE/BSE trading hours
+     *   "pre_open"  — pre-open session (9:00–9:15 IST)
+     *   "closed"    — after 15:30 IST / weekend / holiday
+     * Null for legacy rows.
+     */
+    marketStatus: varchar("market_status", { length: 16 }),
+
+    /**
+     * Canary / test-run marker. Set to a unique run identifier during
+     * bounded canary captures (Gate 7, Pack 9A). Null for all production
+     * rows. Used for exact-key deletion of canary-only rows.
+     */
+    canaryMarker: varchar("canary_marker", { length: 64 }),
+
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({

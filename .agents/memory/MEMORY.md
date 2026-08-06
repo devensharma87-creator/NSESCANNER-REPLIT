@@ -1,3 +1,4 @@
+- [Pack 9A closure](pack9a-closure.md) — 0-row root cause fixed (OPTION_SNAPSHOT_ENABLED); circuit-breaker+alert-dedup+advisory-lock+tick-timeout; 4 new schema cols; 86 Gate-9 tests; api-server 6129, scanner 1250; 4-pkg TSC clean; COMPLETE 2026-08-06.
 - [Pack 8 closure](pack8-closure.md) — Yahoo retired from Indian-market canonical paths; fetchBenchmarkBarsResilient Kite-first; Yahoo retained for global/macro/fundamentals (DELAYED_ANALYTICS_ONLY); 83 new tests; api-server 5964, scanner 1250; COMPLETE 2026-08-06.
 - [Pack 27 live activation closure](pack27-live-closure.md) — 9 gates PASS; Upstox ACTIVATED_SHADOW_VERIFIED (max 3.78bps/23obs); IndianAPI ACTIVATED_REFERENCE_VERIFIED; Kite canonical unchanged; TSC clean; 208 tests; 2026-08-06.
 - [Pack 7 closure](pack7-closure.md) — Gates 0A/0B/3-7/9/19/20 PASS; parityClassification.ts (9 classes); authMode+shadowImpactStatement in providerDiagnostics; api-server 5881, scanner 1250; 4-pkg TSC clean; COMPLETE 2026-08-05.

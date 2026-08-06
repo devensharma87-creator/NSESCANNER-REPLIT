@@ -4,13 +4,19 @@
  *
  *   GET  /api/option-snapshots/diagnostics  — full status report
  *   POST /api/option-snapshots/run-now      — trigger one ingestion cycle
+ *   GET  /api/option-snapshots/analytics    — pure-read analytics
+ *   GET  /api/option-snapshots/storage      — storage projections (no DB)
+ *   GET  /api/option-snapshots/gaps         — gap / completeness analysis
  *
  * Strict owner-gating: does NOT inherit `requireOwner`'s public-mode
  * read bypass. Diagnostics expose internal coverage state and a manual
  * trigger; both must remain owner-only regardless of public-access mode.
  *
- * No write to anything except the two snapshot tables (via
- * `runIngestionTick`). Does not touch any trading-decision code.
+ * NO SIGNAL OR PAPER-TRADING IMPACT: this router is a pure read/diagnostic
+ * surface over the option_chain_snapshot tables. It has no connection to
+ * F&O signals, swing signals, paper trading, scoring, Kite order placement,
+ * or broker integrations. The only operational writes are to the two
+ * option_chain_snapshot tables via runIngestionTick (run-now endpoint only).
  */
 import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
 import { sql } from "drizzle-orm";
@@ -23,6 +29,11 @@ import {
   isOptionSnapshotEnabled,
   runIngestionTick,
   getLastRun,
+  getCircuitState,
+  CIRCUIT_BREAKER_THRESHOLD,
+  CIRCUIT_RESET_MINUTES,
+  ALERT_COOLDOWN_MINUTES,
+  TICK_TIMEOUT_MS,
 } from "../lib/optionChainSnapshotIngestor";
 import { computeMarketStatus } from "../lib/marketEvents";
 import {
@@ -31,6 +42,16 @@ import {
   DEFAULT_STALE_THRESHOLD_MINUTES,
   type AnalyticsRowInput,
 } from "../lib/optionSnapshotAnalytics";
+import {
+  projectStorage,
+  getArchivePath,
+  getArchiveInfrastructureRequirement,
+  readArchiveManifests,
+  ESTIMATED_BYTES_PER_ROW_TOTAL,
+  ROWS_PER_TICK_CONSERVATIVE,
+  ROWS_PER_TICK_WORST_CASE,
+  TICKS_PER_DAY,
+} from "../lib/optionSnapshotArchive";
 
 const router: IRouter = Router();
 
@@ -44,16 +65,21 @@ function strictOwner(req: Request, res: Response, next: NextFunction): void {
   res.status(401).json({ error: "unauthorized", code: "AUTH_REQUIRED" });
 }
 
+// ─── Diagnostics ──────────────────────────────────────────────────────────────
+
 router.get("/option-snapshots/diagnostics", strictOwner, async (_req, res, next) => {
   try {
     const cfg = getSnapshotConfig();
     const enabled = isOptionSnapshotEnabled();
     const marketStatus = computeMarketStatus(new Date());
+    const circuit = getCircuitState();
+    const archiveConfigured = getArchivePath() != null;
 
-    // Per-underlying coverage: latest snapshot, distinct expiries, distinct
-    // strikes, rows today (IST day = UTC + 5:30; we use IST day boundary).
+    // IST day boundary.
     const istNowMs = Date.now() + 5.5 * 60 * 60_000;
-    const istDayStart = new Date(Math.floor(istNowMs / 86_400_000) * 86_400_000 - 5.5 * 60 * 60_000);
+    const istDayStart = new Date(
+      Math.floor(istNowMs / 86_400_000) * 86_400_000 - 5.5 * 60 * 60_000,
+    );
 
     const perUnderlying = (await db.execute(sql`
       SELECT
@@ -62,7 +88,9 @@ router.get("/option-snapshots/diagnostics", strictOwner, async (_req, res, next)
         COUNT(DISTINCT expiry)::int                  AS distinct_expiries,
         COUNT(DISTINCT strike)::int                  AS distinct_strikes,
         MAX(captured_at)                             AS latest_snapshot,
+        MIN(captured_at)                             AS earliest_snapshot,
         COUNT(*) FILTER (WHERE captured_at >= ${istDayStart.toISOString()})::int AS rows_today,
+        COUNT(DISTINCT captured_at) FILTER (WHERE captured_at >= ${istDayStart.toISOString()})::int AS ticks_today,
         MAX(source)                                  AS source
       FROM option_chain_snapshot
       WHERE underlying = ANY(ARRAY[${sql.join(SNAPSHOT_INDICES.map((u) => sql`${u}`), sql`, `)}])
@@ -70,7 +98,6 @@ router.get("/option-snapshots/diagnostics", strictOwner, async (_req, res, next)
       ORDER BY underlying;
     `)) as unknown as { rows: Array<Record<string, unknown>> };
 
-    // Recent runs (last 10) for "what just happened?" panel.
     const recentRuns = (await db.execute(sql`
       SELECT id, started_at, finished_at, duration_ms, underlyings_attempted,
              underlyings_ok, expiries_covered, rows_written, source, errors
@@ -79,26 +106,54 @@ router.get("/option-snapshots/diagnostics", strictOwner, async (_req, res, next)
       LIMIT 10;
     `)) as unknown as { rows: Array<Record<string, unknown>> };
 
-    // Today's totals across all underlyings. Two distinct counts:
-    //   `rows_today`           — physical rows currently in the snapshot
-    //                             table for the current IST day (post-
-    //                             upsert, so it's a logical "coverage"
-    //                             count, not an insert count).
-    //   `rows_written_today`   — sum of `rows_written` across today's
-    //                             ingestion cycles. Includes re-upserts
-    //                             of the same PK and so is always >=
-    //                             `rows_today`. Useful for spotting
-    //                             cycles that wrote zero (broker issue).
     const totalsToday = (await db.execute(sql`
       SELECT
         (SELECT COUNT(*)::int FROM option_chain_snapshot
          WHERE captured_at >= ${istDayStart.toISOString()}) AS rows_today,
         (SELECT COALESCE(SUM(rows_written), 0)::int FROM option_chain_snapshot_run
-         WHERE started_at  >= ${istDayStart.toISOString()}) AS rows_written_today;
+         WHERE started_at  >= ${istDayStart.toISOString()}) AS rows_written_today,
+        (SELECT COUNT(*)::int FROM option_chain_snapshot_run
+         WHERE started_at  >= ${istDayStart.toISOString()}) AS run_count_today;
     `)) as unknown as { rows: Array<Record<string, unknown>> };
+
+    // Null-field availability across all historical snapshots (per-field null rate).
+    const nullAvailability = (await db.execute(sql`
+      SELECT
+        COUNT(*)::int                                         AS total,
+        COUNT(*) FILTER (WHERE ltp IS NULL)::int             AS null_ltp,
+        COUNT(*) FILTER (WHERE bid IS NULL)::int             AS null_bid,
+        COUNT(*) FILTER (WHERE ask IS NULL)::int             AS null_ask,
+        COUNT(*) FILTER (WHERE iv  IS NULL)::int             AS null_iv,
+        COUNT(*) FILTER (WHERE delta IS NULL)::int           AS null_delta,
+        COUNT(*) FILTER (WHERE oi IS NULL)::int              AS null_oi,
+        COUNT(*) FILTER (WHERE lot_size IS NULL)::int        AS null_lot_size
+      FROM option_chain_snapshot;
+    `)) as unknown as { rows: Array<Record<string, unknown>> };
+
+    // Research-readiness: requires ≥ 6 months of consecutive daily coverage
+    // for the 3-fold walk-forward validation in the Pack 9 protocol.
+    const coverageStats = (await db.execute(sql`
+      SELECT
+        EXTRACT(EPOCH FROM (MAX(captured_at) - MIN(captured_at))) / 86400 AS days_span,
+        COUNT(DISTINCT DATE_TRUNC('day', captured_at AT TIME ZONE 'Asia/Kolkata'))::int AS distinct_ist_days,
+        COUNT(DISTINCT underlying)::int AS underlyings
+      FROM option_chain_snapshot
+      WHERE underlying = ANY(ARRAY[${sql.join(SNAPSHOT_INDICES.map((u) => sql`${u}`), sql`, `)}]);
+    `)) as unknown as { rows: Array<Record<string, unknown>> };
+
+    const stats = coverageStats.rows[0] ?? {};
+    const distinctDays = Number(stats["distinct_ist_days"] ?? 0);
+    const underlyings = Number(stats["underlyings"] ?? 0);
+    const requiredDays = 130; // 6 months of trading days
+    const researchReady = distinctDays >= requiredDays && underlyings >= 3;
+
+    // Archive manifests.
+    const archiveManifests = readArchiveManifests();
 
     res.json({
       generatedAt: new Date().toISOString(),
+      // IMPORTANT SAFETY STATEMENT — required by Pack 9A Gate 8.
+      noSignalOrPaperTradingImpact: true,
       config: {
         enabled,
         marketStatus,
@@ -107,30 +162,174 @@ router.get("/option-snapshots/diagnostics", strictOwner, async (_req, res, next)
         strikeWindow: cfg.strikeWindow,
         expiriesPerUnderlying: cfg.expiriesPerUnderlying,
         retentionDays: cfg.retentionDays,
+        archiveConfigured,
+        archivePath: archiveConfigured ? "[SET]" : null,
+        archiveRequirement: archiveConfigured ? null : getArchiveInfrastructureRequirement(),
+      },
+      reliability: {
+        circuitBreaker: {
+          ...circuit,
+          threshold: CIRCUIT_BREAKER_THRESHOLD,
+          resetMinutes: CIRCUIT_RESET_MINUTES,
+        },
+        alertCooldownMinutes: ALERT_COOLDOWN_MINUTES,
+        tickTimeoutMs: TICK_TIMEOUT_MS,
       },
       coverage: perUnderlying.rows,
       todayRowsTotal: totalsToday.rows[0]?.["rows_today"] ?? 0,
       todayRowsWritten: totalsToday.rows[0]?.["rows_written_today"] ?? 0,
+      todayRunCount: totalsToday.rows[0]?.["run_count_today"] ?? 0,
+      expectedTicksToday: TICKS_PER_DAY,
       lastRunInMemory: getLastRun(),
       recentRuns: recentRuns.rows,
+      nullAvailability: nullAvailability.rows[0] ?? {},
+      researchReadiness: {
+        ready: researchReady,
+        distinctTradingDaysCovered: distinctDays,
+        requiredTradingDays: requiredDays,
+        underlyingsCovered: underlyings,
+        requiredUnderlyings: 3,
+        reason: researchReady
+          ? "Data foundation sufficient for Pack 9 qualification"
+          : `Insufficient data: ${distinctDays}/${requiredDays} days covered across ${underlyings}/3 indices. ` +
+            `Activate capture and wait ~${Math.max(0, requiredDays - distinctDays)} more trading days.`,
+        earliestQualificationDate: researchReady
+          ? "NOW — data available"
+          : `Approximately ${Math.ceil((requiredDays - distinctDays) / 5)} calendar weeks from today`,
+      },
+      archive: {
+        configured: archiveConfigured,
+        manifestCount: archiveManifests.length,
+        manifests: archiveManifests.slice(0, 10), // cap for response size
+        infrastructureRequirement: archiveConfigured ? null : getArchiveInfrastructureRequirement(),
+      },
     });
   } catch (err) {
     next(err);
   }
 });
 
+// ─── Storage Projections ─────────────────────────────────────────────────────
+
 /**
- * Manually trigger one ingestion cycle. Use `?force=1` to bypass the
- * market-hours guard (e.g. for one-off backfill testing). Owner-only.
- * Will write to the snapshot tables — do not call from automation.
+ * Returns schema-derived storage projections without any DB calls.
+ * Safe to call regardless of ingestor state.
  */
+router.get("/option-snapshots/storage", strictOwner, (_req, res) => {
+  const projections = projectStorage();
+  const cfg = getSnapshotConfig();
+  res.json({
+    generatedAt: new Date().toISOString(),
+    noSignalOrPaperTradingImpact: true,
+    methodology: {
+      estimatedBytesPerRowData: ESTIMATED_BYTES_PER_ROW_TOTAL - 150,
+      estimatedBytesPerRowIndexOverhead: 150,
+      estimatedBytesPerRowTotal: ESTIMATED_BYTES_PER_ROW_TOTAL,
+      rowsPerTickConservative: ROWS_PER_TICK_CONSERVATIVE,
+      rowsPerTickWorstCase: ROWS_PER_TICK_WORST_CASE,
+      ticksPerDay: TICKS_PER_DAY,
+      universeSize: SNAPSHOT_INDICES.length,
+      strikesPerExpiry: cfg.strikeWindow * 2 + 1,
+      expiriesPerIndex: cfg.expiriesPerUnderlying,
+      sidesPerStrike: 2,
+    },
+    projections,
+    archiveRecommendation:
+      "For 24-month research archive (Pack 9 multi-regime qualification), " +
+      "allocate 4–8 GB of durable storage and set OPTION_SNAPSHOT_ARCHIVE_PATH.",
+  });
+});
+
+// ─── Gap Analysis ────────────────────────────────────────────────────────────
+
+/**
+ * Analyse gaps in snapshot coverage by examining captured_at density.
+ * Owner-only. Read-only. No Kite/NSE calls.
+ */
+router.get("/option-snapshots/gaps", strictOwner, async (req, res, next) => {
+  try {
+    const lookbackDays = Math.min(30, Math.max(1, parseInt(String(req.query["days"] ?? "7"), 10) || 7));
+    const cutoff = new Date(Date.now() - lookbackDays * 86_400_000);
+
+    // Per-underlying gap analysis: expected ticks vs actual distinct ticks per IST day.
+    const gaps = (await db.execute(sql`
+      WITH days AS (
+        SELECT
+          underlying,
+          DATE_TRUNC('day', captured_at AT TIME ZONE 'Asia/Kolkata') AS ist_day,
+          COUNT(DISTINCT captured_at)::int                            AS ticks_captured,
+          COUNT(*)::int                                               AS rows_captured
+        FROM option_chain_snapshot
+        WHERE captured_at >= ${cutoff.toISOString()}
+          AND underlying = ANY(ARRAY[${sql.join(SNAPSHOT_INDICES.map((u) => sql`${u}`), sql`, `)}])
+        GROUP BY underlying, ist_day
+        ORDER BY underlying, ist_day
+      )
+      SELECT
+        underlying,
+        ist_day::text,
+        ticks_captured,
+        ${TICKS_PER_DAY}  AS ticks_expected,
+        rows_captured,
+        ROUND(100.0 * ticks_captured / ${TICKS_PER_DAY}, 1)::numeric AS coverage_pct
+      FROM days
+      ORDER BY underlying, ist_day;
+    `)) as unknown as { rows: Array<Record<string, unknown>> };
+
+    // Overall summary.
+    const summary = (await db.execute(sql`
+      SELECT
+        underlying,
+        COUNT(DISTINCT DATE_TRUNC('day', captured_at AT TIME ZONE 'Asia/Kolkata'))::int AS days_with_data,
+        MIN(captured_at)::text AS earliest,
+        MAX(captured_at)::text AS latest,
+        COUNT(*)::int AS total_rows,
+        COUNT(*) FILTER (WHERE ltp IS NULL)::int AS null_ltp_rows,
+        COUNT(*) FILTER (WHERE bid IS NULL OR ask IS NULL)::int AS null_book_rows
+      FROM option_chain_snapshot
+      WHERE captured_at >= ${cutoff.toISOString()}
+        AND underlying = ANY(ARRAY[${sql.join(SNAPSHOT_INDICES.map((u) => sql`${u}`), sql`, `)}])
+      GROUP BY underlying
+      ORDER BY underlying;
+    `)) as unknown as { rows: Array<Record<string, unknown>> };
+
+    const futureTsRows = (await db.execute(sql`
+      SELECT COUNT(*)::int AS future_count
+      FROM option_chain_snapshot
+      WHERE captured_at > NOW() + INTERVAL '5 seconds';
+    `)) as unknown as { rows: Array<{ future_count: number }> };
+
+    res.json({
+      generatedAt: new Date().toISOString(),
+      noSignalOrPaperTradingImpact: true,
+      lookbackDays,
+      perDayPerUnderlying: gaps.rows,
+      underlyingSummary: summary.rows,
+      futureTimestampRows: futureTsRows.rows[0]?.future_count ?? 0,
+      interpretation: {
+        coveragePctGreen: "≥ 80%",
+        coveragePctYellow: "50–80%",
+        coveragePctRed: "< 50%",
+        note: "Ticks missed during market-closed periods (pre-open, lunch, post-close) are expected and not counted as gaps.",
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── Manual trigger ───────────────────────────────────────────────────────────
+
 router.post("/option-snapshots/run-now", strictOwner, async (req, res, next) => {
   try {
     const force = String(req.query["force"] ?? "") === "1";
-    const r = await runIngestionTick({ force });
+    const canaryMarker = req.query["canaryMarker"] ? String(req.query["canaryMarker"]) : undefined;
+    const r = await runIngestionTick({ force, canaryMarker });
     res.json({
       ok: true,
       forced: force,
+      canaryMarker: canaryMarker ?? null,
+      noSignalOrPaperTradingImpact: true,
       result: {
         ...r,
         startedAt: r.startedAt.toISOString(),
@@ -142,40 +341,8 @@ router.post("/option-snapshots/run-now", strictOwner, async (req, res, next) => 
   }
 });
 
-/**
- * Read-only analytics over already-stored option_chain_snapshot rows
- * (Priority 9). Owner-only. Pure read path — no Kite calls, no NSE
- * calls, no writes, no mutation of the ingestor or schema.
- *
- *   GET /api/option-snapshots/analytics
- *
- * Query params (all optional, all safety-bounded):
- *   - underlying          One of SNAPSHOT_INDICES. Filters groups.
- *   - expiry              ISO date (YYYY-MM-DD). Filters groups.
- *   - capturedAt          ISO timestamp. When provided, the route
- *                         analyses the snapshot whose captured_at
- *                         exactly matches this value (per the bucket
- *                         the ingestor rounds to). When absent, the
- *                         route analyses the LATEST snapshot per
- *                         (underlying, expiry).
- *   - lookbackMinutes     Integer 1..1440. Restricts candidate
- *                         capturedAt values to `now - lookbackMinutes`
- *                         and later. Useful to skip groups that have
- *                         not received a fresh snapshot recently.
- *   - staleThresholdMin   Integer 1..1440. Overrides the default
- *                         staleness threshold (30 min) used to flag
- *                         groups in the response.
- *   - maxGroups           Integer 1..50. Caps the number of (underlying,
- *                         expiry) groups returned. Default 12.
- *
- * Hard safety limits enforced by the handler:
- *   - Always restricted to the SNAPSHOT_INDICES universe.
- *   - The query reads at most `MAX_ROWS_PER_GROUP` legs per group
- *     (sized to comfortably cover ATM±10 strikes × 2 sides × the
- *     current+next expiries).
- *   - Without `capturedAt` the route uses the at-most-2 most-recent
- *     expiries per underlying — never the full historical fan-out.
- */
+// ─── Analytics ───────────────────────────────────────────────────────────────
+
 const MAX_GROUPS_DEFAULT = 12;
 const MAX_GROUPS_HARD_CAP = 50;
 const MAX_ROWS_PER_GROUP = 200;
@@ -232,9 +399,6 @@ router.get("/option-snapshots/analytics", strictOwner, async (req, res, next) =>
         parsePosInt(req.query["maxGroups"], MAX_GROUPS_HARD_CAP) ?? MAX_GROUPS_DEFAULT,
     };
 
-    // Step 1: pick the (underlying, expiry, captured_at) tuples to analyse.
-    // Either the operator pinned a specific timestamp, or we pick the latest
-    // capture per (underlying, expiry) — bounded by lookbackMinutes when set.
     const universeFragment = sql.join(
       SNAPSHOT_INDICES.map((u) => sql`${u}`),
       sql`, `,
@@ -252,8 +416,6 @@ router.get("/option-snapshots/analytics", strictOwner, async (req, res, next) =>
 
     let groups: Array<{ underlying: string; expiry: string; capturedAt: string }> = [];
     if (filter.capturedAt) {
-      // Operator pinned a timestamp — verify the snapshot exists at that
-      // bucket for the requested (or every) underlying/expiry pair.
       const exact = (await db.execute(sql`
         SELECT DISTINCT underlying, expiry::text AS expiry, captured_at
         FROM option_chain_snapshot
@@ -270,12 +432,6 @@ router.get("/option-snapshots/analytics", strictOwner, async (req, res, next) =>
         capturedAt: new Date(r["captured_at"] as string | Date).toISOString(),
       }));
     } else {
-      // Latest snapshot per (underlying, expiry), but ONLY for the at
-      // most 2 most-recent expiries per underlying (matches what the
-      // ingestor actually captures: current + next expiry per index).
-      // Without this cap, an operator who hasn't pruned old expiries
-      // could pull arbitrarily many groups before the global maxGroups
-      // even kicks in.
       const latest = (await db.execute(sql`
         WITH expiries_per_underlying AS (
           SELECT
@@ -313,9 +469,6 @@ router.get("/option-snapshots/analytics", strictOwner, async (req, res, next) =>
       }));
     }
 
-    // Step 2: load the legs for each group and compute analytics. Each
-    // group is bounded by MAX_ROWS_PER_GROUP so a malformed snapshot
-    // (e.g. an ingestor bug widening the window) cannot blow this up.
     const now = new Date();
     const out: Array<Record<string, unknown>> = [];
     for (const g of groups) {
@@ -371,6 +524,7 @@ router.get("/option-snapshots/analytics", strictOwner, async (req, res, next) =>
 
     res.json({
       generatedAt: now.toISOString(),
+      noSignalOrPaperTradingImpact: true,
       filters: {
         underlying: filter.underlying,
         expiry: filter.expiry,
