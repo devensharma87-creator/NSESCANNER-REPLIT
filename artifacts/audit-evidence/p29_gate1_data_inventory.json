@@ -1,0 +1,76 @@
+{
+  "gate": "G1_DATA_FOUNDATION_AUDIT",
+  "auditDate": "2026-08-06",
+  "verdict": "BLOCKED_PACK_9_DATA_FOUNDATION_INSUFFICIENT",
+  "spotCandleCSVs": {
+    "instruments": ["NIFTY", "BANKNIFTY", "SENSEX"],
+    "source": "Real Kite-fetched 15-min historical candles",
+    "filePattern": "tools/fno-backtester/data/{SYMBOL}.csv",
+    "startDate": "2024-07-18",
+    "endDate": "2026-07-17",
+    "totalLines": 12359,
+    "dataRows": 12358,
+    "approximateTradingSessions": 475,
+    "barsPerSession": 26,
+    "volume": "always 0 (index candles carry no volume)",
+    "available": true,
+    "qualifiesForDirectionalResearch": true,
+    "qualifiesForOptionPremiumBacktest": false,
+    "note": "Real spot OHLC — usable for directional strategy indicator computation. Cannot price option P&L without real snapshot data."
+  },
+  "optionChainSnapshot": {
+    "table": "option_chain_snapshot",
+    "totalRows": 0,
+    "underlyings": 0,
+    "earliest": null,
+    "latest": null,
+    "tradingDays": 0,
+    "ingestionRuns": 0,
+    "rowsWithLtp": 0,
+    "rowsWithBidAsk": 0,
+    "rowsWithIv": 0,
+    "rowsWithDelta": 0,
+    "retentionDaysConfigured": 30,
+    "available": false,
+    "blocksQualification": true,
+    "reason": "No ingestion has ever run (option_chain_snapshot_run = 0 rows). The snapshot table is completely empty. Real option premium data does not exist for any index or any date. This prevents chronological out-of-sample backtesting with real premiums."
+  },
+  "ivHistory": {
+    "table": "iv_history",
+    "rows": 316,
+    "earliest": "2026-05-05",
+    "latest": "2026-08-06",
+    "underlyings": 6,
+    "coverageDays": 93,
+    "dataType": "Daily ATM IV aggregate only (not per-contract premiums)",
+    "usableForBacktest": false,
+    "note": "Daily ATM IV history from 2026-05-05. Useful for regime context but cannot substitute for actual option premiums."
+  },
+  "backtestRuns": {
+    "table": "backtest_runs",
+    "totalRuns": 81,
+    "byMode": {
+      "DIRECTIONAL": 45,
+      "REAL_REPLAY": 36
+    },
+    "note": "81 historical backtest runs exist. DIRECTIONAL mode uses the delta-proxy (labeled MODELLED_DIRECTIONAL_PROXY). REAL_REPLAY mode requires option_chain_snapshot which is empty — all REAL_REPLAY runs would have returned UNAVAILABLE premiums."
+  },
+  "dataQualityGates": {
+    "noSyntheticPremiums": "PASS — system never fabricates premiums; UNAVAILABLE returned when missing",
+    "noInterpolation": "PASS — no interpolation path exists in premiumReplay.ts",
+    "nofutureLookhead": "PASS — snapshot fetcher uses AT_OR_BEFORE constraint",
+    "noSameBarSignalFill": "PASS — next-eligible-quote fill policy enforced (5-min tolerance)",
+    "noZeroPriceFallback": "PASS — zero LTP rejected in resolvePremiumFromRow",
+    "excludedOutcomesCounted": "PASS — UNAVAILABLE trades counted and disclosed",
+    "spreadLegSynchronized": "N/A — no multi-leg snapshot data exists",
+    "costsAndLotSizesEffective": "PASS — FNO_COST_PARAMS_ASOF=2026-04-01; LOT_SIZES from 2026-JAN revision",
+    "noSurvivorshipBias": "PASS — candle CSVs contain full index history; no look-forward selection"
+  },
+  "remediationPlan": {
+    "step1": "Activate option_chain_snapshot ingestion (5-min interval, NIFTY+BANKNIFTY+SENSEX, current+next expiry)",
+    "step2": "Run continuously for a minimum of 6 months to build sufficient history",
+    "step3": "After 6 months: re-run Gate 1 audit to verify coverage ≥ 60% per session",
+    "step4": "After coverage confirmed: re-execute Gates 2–10 with the frozen protocol",
+    "minimumRequiredHistory": "6 months of snapshot coverage across all three indices for a 3-fold walk-forward"
+  }
+}

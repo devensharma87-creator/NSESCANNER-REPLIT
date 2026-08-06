@@ -1,0 +1,14 @@
+PACK9 GATE 2 — FROZEN RESEARCH PROTOCOL HASH
+=============================================
+Protocol file: artifacts/audit-evidence/p29_gate2_research_protocol.md
+Hash algorithm: SHA-256
+Hash: 1d9309fee711cd95a1f19e7e31ee1e041875743623965b3baeedb1299eec2d61
+Recorded at: 2026-08-06T10:10:00Z
+
+This hash was recorded BEFORE any backtest results were inspected.
+Any modification to the protocol document after this point invalidates
+the untouched test period and requires a new protocol ID.
+
+Test period boundary (SEALED):
+  Start: 2026-04-01
+  End:   2026-07-17

@@ -1,0 +1,13 @@
+{
+  "gate": "G7_INDEPENDENT_REPRODUCTION",
+  "auditDate": "2026-08-06",
+  "status": "NOT_APPLICABLE",
+  "reason": "Gate 7 applies only to UNIVERSAL_FNO_V2_QUALIFIED candidates. Zero strategies qualified (0 snapshot rows → data foundation insufficient). No reconciliation is required.",
+  "deterministicProofs": {
+    "bsOptionPricer": "PROVEN — bsOptionPrice(S,K,T,r,σ,isCall) is a pure function; same inputs always produce same output (Category 13 + 19 tests pass)",
+    "premiumResolution": "PROVEN — resolvePremiumFromRow is a pure function; idempotent for same SnapshotRow (Category 19 test)",
+    "directionalReplay": "PROVEN — runDirectional is deterministic for same candle array (Category 13 test)",
+    "noLookahead": "PROVEN — entry spot equals close of decision bar, not any future bar (Category 4 test)",
+    "missingDataFailsClosed": "PROVEN — resolveSnapshotLeg returns null when fetcher returns null (Category 5 test)"
+  }
+}

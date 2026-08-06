@@ -6,6 +6,18 @@ Format: `## YYYY-MM-DD — <short title>` then bullet points with: what changed,
 
 ---
 
+## 2026-08-06 — Pack 9: Professional F&O Strategy Research & Qualification (BLOCKED)
+
+- Pre-registered, net-of-cost, out-of-sample qualification protocol executed for 7 F&O strategy archetypes (NIFTY/BANKNIFTY/SENSEX).
+- Protocol frozen and SHA-256 hashed (`1d9309fee...`) before any backtest results were inspected; test period (2026-04-01→2026-07-17) sealed.
+- Gate 1 finding: `option_chain_snapshot` = 0 rows (0 ingestion runs ever); all 7 candidates → `BLOCKED_DATA_FOUNDATION_INSUFFICIENT`; 0 strategies qualified.
+- New test file: `artifacts/api-server/src/lib/p29.pack9.research.test.ts` (79 tests, 24 categories — all PASS); total api-server 6,043, scanner 1,250.
+- Evidence files written to `artifacts/audit-evidence/`: p29_gate1_data_inventory.json, p29_gate2_research_protocol.md, p29_gate2_protocol_hash.txt, p29_gate4_cost_reconciliation.json, p29_gate5–8 JSONs, FAST_TRACK_PACK_9 main doc.
+- Gate 0 carryover: Pack 8 obs log parsed — 208 obs, all MATCH_WITHIN_TOLERANCE, max Δ=4.28 bps; 10-minute window (30-min req. not met — market closed).
+- No V2 strategies added, no FNO_PAPER_V2 activation, STRATEGY_REGISTRY still 6 entries, Global untouched.
+- **Re-read if**: activating option_chain_snapshot ingestion, re-running Pack 9 qualification with real data, or adding strategies to STRATEGY_REGISTRY.
+- **Files**: `artifacts/api-server/src/lib/p29.pack9.research.test.ts`, `artifacts/audit-evidence/FAST_TRACK_PACK_9_*.md`, `artifacts/audit-evidence/p29_gate*.json`.
+
 ## 2026-07-28 — Phase A0.3.2: Ctx.vwap→pivotRef/authVwap rename + 9-record setup contract
 
 - `optionSignals.ts`: Removed `Ctx.vwap: number`; added `Ctx.pivotRef: number` (geometric ref = sessionVwap ?? spot) and `Ctx.authVwap: number | null` (null when vwapAvailable=false); 23 function-body replacements (c.authVwap! in VWAP-guarded paths, c.pivotRef for geometry/connectors)

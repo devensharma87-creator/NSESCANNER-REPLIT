@@ -1,0 +1,60 @@
+{
+  "gate": "G5_CHRONOLOGICAL_VALIDATION",
+  "auditDate": "2026-08-06",
+  "status": "BLOCKED_DATA_FOUNDATION_INSUFFICIENT",
+  "blockReason": "option_chain_snapshot has 0 rows. No real option premiums are available for any index on any date. Gates 5-7 cannot execute for real-premium strategies.",
+  "directionalResearch": {
+    "mode": "MODELLED_DIRECTIONAL_PROXY",
+    "label": "EXCLUDED_FROM_QUALIFICATION",
+    "dataSource": "Real 15-min spot candles (NIFTY/BANKNIFTY/SENSEX, 2024-07-18 to 2026-07-17)",
+    "barsAvailable": 12358,
+    "tradingSessionsApprox": 475,
+    "warmupBars": 30,
+    "strategies": [
+      {
+        "id": "ORB_BREAKOUT",
+        "dataRequirement": "Real spot candles (✓) + Real option premiums (✗ — UNAVAILABLE)",
+        "qualificationStatus": "BLOCKED_DATA_FOUNDATION_INSUFFICIENT",
+        "directionalEvidenceStatus": "MODELLED_DIRECTIONAL_PROXY — excluded from qualification"
+      },
+      {
+        "id": "VWAP_PULLBACK",
+        "dataRequirement": "Real spot candles (✓) + Real option premiums (✗ — UNAVAILABLE)",
+        "qualificationStatus": "BLOCKED_DATA_FOUNDATION_INSUFFICIENT",
+        "directionalEvidenceStatus": "MODELLED_DIRECTIONAL_PROXY — excluded from qualification"
+      },
+      {
+        "id": "EMA_TREND_RETEST",
+        "dataRequirement": "Real spot candles (✓) + Real option premiums (✗ — UNAVAILABLE)",
+        "qualificationStatus": "BLOCKED_DATA_FOUNDATION_INSUFFICIENT",
+        "directionalEvidenceStatus": "MODELLED_DIRECTIONAL_PROXY — excluded from qualification"
+      },
+      {
+        "id": "FAILED_BREAKOUT_REVERSAL",
+        "dataRequirement": "Real spot candles (✓) + Real option premiums (✗ — UNAVAILABLE)",
+        "qualificationStatus": "BLOCKED_DATA_FOUNDATION_INSUFFICIENT",
+        "directionalEvidenceStatus": "MODELLED_DIRECTIONAL_PROXY — excluded from qualification"
+      },
+      {
+        "id": "RANGE_REVERSAL",
+        "dataRequirement": "Real spot candles (✓) + Real option premiums (✗ — UNAVAILABLE)",
+        "qualificationStatus": "BLOCKED_DATA_FOUNDATION_INSUFFICIENT",
+        "directionalEvidenceStatus": "MODELLED_DIRECTIONAL_PROXY — excluded from qualification"
+      },
+      {
+        "id": "COMPRESSION_BREAKOUT",
+        "dataRequirement": "Real spot candles (✓) + Real option premiums (✗ — UNAVAILABLE)",
+        "qualificationStatus": "BLOCKED_DATA_FOUNDATION_INSUFFICIENT",
+        "directionalEvidenceStatus": "MODELLED_DIRECTIONAL_PROXY — excluded from qualification"
+      }
+    ],
+    "candidatesC4_C6_C7": {
+      "C4_DEBIT_SPREAD": "BLOCKED — requires synchronized real bid/ask for both legs; no snapshot data",
+      "C6_STRADDLE_STRANGLE": "BLOCKED — requires two-leg real premiums at synchronized timestamps",
+      "C7_IRON_CONDOR": "BLOCKED — requires four-leg real bid/ask with margin/tail-loss modeling"
+    }
+  },
+  "walkForwardStatus": "NOT_EXECUTED — blocked by data foundation",
+  "regimeAnalysisStatus": "NOT_EXECUTED — blocked by data foundation",
+  "stressTestStatus": "NOT_EXECUTED — blocked by data foundation"
+}

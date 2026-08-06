@@ -1,0 +1,29 @@
+{
+  "gate": "G6_PRE_REGISTERED_QUALIFICATION",
+  "auditDate": "2026-08-06",
+  "protocolHash": "1d9309fee711cd95a1f19e7e31ee1e041875743623965b3baeedb1299eec2d61",
+  "qualificationThresholdsApplied": {
+    "minTradesPerIndex": 30,
+    "minNetExpectancy": "positive (> 0) after all costs",
+    "minProfitFactor": 1.30,
+    "maxDrawdown": "20% of starting capital",
+    "maxMissingPremiumRate": 0.30,
+    "stressSurvival": "2× spread, 3× slippage",
+    "concentrationLimit": "no single day/expiry/index > 40% of net profit",
+    "regimeSurvival": "no single regime ≥ -15% drawdown",
+    "parameterStability": "±10% perturbation does not flip sign of net P&L",
+    "walkForwardConsistency": "≥2 of 3 folds positive validation P&L"
+  },
+  "candidateResults": [
+    { "id": "C1_ORB_BREAKOUT",              "class": "BLOCKED_DATA_FOUNDATION_INSUFFICIENT", "reason": "0 snapshot rows" },
+    { "id": "C2_EMA_TREND_CONTINUATION",    "class": "BLOCKED_DATA_FOUNDATION_INSUFFICIENT", "reason": "0 snapshot rows" },
+    { "id": "C3_COMPRESSION_BREAKOUT",      "class": "BLOCKED_DATA_FOUNDATION_INSUFFICIENT", "reason": "0 snapshot rows" },
+    { "id": "C4_DEBIT_SPREAD",              "class": "BLOCKED_DATA_FOUNDATION_INSUFFICIENT", "reason": "0 snapshot rows; no synchronized bid/ask for multi-leg" },
+    { "id": "C5_FAILED_BREAKOUT_REVERSAL",  "class": "BLOCKED_DATA_FOUNDATION_INSUFFICIENT", "reason": "0 snapshot rows" },
+    { "id": "C6_STRADDLE_STRANGLE",         "class": "BLOCKED_DATA_FOUNDATION_INSUFFICIENT", "reason": "0 snapshot rows; no synchronized two-leg premiums" },
+    { "id": "C7_IRON_CONDOR",              "class": "BLOCKED_DATA_FOUNDATION_INSUFFICIENT", "reason": "0 snapshot rows; no synchronized four-leg bid/ask" },
+    { "id": "CB_BENCHMARK_CONTROLS",        "class": "MODELLED_DIRECTIONAL_PROXY",           "reason": "Existing V1 strategies use delta-proxy only; excluded per Gate 4" }
+  ],
+  "universalFnoV2QualifiedCount": 0,
+  "summary": "Zero strategies received UNIVERSAL_FNO_V2_QUALIFIED. This is a valid professional outcome — the data foundation is insufficient to execute the qualification protocol."
+}

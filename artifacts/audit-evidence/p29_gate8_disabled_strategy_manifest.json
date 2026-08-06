@@ -1,0 +1,18 @@
+{
+  "gate": "G8_DISABLED_PRODUCTION_IMPLEMENTATION",
+  "auditDate": "2026-08-06",
+  "status": "NOT_APPLICABLE",
+  "reason": "Gate 8 applies only to UNIVERSAL_FNO_V2_QUALIFIED candidates. Zero strategies qualified (data foundation insufficient). No disabled implementation was created.",
+  "fnoV2FeatureFlagStatus": "NOT_ACTIVATED",
+  "swingV2FeatureFlagStatus": "NOT_ACTIVATED",
+  "currentCohortImpact": "ZERO — no new strategy was registered in STRATEGY_REGISTRY; no signal emission, no paper-trade creation, no Telegram alert, no broker order",
+  "v1RegistryPreserved": {
+    "ORB_BREAKOUT": "unchanged",
+    "VWAP_PULLBACK": "unchanged",
+    "EMA_TREND_RETEST": "unchanged",
+    "FAILED_BREAKOUT_REVERSAL": "unchanged",
+    "RANGE_REVERSAL": "unchanged",
+    "COMPRESSION_BREAKOUT": "unchanged"
+  },
+  "qualifiedStrategies": []
+}

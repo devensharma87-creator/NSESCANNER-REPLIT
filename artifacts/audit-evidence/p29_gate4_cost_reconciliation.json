@@ -1,0 +1,42 @@
+{
+  "gate": "G4_EXECUTION_AND_COST_MODEL",
+  "auditDate": "2026-08-06",
+  "costModelSource": "artifacts/api-server/src/lib/fnoCostModel.ts",
+  "effectiveDate": "2026-04-01",
+  "costComponents": {
+    "brokerage": { "rate": "₹20 per side (₹40 round-trip)", "type": "fixed" },
+    "stt": { "rate": "0.15% on sell-side option premium turnover", "appliesTo": "exit leg only" },
+    "exchangeTransaction": { "rate": "0.03503% on total premium turnover (both legs)", "appliesTo": "entry + exit" },
+    "sebi": { "rate": "₹10 per crore (0.0001%) on total premium turnover", "appliesTo": "entry + exit" },
+    "gst": { "rate": "18% on (brokerage + exchange + SEBI)", "appliesTo": "derived" },
+    "stampDuty": { "rate": "0.003% on buy-side premium", "appliesTo": "entry leg only" },
+    "spread": { "default": "25 bps per side; real bid/ask used when available", "appliesTo": "entry + exit" },
+    "slippage": { "default": "10 bps per side", "appliesTo": "entry + exit" }
+  },
+  "multiLegMultiplication": "All per-leg costs multiplied by leg count; spread/slippage applied independently per leg",
+  "deltaProxyLabeling": {
+    "label": "MODELLED_DIRECTIONAL_PROXY",
+    "applies": "All 6 strategy families in the research registry (directional.ts)",
+    "qualificationStatus": "EXCLUDED_FROM_QUALIFICATION",
+    "notes": "Delta proxy P&L = ATM_DELTA (0.50) × sign × (exitSpot − entrySpot) × lotSize × lots. Premium fields optionEntry/optionExit are null on every proxy trade."
+  },
+  "grossVsNetReporting": {
+    "grossPnl": "Delta-proxy spot move P&L before any costs",
+    "costBreakdown": "All 8 components itemized separately",
+    "netPnl": "grossPnl − totalCharges",
+    "reportingPolicy": "All three reported separately on every trade; no netting before disclosure"
+  },
+  "missingPremiumPolicy": {
+    "zeroFill": "PROHIBITED — zero LTP rejected by resolvePremiumFromRow",
+    "interpolation": "PROHIBITED — no averaging across strikes or sessions",
+    "unavailableCount": "Counted and disclosed in dataQuality.mix.unavailable",
+    "proxyFallback": "PROHIBITED for real-premium paths; proxy is a separate labeled mode"
+  },
+  "stressTestProtocol": {
+    "spreadMultiplier": "2× default spread",
+    "slippageMultiplier": "3× default slippage",
+    "qualification": "Strategy must remain net-positive at stress levels to qualify"
+  },
+  "verdict": "COST_MODEL_COMPLETE_AND_COMPLIANT",
+  "notes": "Cost model is complete and uses canonical FNO_COST_PARAMS. No local rate constants exist in premiumReplay.ts or backtestCharges.ts. All qualification would fail regardless due to 0 snapshot rows."
+}
