@@ -62,6 +62,11 @@ import {
 } from "@/lib/foCockpitView";
 import { LedgerHealthCard } from "@/components/ledger-health-card";
 import { PageHeader } from "@/components/ui/page-header";
+import {
+  CohortSelector,
+  V2NotActivatedPanel,
+  type CohortChoice,
+} from "@/components/CohortStatusPanel";
 
 const BASE = import.meta.env.BASE_URL;
 
@@ -403,6 +408,7 @@ export default function PaperTrading() {
 }
 
 function EquitySegment() {
+  const [cohortChoice, setCohortChoice] = useState<CohortChoice>("LEGACY");
   const qc = useQueryClient();
   const [buyOpen, setBuyOpen] = useState(false);
   const account = useQuery({
@@ -426,6 +432,10 @@ function EquitySegment() {
   // live-only by design. Reports tab (/paper-reports) carries the history.
   return (
     <div className="space-y-6">
+      <CohortSelector family="SWING" value={cohortChoice} onChange={setCohortChoice} />
+      {cohortChoice === "V2" ? (
+        <V2NotActivatedPanel family="SWING" />
+      ) : (<>
       <LedgerHealthCard segment="EQUITY" />
       <EqAccountCard
         data={account.data}
@@ -446,6 +456,7 @@ function EquitySegment() {
         onClose={() => setBuyOpen(false)}
         onSuccess={handleBuySuccess}
       />
+      </>)}
     </div>
   );
 }
@@ -1610,6 +1621,7 @@ interface FoAnalytics {
 }
 
 function FOSegment() {
+  const [cohortChoice, setCohortChoice] = useState<CohortChoice>("LEGACY");
   const qc = useQueryClient();
   const account = useQuery({
     queryKey: QK_ACCOUNT,
@@ -1905,6 +1917,10 @@ function FOSegment() {
 
   return (
     <div className="space-y-6">
+      <CohortSelector family="FNO" value={cohortChoice} onChange={setCohortChoice} />
+      {cohortChoice === "V2" ? (
+        <V2NotActivatedPanel family="FNO" />
+      ) : (<>
       <LedgerHealthCard segment="FNO" />
       <FoCockpitSafetyBanner p25={p25} freshness={freshness} />
       <FoCockpitSummaryCards
@@ -1979,6 +1995,7 @@ function FOSegment() {
         loading={missed.isLoading}
         error={missed.error instanceof Error ? missed.error.message : null}
       />
+      </>)}
     </div>
   );
 }

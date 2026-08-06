@@ -51,3 +51,16 @@ export type { OptionLegType } from "./generated/types/optionLegType";
 export type { OptionLegAction } from "./generated/types/optionLegAction";
 export type { IndexQuoteTrend } from "./generated/types/indexQuoteTrend";
 export { GetOptionSignalsResponse } from "./generated/api";
+export type {
+  PaperCohortId,
+  V2LockStatus,
+  CohortMetadata,
+  V2NotActivatedResponse,
+} from "./generated/types/paperCohortId";
+export {
+  paperCohortIdSchema,
+  v2LockStatusSchema,
+  cohortMetadataSchema,
+  v2NotActivatedResponseSchema,
+  PAPER_COHORT_ID_VALUES,
+} from "./generated/types/paperCohortId";
