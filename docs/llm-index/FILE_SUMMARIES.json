@@ -3271,25 +3271,26 @@
   {
     "path": "artifacts/api-server/src/lib/marketData/analyticsYahoo.ts",
     "purpose": "data-source",
-    "lines": 168,
+    "lines": 175,
     "exports": [
+      "DELAYED_ANALYTICS_ONLY",
       "getAnalyticsDaily",
       "getAnalyticsQuote"
     ],
     "externalImports": [],
     "routes": [],
-    "hash": "0d1c5b2b4f53542f"
+    "hash": "7ab2d071c1747871"
   },
   {
     "path": "artifacts/api-server/src/lib/marketData/b1.canonical.test.ts",
     "purpose": "test",
-    "lines": 885,
+    "lines": 898,
     "exports": [],
     "externalImports": [
       "vitest"
     ],
     "routes": [],
-    "hash": "3475d65dcfb0df5e"
+    "hash": "8adaf391fdc6ad72"
   },
   {
     "path": "artifacts/api-server/src/lib/marketData/caches.ts",
@@ -3426,6 +3427,56 @@
     "externalImports": [],
     "routes": [],
     "hash": "5874ba7367cb42c5"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/marketData/indianApiClient.ts",
+    "purpose": "lib",
+    "lines": 492,
+    "exports": [
+      "FetchImpl",
+      "IndianApiErrorKind",
+      "IndianApiError",
+      "IndianApiPlan",
+      "INDIANAPI_PLAN_HOST",
+      "detectIndianApiPlan",
+      "IndianApiConfigState",
+      "IndianApiConfig",
+      "resolveIndianApiConfig",
+      "IndianApiStockProfile",
+      "IndianApiStockRatios",
+      "IndianApiStockData",
+      "IndianApiClient",
+      "extractStockProfile",
+      "extractStockRatios",
+      "createIndianApiClient"
+    ],
+    "externalImports": [],
+    "routes": [],
+    "hash": "1b0afd0ac8adbf23"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/marketData/indianApiProvider.ts",
+    "purpose": "lib",
+    "lines": 388,
+    "exports": [
+      "IndianApiHealth",
+      "isIndianApiConfigured",
+      "__setIndianApiClientForTests",
+      "indianApiHealth",
+      "StockProfileResult",
+      "getStockProfile",
+      "StockRatiosResult",
+      "getStockRatios",
+      "FundamentalsResult",
+      "getFundamentals",
+      "probeIndianApiConnection",
+      "IndianApiCapabilityState",
+      "IndianApiCapabilityEntry",
+      "getIndianApiCapabilityManifest"
+    ],
+    "externalImports": [],
+    "routes": [],
+    "hash": "8f8ee0f13ee2e1ca"
   },
   {
     "path": "artifacts/api-server/src/lib/marketData/indstocksClient.tokenProvider.test.ts",
@@ -3760,9 +3811,26 @@
     "hash": "0ac31f695ee2ef01"
   },
   {
+    "path": "artifacts/api-server/src/lib/marketData/parityClassification.ts",
+    "purpose": "lib",
+    "lines": 270,
+    "exports": [
+      "ParityClassification",
+      "PARITY_THRESHOLDS",
+      "ParityObservation",
+      "ParityAggregation",
+      "classifyParityObservation",
+      "percentile",
+      "aggregateObservations"
+    ],
+    "externalImports": [],
+    "routes": [],
+    "hash": "376c1972e8a289db"
+  },
+  {
     "path": "artifacts/api-server/src/lib/marketData/policy.ts",
     "purpose": "lib",
-    "lines": 119,
+    "lines": 153,
     "exports": [
       "ProviderRole",
       "ProviderPolicy",
@@ -3772,7 +3840,7 @@
     ],
     "externalImports": [],
     "routes": [],
-    "hash": "453e15ca9c4e2535"
+    "hash": "583a5f076203f7f6"
   },
   {
     "path": "artifacts/api-server/src/lib/marketData/provenance.test.ts",
@@ -3806,7 +3874,7 @@
   {
     "path": "artifacts/api-server/src/lib/marketData/providerCapability.ts",
     "purpose": "lib",
-    "lines": 257,
+    "lines": 289,
     "exports": [
       "ProviderCapabilityState",
       "DataDomain",
@@ -3818,7 +3886,7 @@
     ],
     "externalImports": [],
     "routes": [],
-    "hash": "5189da33818fc210"
+    "hash": "2caeb8e199ff9352"
   },
   {
     "path": "artifacts/api-server/src/lib/marketData/providerImportGuard.test.ts",
@@ -3925,7 +3993,7 @@
   {
     "path": "artifacts/api-server/src/lib/marketData/router.ts",
     "purpose": "lib",
-    "lines": 453,
+    "lines": 469,
     "exports": [
       "getEquityQuotes",
       "getEquityQuote",
@@ -3945,7 +4013,47 @@
       "@workspace/db"
     ],
     "routes": [],
-    "hash": "efc12d59da11d905"
+    "hash": "334f024ff2bcfb4d"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/marketData/shadowDispatch.ts",
+    "purpose": "lib",
+    "lines": 123,
+    "exports": [
+      "__resetShadowDispatchForTests",
+      "dispatchShadowQuote",
+      "dispatchShadowCandles"
+    ],
+    "externalImports": [],
+    "routes": [],
+    "hash": "c603b67f5453bf00"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/marketData/shadowState.ts",
+    "purpose": "lib",
+    "lines": 200,
+    "exports": [
+      "ShadowRoutingState",
+      "ShadowProvider",
+      "ShadowQuoteMetrics",
+      "ShadowCandleMetrics",
+      "ShadowParitySummary",
+      "LTP_RELATIVE_TOLERANCE",
+      "CANDLE_CLOSE_RELATIVE_TOLERANCE",
+      "SHADOW_MAX_AGE_SEC",
+      "PARITY_SAMPLE_RING_SIZE",
+      "getShadowRoutingState",
+      "setShadowRoutingState",
+      "__resetShadowStateForTests",
+      "recordQuoteSample",
+      "recordCandleSample",
+      "getParitySummary",
+      "assertCanonicalUnchanged",
+      "fireShadow"
+    ],
+    "externalImports": [],
+    "routes": [],
+    "hash": "c757db5f37416418"
   },
   {
     "path": "artifacts/api-server/src/lib/marketData/sourceValidation.ts",
@@ -4009,7 +4117,70 @@
     ],
     "externalImports": [],
     "routes": [],
-    "hash": "7a97feaf63f07af4"
+    "hash": "34673630f9024e58"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/marketData/upstoxClient.ts",
+    "purpose": "lib",
+    "lines": 471,
+    "exports": [
+      "FetchImpl",
+      "UpstoxErrorKind",
+      "UpstoxError",
+      "UpstoxAuthMode",
+      "UpstoxConfig",
+      "resolveUpstoxConfig",
+      "UpstoxInstrument",
+      "UpstoxQuote",
+      "UpstoxCandle",
+      "UpstoxOptionRow",
+      "UpstoxClient",
+      "UpstoxCandleInterval",
+      "createUpstoxClient"
+    ],
+    "externalImports": [],
+    "routes": [],
+    "hash": "93b8be66203e4d12"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/marketData/upstoxInstrumentMap.ts",
+    "purpose": "lib",
+    "lines": 648,
+    "exports": [
+      "CanonicalInstrumentMapping",
+      "MappingDiagnostic",
+      "MappingFailureKind",
+      "InstrumentMasterCache",
+      "__setInstrumentMapForTests",
+      "__resetInstrumentMapForTests",
+      "ResolveOptions",
+      "resolveInstrumentKey",
+      "IndexBootstrapValidationStatus",
+      "IndexBootstrapValidationResult",
+      "validateIndexBootstrap",
+      "loadInstrumentMaster",
+      "__loadTestFixture"
+    ],
+    "externalImports": [],
+    "routes": [],
+    "hash": "da1cee1df5f819a6"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/marketData/upstoxProvider.ts",
+    "purpose": "lib",
+    "lines": 295,
+    "exports": [
+      "UpstoxHealth",
+      "isUpstoxConfigured",
+      "__setUpstoxClientForTests",
+      "upstoxHealth",
+      "shadowFetchQuote",
+      "shadowFetchCandles",
+      "probeUpstoxConnection"
+    ],
+    "externalImports": [],
+    "routes": [],
+    "hash": "ea49564991dcf0da"
   },
   {
     "path": "artifacts/api-server/src/lib/marketData/validationStats.ts",
@@ -4768,6 +4939,549 @@
     "hash": "670da4bbc570a2a8"
   },
   {
+    "path": "artifacts/api-server/src/lib/p21a.swingAtomicClaim.test.ts",
+    "purpose": "test",
+    "lines": 495,
+    "exports": [],
+    "externalImports": [
+      "vitest",
+      "node:fs",
+      "node:url",
+      "node:path"
+    ],
+    "routes": [],
+    "hash": "944451c1eaca91b5"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/p21a.swingExecutionSafety.test.ts",
+    "purpose": "test",
+    "lines": 278,
+    "exports": [],
+    "externalImports": [
+      "vitest",
+      "node:fs",
+      "node:url",
+      "node:path"
+    ],
+    "routes": [],
+    "hash": "3be32296bee635ab"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/p21a.swingGatesAF.test.ts",
+    "purpose": "test",
+    "lines": 497,
+    "exports": [],
+    "externalImports": [
+      "vitest",
+      "node:fs",
+      "node:url",
+      "node:path"
+    ],
+    "routes": [],
+    "hash": "fb38350286f9882d"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/p22.authBoundaries.test.ts",
+    "purpose": "test",
+    "lines": 281,
+    "exports": [],
+    "externalImports": [
+      "express",
+      "cookie-parser",
+      "node:http",
+      "node:crypto",
+      "node:net",
+      "node:fs",
+      "node:path"
+    ],
+    "routes": [],
+    "hash": "f2e8521ad88e0c94"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/p22.cacheScheduler.test.ts",
+    "purpose": "test",
+    "lines": 246,
+    "exports": [],
+    "externalImports": [
+      "vitest",
+      "node:fs",
+      "node:path"
+    ],
+    "routes": [],
+    "hash": "5ae0761212c4c15d"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/p22.inputValidation.test.ts",
+    "purpose": "test",
+    "lines": 289,
+    "exports": [],
+    "externalImports": [
+      "express",
+      "cookie-parser",
+      "node:http",
+      "node:crypto",
+      "node:net"
+    ],
+    "routes": [],
+    "hash": "41f6752b2ecd2fc3"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/p22.journeyIntegrated.test.ts",
+    "purpose": "test",
+    "lines": 461,
+    "exports": [],
+    "externalImports": [
+      "express",
+      "cookie-parser",
+      "node:http",
+      "node:crypto",
+      "node:net"
+    ],
+    "routes": [],
+    "hash": "fc83f45563e8eb4c"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/p22.routeManifest.test.ts",
+    "purpose": "test",
+    "lines": 182,
+    "exports": [],
+    "externalImports": [
+      "vitest",
+      "node:fs",
+      "node:path"
+    ],
+    "routes": [],
+    "hash": "45adf90b0e6f09e4"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/p22.secretsConfig.test.ts",
+    "purpose": "test",
+    "lines": 184,
+    "exports": [],
+    "externalImports": [
+      "vitest",
+      "node:fs",
+      "node:path"
+    ],
+    "routes": [],
+    "hash": "89efe20bcde18fb3"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/p22a.brokerHardBlock.test.ts",
+    "purpose": "test",
+    "lines": 247,
+    "exports": [],
+    "externalImports": [
+      "vitest"
+    ],
+    "routes": [],
+    "hash": "1941381ad0ba584e"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/p22a.configRejection.test.ts",
+    "purpose": "test",
+    "lines": 402,
+    "exports": [],
+    "externalImports": [
+      "vitest",
+      "node:child_process",
+      "node:fs",
+      "node:path"
+    ],
+    "routes": [],
+    "hash": "164c0f4e320241db"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/p22a.d12Auth.test.ts",
+    "purpose": "test",
+    "lines": 420,
+    "exports": [],
+    "externalImports": [
+      "express",
+      "cookie-parser",
+      "node:http",
+      "node:crypto",
+      "node:net"
+    ],
+    "routes": [],
+    "hash": "e082f72b7ab06059"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/p22a.ownerJourneys.test.ts",
+    "purpose": "test",
+    "lines": 469,
+    "exports": [],
+    "externalImports": [
+      "express",
+      "cookie-parser",
+      "node:http",
+      "node:crypto",
+      "node:net"
+    ],
+    "routes": [],
+    "hash": "5b92049731b278bd"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/p22a.runtimeBoundaries.test.ts",
+    "purpose": "test",
+    "lines": 407,
+    "exports": [],
+    "externalImports": [
+      "cors",
+      "helmet",
+      "cookie-parser",
+      "express-rate-limit",
+      "node:http",
+      "node:net"
+    ],
+    "routes": [],
+    "hash": "20d31d66404e763e"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/p22a.schedulerCache.test.ts",
+    "purpose": "test",
+    "lines": 301,
+    "exports": [],
+    "externalImports": [],
+    "routes": [],
+    "hash": "8c5558a2072fe6fb"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/p22b.configRejectionExact.test.ts",
+    "purpose": "test",
+    "lines": 465,
+    "exports": [],
+    "externalImports": [
+      "vitest",
+      "node:child_process",
+      "node:path"
+    ],
+    "routes": [],
+    "hash": "fdd38ab8d8d2a697"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/p23a.upstoxProvider.test.ts",
+    "purpose": "test",
+    "lines": 379,
+    "exports": [],
+    "externalImports": [
+      "vitest"
+    ],
+    "routes": [],
+    "hash": "054cf851f5881b2b"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/p23a2.upstoxAuthMode.test.ts",
+    "purpose": "test",
+    "lines": 94,
+    "exports": [],
+    "externalImports": [
+      "vitest"
+    ],
+    "routes": [],
+    "hash": "992a0129970cc849"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/p23b.indianApiProvider.test.ts",
+    "purpose": "test",
+    "lines": 313,
+    "exports": [],
+    "externalImports": [
+      "vitest"
+    ],
+    "routes": [],
+    "hash": "9875aa67aa99a8d4"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/p23b2.instrumentMap.test.ts",
+    "purpose": "test",
+    "lines": 210,
+    "exports": [],
+    "externalImports": [
+      "vitest"
+    ],
+    "routes": [],
+    "hash": "ba2089cda628a3eb"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/p23b5.indianApiPlanHost.test.ts",
+    "purpose": "test",
+    "lines": 299,
+    "exports": [],
+    "externalImports": [
+      "vitest"
+    ],
+    "routes": [],
+    "hash": "b9b24364bb04cfe9"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/p23b6.indianApiEndpointContract.test.ts",
+    "purpose": "test",
+    "lines": 389,
+    "exports": [],
+    "externalImports": [
+      "vitest"
+    ],
+    "routes": [],
+    "hash": "f19ac229599041f4"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/p23b7.indianApiEntitlement.test.ts",
+    "purpose": "test",
+    "lines": 228,
+    "exports": [],
+    "externalImports": [
+      "vitest"
+    ],
+    "routes": [],
+    "hash": "09760e97686ae822"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/p23c.shadowNonInterference.test.ts",
+    "purpose": "test",
+    "lines": 311,
+    "exports": [],
+    "externalImports": [
+      "vitest"
+    ],
+    "routes": [],
+    "hash": "7a8791463a6d58bc"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/p23c2.routerWiring.test.ts",
+    "purpose": "test",
+    "lines": 128,
+    "exports": [],
+    "externalImports": [
+      "vitest"
+    ],
+    "routes": [],
+    "hash": "cab323a6e4ef6128"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/p23d.crossTabParity.test.ts",
+    "purpose": "test",
+    "lines": 159,
+    "exports": [],
+    "externalImports": [
+      "vitest",
+      "node:fs",
+      "node:path"
+    ],
+    "routes": [],
+    "hash": "4dd7c62c78c6f81a"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/p23d2.indianApiHostAllowlist.test.ts",
+    "purpose": "test",
+    "lines": 216,
+    "exports": [],
+    "externalImports": [
+      "vitest"
+    ],
+    "routes": [],
+    "hash": "8beb2620481b1075"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/p23d3.upstoxIndexBodValidation.test.ts",
+    "purpose": "test",
+    "lines": 184,
+    "exports": [],
+    "externalImports": [
+      "vitest"
+    ],
+    "routes": [],
+    "hash": "f2a0e60fd6cf85a2"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/p23e.fundamentalsRoute.test.ts",
+    "purpose": "test",
+    "lines": 164,
+    "exports": [],
+    "externalImports": [
+      "vitest"
+    ],
+    "routes": [],
+    "hash": "465586d411482bcf"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/p23e2.registeredRouteRuntime.test.ts",
+    "purpose": "test",
+    "lines": 295,
+    "exports": [],
+    "externalImports": [
+      "vitest",
+      "express"
+    ],
+    "routes": [],
+    "hash": "7abe88e7cae13905"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/p23f.crossTabParity.test.ts",
+    "purpose": "test",
+    "lines": 165,
+    "exports": [],
+    "externalImports": [
+      "vitest"
+    ],
+    "routes": [],
+    "hash": "74d30ba8a01e41bf"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/p23f2.crossTabRuntime.test.ts",
+    "purpose": "test",
+    "lines": 200,
+    "exports": [],
+    "externalImports": [
+      "vitest"
+    ],
+    "routes": [],
+    "hash": "c3dd504d32ab89c0"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/p25b.gate1.performanceTruth.test.ts",
+    "purpose": "test",
+    "lines": 195,
+    "exports": [],
+    "externalImports": [
+      "vitest"
+    ],
+    "routes": [],
+    "hash": "cfbabc3d45f466b8"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/p25b.gate2.stagedOrderForensic.test.ts",
+    "purpose": "test",
+    "lines": 360,
+    "exports": [],
+    "externalImports": [
+      "vitest"
+    ],
+    "routes": [],
+    "hash": "bc1472a82cca4bc9"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/p25b.gate5and6.classificationAndScope.test.ts",
+    "purpose": "test",
+    "lines": 577,
+    "exports": [],
+    "externalImports": [
+      "vitest"
+    ],
+    "routes": [],
+    "hash": "18451a88395f0906"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/p26.gate3.shadowNonInterference.test.ts",
+    "purpose": "test",
+    "lines": 412,
+    "exports": [],
+    "externalImports": [
+      "vitest",
+      "node:fs",
+      "node:path"
+    ],
+    "routes": [],
+    "hash": "04bd5c73aa8ae11a"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/p26.gate4.indianApiEntitlement.test.ts",
+    "purpose": "test",
+    "lines": 468,
+    "exports": [],
+    "externalImports": [
+      "vitest"
+    ],
+    "routes": [],
+    "hash": "08a09561ff664779"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/p26.gate5.parityModel.test.ts",
+    "purpose": "test",
+    "lines": 426,
+    "exports": [],
+    "externalImports": [
+      "vitest"
+    ],
+    "routes": [],
+    "hash": "dec36974791db48d"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/p26.gate6.crossTabEquality.test.ts",
+    "purpose": "test",
+    "lines": 309,
+    "exports": [],
+    "externalImports": [
+      "vitest",
+      "node:fs",
+      "node:path"
+    ],
+    "routes": [],
+    "hash": "960eaa164d357577"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/p26.gate7.diagnosticsAuth.test.ts",
+    "purpose": "test",
+    "lines": 292,
+    "exports": [],
+    "externalImports": [
+      "vitest",
+      "node:fs"
+    ],
+    "routes": [],
+    "hash": "bdc78d1ec87a5c00"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/p28.gate0.futureTimestampRegression.test.ts",
+    "purpose": "test",
+    "lines": 138,
+    "exports": [],
+    "externalImports": [
+      "vitest"
+    ],
+    "routes": [],
+    "hash": "0068c1748f529b22"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/p28.gate1.yahooInventory.test.ts",
+    "purpose": "test",
+    "lines": 272,
+    "exports": [],
+    "externalImports": [
+      "vitest",
+      "fs",
+      "path"
+    ],
+    "routes": [],
+    "hash": "6a139a0b05b6ab66"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/p28.gate5.yahooIsolation.test.ts",
+    "purpose": "test",
+    "lines": 237,
+    "exports": [],
+    "externalImports": [
+      "vitest",
+      "fs",
+      "path"
+    ],
+    "routes": [],
+    "hash": "44c4413a7d9d969b"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/p28.gate7.runtimeTests.test.ts",
+    "purpose": "test",
+    "lines": 414,
+    "exports": [],
+    "externalImports": [
+      "vitest",
+      "fs",
+      "path"
+    ],
+    "routes": [],
+    "hash": "05aee24f2f01d194"
+  },
+  {
     "path": "artifacts/api-server/src/lib/paperAccount.riskPct.test.ts",
     "purpose": "test",
     "lines": 51,
@@ -5303,6 +6017,21 @@
     "externalImports": [],
     "routes": [],
     "hash": "77d19a892b79c49f"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/productionConfigValidator.ts",
+    "purpose": "lib",
+    "lines": 114,
+    "exports": [
+      "PROD_CONFIG_CODES",
+      "ProdConfigCode",
+      "ProdConfigError",
+      "ProdConfigResult",
+      "validateProductionConfig"
+    ],
+    "externalImports": [],
+    "routes": [],
+    "hash": "db7c714262bcad0e"
   },
   {
     "path": "artifacts/api-server/src/lib/publicAccess.ts",
@@ -6078,7 +6807,7 @@
   {
     "path": "artifacts/api-server/src/lib/swingOrderStaging.ts",
     "purpose": "swing-engine",
-    "lines": 914,
+    "lines": 938,
     "exports": [
       "SwingOrderStatus",
       "SwingApprovalStatus",
@@ -6106,7 +6835,7 @@
       "@workspace/db"
     ],
     "routes": [],
-    "hash": "1dc4b881b688fd2d"
+    "hash": "8bb8974acb2fbc84"
   },
   {
     "path": "artifacts/api-server/src/lib/swingRegressionGate.test.ts",
@@ -6168,7 +6897,7 @@
   {
     "path": "artifacts/api-server/src/lib/swingScannerData.benchmark.test.ts",
     "purpose": "test",
-    "lines": 355,
+    "lines": 357,
     "exports": [],
     "externalImports": [
       "vitest",
@@ -6176,12 +6905,12 @@
       "node:path"
     ],
     "routes": [],
-    "hash": "3d9593f52f7aec54"
+    "hash": "745b796840cccd75"
   },
   {
     "path": "artifacts/api-server/src/lib/swingScannerData.ts",
     "purpose": "swing-engine",
-    "lines": 348,
+    "lines": 352,
     "exports": [
       "SwingDailyBarSource",
       "SwingDailyBarsResult",
@@ -6195,7 +6924,7 @@
     ],
     "externalImports": [],
     "routes": [],
-    "hash": "b621db614787c7a0"
+    "hash": "cf681e39872f97ed"
   },
   {
     "path": "artifacts/api-server/src/lib/swingScannerStore.intradayRefresh.db.test.ts",
@@ -7320,6 +8049,35 @@
     "hash": "3a1fb843c1f5f22c"
   },
   {
+    "path": "artifacts/api-server/src/routes/__tests__/p21a.swingRoutes.test.ts",
+    "purpose": "api-route",
+    "lines": 459,
+    "exports": [],
+    "externalImports": [
+      "node:http",
+      "node:net",
+      "vitest"
+    ],
+    "routes": [],
+    "hash": "2f936526af238a67"
+  },
+  {
+    "path": "artifacts/api-server/src/routes/__tests__/p23c1.fundamentalsRegisteredRoute.test.ts",
+    "purpose": "api-route",
+    "lines": 619,
+    "exports": [],
+    "externalImports": [
+      "vitest",
+      "express",
+      "cookie-parser",
+      "node:http",
+      "node:crypto",
+      "node:net"
+    ],
+    "routes": [],
+    "hash": "f44cb6d93523d3e3"
+  },
+  {
     "path": "artifacts/api-server/src/routes/__tests__/portfolioRouteIsolation.db.test.ts",
     "purpose": "api-route",
     "lines": 432,
@@ -7527,7 +8285,7 @@
   {
     "path": "artifacts/api-server/src/routes/data.ts",
     "purpose": "api-route",
-    "lines": 383,
+    "lines": 387,
     "exports": [],
     "externalImports": [
       "express",
@@ -7544,7 +8302,7 @@
       "POST /data/indstocks/token",
       "DELETE /data/indstocks/token"
     ],
-    "hash": "02beaec6cab7dc9d"
+    "hash": "906d7ada18d473ee"
   },
   {
     "path": "artifacts/api-server/src/routes/dataHealth.ts",
@@ -7627,6 +8385,21 @@
     "hash": "04173d913ca1269f"
   },
   {
+    "path": "artifacts/api-server/src/routes/fundamentals.ts",
+    "purpose": "api-route",
+    "lines": 157,
+    "exports": [
+      "handleGetFundamentals"
+    ],
+    "externalImports": [
+      "express"
+    ],
+    "routes": [
+      "GET /data/fundamentals/:symbol"
+    ],
+    "hash": "f5f498d729b210aa"
+  },
+  {
     "path": "artifacts/api-server/src/routes/global/index.ts",
     "purpose": "api-route",
     "lines": 854,
@@ -7692,13 +8465,13 @@
   {
     "path": "artifacts/api-server/src/routes/index.ts",
     "purpose": "api-route",
-    "lines": 119,
+    "lines": 121,
     "exports": [],
     "externalImports": [
       "express"
     ],
     "routes": [],
-    "hash": "51fbac44b0eb0bef"
+    "hash": "f9a204393a58bb8b"
   },
   {
     "path": "artifacts/api-server/src/routes/indices.ts",
@@ -7928,6 +8701,22 @@
       "GET /portfolio/resolve-debug"
     ],
     "hash": "2a1139cb9fd17235"
+  },
+  {
+    "path": "artifacts/api-server/src/routes/providerDiagnostics.ts",
+    "purpose": "api-route",
+    "lines": 189,
+    "exports": [],
+    "externalImports": [
+      "express"
+    ],
+    "routes": [
+      "GET /providers/diagnostics",
+      "GET /providers/shadow-parity",
+      "GET /providers/indianapi/capabilities",
+      "POST /providers/probe"
+    ],
+    "hash": "522955da4a231620"
   },
   {
     "path": "artifacts/api-server/src/routes/replayRecorder.ts",
@@ -8742,6 +9531,133 @@
     "hash": "d1caf86e2c623296"
   },
   {
+    "path": "artifacts/scanner/src/lib/p21a.swingCashUI.test.tsx",
+    "purpose": "test",
+    "lines": 467,
+    "exports": [],
+    "externalImports": [
+      "react",
+      "react-dom/client",
+      "vitest"
+    ],
+    "routes": [],
+    "hash": "79690b30ca0a9cf4"
+  },
+  {
+    "path": "artifacts/scanner/src/lib/p23c2.fundamentalsComponentHook.test.tsx",
+    "purpose": "test",
+    "lines": 479,
+    "exports": [],
+    "externalImports": [
+      "vitest",
+      "react",
+      "react-dom/client",
+      "node:path",
+      "node:fs/promises",
+      "@/components/fundamentals-card"
+    ],
+    "routes": [],
+    "hash": "ae228b3faca18ae9"
+  },
+  {
+    "path": "artifacts/scanner/src/lib/p24c.fourRoutes.test.tsx",
+    "purpose": "test",
+    "lines": 735,
+    "exports": [],
+    "externalImports": [
+      "react",
+      "react-dom/client",
+      "vitest",
+      "@/components/ui/data-state-panel",
+      "@/components/ui/provenance-badge",
+      "@/mocks/fetchInterceptor"
+    ],
+    "routes": [],
+    "hash": "ccda55377438b9c7"
+  },
+  {
+    "path": "artifacts/scanner/src/lib/p25a.productionTruth.test.tsx",
+    "purpose": "test",
+    "lines": 753,
+    "exports": [],
+    "externalImports": [
+      "vitest"
+    ],
+    "routes": [],
+    "hash": "29f15d7fa5967aa8"
+  },
+  {
+    "path": "artifacts/scanner/src/lib/p25b.gate3and4.chartStatesAndCounts.test.tsx",
+    "purpose": "test",
+    "lines": 437,
+    "exports": [],
+    "externalImports": [
+      "vitest"
+    ],
+    "routes": [],
+    "hash": "ad8a3523242a1000"
+  },
+  {
+    "path": "artifacts/scanner/src/lib/p26.gate0b.oiLabStates.test.ts",
+    "purpose": "test",
+    "lines": 343,
+    "exports": [],
+    "externalImports": [
+      "vitest",
+      "node:fs",
+      "node:path"
+    ],
+    "routes": [],
+    "hash": "9193127a29ab65c6"
+  },
+  {
+    "path": "artifacts/scanner/src/lib/p6.designSystem.test.tsx",
+    "purpose": "test",
+    "lines": 344,
+    "exports": [],
+    "externalImports": [
+      "react",
+      "react-dom/client",
+      "vitest",
+      "@/components/ui/data-state-panel",
+      "@/components/ui/page-header"
+    ],
+    "routes": [],
+    "hash": "32ee7ff01db9d85e"
+  },
+  {
+    "path": "artifacts/scanner/src/lib/p6a.routeIntegration.test.tsx",
+    "purpose": "test",
+    "lines": 381,
+    "exports": [],
+    "externalImports": [
+      "react",
+      "react-dom/client",
+      "vitest",
+      "@/components/ui/data-state-panel",
+      "@/components/ui/provenance-badge",
+      "@/components/ui/page-header"
+    ],
+    "routes": [],
+    "hash": "141a143205e8d7b3"
+  },
+  {
+    "path": "artifacts/scanner/src/lib/p6b.routeCoverage.test.tsx",
+    "purpose": "test",
+    "lines": 321,
+    "exports": [],
+    "externalImports": [
+      "react",
+      "react-dom/client",
+      "vitest",
+      "@/components/ui/data-state-panel",
+      "@/components/ui/provenance-badge",
+      "@/components/ui/page-header"
+    ],
+    "routes": [],
+    "hash": "484cf8472500a716"
+  },
+  {
     "path": "artifacts/scanner/src/lib/participantOi.ts",
     "purpose": "lib",
     "lines": 133,
@@ -9403,21 +10319,22 @@
   {
     "path": "artifacts/scanner/src/pages/backtest-lab.tsx",
     "purpose": "ui-page",
-    "lines": 2227,
+    "lines": 2226,
     "exports": [],
     "externalImports": [
       "react",
       "@/components/backtest/ReplayDiagnosticsPanel",
       "@/components/ui/card",
+      "@/components/ui/page-header",
       "@/components/ui/button"
     ],
     "routes": [],
-    "hash": "c3f9c7f4512db84a"
+    "hash": "14da9cbaee79b8a5"
   },
   {
     "path": "artifacts/scanner/src/pages/charting.tsx",
     "purpose": "ui-page",
-    "lines": 930,
+    "lines": 938,
     "exports": [],
     "externalImports": [
       "react",
@@ -9426,25 +10343,27 @@
       "@/components/ui/input",
       "@/components/ui/badge",
       "lucide-react",
-      "@/data/fnoUniverse"
+      "@/data/fnoUniverse",
+      "@/components/ui/page-header"
     ],
     "routes": [],
-    "hash": "5d624f5e8756c1cf"
+    "hash": "b9981e0852a151e0"
   },
   {
     "path": "artifacts/scanner/src/pages/daily-analysis.tsx",
     "purpose": "ui-page",
-    "lines": 649,
+    "lines": 645,
     "exports": [],
     "externalImports": [
       "react",
       "@tanstack/react-query",
       "@/hooks/use-auth",
+      "@/components/ui/page-header",
       "@/components/ui/card",
       "@/components/ui/badge"
     ],
     "routes": [],
-    "hash": "6ca4a3d03d6c3398"
+    "hash": "172c8b4934481dd4"
   },
   {
     "path": "artifacts/scanner/src/pages/dashboard.tsx",
@@ -9503,7 +10422,7 @@
       "@/components/ui/unified-grade-chip"
     ],
     "routes": [],
-    "hash": "7f25c06c767fe194"
+    "hash": "b72dbbd456757a04"
   },
   {
     "path": "artifacts/scanner/src/pages/fno-diagnostics.tsx",
@@ -9694,7 +10613,7 @@
   {
     "path": "artifacts/scanner/src/pages/oi-lab.tsx",
     "purpose": "ui-page",
-    "lines": 4670,
+    "lines": 4673,
     "exports": [],
     "externalImports": [
       "react",
@@ -9709,7 +10628,7 @@
       "lucide-react"
     ],
     "routes": [],
-    "hash": "88ee526d7ba8be3a"
+    "hash": "2b95b9abd39e2357"
   },
   {
     "path": "artifacts/scanner/src/pages/option-chain.tsx",
@@ -9734,7 +10653,7 @@
   {
     "path": "artifacts/scanner/src/pages/options.tsx",
     "purpose": "ui-page",
-    "lines": 1776,
+    "lines": 1778,
     "exports": [],
     "externalImports": [
       "@/components/ui/card",
@@ -9749,7 +10668,7 @@
       "date-fns"
     ],
     "routes": [],
-    "hash": "edb7763f23f55ad6"
+    "hash": "21c22313d2433c22"
   },
   {
     "path": "artifacts/scanner/src/pages/paper-reports.tsx",
@@ -9774,7 +10693,7 @@
   {
     "path": "artifacts/scanner/src/pages/paper-trading.tsx",
     "purpose": "ui-page",
-    "lines": 3052,
+    "lines": 3064,
     "exports": [],
     "externalImports": [
       "react",
@@ -9789,12 +10708,12 @@
       "@/hooks/use-toast"
     ],
     "routes": [],
-    "hash": "aa1dbb6941f6aca6"
+    "hash": "c823c2208a50cc66"
   },
   {
     "path": "artifacts/scanner/src/pages/portfolio-analyser.tsx",
     "purpose": "ui-page",
-    "lines": 795,
+    "lines": 796,
     "exports": [],
     "externalImports": [
       "react",
@@ -9809,7 +10728,7 @@
       "@/components/portfolio/upload-modal"
     ],
     "routes": [],
-    "hash": "e34121385699470f"
+    "hash": "f4b014e4599ee4a8"
   },
   {
     "path": "artifacts/scanner/src/pages/premarket.tsx",
@@ -9925,7 +10844,7 @@
   {
     "path": "artifacts/scanner/src/pages/stock-detail.tsx",
     "purpose": "ui-page",
-    "lines": 702,
+    "lines": 710,
     "exports": [],
     "externalImports": [
       "wouter",
@@ -9940,7 +10859,7 @@
       "@/components/ui/signal-badge"
     ],
     "routes": [],
-    "hash": "e17873fb78708d5e"
+    "hash": "5f2c31a23f61bfec"
   },
   {
     "path": "artifacts/scanner/src/pages/stocks-to-watch.tsx",
@@ -10006,10 +10925,11 @@
   {
     "path": "artifacts/scanner/src/pages/swing-cash.tsx",
     "purpose": "ui-page",
-    "lines": 581,
+    "lines": 577,
     "exports": [],
     "externalImports": [
       "react",
+      "@/components/ui/page-header",
       "@tanstack/react-query",
       "date-fns",
       "lucide-react",
@@ -10017,31 +10937,30 @@
       "@/components/ui/input",
       "@/components/ui/badge",
       "@/components/ui/card",
-      "@/components/ui/separator",
-      "@/components/ui/switch"
+      "@/components/ui/separator"
     ],
     "routes": [],
-    "hash": "acd7d2654aa23a4a"
+    "hash": "4b33004a2a7cb779"
   },
   {
     "path": "artifacts/scanner/src/pages/watchlist.tsx",
     "purpose": "ui-page",
-    "lines": 606,
+    "lines": 615,
     "exports": [],
     "externalImports": [
       "react",
       "@tanstack/react-query",
       "@workspace/api-client-react",
       "@/components/ui/data-source-badge",
+      "@/components/ui/data-state-panel",
       "@/components/ui/unified-grade-chip",
       "wouter",
       "@/components/ui/card",
       "@/components/ui/table",
-      "@/components/ui/skeleton",
-      "lucide-react"
+      "@/components/ui/skeleton"
     ],
     "routes": [],
-    "hash": "e25e59a5b181e109"
+    "hash": "f61a610dd3130bc5"
   },
   {
     "path": "lib/db/src/schema/appState.ts",

@@ -427,6 +427,9 @@ describe("§B1.1-C2 Production fallback routing — real facades, mocked transpo
   });
 
   it("C2-07: Upstox/IndianAPI — not active providers for option_chain, no fabricated calls", () => {
+    // Stub both Upstox tokens absent; resolveUpstoxConfig prefers ANALYTICS over ACCESS
+    vi.stubEnv("UPSTOX_ANALYTICS_TOKEN", "");
+    vi.stubEnv("UPSTOX_ACCESS_TOKEN", "");
     const snap = getProviderCapabilities();
     const upstox    = getCapabilityFor("upstox", "option_chain", snap);
     const indianapi = getCapabilityFor("indianapi", "option_chain", snap);
@@ -610,6 +613,9 @@ describe("§11.2 Provider routing (capability registry)", () => {
   });
 
   it("T12: Upstox is NOT_CONFIGURED (no env vars) — reason references UPSTOX credentials", () => {
+    // resolveUpstoxConfig prefers ANALYTICS_TOKEN; clear both to simulate no credentials
+    vi.stubEnv("UPSTOX_ANALYTICS_TOKEN", "");
+    vi.stubEnv("UPSTOX_ACCESS_TOKEN", "");
     const cap = getCapabilityFor("upstox", "index_quote");
     expect(cap.state).toBe("NOT_CONFIGURED");
     expect(cap.reason).toMatch(/UPSTOX/i);

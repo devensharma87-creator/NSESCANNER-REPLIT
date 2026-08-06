@@ -90,11 +90,14 @@ describe("P23A/Upstox — §12.1 provider configuration", () => {
 
   it("P23A-1a: UPSTOX_ACCESS_TOKEN absent → isUpstoxConfigured() false", () => {
     vi.stubEnv("UPSTOX_ACCESS_TOKEN", "");
+    // Also clear ANALYTICS_TOKEN: resolveUpstoxConfig prefers it when set
+    vi.stubEnv("UPSTOX_ANALYTICS_TOKEN", "");
     expect(isUpstoxConfigured()).toBe(false);
   });
 
   it("P23A-1b: absent token → upstoxHealth configured=false, routingState=NOT_CONFIGURED", () => {
     vi.stubEnv("UPSTOX_ACCESS_TOKEN", "");
+    vi.stubEnv("UPSTOX_ANALYTICS_TOKEN", ""); // resolveUpstoxConfig prefers ANALYTICS over ACCESS
     const h = upstoxHealth();
     expect(h.configured).toBe(false);
     expect(h.routingState).toBe("NOT_CONFIGURED");

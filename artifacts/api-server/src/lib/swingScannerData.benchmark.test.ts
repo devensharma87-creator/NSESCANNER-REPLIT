@@ -64,7 +64,8 @@ describe("S3a fetchBenchmarkBarsResilient — fallback ladder", () => {
     expect(result.barCount).toBe(250);
     expect(result.firstDate).toBe("2025-01-01");
     expect(result.errors.yahoo).toBeUndefined();
-    expect(result.errors.kite).toBeUndefined();
+    // Pack 8 Kite-first: Kite is attempt 1 and returned null → kite error recorded
+    expect(result.errors.kite).toBe("null_response");
   });
 
   it("2. Yahoo first attempt fails (null), retry succeeds → source=yahoo_retry", async () => {
@@ -113,9 +114,10 @@ describe("S3a fetchBenchmarkBarsResilient — fallback ladder", () => {
     expect(result.source).toBe("kite");
     expect(result.bars).not.toBeNull();
     expect(result.barCount).toBe(160);
-    expect(result.errors.yahoo).toBe("null_response");
-    expect(result.errors.yahooRetry).toBe("null_response");
+    // Pack 8 Kite-first: Kite is attempt 1 and succeeds → Yahoo never runs
     expect(result.errors.kite).toBeUndefined();
+    expect(result.errors.yahoo).toBeUndefined();
+    expect(result.errors.yahooRetry).toBeUndefined();
   });
 
   it("4. Yahoo AND Kite both fail → source=none, bars=null, neutral RS behaviour", async () => {

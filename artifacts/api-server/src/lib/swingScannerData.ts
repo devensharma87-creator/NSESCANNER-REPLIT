@@ -192,12 +192,16 @@ const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 /**
  * S3a (2026-05-28) — resilient NIFTY 50 benchmark loader for the swing
- * scanner. Order:
- *   1. Yahoo `^NSEI` daily (existing path)
- *   2. Yahoo retry (one attempt, 750 ms backoff)
- *   3. Kite historical via NIFTY 50 instrument token (256265, live-
- *      revalidated by `getIndexTokenMap`)
+ * scanner. Order (Pack 8 Kite-first migration, 2026-08-06):
+ *   1. Kite historical via NIFTY 50 instrument token (256265, live-
+ *      revalidated by `getIndexTokenMap`) — primary canonical path
+ *   2. Yahoo `^NSEI` daily (fallback when Kite session unavailable)
+ *   3. Yahoo retry (one attempt, 750 ms backoff)
  *   4. None — caller keeps existing neutral RS behaviour
+ *
+ * Kite is canonical for Indian-market data. Yahoo is the analytics-only
+ * fallback for sessions where Kite historical access is not yet established.
+ * Kite-first mirrors the `fetchDailyBars` ordering already used for equities.
  *
  * NEVER throws — every layer is wrapped, every error is recorded in
  * the returned `errors` map. Bars are validated against `BENCH_MIN_BARS`
@@ -228,7 +232,21 @@ export async function fetchBenchmarkBarsResilient(
     last: isoDate(bars.ts[bars.ts.length - 1]),
   });
 
-  // ── Attempt 1: Yahoo (existing path) ─────────────────────────────
+  // ── Attempt 1: Kite NIFTY 50 historical (canonical — Pack 8 Kite-first) ──
+  try {
+    const k = await kiteFn();
+    const bars = tryAccept(k);
+    if (bars) {
+      const { first, last } = sampleDates(bars);
+      return { bars, source: "kite", barCount: bars.ts.length, firstDate: first, lastDate: last, errors, durationMs: Date.now() - startedMs };
+    }
+    if (k) errors.kite = `insufficient_bars:${k.close?.length ?? 0}`;
+    else errors.kite = "null_response";
+  } catch (e) {
+    errors.kite = trimErr((e as Error).message ?? "kite_threw");
+  }
+
+  // ── Attempt 2: Yahoo (analytics fallback — delayed, notForSignals) ────────
   try {
     const y1 = await yahooFn();
     const bars = tryAccept(y1);
@@ -242,7 +260,7 @@ export async function fetchBenchmarkBarsResilient(
     errors.yahoo = trimErr((e as Error).message ?? "yahoo_threw");
   }
 
-  // ── Attempt 2: Yahoo retry with backoff ──────────────────────────
+  // ── Attempt 3: Yahoo retry with backoff ───────────────────────────────────
   try {
     await sleepFn(750);
     const y2 = await yahooFn();
@@ -257,21 +275,7 @@ export async function fetchBenchmarkBarsResilient(
     errors.yahooRetry = trimErr((e as Error).message ?? "yahoo_retry_threw");
   }
 
-  // ── Attempt 3: Kite NIFTY 50 historical ──────────────────────────
-  try {
-    const k = await kiteFn();
-    const bars = tryAccept(k);
-    if (bars) {
-      const { first, last } = sampleDates(bars);
-      return { bars, source: "kite", barCount: bars.ts.length, firstDate: first, lastDate: last, errors, durationMs: Date.now() - startedMs };
-    }
-    if (k) errors.kite = `insufficient_bars:${k.close?.length ?? 0}`;
-    else errors.kite = "null_response";
-  } catch (e) {
-    errors.kite = trimErr((e as Error).message ?? "kite_threw");
-  }
-
-  // ── All paths failed ─────────────────────────────────────────────
+  // ── All paths failed ──────────────────────────────────────────────────────
   logger.warn(
     { errors },
     "swing-scan benchmark: all sources failed; RS scores will be neutral",

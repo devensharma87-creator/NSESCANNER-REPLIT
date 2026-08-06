@@ -19,6 +19,13 @@ import type { AnalyticsCandleSeries, AnalyticsQuote, Candle } from "./types";
 
 type YahooRange = "1d" | "5d" | "1mo" | "3mo" | "6mo" | "1y" | "2y" | "3y" | "5y";
 
+/**
+ * Classification label stamped on all analytics outputs served from this
+ * gateway. Never trade-grade — every datum carries source=yahoo,
+ * trustTier=secondary_analytics, delayed=true, notForSignals=true.
+ */
+export const DELAYED_ANALYTICS_ONLY = "DELAYED_ANALYTICS_ONLY" as const;
+
 function analyticsMeta(asOfMs: number | null, complete: boolean) {
   return buildMeta({
     source: "yahoo",

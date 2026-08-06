@@ -126,6 +126,7 @@ describe("P23D/CrossTab — §12.6 cross-tab consistency", () => {
 
   it("P23D-6m: upstox NOT_CONFIGURED when token absent → state NOT_CONFIGURED in snapshot", () => {
     vi.stubEnv("UPSTOX_ACCESS_TOKEN", "");
+    vi.stubEnv("UPSTOX_ANALYTICS_TOKEN", ""); // resolveUpstoxConfig prefers ANALYTICS; clear both
     const snapshot = getProviderCapabilities();
     const upstoxCaps = snapshot.capabilities.filter(c => c.provider === "upstox");
     for (const cap of upstoxCaps) {
