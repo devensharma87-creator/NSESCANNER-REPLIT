@@ -771,15 +771,22 @@ router.get("/scan/candle-store/metrics", requireOwner, async (_req, res, next) =
         notEvaluatedCount: storeMetrics.totalSymbols - (evalStatus.authorized ? storeMetrics.evaluatedReadyCount : 0),
       },
       fullNseScannerUniverse: {
-        description: "All eligible NSE EQ instruments from Kite master (after ETF/SME filter, ~8,905)",
+        description: "All eligible NSE EQ instruments from Kite master (after ETF/SME filter; count is dynamic from live Kite master)",
         note: "Populated asynchronously by the full-NSE warehouse background job",
-        warehouseLastRunSymbols: warehouseMetrics.lastWarehouseTotalSymbols,
-        warehouseSuccessCount: warehouseMetrics.lastWarehouseSuccessCount,
-        warehouseFailCount: warehouseMetrics.lastWarehouseFailCount,
+        warehouseLastRunSymbols: warehouseMetrics.lastRun?.totalEligible ?? null,
+        warehouseSuccessCount: warehouseMetrics.lastRun?.successCount ?? null,
+        warehouseFailCount: warehouseMetrics.lastRun?.failCount ?? null,
         warehouseRunning: warehouseMetrics.warehouseRunning,
         warehouseLastAt: warehouseMetrics.lastWarehouseAt,
-        warehouseDurationMs: warehouseMetrics.lastWarehouseDurationMs,
+        warehouseDurationMs: warehouseMetrics.lastRun?.durationMs ?? null,
         warehouseLockKey: warehouseMetrics.lockKey,
+        warehousePhase: warehouseMetrics.lastRun?.phase ?? null,
+        warehouseCursorIdx: (warehouseMetrics.lastRun as { cursorIdx?: number } | null)?.cursorIdx ?? null,
+        storageEstimateBytes: warehouseMetrics.lastRun?.storageEstimateBytes ?? null,
+        storageEstimateMB: warehouseMetrics.lastRun
+          ? Math.round(warehouseMetrics.lastRun.storageEstimateBytes / 1_048_576)
+          : null,
+        bytesPerSymbolEstimate: warehouseMetrics.bytesPerSymbolEstimate,
       },
       evaluationStatus: {
         authorized: SCANNER_KITE_CANDLE_EVALUATION_AUTHORIZED,

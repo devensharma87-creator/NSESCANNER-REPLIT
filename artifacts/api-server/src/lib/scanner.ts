@@ -418,7 +418,7 @@ async function buildRowFromKiteCandles(
         score: null,
         confidence: null,
         reasons: [],
-        setupMessage: `INSUFFICIENT_HISTORY: ${bars} trading days in Kite candle history (need ≥200 for EMA200 and complete indicator stack; session_date=${storeEntry.sessionDate ?? "unknown"}).`,
+        setupMessage: `INSUFFICIENT_CANONICAL_HISTORY: ${bars} daily bars available (need ≥200 for EMA200, the binding constraint; session_date=${storeEntry.sessionDate ?? "unknown"}; ~${Math.ceil((200 - bars) / 21)} trading months until evaluation-eligible).`,
       },
       provenance,
       rowSource: toScannerRowSource(provenance, entry.symbol),

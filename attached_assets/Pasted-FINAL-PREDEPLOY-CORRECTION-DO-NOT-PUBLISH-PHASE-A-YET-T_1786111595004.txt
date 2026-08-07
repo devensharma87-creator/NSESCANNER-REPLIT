@@ -1,0 +1,114 @@
+FINAL_PREDEPLOY_CORRECTION — DO_NOT_PUBLISH_PHASE_A_YET
+
+The Phase A architecture and compile-time evaluation lock are accepted in principle. Close only the following four bounded blockers inside Prompt 33. Do not create another task.
+
+1. Distributed provider-rate protection
+
+The in-memory kiteHistoricalBucket is not sufficient across multiple autoscale replicas.
+
+Implement one of:
+
+- a single shared PostgreSQL advisory lock serializing all Kite historical-data ingestion jobs; or
+- a PostgreSQL-backed distributed token bucket.
+
+The curated job and full-NSE job must not acquire different locks and run simultaneously on separate replicas above the provider limit.
+
+Prove:
+
+- aggregate rolling request rate across all replicas stays within the configured limit;
+- curated refresh has priority;
+- full-NSE population pauses while priority refresh is active;
+- 429 causes bounded Retry-After/backoff;
+- repeated 429 or authentication failure stops the population job;
+- option-snapshot ingestion and live Kite quote processing remain unaffected.
+
+2. Correct historical-data sufficiency
+
+Thirty daily bars cannot qualify a row for all indicators.
+
+Define minimum bars separately:
+
+- RSI14: required warm-up;
+- volume baseline: required sessions;
+- EMA20/50/100/200: corresponding minimum histories;
+- 52-week high/low: approximately one complete trading year;
+- any other indicator: its mathematically required history.
+
+A row is evaluation-complete only when every mandatory scoring field has sufficient canonical history.
+
+Until then:
+
+signal=NOT_EVALUATED
+score=null
+confidence=null
+action=null
+reason=INSUFFICIENT_CANONICAL_HISTORY
+
+Do not classify ≥30 bars as universally eligible.
+
+3. Staged, resumable warehouse population
+
+Do not immediately launch an uncheckpointed 8,700-symbol job.
+
+Implement:
+
+- deterministic instrument-master snapshot ID;
+- stable instrument token/ISIN identity;
+- resumable cursor/checkpoint;
+- first production canary batch of 50–100 symbols;
+- validation of row size, bar ordering, duplicates, future timestamps and storage usage;
+- bounded subsequent batches;
+- stop threshold for 401/403/429/provider failure;
+- no re-downloading already complete histories;
+- explicit excluded/inactive/unsupported reasons;
+- estimated and measured PostgreSQL storage growth.
+
+Instrument counts are dynamic; do not hard-code 8,905 as an acceptance requirement.
+
+4. Runtime proof of the evaluation lock
+
+Add executable tests against the real registered routes and production functions proving the lock applies to:
+
+- curated scanner;
+- full-NSE scanner;
+- Home movers;
+- bullish/bearish setups;
+- rankings and filters;
+- CSV and JSON exports;
+- alerts;
+- Watchlist/stock-detail recommendation consumers;
+- swing admission;
+- paper-trading admission;
+- any broker candidate path.
+
+While the lock is false, no route may expose a numeric score or actionable signal from the new candle store.
+
+Also prove:
+
+- Yahoo Indian rows remain NOT_EVALUATED;
+- no environment variable, admin endpoint or query parameter can bypass the lock;
+- existing F&O and swing strategy logic is unchanged;
+- V2 cohort locks remain false;
+- broker execution remains hard-disabled.
+
+After these four corrections, rerun:
+
+- api-server full suite, floor ≥ 6,416;
+- scanner full suite, floor ≥ 1,250;
+- four-package TSC;
+- both production builds;
+- migration idempotency;
+- git diff --check.
+
+Then return a concise Phase A deployment authorization request containing:
+
+- exact commit;
+- canary batch size;
+- distributed rate-control proof;
+- evaluation-lock route proof;
+- rollback procedure;
+- post-publish checklist.
+
+Current verdict:
+
+PROMPT_33_PHASE_A_ARCHITECTURE_ACCEPTED — DISTRIBUTED_RATE_LIMIT_HISTORY_SUFFICIENCY_AND_STAGED_POPULATION_PENDING

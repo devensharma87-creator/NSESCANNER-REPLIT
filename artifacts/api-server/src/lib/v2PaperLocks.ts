@@ -39,6 +39,14 @@
 export const FNO_PAPER_V2_RUNTIME_AUTHORIZED = false as boolean;
 export const SWING_PAPER_V2_RUNTIME_AUTHORIZED = false as boolean;
 
+// Re-export the Kite candle evaluation lock so all three compile-time locks
+// are accessible via a single import of v2PaperLocks.
+export {
+  SCANNER_KITE_CANDLE_EVALUATION_AUTHORIZED,
+  CANDLE_EVALUATION_LOCKED_CODE,
+  getCandleEvaluationStatus,
+} from "./candleEvaluationControl";
+
 /**
  * Stable error codes returned when a V2 write is attempted while the lock
  * is false. These codes are returned to callers and exposed in API responses

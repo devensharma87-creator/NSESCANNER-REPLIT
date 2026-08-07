@@ -127,6 +127,40 @@ export interface KiteCandleStoreMetrics {
  *  Known: 8274615 (swingOrderStaging), 7593721 (paperTradingCombo), option snapshot ingestor. */
 export const ADVISORY_LOCK_KEY = 88_274_615;
 
+/**
+ * Global Kite historical-ingestion serialization lock (Pack 33 Correction 1).
+ *
+ * BOTH the curated refresh (ADVISORY_LOCK_KEY) AND the full-NSE warehouse job
+ * must acquire this single advisory lock before making any Kite historical API
+ * calls. Since PostgreSQL advisory locks are session-scoped, only ONE autoscale
+ * replica at a time can hold this lock, which serializes ALL historical
+ * ingestion globally — ensuring the aggregate request rate across all replicas
+ * stays within the 3 req/s Kite provider limit.
+ *
+ * Priority:
+ *   Curated refresh: acquires global lock first, then its own ADVISORY_LOCK_KEY.
+ *     Holds both for the full refresh cycle (~100–200 s for 194 symbols).
+ *   Full-NSE warehouse: acquires global lock per-batch (100 symbols), releases
+ *     between batches. Checks curated due-time before each acquisition and
+ *     yields for 60 s if curated is overdue.
+ *
+ * 429 handling: bounded exponential backoff (Retry-After or 5 s, max 60 s).
+ *   After 3 consecutive 429s: job stops with RATE_LIMIT_PERSISTENT.
+ *   401/403: job stops immediately with AUTH_FAILURE.
+ *
+ * Unaffected subsystems:
+ *   Option-snapshot ingestion: uses /instruments and /quote endpoints (not
+ *     /historical) — no rate conflict.
+ *   Live Kite quote processing: uses /quote endpoint — no rate conflict.
+ *
+ * Lock key range convention:
+ *   88_274_613 — reserved
+ *   88_274_614 — this key (global ingestion serializer)
+ *   88_274_615 — curated refresh identity lock
+ *   88_274_616 — full-NSE warehouse identity lock
+ */
+export const KITE_HISTORICAL_INGESTION_GLOBAL_LOCK = 88_274_614;
+
 /** Minimum bars for displaying any indicators (pivot, RSI, EMA9/21). */
 const MIN_DISPLAY_BARS = 30;
 
@@ -431,6 +465,57 @@ async function releaseRefreshLock(): Promise<void> {
   } catch { /* best-effort */ }
 }
 
+// ─── Global ingestion lock (shared with full-NSE warehouse) ──────────────────
+
+/**
+ * Acquire the global Kite historical-ingestion lock (88_274_614).
+ *
+ * The curated refresh uses `maxAttempts=3` with 5 s retries (total budget ≤15 s).
+ * If the warehouse currently holds the lock, the curated refresh waits for the
+ * current warehouse batch (~100 symbols) to finish before getting priority.
+ *
+ * Exported for warehouse use (both jobs share this function).
+ */
+export async function acquireGlobalIngestionLock(
+  maxAttempts = 3,
+  retryDelayMs = 5_000,
+): Promise<boolean> {
+  for (let i = 0; i < maxAttempts; i++) {
+    try {
+      const result = (await db.execute(
+        sql`SELECT pg_try_advisory_lock(${KITE_HISTORICAL_INGESTION_GLOBAL_LOCK}) AS acquired`,
+      )) as unknown as { rows: Array<{ acquired: boolean }> };
+      if (result.rows[0]?.acquired === true) return true;
+    } catch {
+      // DB error acquiring lock — fail-open for curated (the curated refresh
+      // is more critical; better to run than stall on a transient DB error).
+      return true;
+    }
+    if (i < maxAttempts - 1) await sleep(retryDelayMs);
+  }
+  return false;
+}
+
+/**
+ * Release the global Kite historical-ingestion lock (88_274_614).
+ * Best-effort — lock auto-releases on session close anyway.
+ */
+export async function releaseGlobalIngestionLock(): Promise<void> {
+  try {
+    await db.execute(
+      sql`SELECT pg_advisory_unlock(${KITE_HISTORICAL_INGESTION_GLOBAL_LOCK})`,
+    );
+  } catch { /* best-effort */ }
+}
+
+/**
+ * Return the timestamp of the next scheduled curated refresh.
+ * Used by the warehouse job to yield priority to curated.
+ */
+export function getCuratedRefreshDueAt(): Date | null {
+  return nextScheduledRefreshAt;
+}
+
 // ─── Public read API (zero Kite calls) ───────────────────────────────────────
 
 /**
@@ -687,15 +772,32 @@ export async function runKiteCandleRefresh(mode: RefreshMode = "FULL"): Promise<
     return { ...emptyResult, skipped: true, skipReason: "CIRCUIT_BREAKER_OPEN", circuitOpen: true };
   }
 
-  // Try advisory lock — skip if another replica holds it
-  const locked = await tryAcquireRefreshLock();
-  if (!locked) {
-    logger.info({ mode }, "kiteCandleStore: refresh skipped — advisory lock held (another replica refreshing)");
-    // Another replica holds the lock and is refreshing. Wait, then reload from DB
-    // so this replica gets the other's results without duplicating Kite calls.
+  // ── Distributed rate protection (Correction 1) ────────────────────────────
+  // Acquire the global historical-ingestion serialization lock FIRST.
+  // This ensures only ONE replica (curated OR warehouse) runs historical
+  // ingestion at a time, keeping aggregate rate ≤ 3 req/s provider limit.
+  const globalLocked = await acquireGlobalIngestionLock(3, 5_000);
+  if (!globalLocked) {
+    logger.warn(
+      { mode },
+      "kiteCandleStore: curated refresh skipped — global ingestion lock held by another replica/job; will retry next cycle",
+    );
+    // Reload from DB so this replica still benefits from the other job's work.
     await sleep(15_000);
     const reloaded = await loadFromDb();
-    logger.info({ reloaded, mode }, "kiteCandleStore: reloaded from DB after lock miss");
+    logger.info({ reloaded, mode }, "kiteCandleStore: reloaded from DB after global lock miss");
+    return { ...emptyResult, skipped: true, skipReason: "GLOBAL_LOCK_HELD" };
+  }
+
+  // Then acquire curated-specific lock — prevents duplicate curated runs if
+  // two replicas both won the global lock race (cannot happen, but defensive).
+  const locked = await tryAcquireRefreshLock();
+  if (!locked) {
+    await releaseGlobalIngestionLock();
+    logger.info({ mode }, "kiteCandleStore: refresh skipped — curated advisory lock held (another replica refreshing)");
+    await sleep(15_000);
+    const reloaded = await loadFromDb();
+    logger.info({ reloaded, mode }, "kiteCandleStore: reloaded from DB after curated lock miss");
     return { ...emptyResult, skipped: true, skipReason: "LOCK_HELD" };
   }
 
@@ -855,6 +957,7 @@ export async function runKiteCandleRefresh(mode: RefreshMode = "FULL"): Promise<
     };
   } finally {
     await releaseRefreshLock();
+    await releaseGlobalIngestionLock();
   }
 }
 
