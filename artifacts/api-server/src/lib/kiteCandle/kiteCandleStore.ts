@@ -28,7 +28,9 @@ import { sql } from "drizzle-orm";
 import { logger } from "../logger";
 import { centralEquityCandles } from "../marketData/compat";
 import type { YahooChart } from "../marketData/analyticsYahoo";
-import { UNIVERSE, INACTIVE_SYMBOLS, KITE_NSE_SYMBOL_OVERRIDE } from "../universe";
+import { UNIVERSE, INACTIVE_SYMBOLS, KITE_NSE_SYMBOL_OVERRIDE, validateKiteSymbolOverrides } from "../universe";
+import { centralKiteNseEqInstruments } from "../marketData/compat";
+import { kiteHistoricalBucket, type TokenBucketMetrics } from "./tokenBucket";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -51,16 +53,37 @@ export interface KiteCandleEntry {
   errorCode: string | null;     // machine-readable: KITE_OFFLINE | FETCH_FAILED | INSUFFICIENT_HISTORY | KITE_CANDLE_STORE_PENDING
 }
 
+/**
+ * Refresh mode controls which symbols are fetched in a refresh cycle.
+ *
+ *   FULL             — all active universe symbols (initial/backfill + manual owner refresh).
+ *   INCREMENTAL      — only symbols with status≠'ok' OR session_date < today's IST date.
+ *                      Used post-market-close to capture the completed daily bar without
+ *                      downloading history that hasn't changed.
+ *   FAILED_RETRY     — only symbols with status='unavailable'|'insufficient'.
+ *                      Used in off-hours cadence to recover from transient Kite failures.
+ *   INSTRUMENT_CHANGE— symbols added to the universe since the last refresh (new entries
+ *                      with no store record). Used to detect new listings or universe updates.
+ */
+export type RefreshMode = "FULL" | "INCREMENTAL" | "FAILED_RETRY" | "INSTRUMENT_CHANGE";
+
 export interface RefreshResult {
   skipped?: boolean;
   skipReason?: string;
+  refreshMode: RefreshMode;
   kiteRequests: number;
+  symbolsConsidered: number;
   successCount: number;
   failCount: number;
   insufficientCount: number;
+  instrumentUnresolvedCount: number;
   durationMs: number;
   circuitOpen: boolean;
   errors: Array<{ symbol: string; errorCode: string }>;
+  /** Rate-limiter diagnostics for this refresh cycle. */
+  rateLimiterMetrics: TokenBucketMetrics;
+  /** Alias validation results: universe symbol → resolution status. */
+  instrumentValidation: Record<string, "VERIFIED" | "UNVERIFIED" | "INSTRUMENT_IDENTITY_UNRESOLVED">;
 }
 
 export interface KiteCandleStoreMetrics {
@@ -74,12 +97,19 @@ export interface KiteCandleStoreMetrics {
   evaluatedReadyCount: number; // ok|stale with barCount >= MIN_INDICATOR_BARS
   // Last refresh stats
   lastRefreshAt: string | null;
+  lastRefreshMode: RefreshMode | null;
   lastRefreshDurationMs: number | null;
   lastKiteRequestCount: number | null;
   lastRefreshSuccessCount: number | null;
   lastRefreshFailCount: number | null;
+  lastInstrumentUnresolvedCount: number | null;
+  /** Last refresh rate-limiter diagnostics. */
+  lastRateLimiterMetrics: TokenBucketMetrics | null;
+  /** Alias validation state from last refresh. */
+  lastInstrumentValidation: Record<string, "VERIFIED" | "UNVERIFIED" | "INSTRUMENT_IDENTITY_UNRESOLVED"> | null;
   // Scheduler state
   nextScheduledRefreshAt: string | null;
+  nextScheduledRefreshMode: RefreshMode | null;
   schedulerActive: boolean;
   circuitBreakerOpen: boolean;
   circuitBreakerOpenUntil: string | null;
@@ -207,10 +237,16 @@ let nextScheduledRefreshAt: Date | null = null;
 
 // Refresh stats
 let lastRefreshAt: Date | null = null;
+let lastRefreshMode: RefreshMode | null = null;
 let lastRefreshDurationMs: number | null = null;
 let lastKiteRequestCount: number | null = null;
 let lastRefreshSuccessCount: number | null = null;
 let lastRefreshFailCount: number | null = null;
+let lastInstrumentUnresolvedCount: number | null = null;
+let lastRateLimiterMetrics: TokenBucketMetrics | null = null;
+let lastInstrumentValidation: Record<string, "VERIFIED" | "UNVERIFIED" | "INSTRUMENT_IDENTITY_UNRESOLVED"> | null = null;
+// Next scheduled refresh mode (for metrics reporting)
+let nextScheduledRefreshMode: RefreshMode | null = null;
 
 // Circuit breaker state
 let circuitBreakerFailStreak = 0;
@@ -444,15 +480,20 @@ export function getKiteCandleStoreMetrics(): KiteCandleStoreMetrics {
     evaluatedReadyCount: entries.filter(
       e => (e.status === "ok" || e.status === "stale") && e.barCount >= MIN_INDICATOR_BARS
     ).length,
-    lastRefreshAt:          lastRefreshAt?.toISOString() ?? null,
+    lastRefreshAt:               lastRefreshAt?.toISOString() ?? null,
+    lastRefreshMode,
     lastRefreshDurationMs,
     lastKiteRequestCount,
     lastRefreshSuccessCount,
     lastRefreshFailCount,
-    nextScheduledRefreshAt: nextScheduledRefreshAt?.toISOString() ?? null,
+    lastInstrumentUnresolvedCount,
+    lastRateLimiterMetrics,
+    lastInstrumentValidation,
+    nextScheduledRefreshAt:      nextScheduledRefreshAt?.toISOString() ?? null,
+    nextScheduledRefreshMode,
     schedulerActive,
-    circuitBreakerOpen:     circuitBreakerOpenUntil != null && Date.now() < circuitBreakerOpenUntil.getTime(),
-    circuitBreakerOpenUntil: circuitBreakerOpenUntil?.toISOString() ?? null,
+    circuitBreakerOpen:          circuitBreakerOpenUntil != null && Date.now() < circuitBreakerOpenUntil.getTime(),
+    circuitBreakerOpenUntil:     circuitBreakerOpenUntil?.toISOString() ?? null,
     cacheHits:   cacheHitCount,
     cacheMisses: cacheMissCount,
     cacheHitRatio: total > 0 ? Math.round((cacheHitCount / total) * 1000) / 1000 : null,
@@ -460,91 +501,202 @@ export function getKiteCandleStoreMetrics(): KiteCandleStoreMetrics {
   };
 }
 
+// ─── Symbol set selection by refresh mode ────────────────────────────────────
+
+/**
+ * Current IST date as YYYY-MM-DD string.
+ * India Standard Time = UTC+5:30 (no DST).
+ */
+function todayIst(): string {
+  const now = new Date();
+  const istOffsetMs = 5.5 * 60 * 60 * 1000;
+  return new Date(now.getTime() + istOffsetMs).toISOString().slice(0, 10);
+}
+
+/**
+ * Select the symbols to refresh based on the current refresh mode.
+ *
+ * FULL:             All active universe symbols (initial backfill + manual refresh).
+ * INCREMENTAL:      Only symbols where session_date < today OR status !== 'ok'.
+ *                   Captures the newly completed daily bar without re-downloading
+ *                   history that hasn't changed since the last refresh.
+ * FAILED_RETRY:     Only symbols with status='unavailable' or 'insufficient'.
+ *                   Used in off-hours cadence to recover from transient errors.
+ * INSTRUMENT_CHANGE: Only symbols not yet present in the store (new universe entries).
+ *                    Used to detect new listings or universe additions.
+ */
+export function getSymbolsForMode(mode: RefreshMode): string[] {
+  const active = UNIVERSE
+    .filter(u => !u.inactive && !INACTIVE_SYMBOLS.has(u.symbol.toUpperCase()))
+    .map(u => u.symbol);
+
+  if (mode === "FULL") return active;
+
+  const today = todayIst();
+
+  return active.filter(sym => {
+    const key = cacheKey(sym, "NSE", "day");
+    const entry = memCache.get(key);
+    switch (mode) {
+      case "INCREMENTAL":
+        if (!entry) return true;
+        if (entry.status !== "ok") return true;
+        if (entry.sessionDate !== today) return true;
+        return false;
+      case "FAILED_RETRY":
+        if (!entry) return true;
+        return entry.status === "unavailable" || entry.status === "insufficient";
+      case "INSTRUMENT_CHANGE":
+        return !entry; // no store record → new symbol
+      default:
+        return true;
+    }
+  });
+}
+
 // ─── Per-symbol Kite fetch ────────────────────────────────────────────────────
 
-async function fetchEntryFromKite(symbol: string): Promise<KiteCandleEntry> {
+/**
+ * Fetch one symbol's daily candle history from Kite.
+ *
+ * Rate limiting: calls rateLimiter.acquire() before each attempt.
+ * 429 handling: backs off via rateLimiter.reportRateLimit() and retries once.
+ * Symbol resolution: applies KITE_NSE_SYMBOL_OVERRIDE at the Kite API boundary.
+ *   The result is stored under the canonical universe symbol so that
+ *   getKiteCandleSeries(universeSymbol) always works without knowing the Kite symbol.
+ *
+ * @param symbol       Canonical universe symbol (e.g. "LTIM", "ZOMATO")
+ * @param kiteSymbol   Resolved Kite NSE trading symbol (from override or == symbol)
+ * @param rateLimiter  Token-bucket limiter — must acquire a token before each request
+ */
+async function fetchEntryFromKite(
+  symbol: string,
+  kiteSymbol: string,
+  rateLimiter: typeof kiteHistoricalBucket,
+): Promise<KiteCandleEntry> {
   const exchange = "NSE";
   const timeframe = "day";
-  // Use the current Kite NSE trading symbol — some curated-universe names predate
-  // company renames on the exchange. The override maps the canonical universe symbol
-  // to the live Kite instrument name; the result is stored under the universe symbol
-  // so all lookups by getKiteCandleSeries(universeSymbol) continue to work.
-  const kiteSymbol = KITE_NSE_SYMBOL_OVERRIDE[symbol] ?? symbol;
-  try {
-    const chart = await centralEquityCandles(kiteSymbol, "day", KITE_HISTORY_DAYS);
-    if (!chart) {
+  const MAX_RETRIES = 1; // one retry after a 429
+
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    // Acquire a rate-limit token (blocks until one is available).
+    await rateLimiter.acquire();
+    try {
+      const chart = await centralEquityCandles(kiteSymbol, "day", KITE_HISTORY_DAYS);
+      if (!chart) {
+        return {
+          symbol, exchange, timeframe,
+          sessionDate: null, barCount: 0, chart: null,
+          fetchedAt: new Date(), status: "unavailable", errorCode: "KITE_OFFLINE",
+        };
+      }
+
+      const barCount = chart.close.length;
+      if (barCount < MIN_DISPLAY_BARS) {
+        // Too few bars even for display indicators — store without chart.
+        return {
+          symbol, exchange, timeframe,
+          sessionDate: null, barCount, chart: null,
+          fetchedAt: new Date(), status: "insufficient", errorCode: "INSUFFICIENT_HISTORY",
+        };
+      }
+
+      // Derive session date from the last completed bar timestamp (Unix seconds → IST date).
+      const lastTs = chart.timestamps[chart.timestamps.length - 1];
+      // Convert from Unix seconds to IST (UTC+5:30) date string
+      const sessionDate = lastTs
+        ? new Date(lastTs * 1000 + 5.5 * 60 * 60 * 1000).toISOString().slice(0, 10)
+        : null;
+
+      return {
+        symbol, exchange, timeframe,
+        sessionDate, barCount, chart,
+        fetchedAt: new Date(), status: "ok", errorCode: null,
+      };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      const msgLower = msg.toLowerCase();
+      const is429 = msgLower.includes("429") ||
+                    msgLower.includes("too many requests") ||
+                    msgLower.includes("rate limit");
+
+      if (is429 && attempt < MAX_RETRIES) {
+        // Back off and retry
+        await rateLimiter.reportRateLimit();
+        continue;
+      }
+
+      logger.debug(
+        { symbol, kiteSymbol, attempt, err: msg.slice(0, 100) },
+        "kiteCandleStore: per-symbol fetch failed",
+      );
       return {
         symbol, exchange, timeframe,
         sessionDate: null, barCount: 0, chart: null,
-        fetchedAt: new Date(), status: "unavailable", errorCode: "KITE_OFFLINE",
+        fetchedAt: new Date(), status: "unavailable",
+        errorCode: is429 ? "RATE_LIMIT_EXHAUSTED" : "FETCH_FAILED",
       };
     }
-
-    const barCount = chart.close.length;
-    if (barCount < MIN_DISPLAY_BARS) {
-      // Too few bars even for display indicators — store without chart.
-      return {
-        symbol, exchange, timeframe,
-        sessionDate: null, barCount, chart: null,
-        fetchedAt: new Date(), status: "insufficient", errorCode: "INSUFFICIENT_HISTORY",
-      };
-    }
-
-    // Derive session date from the last completed bar timestamp (Unix seconds → date).
-    const lastTs = chart.timestamps[chart.timestamps.length - 1];
-    const sessionDate = lastTs
-      ? new Date(lastTs * 1000).toISOString().slice(0, 10)
-      : null;
-
-    return {
-      symbol, exchange, timeframe,
-      sessionDate, barCount, chart,
-      fetchedAt: new Date(), status: "ok", errorCode: null,
-    };
-  } catch (err) {
-    const msg = err instanceof Error ? err.message.slice(0, 80) : String(err);
-    logger.debug({ symbol, err: msg }, "kiteCandleStore: per-symbol fetch failed");
-    return {
-      symbol, exchange, timeframe,
-      sessionDate: null, barCount: 0, chart: null,
-      fetchedAt: new Date(), status: "unavailable", errorCode: "FETCH_FAILED",
-    };
   }
+
+  // Should not reach here, but TypeScript requires a return
+  return {
+    symbol, exchange, timeframe,
+    sessionDate: null, barCount: 0, chart: null,
+    fetchedAt: new Date(), status: "unavailable", errorCode: "FETCH_FAILED",
+  };
 }
 
 // ─── Background refresh ───────────────────────────────────────────────────────
 
 /**
- * Run a full refresh of all curated-universe symbols.
- * Contacts Kite for all symbols that need updating.
- * Rate-limited to REFRESH_CONCURRENCY concurrent requests with BATCH_PAUSE_MS pause.
- * Advisory lock prevents concurrent execution across replicas.
+ * Run a candle refresh cycle.
+ *
+ * @param mode  Controls which symbols are fetched. Defaults to FULL (all active
+ *              universe symbols). See RefreshMode for when each mode is used.
+ *
+ * Rate limiting: uses the module-level KiteHistoricalTokenBucket (3 tokens/sec).
+ *   Each symbol call acquires one token before dispatching, enforcing a true
+ *   rolling-rate limit rather than a batch-pause approximation.
+ *
+ * Symbol validation: at the start of each cycle, KITE_NSE_SYMBOL_OVERRIDE aliases
+ *   are verified against the live Kite instrument master. Unresolvable aliases
+ *   get status="unavailable" / errorCode="INSTRUMENT_IDENTITY_UNRESOLVED" without
+ *   making a Kite historical API call.
+ *
+ * Cross-replica safety: pg_try_advisory_lock prevents concurrent refreshes.
+ *   The losing replica waits 15 s then reloads from DB so it still benefits from
+ *   the winner's work. No replica remains permanently empty.
  */
-export async function runKiteCandleRefresh(): Promise<RefreshResult> {
-  const empty: RefreshResult = {
-    kiteRequests: 0, successCount: 0, failCount: 0,
-    insufficientCount: 0, durationMs: 0, circuitOpen: false, errors: [],
+export async function runKiteCandleRefresh(mode: RefreshMode = "FULL"): Promise<RefreshResult> {
+  const emptyMetrics: TokenBucketMetrics = { requestCount: 0, rate429Count: 0, retryCount: 0, maxObservedRollingRps: 0, currentTokens: 0 };
+  const emptyResult: RefreshResult = {
+    refreshMode: mode,
+    kiteRequests: 0, symbolsConsidered: 0, successCount: 0, failCount: 0,
+    insufficientCount: 0, instrumentUnresolvedCount: 0, durationMs: 0,
+    circuitOpen: false, errors: [],
+    rateLimiterMetrics: emptyMetrics, instrumentValidation: {},
   };
 
   // Circuit breaker check
   if (isCircuitBreakerOpen()) {
     logger.info(
-      { openUntil: circuitBreakerOpenUntil?.toISOString() },
+      { openUntil: circuitBreakerOpenUntil?.toISOString(), mode },
       "kiteCandleStore: refresh skipped — circuit breaker open",
     );
-    return { ...empty, skipped: true, skipReason: "CIRCUIT_BREAKER_OPEN", circuitOpen: true };
+    return { ...emptyResult, skipped: true, skipReason: "CIRCUIT_BREAKER_OPEN", circuitOpen: true };
   }
 
   // Try advisory lock — skip if another replica holds it
   const locked = await tryAcquireRefreshLock();
   if (!locked) {
-    logger.info("kiteCandleStore: refresh skipped — advisory lock held (another replica refreshing)");
-    // Another replica is refreshing — wait then reload from DB so this replica
-    // benefits from the other's work without duplicating Kite calls.
+    logger.info({ mode }, "kiteCandleStore: refresh skipped — advisory lock held (another replica refreshing)");
+    // Another replica holds the lock and is refreshing. Wait, then reload from DB
+    // so this replica gets the other's results without duplicating Kite calls.
     await sleep(15_000);
     const reloaded = await loadFromDb();
-    logger.info({ reloaded }, "kiteCandleStore: reloaded from DB after lock miss");
-    return { ...empty, skipped: true, skipReason: "LOCK_HELD" };
+    logger.info({ reloaded, mode }, "kiteCandleStore: reloaded from DB after lock miss");
+    return { ...emptyResult, skipped: true, skipReason: "LOCK_HELD" };
   }
 
   const start = Date.now();
@@ -552,27 +704,78 @@ export async function runKiteCandleRefresh(): Promise<RefreshResult> {
   let successCount = 0;
   let failCount = 0;
   let insufficientCount = 0;
+  let instrumentUnresolvedCount = 0;
   const errors: Array<{ symbol: string; errorCode: string }> = [];
 
+  // Reset rate-limiter metrics for this refresh cycle.
+  kiteHistoricalBucket.resetMetrics();
+
   try {
-    const symbols = UNIVERSE
-      .filter(u => !u.inactive && !INACTIVE_SYMBOLS.has(u.symbol.toUpperCase()))
-      .map(u => u.symbol);
+    // ── Step 1: Symbol resolution validation ─────────────────────────────
+    // Verify KITE_NSE_SYMBOL_OVERRIDE aliases against the current Kite instrument
+    // master. If the cache is unavailable (Kite not logged in yet), all aliases
+    // are returned as UNVERIFIED — non-fatal, the check is repeated next cycle.
+    let instrumentsBySymbol: ReadonlyMap<string, unknown> | null = null;
+    try {
+      const instrumentCache = await centralKiteNseEqInstruments();
+      instrumentsBySymbol = instrumentCache?.bySymbol ?? null;
+    } catch { /* instrument cache unavailable — proceed with UNVERIFIED */ }
 
-    logger.info({ symbols: symbols.length, concurrency: REFRESH_CONCURRENCY }, "kiteCandleStore: refresh started");
+    const validation = validateKiteSymbolOverrides(instrumentsBySymbol);
+    const unresolvedAliases = Object.entries(validation)
+      .filter(([, v]) => v === "INSTRUMENT_IDENTITY_UNRESOLVED")
+      .map(([k]) => k);
 
+    if (unresolvedAliases.length > 0) {
+      logger.error(
+        { unresolvedAliases, validation },
+        "kiteCandleStore: INSTRUMENT_IDENTITY_UNRESOLVED — aliases not found in Kite instrument master; those symbols will be marked unavailable",
+      );
+    } else if (Object.values(validation).every(v => v === "VERIFIED")) {
+      logger.info({ validation }, "kiteCandleStore: all symbol overrides VERIFIED in Kite instrument master");
+    }
+
+    // ── Step 2: Select symbols for this mode ─────────────────────────────
+    const symbols = getSymbolsForMode(mode);
+
+    logger.info(
+      { mode, symbols: symbols.length, concurrency: REFRESH_CONCURRENCY },
+      "kiteCandleStore: refresh started",
+    );
+
+    // ── Step 3: Fetch each symbol (token-bucket rate-limited) ─────────────
     const batches = chunk(symbols, REFRESH_CONCURRENCY);
 
-    for (let batchIdx = 0; batchIdx < batches.length; batchIdx++) {
-      const batch = batches[batchIdx]!;
+    for (const batch of batches) {
       await Promise.all(batch.map(async symbol => {
-        kiteRequests++;
-        const entry = await fetchEntryFromKite(symbol);
+        // Resolve Kite NSE symbol — check override, then validate against master.
+        const kiteSymbol = KITE_NSE_SYMBOL_OVERRIDE[symbol] ?? symbol;
+        const aliasStatus = validation[symbol] ?? "VERIFIED"; // non-override symbols are always verified
 
-        // Update L1 immediately (serves stale-while-revalidate)
+        // If alias is positively unresolved → fail closed without a Kite API call.
+        if (aliasStatus === "INSTRUMENT_IDENTITY_UNRESOLVED") {
+          instrumentUnresolvedCount++;
+          const entry: KiteCandleEntry = {
+            symbol, exchange: "NSE", timeframe: "day",
+            sessionDate: null, barCount: 0, chart: null,
+            fetchedAt: new Date(), status: "unavailable",
+            errorCode: "INSTRUMENT_IDENTITY_UNRESOLVED",
+          };
+          memCache.set(cacheKey(symbol, "NSE", "day"), entry);
+          try { await upsertToDb(entry); } catch { /* best-effort */ }
+          errors.push({ symbol, errorCode: "INSTRUMENT_IDENTITY_UNRESOLVED" });
+          failCount++;
+          return;
+        }
+
+        kiteRequests++;
+        const entry = await fetchEntryFromKite(symbol, kiteSymbol, kiteHistoricalBucket);
+
+        // Update L1 immediately (stale-while-revalidate: serves the old value
+        // to concurrent readers until the new one arrives).
         memCache.set(cacheKey(symbol, entry.exchange, entry.timeframe), entry);
 
-        // Write to L2 (best-effort — L1 is authoritative for this replica)
+        // Write to L2 — best-effort (L1 is authoritative for this replica).
         try {
           await upsertToDb(entry);
         } catch (dbErr) {
@@ -589,22 +792,29 @@ export async function runKiteCandleRefresh(): Promise<RefreshResult> {
           errors.push({ symbol, errorCode: entry.errorCode ?? "UNKNOWN" });
         }
       }));
-
-      // Pause between batches (not after the last one)
-      if (batchIdx < batches.length - 1) {
-        await sleep(BATCH_PAUSE_MS);
-      }
+      // NOTE: No batch-pause between groups. The token bucket enforces the rolling
+      // rate limit (3 req/s) directly. Workers naturally wait for tokens to refill.
     }
 
     const durationMs = Date.now() - start;
+    const rlMetrics = kiteHistoricalBucket.metrics;
+
     lastRefreshAt = new Date();
+    lastRefreshMode = mode;
     lastRefreshDurationMs = durationMs;
     lastKiteRequestCount = kiteRequests;
     lastRefreshSuccessCount = successCount;
     lastRefreshFailCount = failCount;
+    lastInstrumentUnresolvedCount = instrumentUnresolvedCount;
+    lastRateLimiterMetrics = rlMetrics;
+    lastInstrumentValidation = validation;
 
-    // Circuit breaker: if ≥50 % failed, increment fail streak
-    const failFraction = kiteRequests > 0 ? (failCount / kiteRequests) : 0;
+    // Circuit breaker: if ≥50 % failed (excluding INSTRUMENT_IDENTITY_UNRESOLVED),
+    // increment fail streak. INSTRUMENT_IDENTITY_UNRESOLVED is a config error, not
+    // a transient Kite outage, so it doesn't count toward the circuit breaker.
+    const realFails = failCount - instrumentUnresolvedCount;
+    const realRequests = kiteRequests;
+    const failFraction = realRequests > 0 ? (realFails / realRequests) : 0;
     if (failFraction >= CIRCUIT_FAIL_FRACTION) {
       circuitBreakerFailStreak++;
       if (circuitBreakerFailStreak >= CIRCUIT_OPEN_THRESHOLD) {
@@ -618,20 +828,31 @@ export async function runKiteCandleRefresh(): Promise<RefreshResult> {
       circuitBreakerFailStreak = 0;
     }
 
-    const metrics = getKiteCandleStoreMetrics();
+    const storeMetrics = getKiteCandleStoreMetrics();
     logger.info(
       {
-        kiteRequests, successCount, failCount, insufficientCount, durationMs,
-        okCount: metrics.okCount, staleCount: metrics.staleCount,
-        evaluatedReadyCount: metrics.evaluatedReadyCount,
-        totalSymbols: metrics.totalSymbols,
+        mode, kiteRequests, symbolsConsidered: symbols.length,
+        successCount, failCount, insufficientCount, instrumentUnresolvedCount, durationMs,
+        okCount: storeMetrics.okCount, staleCount: storeMetrics.staleCount,
+        evaluatedReadyCount: storeMetrics.evaluatedReadyCount,
+        totalSymbols: storeMetrics.totalSymbols,
         failFraction: Math.round(failFraction * 100),
         circuitBreakerFailStreak,
+        maxObservedRps: rlMetrics.maxObservedRollingRps,
+        rate429Count: rlMetrics.rate429Count,
+        retryCount: rlMetrics.retryCount,
       },
       "kiteCandleStore: refresh complete",
     );
 
-    return { kiteRequests, successCount, failCount, insufficientCount, durationMs, circuitOpen: false, errors };
+    return {
+      refreshMode: mode,
+      kiteRequests, symbolsConsidered: symbols.length,
+      successCount, failCount, insufficientCount, instrumentUnresolvedCount, durationMs,
+      circuitOpen: false, errors,
+      rateLimiterMetrics: rlMetrics,
+      instrumentValidation: validation,
+    };
   } finally {
     await releaseRefreshLock();
   }
@@ -639,17 +860,42 @@ export async function runKiteCandleRefresh(): Promise<RefreshResult> {
 
 // ─── Scheduler ───────────────────────────────────────────────────────────────
 
+/**
+ * Compute the refresh mode for the next scheduled refresh.
+ *
+ * Post-close (15:35–23:59 IST on trading days):
+ *   INCREMENTAL — capture today's completed daily bar for symbols that don't have it.
+ *
+ * Off-hours / weekends:
+ *   FAILED_RETRY — only recover symbols with status=unavailable|insufficient.
+ *   Full history doesn't change during off-hours, so re-downloading all 199
+ *   symbols would waste Kite API quota without any new data.
+ */
+function computeNextRefreshMode(): RefreshMode {
+  const now = new Date();
+  const day = now.getUTCDay();
+  const utcMins = now.getUTCHours() * 60 + now.getUTCMinutes();
+
+  // Post-close window on weekdays: 15:35 IST (10:05 UTC) to midnight
+  if (day >= 1 && day <= 5 && utcMins >= 605) {
+    return "INCREMENTAL";
+  }
+  return "FAILED_RETRY";
+}
+
 function scheduleNextRefresh(): void {
   if (schedulerTimer) clearTimeout(schedulerTimer);
 
   const intervalMs = computeNextRefreshDelayMs();
+  const mode = computeNextRefreshMode();
   nextScheduledRefreshAt = new Date(Date.now() + intervalMs);
+  nextScheduledRefreshMode = mode;
 
   schedulerTimer = setTimeout(async () => {
     try {
-      await runKiteCandleRefresh();
+      await runKiteCandleRefresh(mode);
     } catch (err) {
-      logger.warn({ err }, "kiteCandleStore: scheduled refresh failed");
+      logger.warn({ err, mode }, "kiteCandleStore: scheduled refresh failed");
     } finally {
       scheduleNextRefresh(); // always reschedule (fail-open)
     }
@@ -740,8 +986,24 @@ export const _testOnly = {
     if (schedulerTimer) clearTimeout(schedulerTimer);
     schedulerTimer = null;
     nextScheduledRefreshAt = null;
+    nextScheduledRefreshMode = null;
+  },
+  resetLastRefreshStats(): void {
+    lastRefreshAt = null;
+    lastRefreshMode = null;
+    lastRefreshDurationMs = null;
+    lastKiteRequestCount = null;
+    lastRefreshSuccessCount = null;
+    lastRefreshFailCount = null;
+    lastInstrumentUnresolvedCount = null;
+    lastRateLimiterMetrics = null;
+    lastInstrumentValidation = null;
+  },
+  setMemCacheRaw(key: string, entry: KiteCandleEntry): void {
+    memCache.set(key, entry);
   },
   getMemCacheSize(): number { return memCache.size; },
+  getMemCacheRaw(): Map<string, KiteCandleEntry> { return memCache; },
   STALE_THRESHOLD_MS,
   MIN_DISPLAY_BARS,
   MIN_INDICATOR_BARS,
@@ -749,4 +1011,7 @@ export const _testOnly = {
   isMarketHours,
   dbRowToEntry,
   cacheKey,
+  computeNextRefreshMode,
+  getSymbolsForMode,
+  todayIst,
 };

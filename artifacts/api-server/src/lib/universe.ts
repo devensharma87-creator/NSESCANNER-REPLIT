@@ -40,16 +40,65 @@ export const YAHOO_TICKER_OVERRIDES: Record<string, string> = {
  * under the canonical universe symbol, not the Kite symbol — the override is applied
  * at the Kite API call boundary only.
  *
- * Sources: NSE circulars + Kite instrument master.
- * Last verified: 2026-08-07.
+ * VALIDATION REQUIREMENT: Every alias must be verified against the live Kite instrument
+ * master at refresh time. Invalid aliases (alias not in instrument master) produce
+ * status="unavailable" with errorCode="INSTRUMENT_IDENTITY_UNRESOLVED".
+ *
+ * How to verify / update:
+ *   1. Confirm the current Kite tradingsymbol via the NFO futures name field:
+ *      python3 -c "import json; d=json.load(open('.cache/kite_instruments_NFO.json'));
+ *        futs=[x for x in d['payload'] if x['instrument_type']=='FUT' and 'LTIM' in x['name']];
+ *        print(futs[0]['tradingsymbol'][:6])"  → instrument prefix = Kite NSE symbol
+ *   2. Confirm the EQ instrument exists: query kite_instruments_NSE.json for tradingsymbol.
+ *
+ * Sources: NSE circulars + Kite instrument master (kite_instruments_NSE.json + NFO futures).
+ * Last verified: 2026-08-07 (all 5 aliases confirmed in Kite NSE EQ + NFO master).
+ *
+ * Alias verification log (2026-08-07):
+ *   GMRINFRA  → GMRAIRPORT  : EQ token 3463169 in kite_instruments_NSE.json ✓
+ *   LTIM      → LTM         : EQ "LTM" token 4561409 in NSE ✓; NFO future LTM26AUGFUT ✓
+ *                             (Note: Kite uses "LTM" not "LTIMINDTREE" for LTIMindtree)
+ *   MCDOWELL-N→ UNITDSPR    : EQ token 2674433 ✓
+ *   NIPPONLIFE→ NAM-INDIA   : EQ token 91393 ✓
+ *   ZOMATO    → ETERNAL     : EQ token 1304833 ✓
  */
 export const KITE_NSE_SYMBOL_OVERRIDE: Readonly<Record<string, string>> = {
-  GMRINFRA:     "GMRAIRPORT",  // Renamed on NSE (GMR Airports Infrastructure Ltd)
-  LTIM:         "LTIMINDTREE", // Renamed on NSE (LTI + Mindtree merger → LTIMindtree)
-  "MCDOWELL-N": "UNITDSPR",   // Renamed on NSE (United Spirits / Diageo India)
-  NIPPONLIFE:   "NAM-INDIA",  // Renamed on NSE (Nippon India Asset Management)
-  ZOMATO:       "ETERNAL",    // Renamed on NSE (Eternal Ltd, formerly Zomato)
+  GMRINFRA:     "GMRAIRPORT",  // GMR Airports Infrastructure Ltd (renamed 2022)
+  LTIM:         "LTM",         // LTIMindtree Ltd — Kite uses "LTM" (not LTIMINDTREE); verified via NFO LTM26AUGFUT
+  "MCDOWELL-N": "UNITDSPR",   // United Spirits Ltd / Diageo India (renamed 2023)
+  NIPPONLIFE:   "NAM-INDIA",  // Nippon India Asset Management (renamed 2019)
+  ZOMATO:       "ETERNAL",    // Eternal Ltd (formerly Zomato; renamed 2025)
 } as const;
+
+/**
+ * Validate KITE_NSE_SYMBOL_OVERRIDE aliases against a live Kite instrument master.
+ *
+ * Called at the start of each candle-store refresh cycle (when the instrument cache
+ * is available). Any alias that is NOT found in the Kite NSE EQ instrument master
+ * is returned as INSTRUMENT_IDENTITY_UNRESOLVED — the caller should mark those symbols
+ * as unavailable rather than passing an unverified symbol to the Kite historical API.
+ *
+ * @param instrumentsBySymbol  Map<tradingsymbol, ...> from loadKiteNseEqInstruments().
+ *                             Pass null when the instrument cache is unavailable — in
+ *                             that case all aliases are returned as UNVERIFIED (non-fatal;
+ *                             the cache will be checked on the next refresh cycle).
+ * @returns Object keyed by CANONICAL universe symbol with resolution status.
+ */
+export function validateKiteSymbolOverrides(
+  instrumentsBySymbol: ReadonlyMap<string, unknown> | null,
+): Record<string, "VERIFIED" | "UNVERIFIED" | "INSTRUMENT_IDENTITY_UNRESOLVED"> {
+  const result: Record<string, "VERIFIED" | "UNVERIFIED" | "INSTRUMENT_IDENTITY_UNRESOLVED"> = {};
+  for (const [universeSymbol, kiteSymbol] of Object.entries(KITE_NSE_SYMBOL_OVERRIDE)) {
+    if (instrumentsBySymbol === null) {
+      result[universeSymbol] = "UNVERIFIED"; // cache not yet loaded — non-fatal
+    } else if (instrumentsBySymbol.has(kiteSymbol)) {
+      result[universeSymbol] = "VERIFIED";
+    } else {
+      result[universeSymbol] = "INSTRUMENT_IDENTITY_UNRESOLVED";
+    }
+  }
+  return result;
+}
 
 /** Symbols intentionally skipped from scans (delisted, suspended, no Yahoo feed). */
 export const INACTIVE_SYMBOLS: Set<string> = new Set([

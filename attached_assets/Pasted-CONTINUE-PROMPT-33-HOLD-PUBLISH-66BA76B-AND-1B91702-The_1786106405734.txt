@@ -1,0 +1,152 @@
+CONTINUE_PROMPT_33 — HOLD_PUBLISH_66BA76B_AND_1B91702
+
+The revised architecture is improved, but production deployment is not yet authorized.
+
+Do not create new tasks. Complete the following inside Prompt 33.
+
+1. Correct the “full-universe” claim
+
+199 symbols are the curated universe, not the complete production scanner universe.
+
+Test and report separately:
+
+- curated universe;
+- full NSE eligible universe;
+- inactive/unsupported instruments;
+- quote-covered rows;
+- daily-candle-complete rows;
+- session-data-complete rows;
+- evaluated rows;
+- NOT_EVALUATED rows;
+- stale-last-good rows;
+- failed/pending rows.
+
+Run performance tests against the actual full-NSE endpoint and actual production-sized universe.
+
+2. Replace hard-coded rename guessing
+
+Do not assume LTIM maps to LTIMINDTREE.
+
+Resolve all symbol changes through the canonical Kite instrument master using stable identity such as ISIN, exchange and instrument token.
+
+Manual aliases may be used only as validated fallback metadata. At startup, verify every alias against the current instrument master. Invalid aliases must fail closed with INSTRUMENT_IDENTITY_UNRESOLVED.
+
+Resolve the final 1/199 miss before deployment.
+
+3. Do not substitute Average Traded Price for VWAP silently
+
+Rename the Kite quote field internally and in provenance to:
+
+KITE_SESSION_AVERAGE_TRADED_PRICE
+
+Do not call it VWAP unless authoritative documentation and numerical validation establish that it matches the strategy’s intended VWAP definition.
+
+Create an explicit strategy-input policy:
+
+- If VWAP/ATP is mandatory for the existing scoring formula and unavailable:
+  signal=NOT_EVALUATED
+  score=null
+  confidence=null
+  action=null
+  reason=SESSION_VWAP_UNAVAILABLE
+
+- If it is genuinely optional, prove that from the pre-existing strategy specification and demonstrate that no thresholds or weights were changed.
+
+“VWAP scoring skipped” is not automatically fail-closed.
+
+4. Implement a true rate limiter
+
+Six concurrent requests released together can violate a three-RPS contract even if followed by a two-second pause.
+
+Use a token-bucket or leaky-bucket limiter that enforces the maximum request rate over rolling intervals, includes Retry-After handling, jittered backoff and 429 diagnostics.
+
+Record:
+
+- maximum observed rolling RPS;
+- request count;
+- 429 count;
+- retries;
+- refresh duration;
+- provider failures.
+
+5. Eliminate unnecessary full-history refreshes
+
+Do not download every symbol’s complete daily history every four hours.
+
+Implement:
+
+- initial/backfill refresh;
+- incremental completed-daily-candle update after market close;
+- retry of missing/failed symbols;
+- instrument-master-change refresh;
+- explicit manual owner refresh.
+
+Current-session values must have a separate canonical path and freshness policy.
+
+6. Prove cross-replica correctness
+
+Demonstrate that:
+
+- one replica wins the advisory lock;
+- the winner persists refreshed data;
+- losing replicas subsequently reload PostgreSQL into L1;
+- a new replica hydrates from PostgreSQL without provider calls;
+- failed refresh preserves last-good data;
+- no replica remains permanently empty.
+
+7. Prove no incomplete recommendation
+
+For every required input, test:
+
+- missing;
+- null;
+- zero where zero is valid;
+- stale;
+- future timestamp;
+- insufficient history;
+- wrong session;
+- provider error.
+
+Any missing mandatory input must prevent numeric scoring, recommendation, ranking, alerts and paper/trading admission.
+
+8. Run the real full battery
+
+Reconcile and report exact counts:
+
+- api-server complete suite, expected floor at least 6,329;
+- scanner complete suite, expected floor at least 1,250;
+- api-zod checks;
+- api-client-react checks;
+- four-package TSC;
+- api-server production build;
+- scanner production build;
+- git diff --check;
+- zero live-provider calls from tests;
+- DB migration idempotency;
+- V2 locks false;
+- broker execution hard-disabled.
+
+Explain what “275/275” represents and do not substitute a targeted suite for the full battery.
+
+9. Staged deployment only after closure
+
+After all gates pass:
+
+Phase A:
+- deploy NOT_EVALUATED safety;
+- create the store schema;
+- start background population;
+- keep incomplete rows NOT_EVALUATED.
+
+Phase B:
+- verify production metrics and full-universe coverage;
+- verify p50/p95 response times;
+- verify no Yahoo-derived Indian scoring;
+- verify five healthy NFO ticks;
+- enable canonical evaluated output only for fully complete rows.
+
+Required current verdict:
+
+PROMPT_33_CURATED_CANDLE_STORE_AND_SCAN_PERFORMANCE_IMPROVED — FULL_UNIVERSE_IDENTITY_RATE_LIMIT_AND_INPUT_COMPLETENESS_PENDING
+
+Do not return ACCEPT_PROMPT_33 or request Publish until all points above are closed.

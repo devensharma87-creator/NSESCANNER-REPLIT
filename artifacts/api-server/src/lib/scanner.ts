@@ -52,21 +52,26 @@ export async function getHistory(
 // is a synchronous Map lookup that never triggers a Kite HTTP call.
 
 /**
- * Extract session VWAP from a Kite batch quote.
+ * Kite Session Average Traded Price (ATP).
  *
- * Source: Kite REST batch quote `average_price` field.
- * Semantics: volume-weighted average traded price of all trades in the
- *   current session, as reported by the exchange (NSE/BSE). This is the
- *   canonical session VWAP — no secondary computation required.
- *   When market is closed the field reflects the prior session's value.
+ * Source:    Kite REST batch quote `average_price` field.
+ * Identity:  KITE_SESSION_AVERAGE_TRADED_PRICE
+ * Semantics: Exchange-reported total-traded-value ÷ total-traded-volume for
+ *            all trades in the current NSE session. Published by the exchange
+ *            alongside the OHLCV quote in real time. Resets to 0 at session open.
  *
- * Zero is treated as "unavailable" (exchange reports 0 in pre-open/
- * before first trade). Returns null rather than a fabricated substitute.
+ * This is NOT a VWAP computed from candle bars. It is the exchange's own
+ * arithmetic over all session trades. It is used as a session-price-level
+ * proxy for the existing ±10-point VWAP scoring rule. See KITE_SESSION_ATP_POLICY.md.
  *
- * Provider calls: NONE. The batch quote is fetched once per scan cycle
- * by centralBatchEquityQuotes() before the worker loop starts.
+ * When 0 (pre-open / no trades yet) or null → returns null.
+ * Null propagates to indicators.vwap=undefined → VWAP scoring rule skipped.
+ * This is fail-closed (correct). It does NOT cause NOT_EVALUATED.
+ *
+ * Provider calls: NONE. Sourced from the batch-quote call made once per scan
+ * cycle by centralBatchEquityQuotes() before the worker loop starts.
  */
-function sessionVwapFromBatchQuote(quote: KiteScannerQuote): number | null {
+function getKiteSessionAtp(quote: KiteScannerQuote): number | null {
   const ap = quote.averagePrice;
   return ap != null && ap > 0 ? ap : null;
 }
@@ -363,10 +368,11 @@ async function buildRowFromKiteCandles(
     updatedAt: new Date(kiteQuote.ts),
   };
 
-  // Session VWAP: sourced from the Kite batch quote average_price field.
-  // No additional provider call. Null when market not yet traded.
-  const intraVwap = sessionVwapFromBatchQuote(kiteQuote);
-  const computed  = computeIndicators(chartWithToday, quote, intraVwap);
+  // Session ATP (KITE_SESSION_AVERAGE_TRADED_PRICE): Kite batch quote average_price.
+  // Zero additional provider calls. Null before first trade of the session.
+  // See KITE_SESSION_ATP_POLICY.md for scoring policy.
+  const sessionAtp = getKiteSessionAtp(kiteQuote);
+  const computed   = computeIndicators(chartWithToday, quote, sessionAtp);
 
   // Real NSE delivery % from bhavcopy — same logic as Yahoo path.
   const realDelv = await getDeliveryPct(entry.symbol).catch(() => null);
@@ -380,12 +386,17 @@ async function buildRowFromKiteCandles(
     storeEntry.status === "stale"
       ? [`KITE_CANDLE_STORE_STALE: indicators from last-good bars (session_date=${storeEntry.sessionDate ?? "unknown"}); background refresh in progress.`]
       : [];
+  // ATP provenance: always document the source of indicators.vwap so consumers
+  // know they are seeing KITE_SESSION_AVERAGE_TRADED_PRICE, not a computed VWAP.
+  const atpWarning = sessionAtp != null
+    ? `VWAP_SOURCE: KITE_SESSION_AVERAGE_TRADED_PRICE (Kite batch quote average_price=${sessionAtp}; not computed from candle bars)`
+    : `VWAP_SOURCE: ATP_UNAVAILABLE (average_price=0 or null; VWAP scoring rule skipped — not NOT_EVALUATED)`;
   const provenance = buildSourceProvenance({
     provider: "kite",
     asOfSec,
     tf: "1D",      // daily bars → EOD timeframe → delayed:true (correct for EOD data)
     kitePriceOverlay: true,
-    warnings: candleStoreWarnings.length > 0 ? candleStoreWarnings : undefined,
+    warnings: [...candleStoreWarnings, atpWarning],
   });
 
   // Minimum bar count for the complete indicator stack:
