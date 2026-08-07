@@ -1,85 +1,98 @@
 ---
 name: Pack 9A canary closure
-description: Option-snapshot live capture canary result, 30-min scheduler continuity, lot-size reconciliation, archive status. COMPLETE as of 06:27 UTC 2026-08-07.
+description: Option-snapshot live capture canary — BLOCKED verdict. Dev proves code correct (3/3, 252 rows, 30 min). Production nfo:0 blocks NIFTY/BANKNIFTY; canary not run in prod. Lot-size reconciliation PASS.
 ---
 
 ## Verdict
 
-**PARTIAL_PACK_9A — CAPTURE_OPERATIONAL_ARCHIVE_INFRASTRUCTURE_PENDING**
+**BLOCKED_PACK_9A_CANARY — PRODUCTION_NFO_INSTRUMENT_MASTER_EMPTY_AND_PRODUCTION_3_INDEX_CAPTURE_NOT_PROVEN**
 
-Issued: 2026-08-07. All four pass conditions met (live capture, canary, scheduler continuity, lot-size reconciliation). Archive absent → fail-closed.
+Issued: 2026-08-07. Prompt 31 requires deployed-production proof. Dev environment passes all conditions; production fails due to `nfo:0`.
 
-## Canary
+## Environment Attribution (Critical)
 
-- Marker: `p9a-canary-20260807-001`
-- Time: 06:15:10–06:15:15 UTC (IST 11:45:10)
-- DB run ID: 14
-- Results: underlyings=3/3, expiries=6, rows=252 (exact: 3×2×21×2), errors=[], source=kite, duration=5,414ms
-- Integrity: 0 duplicate PKs, 0 future-dated captured_at, 0 stale-ts
-- NIFTY null IV: 4/84 rows (deep-OTM near expiry; expected, schema stores null correctly)
-- canary_marker retained after subsequent scheduled tick upsert ✅
+Dev server (PID 464) and production (PID 20) write to **separate databases**.
 
-## Scheduler Continuity (dev, PID 464)
+| Env | DB | 3/3 captures | Canary rows |
+|---|---|---|---|
+| Dev | dev DB (default executeSql) | ✅ runs 7–18 | ✅ p9a-canary-20260807-001 |
+| Production | prod DB (environment:"production") | ❌ last 3/3 at 04:04 UTC | ❌ not present |
 
-| Run ID | UTC | IST | Rows | OK |
+## Dev Canary (dev DB only)
+
+- Marker: `p9a-canary-20260807-001`, dev run ID 14
+- Time: 06:15:10–06:15:15 UTC (IST 11:45)
+- Results: 3/3 underlyings, 252 rows (3×2×21×2), errors=[], source=kite, 5,414ms
+- Integrity: 0 dupes, 0 future-ts, 0 stale-ts; NIFTY 4/84 null IV (OTM near expiry, expected)
+
+## Dev Scheduler Continuity (dev DB — PID 464)
+
+Runs 11–18: 06:02:23 to 06:32:20 UTC = **30 minutes** (7 scheduled ticks + canary, all 3/3, 252 rows)
+
+| Run | UTC | Rows | OK |
+|---|---|---|---|
+| 11 | 06:02:23 | 252 | 3/3 |
+| 12 | 06:07:20 | 252 | 3/3 |
+| 13 | 06:12:20 | 252 | 3/3 |
+| 14 (canary) | 06:15:10 | 252 | 3/3 |
+| 15 | 06:17:20 | 252 | 3/3 |
+| 16 | 06:22:20 | 252 | 3/3 |
+| 17 | 06:27:20 | 252 | 3/3 |
+| 18 | 06:32:20 | 252 | 3/3 |
+
+Dev circuit: CLOSED, consecutiveFullFailures=0. **This is dev-only proof.**
+
+## Production Run Records (prod DB — PID 20)
+
+| Prod ID | UTC | OK/3 | Rows | Notes |
 |---|---|---|---|---|
-| 11 | 06:02:23 | 11:32:23 | 252 | 3/3 |
-| 12 | 06:07:20 | 11:37:20 | 252 | 3/3 |
-| 13 | 06:12:20 | 11:42:20 | 252 | 3/3 |
-| 14 (canary) | 06:15:10 | 11:45:10 | 252 | 3/3 |
-| 15 | 06:17:20 | 11:47:20 | 252 | 3/3 |
-| 16 | 06:22:20 | 11:52:20 | 252 | 3/3 |
-| 17 | 06:27:20 | 11:57:20 | 252 | 3/3 |
+| 3069 | 04:04:42 | 3/3 | 252 | ✅ Last full 3/3 production capture |
+| 3071 | 04:25:15 | 3/3† | 126 | ⚠️ Partial (787s; half rows) |
+| 3072 | 05:11:36 | 1/3 | 42 | First degraded (SENSEX/BFO partial) |
+| 3073 | 05:16:43 | 0/3 | 0 | ❌ |
+| 3074–3079 | 05:49–06:20 | 1/3 | 84 | SENSEX only (BFO); stable |
 
-5-min interval proven: 06:02, 06:07, 06:12, 06:17, 06:22, 06:27 UTC. No alert fires. No circuit-breaker trips. consecutiveFullFailures=0, circuitOpenUntil=null. **30-minute window COMPLETE (06:02–06:27 UTC, 25min current process + prior-process ticks).**
+Production `nfo:0` since ~05:11 UTC: `"Kite: no F&O legs found for underlying"` for NIFTY and BANKNIFTY.
 
-## Lot-Size Reconciliation
+## Production DB State (prod DB)
 
-| Underlying | Kite master | SNAPSHOT_LOT_SIZES | DB lot_size | Match |
+- Total rows: 534,612 (since 2026-05-18)
+- NIFTY last bucket: 2026-08-07 04:25:00 UTC — **stalled**
+- BANKNIFTY last bucket: 2026-08-07 05:00:00 UTC — **stalled**
+- SENSEX last bucket: 2026-08-07 06:20:00 UTC — still capturing via BFO
+
+## Dev DB Row Count Reconciliation
+
+| Snapshot time | Event | BANKNIFTY | NIFTY | SENSEX | Total |
+|---|---|---|---|---|---|
+| After run 15 | Coverage query | 756 | 672 | 756 | **2,184** |
+| After run 17 | Total-rows query | 924 | 840 | 924 | **2,688** |
+| After run 18 | Final query | 1,008 | 924 | 1,008 | **2,940** |
+
+2,184 and 2,688 reference different query times (not a discrepancy). Both internally consistent.
+
+## Lot-Size Reconciliation (PASS — shared instrument source)
+
+| Underlying | Kite master | SNAPSHOT_LOT_SIZES | Dev DB | Match |
 |---|---|---|---|---|
 | NIFTY | 65 | 65 | 65 | ✅ |
 | BANKNIFTY | 30 | 30 | 30 | ✅ |
 | SENSEX | 20 | 20 | 20 | ✅ |
 
-"NIFTY: 50" in optionChain.ts/contractMasterFact.ts/kiteOptionChain.ts = STRIKE_STEPS (50-point interval between strikes), NOT lot sizes. Correct.
-Stale JSDoc comments "25 for NIFTY" in fnoCostModel.ts/gex.ts = pre-2026 lot size; P2 doc debt, no runtime effect.
-
-## DB State at 06:22 UTC
-
-- Total rows: 2,688
-- Distinct time buckets: 11
-- BANKNIFTY: 756 rows, 9 buckets (first 04:35 UTC)
-- NIFTY: 672 rows, 8 buckets (first 04:40 UTC)
-- SENSEX: 756 rows, 9 buckets (first 04:35 UTC)
-
-## Archive Status
-
-- `OPTION_SNAPSHOT_ARCHIVE_PATH`: NOT SET
-- Retention: SKIPPED_ARCHIVE_REQUIRED (fail-closed, 0 rows deleted)
-- Archive needed before Aug 2027 (12-month mark)
-- Recommended: Replit Object Storage FUSE mount
-
-## Production vs Dev
-
-- Dev (PID 464): 3/3 underlyings, 252 rows/tick ✅
-- Production (PID 20): 1/3 underlyings, 84 rows/tick (SENSEX only via BFO) ⚠️
-  - NIFTY/BANKNIFTY blocked: `nfo:0` in production F&O instruments
-  - Owned by Prompt 33; not in scope for Pack 9A
+Stale comments "25 for NIFTY" in fnoCostModel.ts/gex.ts: pre-Jan-2026, no runtime effect. P2 doc debt.
+`NIFTY: 50` in optionChain.ts etc = STRIKE_STEPS (50-pt intervals), not lot sizes.
 
 ## Test Floor
 
-- api-server: 6,268 tests (27 new Pack 9A canary tests in p31.pack9aCanary.test.ts)
+- api-server: 6,268 tests (27 new in p31.pack9aCanary.test.ts, all pass)
 - scanner: 1,250 tests
 - 4-pkg TSC: clean
+
+## What Blocks Closure
+
+1. **Prompt 33**: Fix `nfo:0` in production so NIFTY+BANKNIFTY F&O legs are found
+2. **After Prompt 33**: Re-run canary in production (`POST /api/option-snapshots/run-now`), observe 30 min of 3/3 prod captures, query prod DB for marker rows
 
 ## Evidence File
 
 `artifacts/audit-evidence/PACK_9A_OPTION_PREMIUM_DATA_WAREHOUSE_AND_CAPTURE_RECOVERY.md`
-
-## Session History
-
-- First half: Kite expired + NSE timeout → WAITING verdict
-- Kite renewed 10:19 IST (04:49 UTC); first full 3/3 success at run 7 (10:13 IST)
-- New process started 11:32 IST; capture immediately recovered
-- Canary executed 11:45 IST; temp runner file deleted after use
-- 30-min window: 06:02–06:32 UTC (runs 11–17)
