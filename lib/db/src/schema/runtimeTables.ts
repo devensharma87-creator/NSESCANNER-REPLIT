@@ -9,6 +9,7 @@ import {
   bigint,
   unique,
   index,
+  primaryKey,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 
@@ -113,6 +114,33 @@ export const systemAlertState = pgTable("system_alert_state", {
     .defaultNow(),
   workerId: text("worker_id"),
 });
+
+/**
+ * Prompt 33 Gate 1 declaration (2026-08-07).
+ *
+ * `kite_candle_store` is created at runtime by `kiteCandleStore.ts` via
+ * `CREATE TABLE IF NOT EXISTS` inside `ensureKiteCandleSchema()`.
+ * Declared here so drizzle-kit push never sees it as out-of-schema and
+ * offers to DROP it on next Publish.
+ *
+ * Column types match the live DDL in kiteCandleStore.ts exactly.
+ */
+export const kiteCandleStore = pgTable(
+  "kite_candle_store",
+  {
+    symbol:           text("symbol").notNull(),
+    exchange:         text("exchange").notNull().default("NSE"),
+    timeframe:        text("timeframe").notNull().default("day"),
+    sessionDate:      date("session_date"),
+    barCount:         integer("bar_count"),
+    barsJson:         jsonb("bars_json"),
+    fetchedAt:        timestamp("fetched_at", { withTimezone: true }),
+    status:           text("status").notNull().default("pending"),
+    errorCode:        text("error_code"),
+    refreshAttemptAt: timestamp("refresh_attempt_at", { withTimezone: true }),
+  },
+  (t) => [primaryKey({ columns: [t.symbol, t.exchange, t.timeframe] })],
+);
 
 /**
  * W3a declaration (2026-07-18 Weekend work).

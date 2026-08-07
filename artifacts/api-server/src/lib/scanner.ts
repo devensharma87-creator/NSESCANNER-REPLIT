@@ -8,6 +8,7 @@ import { buildRecommendation } from "./scoring";
 import { logger } from "./logger";
 import { getDeliveryPct } from "./marketData/referenceData";
 import { centralLiveQuote, centralEquityCandles, centralBatchEquityQuotes } from "./marketData/compat";
+import { getKiteCandleSeries } from "./kiteCandle/kiteCandleStore";
 import type { KiteScannerQuote } from "./marketData/compat";
 import { buildSourceProvenance } from "./scannerProvenance";
 import { toScannerRowSource } from "./scannerSourceHealth";
@@ -47,38 +48,22 @@ export async function getHistory(
   return chart;
 }
 
-/**
- * Phase B (Prompt 33 Gate 2): Kite daily candles cached with the same 30-min
- * TTL as the Yahoo history cache. Key namespace (`kite-day:`) is distinct so
- * both can coexist in historyCache without collision.
- */
-async function getKiteHistory(symbol: string): Promise<YahooChart | null> {
-  const key = `kite-day:${symbol}`;
-  const cached = historyCache.get(key);
-  if (cached && Date.now() - cached.fetchedAt < HISTORY_TTL_MS) return cached.chart;
-  try {
-    const chart = await centralEquityCandles(symbol, "day", 365);
-    if (chart) historyCache.set(key, { fetchedAt: Date.now(), chart });
-    return chart;
-  } catch {
-    return null;
-  }
-}
+// Phase B: Kite daily candles are served from the canonical KiteCandleStore (L1
+// in-memory cache populated from PostgreSQL at boot).  getKiteHistory() has been
+// removed — buildRowFromKiteCandles() calls getKiteCandleSeries() directly, which
+// is a synchronous Map lookup that never triggers a Kite HTTP call.
 
 async function getIntradayVwap(symbol: string): Promise<number | null> {
   const cached = intradayVwapCache.get(symbol);
   if (cached && Date.now() - cached.ts < INTRADAY_TTL) return cached.vwap;
   try {
     // Kite-first: live 15-minute candles direct from the broker (no
-    // 15-min Yahoo delay, no rate limits during US overlap). When Kite
-    // is offline OR the symbol isn't an NSE EQ instrument, fall back to
-    // Yahoo via yahooTickerFor() so renamed tickers (ZOMATO→ETERNAL,
-    // MCDOWELL-N→UNITDSPR, NIPPONLIFE→NAM-INDIA, GMRINFRA→GMRAIRPORT)
-    // still resolve.
-    let intra = await centralEquityCandles(symbol, "15minute", 1);
-    if (!intra || intra.close.length < 4) {
-      intra = await fetchIntraday(yahooTickerFor(symbol), "15m", "1d");
-    }
+    // 15-min Yahoo delay). Yahoo fallback removed (Gate 5 Yahoo
+    // containment): Yahoo intraday for Indian equities is no longer an
+    // acceptable VWAP source. If Kite 15-min candles are unavailable
+    // (session inactive, market closed), VWAP returns null and VWAP-
+    // dependent scoring conditions are skipped. Null VWAP is honest.
+    const intra = await centralEquityCandles(symbol, "15minute", 1);
     if (!intra || intra.close.length < 4) {
       intradayVwapCache.set(symbol, { ts: Date.now(), vwap: null });
       return null;
@@ -323,12 +308,17 @@ async function buildRowFromKiteCandles(
     !(kiteQuote.close > 0)
   ) return null;
 
-  // Fetch Kite daily candles (365 calendar days ≈ 252 trading bars).
-  // getKiteHistory() is cached with a 30-minute TTL — same budget as Yahoo.
-  const kiteChart = await getKiteHistory(entry.symbol);
-  if (!kiteChart || kiteChart.close.length < 30) return null;
+  // Phase B Gate 1: read Kite daily candles from the canonical candle store.
+  // This is a synchronous Map lookup — zero Kite HTTP calls on the UI path.
+  // The background refresh (kiteCandleStore.ts) keeps the store current.
+  const storeEntry = getKiteCandleSeries(entry.symbol);
+  const kiteChart = storeEntry.chart;
+  // null chart covers: pending (store not yet populated), unavailable (Kite
+  // offline), and insufficient<MIN_DISPLAY_BARS.  Return null to let buildRow()
+  // fall back to the Yahoo path (KITE_CANDLES_UNAVAILABLE).
+  if (!kiteChart) return null;
 
-  const bars = kiteChart.close.length;
+  const bars = storeEntry.barCount;
 
   // Append today's partial bar from the Kite batch quote as the final entry.
   // This gives computeIndicators the same "last bar = current partial day"
@@ -387,11 +377,17 @@ async function buildRowFromKiteCandles(
   }
 
   const asOfSec = Number.isFinite(kiteQuote.ts) ? Math.floor(kiteQuote.ts / 1000) : null;
+  // Surface stale candle store data in provenance so the UI can flag it.
+  const candleStoreWarnings: string[] =
+    storeEntry.status === "stale"
+      ? [`KITE_CANDLE_STORE_STALE: indicators from last-good bars (session_date=${storeEntry.sessionDate ?? "unknown"}); background refresh in progress.`]
+      : [];
   const provenance = buildSourceProvenance({
     provider: "kite",
     asOfSec,
     tf: "1D",      // daily bars → EOD timeframe → delayed:true (correct for EOD data)
     kitePriceOverlay: true,
+    warnings: candleStoreWarnings.length > 0 ? candleStoreWarnings : undefined,
   });
 
   // Minimum bar count for the complete indicator stack:
@@ -409,7 +405,7 @@ async function buildRowFromKiteCandles(
         score: null,
         confidence: null,
         reasons: [],
-        setupMessage: `INSUFFICIENT_HISTORY: ${bars} trading days in Kite candle history (need ≥200 for EMA200 and complete indicator stack).`,
+        setupMessage: `INSUFFICIENT_HISTORY: ${bars} trading days in Kite candle history (need ≥200 for EMA200 and complete indicator stack; session_date=${storeEntry.sessionDate ?? "unknown"}).`,
       },
       provenance,
       rowSource: toScannerRowSource(provenance, entry.symbol),

@@ -339,6 +339,16 @@ scheduleBootJob("paper-trade-charges-columns", 16_000, async () => {
   await ensurePaperTradeChargesColumns();
 });
 
+// Canonical Kite Candle Store — warm-loads DB cache into memory then schedules
+// a background refresh independent of all UI requests.  The boot delay gives
+// the Kite session time to establish before the first Kite candle fetch fires.
+// UI path (scanner) reads from in-memory L1 only — zero Kite calls per request.
+// Advisory lock prevents thundering-herd across replicas.
+scheduleBootJob("kite-candle-store", 10_000, async () => {
+  const { initKiteCandleStore } = await import("./lib/kiteCandle/kiteCandleStore");
+  await initKiteCandleStore();
+});
+
 // W6-P4B5 observability only: read-only post-boot DB pool utilization snapshots
 // that bracket the W6-P4A stagger window. These ONLY read the pg pool's
 // in-memory counters — they never run a query, never acquire a connection, and

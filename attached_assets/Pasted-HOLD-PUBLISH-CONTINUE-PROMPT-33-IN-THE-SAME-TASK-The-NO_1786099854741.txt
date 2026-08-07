@@ -1,0 +1,140 @@
+HOLD_PUBLISH — CONTINUE_PROMPT_33_IN_THE_SAME_TASK
+
+The NOT_EVALUATED safety fix is accepted, but the current deployment candidate is not yet approved.
+
+Do not create follow-up tasks. Do not publish commit 7633064 until the following gates are closed.
+
+1. Remove the N-per-scan Kite request architecture
+
+The scanner must not make one Kite historical request per stock during a user request, scan request, server startup or replica startup.
+
+Implement a centralized canonical Kite candle store/cache with:
+
+- persistent storage or durable last-good cache;
+- symbol + exchange + timeframe + session-date key;
+- bounded provider concurrency and explicit Kite rate limiting;
+- single-flight request deduplication;
+- cross-replica/advisory-lock protection where applicable;
+- stale-while-revalidate without replacing canonical data with Yahoo;
+- bounded timeout and circuit-breaker behaviour;
+- background refresh independent of UI requests;
+- no thundering herd after deployment/restart;
+- machine-readable freshness and missing-data reasons.
+
+A UI request must read the canonical store. It must not trigger hundreds or thousands of Kite requests.
+
+2. Prove complete-universe behaviour
+
+The 194 curated-stock result is not full-scanner acceptance.
+
+Report separately:
+
+- total instrument universe;
+- Kite quote-covered rows;
+- canonical candle-complete rows;
+- evaluated rows;
+- NOT_EVALUATED rows;
+- unsupported/inactive instruments;
+- provider failures;
+- stale rows;
+- last-good rows;
+- total refresh duration;
+- Kite request count;
+- cache-hit ratio.
+
+Test the full production scanner universe, not only the curated subset.
+
+3. Freeze indicator/timeframe semantics
+
+Create an authoritative field contract:
+
+- CMP/change/open/high/low/previous: canonical Kite quote/session data;
+- EMA20/50/100/200: verified daily candles;
+- RSI: verified daily candles with sufficient warm-up;
+- 52-week high/low: verified daily history of sufficient length;
+- volume multiple: explicitly define current-volume and baseline timeframes;
+- VWAP: session intraday candles/ticks only;
+- delivery percentage: authoritative NSE/EOD source only;
+- futures OI: canonical derivative source only.
+
+Daily candles must never be used to fabricate session VWAP. If intraday VWAP data is unavailable, return `vwap=null` with a machine-readable reason and exclude VWAP-dependent scoring conditions.
+
+Document the exact timeframe used by every score component. Confirm that replacing Yahoo data has not silently changed the strategy’s intended timeframe.
+
+4. Eliminate unsafe null arithmetic
+
+Audit every `?? 0`, `|| 0`, `Number(value)`, comparison, sort, filter and aggregate involving score, confidence or required indicators.
+
+For NOT_EVALUATED rows:
+
+- score=null;
+- confidence=null;
+- signal=NOT_EVALUATED;
+- action=null;
+- no recommendation;
+- no ranking placement;
+- no bullish/bearish count;
+- no mover/setup inclusion;
+- no alert;
+- no paper-trade admission;
+- no swing/F&O admission;
+- no broker candidate.
+
+Do not use `?? 0` where null means unavailable.
+
+5. Prove Yahoo containment
+
+For Indian equities and Indian indices:
+
+- zero Yahoo candle requests;
+- zero Yahoo-derived indicators;
+- zero Yahoo-derived scores;
+- zero Yahoo-derived recommendations;
+- zero Yahoo-derived paper/trading decisions.
+
+Yahoo may remain only in explicitly isolated global/macro display surfaces with DELAYED, INFO_ONLY and NOT_FOR_SIGNALS labels.
+
+6. Performance acceptance
+
+Before publish, prove:
+
+- scanner API remains within its declared timeout;
+- repeated requests use the canonical cache;
+- restart does not generate an unbounded request storm;
+- concurrent users do not multiply provider requests;
+- option-snapshot capture continues without delay or rate-limit interference;
+- Kite quote/WebSocket processing remains healthy;
+- failure of candle refresh leaves rows NOT_EVALUATED or uses clearly stale last-good data according to policy.
+
+7. Production deployment gate
+
+After all preceding gates pass:
+
+- build all affected packages;
+- run complete test suites and TSC;
+- record the exact deployment commit;
+- confirm V2 runtime locks remain false;
+- confirm broker execution remains hard-disabled;
+- deploy Stock Scanner Pro only;
+- do not modify the separate Global project.
+
+8. Production verification
+
+During market hours verify:
+
+- complete rows show canonical Kite-derived indicators;
+- incomplete rows show NOT_EVALUATED with explicit reason;
+- no Yahoo badge on Indian analytical rows;
+- no fabricated score, NEUTRAL or BUY action;
+- desktop and mobile screenshots;
+- API response evidence;
+- full-universe coverage metrics;
+- five consecutive healthy NFO snapshot ticks.
+
+Only after this may Prompt 33 return:
+
+ACCEPT_PROMPT_33_PRODUCTION_SCANNER_RECOVERY_CANONICAL_CANDLE_COVERAGE_AND_YAHOO_CONTAINMENT
+
+Until then use:
+
+PROMPT_33_DEVELOPMENT_SAFETY_FIX_VERIFIED — CANONICAL_CANDLE_STORE_PERFORMANCE_AND_PRODUCTION_DEPLOYMENT_PENDING

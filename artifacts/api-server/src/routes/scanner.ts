@@ -728,6 +728,39 @@ router.get("/scan/top", async (_req, res, next) => {
   } catch (err) { next(err); }
 });
 
+/**
+ * GET /api/scan/candle-store/metrics — owner-only canonical Kite candle store health.
+ *
+ * Reports full-universe coverage: total symbols, ok/stale/unavailable/insufficient/
+ * pending counts, evaluated-ready count (barCount ≥ 200), last refresh stats,
+ * cache efficiency, circuit-breaker state, and advisory lock key.
+ */
+router.get("/scan/candle-store/metrics", requireOwner, async (_req, res, next) => {
+  try {
+    const { getKiteCandleStoreMetrics } = await import("../lib/kiteCandle/kiteCandleStore");
+    const metrics = getKiteCandleStoreMetrics();
+    res.json({ ok: true, metrics, generatedAt: new Date().toISOString() });
+  } catch (err) { next(err); }
+});
+
+/**
+ * POST /api/scan/candle-store/refresh — owner-only manual refresh trigger.
+ * Runs runKiteCandleRefresh() immediately (background; does not block response).
+ * Useful for validating a Kite session or testing candle coverage post-deploy.
+ */
+router.post("/scan/candle-store/refresh", requireOwner, async (_req, res, next) => {
+  try {
+    const { runKiteCandleRefresh, getKiteCandleStoreMetrics } = await import("../lib/kiteCandle/kiteCandleStore");
+    // Return immediately; refresh runs in background
+    void runKiteCandleRefresh().then(result => {
+      // Log result asynchronously
+      const { logger } = require("../lib/logger") as typeof import("../lib/logger");
+      logger.info({ result }, "kiteCandleStore: manual refresh triggered via API");
+    }).catch(() => undefined);
+    res.json({ ok: true, message: "Kite candle store refresh triggered (background)", currentMetrics: getKiteCandleStoreMetrics() });
+  } catch (err) { next(err); }
+});
+
 router.get("/scan/health", async (_req, res, next) => {
   try {
     const rows = await getScanRowsFast();
