@@ -1,5 +1,9 @@
 import type { Indicators, Quote, StockHistory, StockRow } from "@workspace/api-zod";
 import { UNIVERSE, INACTIVE_SYMBOLS, KITE_NSE_SYMBOL_OVERRIDE, type UniverseEntry } from "./universe";
+import {
+  SCANNER_KITE_CANDLE_EVALUATION_AUTHORIZED,
+  CANDLE_EVALUATION_LOCKED_CODE,
+} from "./candleEvaluationControl";
 import { fetchChart, fetchIntraday, yahooTickerFor, type YahooChart } from "./marketData/analyticsYahoo";
 import { adx, atr, avgVolume, ema, macd, rsi, supportResistance, volumeProfile, pivots } from "./indicators";
 // Phase B: Kite daily candle analytics now powers the recommendation for curated stocks.
@@ -415,6 +419,36 @@ async function buildRowFromKiteCandles(
         confidence: null,
         reasons: [],
         setupMessage: `INSUFFICIENT_HISTORY: ${bars} trading days in Kite candle history (need ≥200 for EMA200 and complete indicator stack; session_date=${storeEntry.sessionDate ?? "unknown"}).`,
+      },
+      provenance,
+      rowSource: toScannerRowSource(provenance, entry.symbol),
+    };
+  }
+
+  // ── Phase A compile-time evaluation lock ──────────────────────────────────
+  // SCANNER_KITE_CANDLE_EVALUATION_AUTHORIZED = false during Phase A
+  // (candle store population). While false, all rows — including those with
+  // ≥200 bars — are returned as NOT_EVALUATED. The store population continues
+  // unaffected. No score, no signal, no alerts, no ranking, no paper admission.
+  // Change to true in candleEvaluationControl.ts only after Phase A evidence
+  // passes review (see Gate 9 Phase B authorization requirements).
+  if (!SCANNER_KITE_CANDLE_EVALUATION_AUTHORIZED) {
+    logger.debug(
+      { symbol: entry.symbol, bars, lockedCode: CANDLE_EVALUATION_LOCKED_CODE },
+      "scanner: evaluation locked (Phase A) — returning NOT_EVALUATED",
+    );
+    return {
+      symbol: entry.symbol,
+      name:   entry.name,
+      sector: entry.sector,
+      quote,
+      indicators: computed.indicators, // indicators are computed and surfaced for display
+      recommendation: {
+        signal: "NOT_EVALUATED",
+        score: null,
+        confidence: null,
+        reasons: [],
+        setupMessage: `${CANDLE_EVALUATION_LOCKED_CODE}: SCANNER_KITE_CANDLE_EVALUATION_AUTHORIZED=false; candle store population active (${bars} bars for ${entry.symbol}); evaluation locked until Phase B authorization. Change candleEvaluationControl.ts after Phase A evidence passes.`,
       },
       provenance,
       rowSource: toScannerRowSource(provenance, entry.symbol),

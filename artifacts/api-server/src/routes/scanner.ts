@@ -731,15 +731,71 @@ router.get("/scan/top", async (_req, res, next) => {
 /**
  * GET /api/scan/candle-store/metrics — owner-only canonical Kite candle store health.
  *
- * Reports full-universe coverage: total symbols, ok/stale/unavailable/insufficient/
- * pending counts, evaluated-ready count (barCount ≥ 200), last refresh stats,
- * cache efficiency, circuit-breaker state, and advisory lock key.
+ * Universe terminology (Pack 33 Control 2):
+ *   curatedSignalUniverse  = 199 hand-curated stocks (scored / paper-trade eligible when Phase B active)
+ *   fullNseScannerUniverse = all eligible NSE EQ from Kite master (~8,905 after ETF/SME filter)
+ *
+ * Reports:
+ *   - curatedSignalUniverse counts (ok/stale/unavailable/insufficient/pending/evaluatedReady)
+ *   - fullNseScannerUniverse estimated total (from Kite instrument master)
+ *   - evaluation authorization status (Phase A/B gate)
+ *   - full-NSE warehouse background job status
+ *   - last refresh stats, cache efficiency, circuit-breaker, advisory locks
  */
 router.get("/scan/candle-store/metrics", requireOwner, async (_req, res, next) => {
   try {
     const { getKiteCandleStoreMetrics } = await import("../lib/kiteCandle/kiteCandleStore");
-    const metrics = getKiteCandleStoreMetrics();
-    res.json({ ok: true, metrics, generatedAt: new Date().toISOString() });
+    const { getFullNseWarehouseMetrics } = await import("../lib/kiteCandle/fullNseWarehouse");
+    const { getCandleEvaluationStatus, SCANNER_KITE_CANDLE_EVALUATION_AUTHORIZED } =
+      await import("../lib/candleEvaluationControl");
+    const { CURATED_SIGNAL_UNIVERSE_ACTIVE_COUNT } = await import("../lib/universe");
+
+    const storeMetrics = getKiteCandleStoreMetrics();
+    const warehouseMetrics = getFullNseWarehouseMetrics();
+    const evalStatus = getCandleEvaluationStatus();
+
+    // Universe metrics — distinguish curated (199) vs full NSE
+    const universeMetrics = {
+      curatedSignalUniverse: {
+        description: "Hand-curated 199-stock signal universe (scored/paper-trade eligible when Phase B active)",
+        activeCount: CURATED_SIGNAL_UNIVERSE_ACTIVE_COUNT,
+        inStoreCount: storeMetrics.totalSymbols,
+        okCount: storeMetrics.okCount,
+        staleCount: storeMetrics.staleCount,
+        unavailableCount: storeMetrics.unavailableCount,
+        insufficientCount: storeMetrics.insufficientCount,
+        pendingCount: storeMetrics.pendingCount,
+        evaluatedReadyCount: storeMetrics.evaluatedReadyCount,
+        /** evaluatedReadyCount only increments when evaluation is authorized */
+        evaluatedCount: evalStatus.authorized ? storeMetrics.evaluatedReadyCount : 0,
+        notEvaluatedCount: storeMetrics.totalSymbols - (evalStatus.authorized ? storeMetrics.evaluatedReadyCount : 0),
+      },
+      fullNseScannerUniverse: {
+        description: "All eligible NSE EQ instruments from Kite master (after ETF/SME filter, ~8,905)",
+        note: "Populated asynchronously by the full-NSE warehouse background job",
+        warehouseLastRunSymbols: warehouseMetrics.lastWarehouseTotalSymbols,
+        warehouseSuccessCount: warehouseMetrics.lastWarehouseSuccessCount,
+        warehouseFailCount: warehouseMetrics.lastWarehouseFailCount,
+        warehouseRunning: warehouseMetrics.warehouseRunning,
+        warehouseLastAt: warehouseMetrics.lastWarehouseAt,
+        warehouseDurationMs: warehouseMetrics.lastWarehouseDurationMs,
+        warehouseLockKey: warehouseMetrics.lockKey,
+      },
+      evaluationStatus: {
+        authorized: SCANNER_KITE_CANDLE_EVALUATION_AUTHORIZED,
+        phase: evalStatus.phase,
+        reason: evalStatus.reason,
+        lockedCode: "PHASE_A_POPULATION_ONLY",
+      },
+    };
+
+    res.json({
+      ok: true,
+      universeMetrics,
+      storeMetrics,
+      warehouseMetrics,
+      generatedAt: new Date().toISOString(),
+    });
   } catch (err) { next(err); }
 });
 

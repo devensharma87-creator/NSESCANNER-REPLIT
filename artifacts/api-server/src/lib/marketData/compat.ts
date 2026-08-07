@@ -191,6 +191,7 @@ export { getIndexTokenMap as centralIndexTokenMap } from "../kiteIntraday";
  * `getEtfRecognitionDiagnostics`, `checkEtfRecognition`.
  */
 export {
+  looksLikeEtf as centralLooksLikeEtf,
   isRecognisedEtf as centralIsRecognisedEtf,
   loadKiteEtfQuote as centralLoadKiteEtfQuote,
   getEtfRecognitionDiagnostics as centralGetEtfRecognitionDiagnostics,

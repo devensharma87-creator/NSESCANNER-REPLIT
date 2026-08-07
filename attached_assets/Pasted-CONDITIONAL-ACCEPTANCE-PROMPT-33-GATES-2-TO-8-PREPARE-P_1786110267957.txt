@@ -1,0 +1,103 @@
+CONDITIONAL_ACCEPTANCE_PROMPT_33_GATES_2_TO_8 — PREPARE_PHASE_A_DEPLOYMENT
+
+The canonical-store engineering, symbol resolution, ATP terminology, rate limiter, refresh modes, null safety and full test battery are conditionally accepted.
+
+Do not report Prompt 33 COMPLETE. Gate 9 remains pending.
+
+Before Phase A publish, close these final controls:
+
+1. Add or prove an actual compile-time activation boundary:
+
+SCANNER_KITE_CANDLE_EVALUATION_AUTHORIZED = false as boolean
+
+Requirements:
+
+- no environment-variable bypass;
+- Phase A may populate PostgreSQL and L1;
+- while false, store-backed rows remain NOT_EVALUATED;
+- score=null;
+- confidence=null;
+- action=null;
+- no alerts, rankings, setups, paper admission or trading admission;
+- Yahoo/incomplete Indian rows also remain NOT_EVALUATED;
+- Phase B requires a deliberate code change, review and redeployment.
+
+Provide the exact source file, line and tests proving the lock.
+
+2. Correct the universe terminology
+
+The 199 stocks are the CURATED_SIGNAL_UNIVERSE, not the FULL_NSE_SCANNER_UNIVERSE.
+
+Produce separate metrics for:
+
+- CURATED_SIGNAL_UNIVERSE;
+- FULL_NSE_SCANNER_UNIVERSE;
+- eligible active NSE equities;
+- excluded/unsupported securities;
+- canonical quote coverage;
+- canonical candle coverage;
+- evaluated count;
+- NOT_EVALUATED count.
+
+Do not report “full-universe coverage” based on 199 stocks.
+
+3. Extend warehouse population progressively to all eligible full-scanner equities
+
+Use the same token-bucket, identity resolver, persistent store and background ingestion.
+
+The refresh may take longer because it is asynchronous. It must never block the scanner API.
+
+Rows become eligible individually only after their complete canonical inputs pass validation. There must be no Yahoo-derived evaluation while the warehouse fills.
+
+4. Phase A deployment authorization conditions
+
+After the hard lock is proven false, provide:
+
+- exact deployment diff;
+- all full-suite counts;
+- both production builds;
+- migration/schema idempotency;
+- rollback procedure;
+- V2 locks false;
+- broker execution hard-disabled.
+
+Then request:
+
+AUTHORIZE_PROMPT_33_PHASE_A_STORE_POPULATION_DEPLOYMENT
+
+5. Phase A production verification
+
+After publishing, verify:
+
+- schema created successfully;
+- store population running;
+- advisory lock functioning;
+- no 429/request-rate breach;
+- losing replicas hydrate from PostgreSQL;
+- last-good data preserved;
+- NFO snapshot capture remains healthy;
+- scanner output remains NOT_EVALUATED because the activation constant is false;
+- zero Yahoo-derived Indian score/action;
+- production metrics for curated and full universes;
+- p50/p95 scanner response below 25 seconds.
+
+6. Phase B authorization
+
+Only after Phase A evidence passes may the activation constant be changed to true in a new reviewed commit.
+
+Phase B must prove:
+
+- evaluated rows have all mandatory canonical inputs;
+- incomplete rows remain NOT_EVALUATED;
+- no Indian-equity Yahoo analytics;
+- no fabricated score or recommendation;
+- CSV/JSON exports, Home setups, rankings, alerts, swing, F&O and paper admission preserve the same rules;
+- authenticated production screenshots at desktop and mobile widths.
+
+7. After Phase B production acceptance, rerun Prompt 31 production-only canary for at least 30 continuous minutes.
+
+Current verdict:
+
+PROMPT_33_GATES_2_TO_8_CONDITIONALLY_ACCEPTED — PHASE_A_HARD_LOCK_AND_PRODUCTION_POPULATION_PENDING
+
+Do not mark the task complete and do not create follow-up tasks.

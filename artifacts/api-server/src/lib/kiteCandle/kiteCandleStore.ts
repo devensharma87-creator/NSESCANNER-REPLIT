@@ -920,6 +920,25 @@ function scheduleNextRefresh(): void {
  *   - Stale last-good rows (if DB had prior-session data).
  *   - NOT_EVALUATED rows falling back to Yahoo (if DB was empty).
  */
+/**
+ * Store a single KiteCandleEntry in L1 (memCache) and L2 (PostgreSQL).
+ *
+ * Public API for external consumers (e.g. fullNseWarehouse) that need to
+ * persist warehouse entries without accessing private upsertToDb directly.
+ * L2 write is best-effort — L1 is always updated.
+ */
+export async function storeKiteCandleEntry(entry: KiteCandleEntry): Promise<void> {
+  memCache.set(cacheKey(entry.symbol, entry.exchange, entry.timeframe), entry);
+  try {
+    await upsertToDb(entry);
+  } catch (err) {
+    logger.warn(
+      { symbol: entry.symbol, err: (err as Error).message },
+      "kiteCandleStore: storeKiteCandleEntry DB upsert failed (best-effort)",
+    );
+  }
+}
+
 export async function initKiteCandleStore(): Promise<void> {
   if (schedulerActive) {
     logger.warn("kiteCandleStore: initKiteCandleStore called more than once — ignored");
@@ -966,6 +985,16 @@ export async function initKiteCandleStore(): Promise<void> {
       scheduleNextRefresh();
     }
   }, firstDelayMs);
+
+  // Start the full-NSE warehouse population background job (5-min delayed first run).
+  // This populates candle history for all ~8,700 non-curated NSE EQ instruments.
+  // It runs asynchronously and never blocks the scanner API.
+  try {
+    const { initFullNseWarehouseScheduler } = await import("./fullNseWarehouse");
+    initFullNseWarehouseScheduler();
+  } catch (err) {
+    logger.warn({ err }, "kiteCandleStore: failed to start full-NSE warehouse scheduler");
+  }
 }
 
 // ─── Test helpers ─────────────────────────────────────────────────────────────

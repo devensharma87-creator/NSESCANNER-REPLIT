@@ -514,3 +514,31 @@ export const SECTORS: string[] = Array.from(new Set(UNIVERSE.map(u => u.sector))
 export function getEntry(symbol: string): UniverseEntry | undefined {
   return UNIVERSE.find(u => u.symbol.toUpperCase() === symbol.toUpperCase());
 }
+
+// ─── Universe terminology (Pack 33 Control 2) ────────────────────────────────
+//
+// CURATED_SIGNAL_UNIVERSE  — the 199-stock hand-curated set for which the
+//   scanner runs Kite-candle analytics, scoring, and paper-trade admission.
+//   Size: 199 active (plus 1 inactive: PEL).  This is NOT the "full NSE
+//   scanner universe" — do not report these 199 stocks as full-universe
+//   coverage.
+//
+// FULL_NSE_SCANNER_UNIVERSE — all eligible NSE EQ instruments from the Kite
+//   instrument master after ETF/SME filtering (~8,905 equities). The warehouse
+//   background job populates the candle store for this set asynchronously.
+//
+// Rule: use CURATED_SIGNAL_UNIVERSE wherever the 199-stock set is intended;
+//       use FULL_NSE_SCANNER_UNIVERSE label only in warehouse/instrumentation.
+
+/**
+ * CURATED_SIGNAL_UNIVERSE — alias for UNIVERSE.
+ * The 199-stock curated set used for Kite-candle analytics, scoring, and
+ * paper-trade admission. Distinct from the FULL_NSE_SCANNER_UNIVERSE (~8,905
+ * eligible NSE EQ instruments from the Kite instrument master).
+ */
+export const CURATED_SIGNAL_UNIVERSE: ReadonlyArray<UniverseEntry> = UNIVERSE;
+
+/** Count of active curated-signal-universe stocks (excludes inactive entries). */
+export const CURATED_SIGNAL_UNIVERSE_ACTIVE_COUNT: number = UNIVERSE.filter(
+  u => !u.inactive && !INACTIVE_SYMBOLS.has(u.symbol.toUpperCase()),
+).length;
