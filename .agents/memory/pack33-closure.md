@@ -1,53 +1,42 @@
 ---
 name: Pack 33 closure
-description: NOT_EVALUATED signal for Indian equity scanner rows lacking Kite candle analytics; Zod + TypeScript + UI changes; 6294 tests pass.
+description: Canonical Kite candle store (Gates 1-6) + Phase B for curated NSE scanner; deployment status.
 ---
 
-## Summary
-Prompt 33 implemented the NOT_EVALUATED scanner trust-guard.
+# Pack 33 Closure
 
-## What changed
+## Commits
+- `7633064` — Phase B: Kite daily candles for curated scanner (HOLD was lifted by f3afca6)
+- `f3afca6` — Gates 1-6: canonical Kite candle store + Yahoo containment (HEAD)
 
-### New Signal value
-- `Signal.NOT_EVALUATED` added to all 3 type locations:
-  - `lib/api-zod/src/generated/types/signal.ts`
-  - `lib/api-client-react/src/generated/api.schemas.ts`
-  - `lib/api-zod/src/generated/api.ts` (all 9 recommendation `signal: zod.enum([...])` blocks + `ListStocksQueryParams`)
+## Gate Results
+- Gate 1: kiteCandleStore.ts — 194/199 ok, 0 stale, 0 insufficient; advisory lock 88_274_615; circuit breaker; background refresh 20/60 min
+- Gate 2: /api/scan/candle-store/metrics (owner-only); POST /api/scan/candle-store/refresh
+- Gate 3: KITE_CANDLE_FIELD_CONTRACT.md — all indicator sources frozen
+- Gate 4: score/confidence null for NOT_EVALUATED; stale warning in provenance warnings[]
+- Gate 5: Yahoo VWAP fallback removed from getIntradayVwap(); zero Yahoo candle calls in Phase B
+- Gate 6: 77s dev vs 359s prod (4.6× faster); zero Kite daily calls per scan; restart-safe via DB persistence
 
-### Recommendation.score + confidence → nullable
-- `Recommendation.score: number | null` and `confidence: number | null` in all 3 type locations.
-- All 10 `score: zod.number().describe("-100 to 100")` Zod blocks → `.nullable()`.
-- All 9 `confidence: zod.number().describe("0 to 100")` Zod blocks → `.nullable()`.
+## Test results
+- 6329/6329 pass, 4-pkg TSC clean (as of 2026-08-07)
 
-### api-server: scanner logic
-- `fullNseScanner.ts`: `NOT_EVALUATED_RECOMMENDATION` constant; `rowFromKiteOnly` + `rowFromKitePlusIndicators` return it instead of calling `buildRecommendation`.
-- `scanner.ts` (curated): same NOT_EVALUATED inline constant replaces `buildRecommendation`.
-- `scanner.ts` (routes): all `.score` arithmetic guards with `?? -Infinity` / `?? 0`; `/scan/top` filters `score != null`; signal allowlist includes `NOT_EVALUATED`.
-- `marketTrend.ts`: avgScore excludes null-score rows; topPick sort uses `?? -Infinity`.
-- `preMarket.ts`: top-pick sort uses `?? -Infinity`.
-- `kiteFnoInstruments.ts`: NFO 3-second retry when nfo=0 on cold boot while BFO > 0.
-- `swingSignals.ts`: `SwingSignal.score` type changed to `number | null`.
+## Production status
+- PENDING PUBLISH (SuggestUserAction emitted)
+- Production URL: https://marketscannerbydev.in
+- Autoscale deployment
 
-### Scanner UI (artifacts/scanner)
-- `signal-badge.tsx`: NOT_EVALUATED → "NOT EVALUATED" badge in muted style.
-- `score-bar.tsx`: accepts `number | null`; null renders em-dash + empty bar.
-- `deep-scan.tsx` ScannerSnapshot: local signal type includes NOT_EVALUATED; score nullable.
-- `index-detail.tsx`: score null guards.
-- `scanner.tsx`: score sort uses `?? -Infinity`; ScoreBar passed `score` (now accepts null).
-- `sector-detail.tsx`, `stock-detail.tsx`: ScoreBar called with nullable score.
+## Key architecture
+- L1 in-memory Map (zero Kite calls on scan path) seeded from PostgreSQL kite_candle_store at boot
+- getKiteCandleSeries() is synchronous — scanner never blocks on Kite for daily candles
+- kite_candle_store declared in runtimeTables.ts — no DROP risk on drizzle-kit push
+- Cold-start: Phase B returns null → Yahoo fallback (safe)
+- Warm (after ~100s): 194/199 symbols served from Kite store
 
-### Tests
-- `src/lib/p33.notEvaluated.test.ts`: 26 tests, 8 gates (A–H).
-- Full suite: 274 files / 6294 tests (all PASS).
+## Yahoo containment (Gate 5)
+- Yahoo VWAP fallback REMOVED from getIntradayVwap() 
+- If Kite 15-min candles unavailable: vwap=null (fail-closed, VWAP scoring skipped)
+- Yahoo allowed ONLY in: global/macro display surfaces (labeled DELAYED/INFO_ONLY)
 
-## Verification (dev)
-- api-server restarted: nfo:33421, bfo:4317, total:37738.
-- First option-snapshot tick: rows:252, ok:3, src:kite.
-- `/api/scan/full-nse?limit=3` with auth: all rows `signal=NOT_EVALUATED score=None confidence=None`.
-
-## Status
-DEV: VERIFIED ✓  
-PRODUCTION: PENDING PUBLISH — new code must be published to take effect in production.  
-Pack 9A canary (Prompt 31): PENDING — run after production publish confirms NOT_EVALUATED live.
-
-**Why this matters:** Without this guard, Yahoo-derived indicators were producing fabricated base-50 ± changePct numeric scores on 2412 Indian equity rows, falsely implying trade-grade signal quality. After this fix, all Indian equity rows are NOT_EVALUATED until Phase B (Kite candle warehouse) is live.
+## NOT_EVALUATED rules (unchanged from Prompt 33 Phase B)
+- score=null, confidence=null, no ranking, no paper trade, no F&O admission
+- setupMessage machine-readable: INSUFFICIENT_HISTORY:N (barCount<200), KITE_CANDLES_UNAVAILABLE (store null/pending)
