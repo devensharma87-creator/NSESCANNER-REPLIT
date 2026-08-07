@@ -1,4 +1,4 @@
-- [Pack 9A canary closure](pack9a-canary-closure.md) — WAITING verdict; Kite expired + NSE timeout; 4 runs/0 rows; 27 new Gate 7 tests; api-server 6268; evidence file written; 2026-08-07.
+- [Pack 9A canary closure](pack9a-canary-closure.md) — PARTIAL verdict COMPLETE; canary 252 rows/0 errors; 7 consecutive 3/3 ticks (06:02–06:27 UTC); lot-sizes NIFTY=65/BN=30/SENSEX=20 match; archive absent; 2026-08-07.
 - [Pack 34 closure](pack34-closure.md) — Read-only production truth audit; PARTIAL verdict (market closed); 2 P1 + 4 P2 defects; no P0; all trust-tier guards PASS; 7 screenshots; 3 deliverable CSVs/MD; 2026-08-06.
 - [Pack 32 closure](pack32-closure.md) — V2 cohort isolation foundation; compile-time hard locks; 4 canonical cohort IDs; null-resolution compat; migration ready-not-executed; CohortSelector+V2NotActivatedPanel UI; 112 tests/40 cats; api-server 6241, scanner 1250; 4-pkg TSC clean; COMPLETE 2026-08-06.
 - [Pack 9A closure](pack9a-closure.md) — 0-row root cause fixed (OPTION_SNAPSHOT_ENABLED); circuit-breaker+alert-dedup+advisory-lock+tick-timeout; 4 new schema cols; 86 Gate-9 tests; api-server 6129, scanner 1250; 4-pkg TSC clean; COMPLETE 2026-08-06.

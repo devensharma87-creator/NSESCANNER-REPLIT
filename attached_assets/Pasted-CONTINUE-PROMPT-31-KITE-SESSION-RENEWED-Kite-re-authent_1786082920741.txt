@@ -1,0 +1,143 @@
+CONTINUE PROMPT 31 — KITE SESSION RENEWED
+
+Kite re-authentication is complete on the production website.
+
+Confirmed production state:
+
+* Kite status: KITE LIVE
+* Login successful: 07 August 2026 at 10:19:43 IST
+* Token expiry: 08 August 2026 at 06:00 IST
+* NSE market is open
+* OPTION_SNAPSHOT_ENABLED=1
+* API server was already restarted after the secret was added
+* The visible DATA DEGRADED state is a separate scanner/data issue owned by Prompt 33; do not investigate it in this task
+
+Continue the existing Prompt 31 from Gate 2. Do not create a new task, repeat completed gates, configure an NSE proxy, force-refresh instruments without evidence, modify V2 locks, or perform unrelated code changes.
+
+Required sequence:
+
+1. Recheck production Kite health
+
+* Confirm the newly stored session is active in the API-server process.
+* Confirm the Kite option-chain path recognizes the renewed session.
+* Record only redacted session status; expose no token or credential.
+
+2. Inspect circuit-breaker state
+
+* The previous state had four consecutive full failures against a threshold of five.
+* Record whether the circuit is CLOSED, OPEN or HALF_OPEN.
+* Do not manually edit or reset circuit state.
+* Use only the designed owner force-canary/recovery path.
+* Prove a successful or partial capture resets recovery state according to production logic.
+
+3. Execute the unique canary
+   Use the existing owner-authenticated route:
+
+POST /api/option-snapshots/run-now?force=1&canaryMarker=p9a-canary-20260807-001
+
+Do not run multiple concurrent manual canaries.
+
+4. Verify immediate canary result
+   For NIFTY, BANKNIFTY and SENSEX, record:
+
+* primary provider path used;
+* success/failure reason;
+* run ID;
+* rows inserted;
+* distinct expiries;
+* distinct strikes;
+* CE and PE counts;
+* minimum/maximum provider asOf;
+* minimum/maximum captured_at;
+* schema_version;
+* market_status;
+* canary_marker;
+* null premium/OI/IV counts;
+* duplicate-contract/timestamp count;
+* stale timestamp count;
+* materially future-dated timestamp count.
+
+Do not accept “approximately 504 rows” as proof. Derive the expected row count from the actual configured expiries, strike window and CE/PE contract coverage, then reconcile expected versus inserted rows exactly.
+
+5. Reconcile live lot sizes
+   Use the current live Kite instrument master and exact contract identity to verify lot sizes for:
+
+* NIFTY
+* BANKNIFTY
+* SENSEX
+
+Investigate the previously observed NIFTY mismatch of 25 versus 65.
+
+Rules:
+
+* Do not trust a hard-coded constant merely because a test passes.
+* Do not change any lot-size constant during evidence collection.
+* Record the instrument-master date, instrument token/key, trading symbol, expiry and live lot size.
+* If the ingestor, UI, schema or paper-trading value differs from the current Kite contract master, classify it as a blocking trade-safety defect.
+* No F&O paper admission may be declared safe until the discrepancy is resolved.
+
+6. Begin the continuous observation
+   After a successful manual canary, observe scheduled capture for at least 30 uninterrupted minutes.
+
+Prove:
+
+* scheduled ticks continue after the manual run;
+* all three indices continue capturing;
+* only one replica owns each tick;
+* no duplicate rows are produced;
+* capture intervals and gaps are recorded;
+* partial success is labelled honestly;
+* circuit state remains healthy or recovers correctly;
+* alert deduplication behaves as designed;
+* no unrelated operational tables are written;
+* no valid captured market rows are deleted.
+
+7. Provider-failure boundary
+   If Kite continues to fail after successful re-authentication:
+
+* capture the exact redacted Kite error and route;
+* distinguish authentication, entitlement, timeout, instrument identity, response schema and provider availability failures;
+* do not silently substitute NSE or Yahoo;
+* do not configure a proxy;
+* do not label an NSE fallback as trade-grade;
+* return a blocked verdict with the exact cause.
+
+8. Archive boundary
+   OPTION_SNAPSHOT_ARCHIVE_PATH remains absent.
+   Confirm:
+
+* capture is allowed to continue;
+* retention deletion remains fail-closed;
+* zero rows are deleted;
+* diagnostics show archive infrastructure pending;
+* no temporary Replit filesystem path is invented.
+
+9. Close Prompt 31
+   Update the existing Pack 9A evidence with:
+
+* canary start/end IST;
+* exact duration;
+* exact per-index row/contract/expiry counts;
+* circuit state before and after;
+* lot-size reconciliation;
+* duplicate/stale/future/null results;
+* scheduler continuity;
+* first successful production capture timestamp;
+* data-accumulation clock;
+* archive status;
+* targeted/full test results only if code was necessarily changed.
+
+Return exactly one appropriate verdict:
+
+* ACCEPT_PACK_9A_OPTION_PREMIUM_CAPTURE_AND_ARCHIVE_OPERATIONAL
+* PARTIAL_PACK_9A — CAPTURE_OPERATIONAL_ARCHIVE_INFRASTRUCTURE_PENDING
+* PARTIAL_PACK_9A — LIVE_CANARY_PENDING_MARKET_WINDOW
+* BLOCKED_PACK_9A_CANARY — exact reason
+
+Because no durable archive is currently configured, the expected successful verdict is:
+
+PARTIAL_PACK_9A — CAPTURE_OPERATIONAL_ARCHIVE_INFRASTRUCTURE_PENDING
+
+Use that verdict only if live capture, scheduler continuity, data integrity and lot-size reconciliation all pass.
+
+Do not begin Prompt 34 or Prompt 33 until the complete Prompt 31 closure report has been delivered.
