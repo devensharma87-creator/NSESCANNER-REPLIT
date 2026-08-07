@@ -1137,7 +1137,7 @@ export async function openManualPaperEquityTrade(
     exchange: "NSE",
     triggeredAt: now,
     signalDate: istDateKey(now),
-    score: row.recommendation.score ?? 0,
+    score: row.recommendation.score,
     entryPrice,
     stopPrice,
     target1Price,

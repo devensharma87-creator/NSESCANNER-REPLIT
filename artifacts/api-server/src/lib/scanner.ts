@@ -2,8 +2,9 @@ import type { Indicators, Quote, StockHistory, StockRow } from "@workspace/api-z
 import { UNIVERSE, INACTIVE_SYMBOLS, type UniverseEntry } from "./universe";
 import { fetchChart, fetchIntraday, yahooTickerFor, type YahooChart } from "./marketData/analyticsYahoo";
 import { adx, atr, avgVolume, ema, macd, rollingVwap, rsi, sessionVwap, supportResistance, volumeProfile, pivots } from "./indicators";
-// buildRecommendation intentionally removed — curated scanner now emits
-// NOT_EVALUATED for all Indian equity rows until Kite candle analytics (Phase B).
+// Phase B: Kite daily candle analytics now powers the recommendation for curated stocks.
+// Yahoo candles remain as INFO_ONLY fallback when Kite history is unavailable.
+import { buildRecommendation } from "./scoring";
 import { logger } from "./logger";
 import { getDeliveryPct } from "./marketData/referenceData";
 import { centralLiveQuote, centralEquityCandles, centralBatchEquityQuotes } from "./marketData/compat";
@@ -44,6 +45,24 @@ export async function getHistory(
   const chart = await fetchChart(symbol, range);
   if (chart) historyCache.set(key, { fetchedAt: Date.now(), chart });
   return chart;
+}
+
+/**
+ * Phase B (Prompt 33 Gate 2): Kite daily candles cached with the same 30-min
+ * TTL as the Yahoo history cache. Key namespace (`kite-day:`) is distinct so
+ * both can coexist in historyCache without collision.
+ */
+async function getKiteHistory(symbol: string): Promise<YahooChart | null> {
+  const key = `kite-day:${symbol}`;
+  const cached = historyCache.get(key);
+  if (cached && Date.now() - cached.fetchedAt < HISTORY_TTL_MS) return cached.chart;
+  try {
+    const chart = await centralEquityCandles(symbol, "day", 365);
+    if (chart) historyCache.set(key, { fetchedAt: Date.now(), chart });
+    return chart;
+  } catch {
+    return null;
+  }
 }
 
 async function getIntradayVwap(symbol: string): Promise<number | null> {
@@ -277,10 +296,169 @@ function lastVal(arr: (number | null)[]): number | null {
 
 function round2(n: number): number { return Math.round(n * 100) / 100; }
 
+/**
+ * Phase B (Prompt 33 Gate 2): build a curated-scanner row using Kite daily
+ * candles as the authoritative analytics source.
+ *
+ * Returns a fully-evaluated StockRow (STRONG_BUY / BUY / NEUTRAL / SELL /
+ * STRONG_SELL) when Kite has ≥200 days of history.
+ * Returns a NOT_EVALUATED StockRow with a machine-readable INSUFFICIENT_HISTORY
+ * reason when Kite candles exist but history is too short.
+ * Returns null when Kite is offline or the batch quote is unavailable —
+ * caller (buildRow) falls back to the Yahoo path.
+ */
+async function buildRowFromKiteCandles(
+  entry: UniverseEntry,
+  kiteQuotes?: Map<string, KiteScannerQuote> | null,
+): Promise<StockRow | null> {
+  const kiteQuote = kiteQuotes?.get(entry.symbol) ?? null;
+  // Need a live Kite batch quote for today's price/OHLC/volume. Without it we
+  // cannot build a valid Quote object; returning null lets caller fall back.
+  if (
+    !kiteQuote ||
+    !(kiteQuote.lastPrice > 0) ||
+    !(kiteQuote.open > 0) ||
+    !(kiteQuote.high > 0) ||
+    !(kiteQuote.low > 0) ||
+    !(kiteQuote.close > 0)
+  ) return null;
+
+  // Fetch Kite daily candles (365 calendar days ≈ 252 trading bars).
+  // getKiteHistory() is cached with a 30-minute TTL — same budget as Yahoo.
+  const kiteChart = await getKiteHistory(entry.symbol);
+  if (!kiteChart || kiteChart.close.length < 30) return null;
+
+  const bars = kiteChart.close.length;
+
+  // Append today's partial bar from the Kite batch quote as the final entry.
+  // This gives computeIndicators the same "last bar = current partial day"
+  // convention that Yahoo charts have, so:
+  //   • closes[dn-2] = yesterday's close → correct pivot & EMA anchoring
+  //   • chart.volume.slice(0,-1) = completed bars → correct avgVolume baseline
+  const chartWithToday: YahooChart = {
+    ...kiteChart,
+    timestamps: [...kiteChart.timestamps, Math.floor(kiteQuote.ts / 1000)],
+    open:   [...kiteChart.open,   kiteQuote.open],
+    high:   [...kiteChart.high,   kiteQuote.high],
+    low:    [...kiteChart.low,    kiteQuote.low],
+    close:  [...kiteChart.close,  kiteQuote.lastPrice],
+    volume: [...kiteChart.volume, kiteQuote.volume],
+  };
+
+  // 52-week high/low from the last 252 completed daily bars plus today's intraday high/low.
+  const sliceStart = Math.max(0, bars - 252);
+  const fiftyTwoWeekHigh = Math.max(...kiteChart.high.slice(sliceStart), kiteQuote.high);
+  const fiftyTwoWeekLow  = Math.min(...kiteChart.low.slice(sliceStart),  kiteQuote.low);
+
+  const prevClose = kiteQuote.close;
+  const change    = kiteQuote.lastPrice - prevClose;
+  const changePct = prevClose > 0 ? (change / prevClose) * 100 : 0;
+
+  // Display avgVolume from last 20 completed daily bars (kiteChart, excluding today's partial).
+  const avgVol20 = avgVolume(kiteChart.volume.slice(-20).filter(v => v > 0), 20);
+
+  const quote: Quote = {
+    symbol:        entry.symbol,
+    name:          entry.name,
+    exchange:      "NSE",
+    price:         round2(kiteQuote.lastPrice),
+    change:        round2(change),
+    changePercent: round2(changePct),
+    open:          round2(kiteQuote.open),
+    high:          round2(kiteQuote.high),
+    low:           round2(kiteQuote.low),
+    previousClose: round2(prevClose),
+    volume:        kiteQuote.volume,
+    avgVolume:     avgVol20 > 0 ? Math.round(avgVol20) : undefined,
+    dayRange:      `${round2(kiteQuote.low)} - ${round2(kiteQuote.high)}`,
+    yearRange:     `${round2(fiftyTwoWeekLow)} - ${round2(fiftyTwoWeekHigh)}`,
+    fiftyTwoWeekHigh: round2(fiftyTwoWeekHigh),
+    fiftyTwoWeekLow:  round2(fiftyTwoWeekLow),
+    updatedAt: new Date(kiteQuote.ts),
+  };
+
+  const intraVwap = await getIntradayVwap(entry.symbol);
+  const computed  = computeIndicators(chartWithToday, quote, intraVwap);
+
+  // Real NSE delivery % from bhavcopy — same logic as Yahoo path.
+  const realDelv = await getDeliveryPct(entry.symbol).catch(() => null);
+  if (realDelv) {
+    computed.indicators.deliveryPct = round2(realDelv.pct);
+  }
+
+  const asOfSec = Number.isFinite(kiteQuote.ts) ? Math.floor(kiteQuote.ts / 1000) : null;
+  const provenance = buildSourceProvenance({
+    provider: "kite",
+    asOfSec,
+    tf: "1D",      // daily bars → EOD timeframe → delayed:true (correct for EOD data)
+    kitePriceOverlay: true,
+  });
+
+  // Minimum bar count for the complete indicator stack:
+  //   ≥200 required for EMA200 — the canonical long-trend anchor.
+  //   30 – 199 bars: compute partial indicators but keep NOT_EVALUATED.
+  if (bars < 200) {
+    return {
+      symbol: entry.symbol,
+      name:   entry.name,
+      sector: entry.sector,
+      quote,
+      indicators: computed.indicators,
+      recommendation: {
+        signal: "NOT_EVALUATED",
+        score: null,
+        confidence: null,
+        reasons: [],
+        setupMessage: `INSUFFICIENT_HISTORY: ${bars} trading days in Kite candle history (need ≥200 for EMA200 and complete indicator stack).`,
+      },
+      provenance,
+      rowSource: toScannerRowSource(provenance, entry.symbol),
+    };
+  }
+
+  // Full Kite-candle recommendation — all series available.
+  const recommendation = buildRecommendation({
+    quote,
+    indicators: computed.indicators,
+    closes:         computed.closes,
+    ema9Series:     computed.ema9Series,
+    ema21Series:    computed.ema21Series,
+    ema20Series:    computed.ema20Series,
+    ema50Series:    computed.ema50Series,
+    rsiSeries:      computed.rsiSeries,
+    macdHistSeries: computed.macdHistSeries,
+  });
+
+  logger.info(
+    { symbol: entry.symbol, signal: recommendation.signal, score: recommendation.score, bars },
+    "scanner: Phase B Kite-candle recommendation computed",
+  );
+
+  return {
+    symbol: entry.symbol,
+    name:   entry.name,
+    sector: entry.sector,
+    quote,
+    indicators: computed.indicators,
+    recommendation,
+    provenance,
+    rowSource: toScannerRowSource(provenance, entry.symbol),
+  };
+}
+
 async function buildRow(
   entry: UniverseEntry,
   kiteQuotes?: Map<string, KiteScannerQuote> | null,
 ): Promise<StockRow | null> {
+  // Phase B (Prompt 33 Gate 2): try Kite daily candle analytics first.
+  //  • Kite online + ≥200 bars → fully evaluated row (real score/signal).
+  //  • Kite online + <200 bars → NOT_EVALUATED with INSUFFICIENT_HISTORY reason.
+  //  • Kite offline / no quote → null → fall through to Yahoo path below.
+  const kiteRow = await buildRowFromKiteCandles(entry, kiteQuotes);
+  if (kiteRow !== null) return kiteRow;
+
+  // Phase A fallback: Yahoo daily chart (INFO_ONLY / DELAYED / NOT_FOR_SIGNALS).
+  // Indicators are still populated for display; recommendation is NOT_EVALUATED.
   const kiteQuote = kiteQuotes?.get(entry.symbol) ?? null;
   const chart = await getHistory(entry.symbol, "6mo");
   if (!chart || chart.close.length < 30) return null;
@@ -291,37 +469,30 @@ async function buildRow(
 
   // Real NSE delivery %. computeIndicators leaves this undefined; we ONLY
   // populate it from the bhavcopy. When bhavcopy is unreachable the field
-  // stays undefined and scoring.ts skips the delivery-confirmation rule
-  // (no synthetic 38–62 % placeholder is ever passed through).
+  // stays undefined and scoring.ts skips the delivery-confirmation rule.
   const realDelv = await getDeliveryPct(entry.symbol).catch(() => null);
   if (realDelv) {
     computed.indicators.deliveryPct = round2(realDelv.pct);
   }
-  // NOT_EVALUATED — Phase A: indicators derived from Yahoo daily candles.
-  // Yahoo candles are INFO_ONLY / DELAYED / NOT_FOR_SIGNALS for Indian equities.
-  // Score and signal are null; they will be populated in Phase B when Kite
-  // candle analytics are wired in. The indicator fields are still populated for
-  // display. Never use these for paper-trade admission or trading decisions.
+
+  // NOT_EVALUATED — Kite candles unavailable (offline, session expired, or
+  // symbol not in Kite's EQ universe). Yahoo indicators shown for display only.
   const recommendation: import("@workspace/api-zod").Recommendation = {
     signal: "NOT_EVALUATED",
     score: null,
     confidence: null,
     reasons: [],
     setupMessage:
-      "Indicators derived from Yahoo daily candles (INFO_ONLY / DELAYED / NOT_FOR_SIGNALS). Score and signal require verified Kite candle analytics (Phase B).",
+      "KITE_CANDLES_UNAVAILABLE: Kite daily bar history could not be fetched (Kite offline or session expired). Indicators shown are from Yahoo daily data (INFO_ONLY / DELAYED / NOT_FOR_SIGNALS). Score and signal will be activated once Kite candle analytics are available.",
   };
 
-  // Honest SIGNAL labelling — Phase A (Kite price overlay):
-  // Kite data supplies the live price/OHLC/volume.
-  // Signal source stays "yahoo" so shouldDemoteSignal() remains honest.
-  // kitePriceOverlay=true when the Kite REST batch quote was used for price.
   const kitePriceUsed = kiteQuote != null && kiteQuote.lastPrice > 0;
-  const asOfMs = new Date(quote.updatedAt).getTime(); // already set to best source in quoteFromChart
+  const asOfMs = new Date(quote.updatedAt).getTime();
   const provWarning = kitePriceUsed
-    ? "Kite batch quote used for price/OHLC/volume. Scanner indicators still use Yahoo daily candles — info-only until Kite candle warehouse is active (Phase B)."
+    ? "Kite batch quote used for price/OHLC/volume. Indicators still use Yahoo daily candles — info-only until Kite candle analytics are available."
     : (() => {
         const ws = centralLiveQuote(entry.symbol);
-        return ws ? "Live price from Kite; swing indicators derived from delayed Yahoo daily candles." : "";
+        return ws ? "Live price from Kite; indicators derived from delayed Yahoo daily candles." : "";
       })();
   const provenance = buildSourceProvenance({
     provider: "yahoo",
@@ -332,7 +503,7 @@ async function buildRow(
   });
   return {
     symbol: entry.symbol,
-    name: entry.name,
+    name:   entry.name,
     sector: entry.sector,
     quote,
     indicators: computed.indicators,

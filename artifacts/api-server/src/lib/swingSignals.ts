@@ -267,7 +267,10 @@ export async function buildSwingSignalFromRow(
 ): Promise<SwingSignal | null> {
   if (!FNO_EQUITY_UNIVERSE.has(row.symbol)) return null;
   if (row.recommendation.signal !== "STRONG_BUY") return null;
-  if ((row.recommendation.score ?? 0) < minScore) return null;
+  // Use -Infinity so a null score (NOT_EVALUATED) definitively fails the minScore gate
+  // rather than being treated as 0. The signal check above already blocks NOT_EVALUATED,
+  // but this makes the intent explicit (fail-closed) and future-proof.
+  if ((row.recommendation.score ?? -Infinity) < minScore) return null;
 
   const sector = row.sector || getEntry(row.symbol)?.sector;
   if (sector && sectorMap) {
@@ -377,7 +380,8 @@ export async function buildAllSwingSignals(
     (r) =>
       FNO_EQUITY_UNIVERSE.has(r.symbol) &&
       r.recommendation.signal === "STRONG_BUY" &&
-      (r.recommendation.score ?? 0) >= minScore,
+      // -Infinity so null scores definitively fail (fail-closed) not just miss threshold.
+      (r.recommendation.score ?? -Infinity) >= minScore,
   );
   if (candidates.length === 0) return [];
 

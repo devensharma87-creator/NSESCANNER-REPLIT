@@ -420,7 +420,7 @@ const Row = memo(function Row({ stock, top, onBuy }: { stock: StockRow; top: num
       >{ind?.deliveryPct != null ? `${ind.deliveryPct.toFixed(0)}%` : '—'}</div>
       <div className="px-2"><OiBuildupBadge buildup={(ind as Record<string, unknown> | undefined)?.futOiBuildup as string | undefined} /></div>
       <div className="px-2 min-w-0"><ScoreBar score={stock.recommendation.score} /></div>
-      <div className="px-2 flex items-center justify-end"><SignalBadge signal={stock.recommendation.signal} /></div>
+      <div className="px-2 flex items-center justify-end"><SignalBadge signal={stock.recommendation.signal} reason={stock.recommendation.setupMessage} /></div>
       <div className="px-2 flex items-center justify-center">
         {stock.recommendation.signal === "STRONG_BUY" || stock.recommendation.signal === "BUY" ? (
           <button

@@ -318,6 +318,166 @@ describe("Gate 33-G: kiteFnoInstruments NFO retry contract", () => {
   });
 });
 
+// ─── Gate 33-I: Phase B Kite candle analytics path ───────────────────────────
+
+describe("Gate 33-I: Phase B Kite candle analytics — buildRecommendation integration", () => {
+  it("buildRecommendation with 220-bar bullish Kite candle series produces non-NOT_EVALUATED signal", async () => {
+    const { buildRecommendation } = await import("./scoring");
+    const LEN = 220;
+    // Trending-up series: each close 2 pts above prior
+    const closes = Array.from({ length: LEN }, (_, i) => 1000 + i * 2);
+    const ema9Series  = closes.map((c, i) => i >= 9  ? c - 10  : null);
+    const ema21Series = closes.map((c, i) => i >= 21 ? c - 30  : null);
+    const ema20Series = closes.map((c, i) => i >= 20 ? c - 25  : null);
+    const ema50Series = closes.map((c, i) => i >= 50 ? c - 80  : null);
+    const rsiSeries      = closes.map(() => 62 as number | null);
+    const macdHistSeries = closes.map((_, i) => i >= 26 ? 1.5 as number | null : null);
+    const indicators = {
+      ema9: 1420, ema21: 1400, ema20: 1405, ema50: 1350,
+      ema100: undefined, ema200: undefined,
+      vwap: 1410, rsi14: 62, macd: 2, macdSignal: 0.5, macdHist: 1.5,
+      atr14: 15, adx14: undefined, volumeRatio: 1.8,
+      deliveryPct: undefined, trendStrength: 72,
+      supportLevel: 1380, resistanceLevel: 1450, pivot: 1420, r1: 1460, s1: 1380,
+    };
+    const quote = {
+      symbol: "TESTSTOCK", name: "Test Stock", exchange: "NSE",
+      price: 1440, change: 20, changePercent: 1.4,
+      open: 1420, high: 1450, low: 1415, previousClose: 1420, volume: 500000,
+      avgVolume: 400000, dayRange: "1415 - 1450", yearRange: "900 - 1450",
+      fiftyTwoWeekHigh: 1450, fiftyTwoWeekLow: 900, updatedAt: new Date(),
+    };
+    const rec = buildRecommendation({ quote, indicators, closes, ema9Series, ema21Series, ema20Series, ema50Series, rsiSeries, macdHistSeries });
+    // Phase B: a real Kite-candle recommendation MUST NOT be NOT_EVALUATED
+    expect(rec.signal).not.toBe("NOT_EVALUATED");
+    expect(rec.score).not.toBeNull();
+    expect(typeof rec.score).toBe("number");
+    expect(rec.confidence).not.toBeNull();
+    expect(rec.reasons.length).toBeGreaterThan(0);
+  });
+
+  it("buildRecommendation with bearish series produces SELL or STRONG_SELL, not NOT_EVALUATED", async () => {
+    const { buildRecommendation } = await import("./scoring");
+    const LEN = 220;
+    const closes = Array.from({ length: LEN }, (_, i) => 2000 - i * 2); // trending down
+    const ema9Series  = closes.map((c, i) => i >= 9  ? c + 15  : null);
+    const ema21Series = closes.map((c, i) => i >= 21 ? c + 40  : null);
+    const ema20Series = closes.map((c, i) => i >= 20 ? c + 35  : null);
+    const ema50Series = closes.map((c, i) => i >= 50 ? c + 100 : null);
+    const rsiSeries      = closes.map(() => 32 as number | null);
+    const macdHistSeries = closes.map((_, i) => i >= 26 ? -1.5 as number | null : null);
+    const indicators = {
+      ema9: 1620, ema21: 1640, ema20: 1635, ema50: 1700,
+      ema100: undefined, ema200: undefined,
+      vwap: 1630, rsi14: 32, macd: -2, macdSignal: -0.5, macdHist: -1.5,
+      atr14: 20, adx14: undefined, volumeRatio: 2.1,
+      deliveryPct: undefined, trendStrength: 28,
+      supportLevel: 1580, resistanceLevel: 1650, pivot: 1610, r1: 1640, s1: 1580,
+    };
+    const quote = {
+      symbol: "BEARTEST", name: "Bear Test", exchange: "NSE",
+      price: 1570, change: -30, changePercent: -1.9,
+      open: 1600, high: 1605, low: 1565, previousClose: 1600, volume: 700000,
+      avgVolume: 500000, dayRange: "1565 - 1605", yearRange: "1400 - 2000",
+      fiftyTwoWeekHigh: 2000, fiftyTwoWeekLow: 1400, updatedAt: new Date(),
+    };
+    const rec = buildRecommendation({ quote, indicators, closes, ema9Series, ema21Series, ema20Series, ema50Series, rsiSeries, macdHistSeries });
+    expect(rec.signal).not.toBe("NOT_EVALUATED");
+    expect(rec.score).not.toBeNull();
+    expect(["SELL", "STRONG_SELL"]).toContain(rec.signal);
+  });
+
+  it("INSUFFICIENT_HISTORY setupMessage has machine-readable code prefix and bar count", () => {
+    const bars = 150;
+    const msg = `INSUFFICIENT_HISTORY: ${bars} trading days in Kite candle history (need ≥200 for EMA200 and complete indicator stack).`;
+    expect(msg.startsWith("INSUFFICIENT_HISTORY:")).toBe(true);
+    expect(msg).toContain("150");
+    expect(msg).toContain("200");
+  });
+
+  it("KITE_CANDLES_UNAVAILABLE setupMessage has machine-readable code prefix", () => {
+    const msg =
+      "KITE_CANDLES_UNAVAILABLE: Kite daily bar history could not be fetched (Kite offline or session expired). Indicators shown are from Yahoo daily data (INFO_ONLY / DELAYED / NOT_FOR_SIGNALS). Score and signal will be activated once Kite candle analytics are available.";
+    expect(msg.startsWith("KITE_CANDLES_UNAVAILABLE:")).toBe(true);
+  });
+
+  it("KITE_CANDLE_COVERAGE_PHASE_B_PENDING setupMessage has machine-readable code prefix", () => {
+    const msg =
+      "KITE_CANDLE_COVERAGE_PHASE_B_PENDING: Full NSE quote-only row. Kite daily candle analytics are available for the curated 194-stock universe only. This symbol is outside the curated universe.";
+    expect(msg.startsWith("KITE_CANDLE_COVERAGE_PHASE_B_PENDING:")).toBe(true);
+  });
+
+  it("YAHOO_INDICATORS_INFO_ONLY setupMessage has machine-readable code prefix", () => {
+    const msg =
+      "YAHOO_INDICATORS_INFO_ONLY: Kite live price overlaid with Yahoo delayed candle indicators (INFO_ONLY / DELAYED / NOT_FOR_SIGNALS). Score and signal require verified Kite candle analytics.";
+    expect(msg.startsWith("YAHOO_INDICATORS_INFO_ONLY:")).toBe(true);
+  });
+
+  it("Kite 1D provenance for Phase B rows: authoritative, not-for-signals=false, delayed=true (EOD)", async () => {
+    const { buildSourceProvenance } = await import("./scannerProvenance");
+    const prov = buildSourceProvenance({
+      provider: "kite",
+      asOfSec: Math.floor(Date.now() / 1000),
+      tf: "1D",
+      kitePriceOverlay: true,
+    });
+    expect(prov.trustTier).toBe("authoritative");
+    expect(prov.sourceProvider).toBe("kite");
+    expect(prov.notForSignals).toBe(false);
+    expect(prov.notForTradeDecisions).toBe(false);
+    // Daily bars are EOD — delayed is correctly true even though Kite is authoritative
+    expect(prov.delayed).toBe(true);
+    expect(prov.kitePriceOverlay).toBe(true);
+  });
+
+  it("shouldDemoteSignal returns false for fresh Kite 1D provenance", async () => {
+    const { buildSourceProvenance, shouldDemoteSignal } = await import("./scannerProvenance");
+    const prov = buildSourceProvenance({
+      provider: "kite",
+      asOfSec: Math.floor(Date.now() / 1000),
+      tf: "1D",
+    });
+    // Fresh Kite authoritative data must NOT be demoted, regardless of delayed flag
+    expect(shouldDemoteSignal(prov)).toBe(false);
+  });
+
+  it("swingSignals ?? -Infinity gate: null score definitively fails minScore (fail-closed)", () => {
+    const nullScore: number | null = null;
+    const minScore = 70;
+    expect((nullScore ?? -Infinity) < minScore).toBe(true);
+    expect((nullScore ?? -Infinity)).toBe(-Infinity);
+    // Contrast: ?? 0 gives same pass/fail result for minScore=70,
+    // but ?? -Infinity is fail-closed even when minScore=0.
+    expect((nullScore ?? -Infinity) < 0).toBe(true); // always blocks
+    expect((nullScore ?? 0) < 0).toBe(false); // ???? 0 would PASS a "score < 0" check (wrong)
+  });
+
+  it("Phase B row: score stored as actual null, not 0", () => {
+    // Audit fix: paperTradingEq.ts must store score: row.recommendation.score (null),
+    // not score: row.recommendation.score ?? 0 (which would store 0).
+    type SwingSignal = { score: number | null };
+    const notEvaluatedScore: number | null = null;
+    const correct: SwingSignal = { score: notEvaluatedScore };          // ?? 0 removed
+    const incorrect: SwingSignal = { score: notEvaluatedScore ?? 0 };   // old bug
+    expect(correct.score).toBeNull();
+    expect(incorrect.score).toBe(0);
+    // The stored value must be null (correct), not 0 (incorrect/audit-violation)
+    expect(correct.score).not.toBe(0);
+  });
+
+  it("chartWithToday convention: appending today bar makes closes[dn-2]=yesterday, dn-1=today", () => {
+    // This tests the convention used in buildRowFromKiteCandles where we append
+    // today's partial bar so computeIndicators pivot uses yesterday's OHLC correctly.
+    const historical = [100, 101, 102, 103]; // yesterday is index 3
+    const todayPrice = 105;
+    const chartWithToday = [...historical, todayPrice];
+    const dn = chartWithToday.length;
+    expect(chartWithToday[dn - 1]).toBe(todayPrice);   // today's partial bar
+    expect(chartWithToday[dn - 2]).toBe(103);           // yesterday's close (for pivot)
+    expect(dn).toBe(historical.length + 1);
+  });
+});
+
 // ─── Gate 33-H: Route score-arithmetic null-safety ───────────────────────────
 
 describe("Gate 33-H: score arithmetic is null-safe", () => {

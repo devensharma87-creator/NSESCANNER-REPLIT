@@ -1,0 +1,72 @@
+CONTINUE_PROMPT_33 — DO_NOT_CLOSE_OR_CREATE_FOLLOW_UP_TASKS
+
+The NOT_EVALUATED safety implementation is accepted as the first part of Prompt 33, but Prompt 33 is not yet complete.
+
+Do not create or execute the three proposed follow-up tasks. Keep all remaining work inside the existing Prompt 33.
+
+Complete these gates in sequence:
+
+1. Audit every use of nullable score/confidence.
+   - No decision, ranking, filter, aggregate, recommendation, export, alert, paper admission or trading path may use `score ?? 0` or otherwise convert null into a valid numeric value.
+   - Null scores must be excluded from evaluated counts and rankings.
+   - Prove NOT_EVALUATED can never become NEUTRAL, BUY, SELL, STRONG_BULLISH, STRONG_BEARISH, a paper trade or a broker candidate.
+
+2. Complete canonical Kite candle coverage.
+   - Inventory the complete production scanner universe.
+   - Determine why many rows lack VWAP, EMA20/50/100/200, RSI, 52-week levels and volume ratio.
+   - Obtain Indian-equity quotes from Kite and indicators from verified canonical Kite candle data only.
+   - Do not substitute Yahoo candles, Yahoo indicators, stale preview fixtures or fabricated zeros.
+   - A quote-only row must remain NOT_EVALUATED until all mandatory indicator inputs are available.
+   - Provide machine-readable missing-field reasons for every incomplete row.
+
+3. Enforce truthful rendering everywhere.
+   - Complete Kite rows: show the calculated indicators, score and eligible signal.
+   - Incomplete rows: show `—`, NOT_EVALUATED and an explicit reason such as KITE_CANDLES_UNAVAILABLE or INSUFFICIENT_HISTORY.
+   - Yahoo must not appear as an Indian-equity analytical or signalling source.
+   - Yahoo may remain only for explicitly isolated delayed global/macroeconomic display data, labelled INFO_ONLY, DELAYED and NOT_FOR_SIGNALS.
+
+4. Verify every scanner consumer:
+   - Full Scanner table
+   - Home movers and bullish/bearish setups
+   - Curated scanner
+   - Watchlist
+   - Stock detail
+   - CSV and JSON exports
+   - Filters and sorting
+   - Alerts
+   - Signal history
+   - F&O and swing admission boundaries
+   - Paper-trading admission
+   All must preserve the same canonical provenance and NOT_EVALUATED semantics.
+
+5. Deployment gate.
+   - Record the exact commit/diff being deployed.
+   - Confirm V2 locks remain false.
+   - Confirm broker execution remains hard-disabled.
+   - Publish the Prompt 33 changes to Stock Scanner Pro production.
+   - Do not modify the separate Global project.
+
+6. Production verification during market hours.
+   - Prove the deployed build contains NOT_EVALUATED.
+   - Query representative complete and incomplete rows.
+   - Prove Yahoo-derived Indian rows have score=null, confidence=null and no actionable signal.
+   - Report total universe, quote-covered, candle-complete, evaluated, NOT_EVALUATED and failed counts.
+   - Take authenticated production screenshots at desktop and mobile widths.
+   - Confirm no blank scanner, fabricated +54 score, false NEUTRAL status or misleading BUY label.
+
+7. NFO production verification.
+   - Confirm the production NFO master remains populated with required NIFTY and BANKNIFTY contracts; do not require an exact fixed instrument count.
+   - Confirm five consecutive option-snapshot ticks capture 3/3 underlyings and complete expected rows.
+
+8. Only after Prompt 33 production acceptance, rerun Prompt 31:
+   - production-only canary marker;
+   - 3/3 indices;
+   - production database proof;
+   - at least 30 continuous minutes;
+   - explicit environment/writer attribution;
+   - reconciled per-index and total counts.
+
+Required verdict now:
+PROMPT_33_DEVELOPMENT_SAFETY_FIX_VERIFIED — CANONICAL_CANDLE_COVERAGE_AND_PRODUCTION_DEPLOYMENT_PENDING
+
+Do not report Prompt 33 complete until every gate above passes.

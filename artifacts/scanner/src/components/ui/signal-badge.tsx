@@ -3,7 +3,16 @@ import { Signal, ListStocksSignal } from "@workspace/api-client-react";
 
 type SignalType = Signal | ListStocksSignal;
 
-export function SignalBadge({ signal, className }: { signal: SignalType, className?: string }) {
+export function SignalBadge({
+  signal,
+  className,
+  reason,
+}: {
+  signal: SignalType;
+  className?: string;
+  /** Optional machine-readable reason (e.g. setupMessage) shown as tooltip on NOT_EVALUATED. */
+  reason?: string | null;
+}) {
   // Display labels intentionally avoid imperative "BUY"/"SELL" wording.
   // The internal enum (used by API, DB schema and paper-trading history)
   // remains STRONG_BUY/BUY/SELL/STRONG_SELL/NEUTRAL — only the user-facing
@@ -22,9 +31,15 @@ export function SignalBadge({ signal, className }: { signal: SignalType, classNa
   };
 
   const config = getSignalConfig(signal);
+  // Show the machine-readable reason as a browser-native tooltip on NOT_EVALUATED rows.
+  const title = signal === "NOT_EVALUATED" && reason ? reason : undefined;
 
   return (
-    <Badge variant="outline" className={`${config.bg} ${config.text} border-transparent font-mono text-[10px] tracking-wide uppercase px-2 py-0.5 rounded ${className || ""}`}>
+    <Badge
+      variant="outline"
+      title={title}
+      className={`${config.bg} ${config.text} border-transparent font-mono text-[10px] tracking-wide uppercase px-2 py-0.5 rounded ${className || ""}`}
+    >
       {config.label}
     </Badge>
   );
