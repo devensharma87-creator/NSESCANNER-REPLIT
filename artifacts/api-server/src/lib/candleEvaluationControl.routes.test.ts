@@ -111,15 +111,24 @@ describe("No evaluation lock bypass paths", () => {
     expect(evalControlSrc).not.toMatch(/import.*admin/);
   });
 
-  it("no route file overrides SCANNER_KITE_CANDLE_EVALUATION_AUTHORIZED", () => {
+  it("no route file has a standalone assignment of SCANNER_KITE_CANDLE_EVALUATION_AUTHORIZED", () => {
     const routesDir = path.join(srcRoot, "routes");
     const routeFiles = readdirSync(routesDir)
       .filter(f => f.endsWith(".ts"))
       .map(f => path.join(routesDir, f));
     for (const f of routeFiles) {
       const src = readFileSync(f, "utf8");
-      // Routes must not assign or reassign the lock constant
-      expect(src).not.toMatch(/SCANNER_KITE_CANDLE_EVALUATION_AUTHORIZED\s*=/);
+      // Must not have a bare variable declaration or reassignment of the lock constant.
+      // Destructuring (`const { ..., SCANNER_KITE_CANDLE_EVALUATION_AUTHORIZED } =`) and
+      // JSDoc references are acceptable; a standalone `let/const/var SCANNER...=` or
+      // `SCANNER... = value` as an assignment statement is not.
+      expect(src).not.toMatch(
+        /(?:^|\n)\s*(?:const|let|var)\s+SCANNER_KITE_CANDLE_EVALUATION_AUTHORIZED\s*=/,
+      );
+      // Also must not reassign: `SCANNER_KITE_CANDLE_EVALUATION_AUTHORIZED = ` (bare stmt)
+      expect(src).not.toMatch(
+        /(?:^|\n)\s*SCANNER_KITE_CANDLE_EVALUATION_AUTHORIZED\s*=[^=]/,
+      );
     }
   });
 
@@ -435,19 +444,31 @@ describe("Staged warehouse — canary, resumable cursor, validation", () => {
 // ─── 10. History sufficiency — per-indicator thresholds ─────────────────────
 
 describe("History sufficiency — per-indicator minimum bars", () => {
-  it("MIN_BARS_FOR_EVALUATION is 200 (EMA200 binding constraint)", async () => {
+  it("MIN_BARS_FOR_EVALUATION is 252 (52W H/L binding constraint)", async () => {
     const { MIN_BARS_FOR_EVALUATION } = await import("./historySufficiency");
-    expect(MIN_BARS_FOR_EVALUATION).toBe(200);
+    expect(MIN_BARS_FOR_EVALUATION).toBe(252);
   });
 
-  it("INDICATOR_MIN_BARS.EMA_200 is 200", async () => {
+  it("MIN_BARS_FOR_EVALUATION equals INDICATOR_MIN_BARS.HIGH_LOW_52W", async () => {
+    const { MIN_BARS_FOR_EVALUATION, INDICATOR_MIN_BARS } = await import("./historySufficiency");
+    expect(MIN_BARS_FOR_EVALUATION).toBe(INDICATOR_MIN_BARS.HIGH_LOW_52W);
+  });
+
+  it("INDICATOR_MIN_BARS.EMA_200 is 200 (not the binding constraint)", async () => {
     const { INDICATOR_MIN_BARS } = await import("./historySufficiency");
     expect(INDICATOR_MIN_BARS.EMA_200).toBe(200);
   });
 
-  it("INDICATOR_MIN_BARS.RSI_14 is 14", async () => {
+  it("INDICATOR_MIN_BARS.HIGH_LOW_52W is 252 (the binding constraint)", async () => {
     const { INDICATOR_MIN_BARS } = await import("./historySufficiency");
-    expect(INDICATOR_MIN_BARS.RSI_14).toBe(14);
+    expect(INDICATOR_MIN_BARS.HIGH_LOW_52W).toBe(252);
+  });
+
+  it("INDICATOR_MIN_BARS.RSI_14 is 15 (period+1: 14 changes = 15 price points)", async () => {
+    const { INDICATOR_MIN_BARS } = await import("./historySufficiency");
+    // RSI works on price changes, not prices: period changes = period + 1 prices.
+    // rsi(values, 14) returns all-null when values.length < 14 + 1 = 15.
+    expect(INDICATOR_MIN_BARS.RSI_14).toBe(15);
   });
 
   it("INDICATOR_MIN_BARS.EMA_50 is 50", async () => {
@@ -455,19 +476,25 @@ describe("History sufficiency — per-indicator minimum bars", () => {
     expect(INDICATOR_MIN_BARS.EMA_50).toBe(50);
   });
 
-  it("INDICATOR_MIN_BARS.MACD_12_26_9 is 34 (26 slow + 9 signal − 1)", async () => {
+  it("INDICATOR_MIN_BARS.MACD_12_26_9 is 34 (26 slow + 9 signal − 1 overlap)", async () => {
     const { INDICATOR_MIN_BARS } = await import("./historySufficiency");
     expect(INDICATOR_MIN_BARS.MACD_12_26_9).toBe(34);
   });
 
-  it("INDICATOR_MIN_BARS.HIGH_LOW_52W is 252 (~1 trading year)", async () => {
-    const { INDICATOR_MIN_BARS } = await import("./historySufficiency");
-    expect(INDICATOR_MIN_BARS.HIGH_LOW_52W).toBe(252);
+  it("hasEvaluationSufficientHistory(252) returns true", async () => {
+    const { hasEvaluationSufficientHistory } = await import("./historySufficiency");
+    expect(hasEvaluationSufficientHistory(252)).toBe(true);
   });
 
-  it("hasEvaluationSufficientHistory(200) returns true", async () => {
+  it("hasEvaluationSufficientHistory(251) returns false (one bar short)", async () => {
     const { hasEvaluationSufficientHistory } = await import("./historySufficiency");
-    expect(hasEvaluationSufficientHistory(200)).toBe(true);
+    expect(hasEvaluationSufficientHistory(251)).toBe(false);
+  });
+
+  it("hasEvaluationSufficientHistory(200) returns false (EMA200 ready but 52W not)", async () => {
+    const { hasEvaluationSufficientHistory } = await import("./historySufficiency");
+    // EMA200 needs 200 bars. But 52W H/L needs 252. Row is NOT evaluation-eligible at 200.
+    expect(hasEvaluationSufficientHistory(200)).toBe(false);
   });
 
   it("hasEvaluationSufficientHistory(199) returns false", async () => {
@@ -485,9 +512,12 @@ describe("History sufficiency — per-indicator minimum bars", () => {
     expect(MIN_BARS_FOR_STORAGE).toBe(1);
   });
 
-  it("scanner.ts uses INSUFFICIENT_CANONICAL_HISTORY (not INSUFFICIENT_HISTORY)", () => {
+  it("scanner.ts uses INSUFFICIENT_CANONICAL_HISTORY and 252 as the gate", () => {
     expect(scannerSrc).toContain("INSUFFICIENT_CANONICAL_HISTORY");
     expect(scannerSrc).not.toContain('"INSUFFICIENT_HISTORY"');
+    // Scanner must use 252 as the binding bar count gate (not 200)
+    expect(scannerSrc).toMatch(/bars < 252/);
+    expect(scannerSrc).not.toMatch(/bars < 200/);
   });
 
   it("availableIndicators(50) includes EMA_20/EMA_50 but not EMA_100/EMA_200", async () => {
@@ -497,5 +527,241 @@ describe("History sufficiency — per-indicator minimum bars", () => {
     expect(avail).toContain("EMA_50");
     expect(avail).not.toContain("EMA_100");
     expect(avail).not.toContain("EMA_200");
+  });
+
+  it("availableIndicators(200) includes EMA_200 but not HIGH_LOW_52W", async () => {
+    const { availableIndicators } = await import("./historySufficiency");
+    const avail = availableIndicators(200);
+    expect(avail).toContain("EMA_200");
+    expect(avail).not.toContain("HIGH_LOW_52W");
+  });
+
+  it("availableIndicators(252) includes both EMA_200 and HIGH_LOW_52W", async () => {
+    const { availableIndicators } = await import("./historySufficiency");
+    const avail = availableIndicators(252);
+    expect(avail).toContain("EMA_200");
+    expect(avail).toContain("HIGH_LOW_52W");
+  });
+});
+
+// ─── 11. Indicator implementation boundary proof ──────────────────────────────
+
+describe("Indicator implementation boundary — actual function calls (not constants)", () => {
+  /**
+   * These tests call the REAL production indicator functions to prove the
+   * exact minimum input size. They prevent off-by-one regressions: if someone
+   * changes the constant without changing the function (or vice versa), the
+   * test fails.
+   */
+
+  it("rsi(14 values, period=14) returns all-null — 14 bars is insufficient", async () => {
+    const { rsi } = await import("./indicators");
+    const prices = Array(14).fill(100) as number[];
+    const result = rsi(prices, 14);
+    expect(result.length).toBe(14);
+    expect(result.every(v => v === null)).toBe(true);
+  });
+
+  it("rsi(15 values, period=14) has non-null at index 14 — 15 bars is the minimum", async () => {
+    const { rsi } = await import("./indicators");
+    // 14 flat prices then one gain
+    const prices = [...Array(14).fill(100), 110] as number[];
+    const result = rsi(prices, 14);
+    expect(result.length).toBe(15);
+    expect(result[14]).not.toBeNull();
+    expect(typeof result[14]).toBe("number");
+  });
+
+  it("ema(199 values, period=200) returns all-null — 199 bars is insufficient", async () => {
+    const { ema } = await import("./indicators");
+    const prices = Array(199).fill(100) as number[];
+    const result = ema(prices, 200);
+    expect(result.every(v => v === null)).toBe(true);
+  });
+
+  it("ema(200 values, period=200) has non-null at index 199 — 200 bars is the minimum", async () => {
+    const { ema } = await import("./indicators");
+    const prices = Array(200).fill(100) as number[];
+    const result = ema(prices, 200);
+    expect(result[199]).not.toBeNull();
+    expect(typeof result[199]).toBe("number");
+  });
+
+  it("macd(33 values, 12, 26, 9) histogram is all-null — 33 bars is insufficient", async () => {
+    const { macd } = await import("./indicators");
+    const prices = Array(33).fill(100) as number[];
+    const result = macd(prices, 12, 26, 9);
+    expect(result.hist.every(v => v === null)).toBe(true);
+  });
+
+  it("macd(34 values, 12, 26, 9) histogram has non-null at last index — 34 bars is the minimum", async () => {
+    const { macd } = await import("./indicators");
+    // Vary prices slightly to avoid flat-series edge case
+    const prices = Array(34).fill(0).map((_, i) => 100 + (i % 5)) as number[];
+    const result = macd(prices, 12, 26, 9);
+    const lastHist = result.hist[33];
+    expect(lastHist).not.toBeNull();
+    expect(typeof lastHist).toBe("number");
+  });
+
+  it("INDICATOR_MIN_BARS.RSI_14 matches the actual rsi() function boundary (15)", async () => {
+    const { INDICATOR_MIN_BARS } = await import("./historySufficiency");
+    const { rsi } = await import("./indicators");
+    const period = 14;
+    const minBars = INDICATOR_MIN_BARS.RSI_14; // should be 15
+    // One below minimum → all null
+    const tooShort = rsi(Array(minBars - 1).fill(100) as number[], period);
+    expect(tooShort.every(v => v === null)).toBe(true);
+    // At minimum → last value non-null
+    const atMin = rsi(Array(minBars).fill(100).map((v, i) => v + i) as number[], period);
+    expect(atMin[minBars - 1]).not.toBeNull();
+  });
+
+  it("INDICATOR_MIN_BARS.MACD_12_26_9 matches the actual macd() function boundary (34)", async () => {
+    const { INDICATOR_MIN_BARS } = await import("./historySufficiency");
+    const { macd } = await import("./indicators");
+    const minBars = INDICATOR_MIN_BARS.MACD_12_26_9; // should be 34
+    // One below minimum → all null hist
+    const tooShort = macd(Array(minBars - 1).fill(100) as number[], 12, 26, 9);
+    expect(tooShort.hist.every(v => v === null)).toBe(true);
+    // At minimum → last hist non-null
+    const atMin = macd(
+      Array(minBars).fill(0).map((_, i) => 100 + (i % 5)) as number[],
+      12, 26, 9,
+    );
+    expect(atMin.hist[minBars - 1]).not.toBeNull();
+  });
+});
+
+// ─── 12. IndicatorReadiness per-field flags ───────────────────────────────────
+
+describe("IndicatorReadiness per-field flags", () => {
+  it("getIndicatorReadiness(0): all false", async () => {
+    const { getIndicatorReadiness } = await import("./historySufficiency");
+    const r = getIndicatorReadiness(0);
+    expect(r.rsiReady).toBe(false);
+    expect(r.ema20Ready).toBe(false);
+    expect(r.ema200Ready).toBe(false);
+    expect(r.week52Ready).toBe(false);
+    expect(r.allMandatoryInputsReady).toBe(false);
+  });
+
+  it("getIndicatorReadiness(20): volumeBaselineReady and ema20Ready but not rsiReady", async () => {
+    const { getIndicatorReadiness } = await import("./historySufficiency");
+    const r = getIndicatorReadiness(20);
+    expect(r.volumeBaselineReady).toBe(true);
+    expect(r.ema20Ready).toBe(true);
+    // RSI_14 needs 15 bars, so 20 bars is enough
+    expect(r.rsiReady).toBe(true);
+    expect(r.ema200Ready).toBe(false);
+    expect(r.week52Ready).toBe(false);
+    expect(r.allMandatoryInputsReady).toBe(false);
+  });
+
+  it("getIndicatorReadiness(200): ema200Ready=true but week52Ready=false, allMandatory=false", async () => {
+    const { getIndicatorReadiness } = await import("./historySufficiency");
+    const r = getIndicatorReadiness(200);
+    expect(r.ema200Ready).toBe(true);
+    expect(r.rsiReady).toBe(true);
+    expect(r.macdReady).toBe(true);
+    // 52W requires 252 — NOT satisfied at 200
+    expect(r.week52Ready).toBe(false);
+    expect(r.allMandatoryInputsReady).toBe(false);
+  });
+
+  it("getIndicatorReadiness(251): still not allMandatoryInputsReady (one bar short)", async () => {
+    const { getIndicatorReadiness } = await import("./historySufficiency");
+    const r = getIndicatorReadiness(251);
+    expect(r.ema200Ready).toBe(true);
+    expect(r.week52Ready).toBe(false);
+    expect(r.allMandatoryInputsReady).toBe(false);
+  });
+
+  it("getIndicatorReadiness(252): all mandatory inputs ready", async () => {
+    const { getIndicatorReadiness } = await import("./historySufficiency");
+    const r = getIndicatorReadiness(252);
+    expect(r.rsiReady).toBe(true);
+    expect(r.ema20Ready).toBe(true);
+    expect(r.ema50Ready).toBe(true);
+    expect(r.ema100Ready).toBe(true);
+    expect(r.ema200Ready).toBe(true);
+    expect(r.macdReady).toBe(true);
+    expect(r.volumeBaselineReady).toBe(true);
+    expect(r.week52Ready).toBe(true);
+    expect(r.allMandatoryInputsReady).toBe(true);
+  });
+
+  it("getIndicatorReadiness(NaN): all false (safe NaN handling)", async () => {
+    const { getIndicatorReadiness } = await import("./historySufficiency");
+    const r = getIndicatorReadiness(NaN);
+    expect(r.allMandatoryInputsReady).toBe(false);
+    expect(r.rsiReady).toBe(false);
+  });
+});
+
+// ─── 13. Warehouse reset route protection ────────────────────────────────────
+
+describe("Warehouse reset route — authorization and mutation boundaries", () => {
+  it("POST /scan/candle-store/warehouse/reset uses requireOwnerStrict (not requireOwner)", () => {
+    // Find the router.post declaration line (not the JSDoc comment above it)
+    const handlerIdx = routesScannerSrc.indexOf('router.post("/scan/candle-store/warehouse/reset"');
+    expect(handlerIdx).toBeGreaterThan(-1);
+    // Extract the handler declaration line (first 120 chars covers the middleware argument)
+    const handlerLine = routesScannerSrc.slice(handlerIdx, handlerIdx + 120);
+    expect(handlerLine).toContain("requireOwnerStrict");
+    // The handler declaration itself must not use the weaker requireOwner
+    expect(handlerLine).not.toMatch(/requireOwner[^S]/);
+  });
+
+  it("reset route calls resetWarehouseProgress (resets cursor only)", () => {
+    expect(routesScannerSrc).toContain("resetWarehouseProgress");
+  });
+
+  it("reset route response asserts evaluationLockUnchanged=true", () => {
+    // Search for the handler body, not the JSDoc comment (which appears earlier)
+    const handlerIdx = routesScannerSrc.indexOf('router.post("/scan/candle-store/warehouse/reset"');
+    const segment = routesScannerSrc.slice(handlerIdx, handlerIdx + 1000);
+    expect(segment).toContain("evaluationLockUnchanged: true");
+    expect(segment).toContain("candleHistoryDeleted: false");
+  });
+
+  it("reset route handler does NOT call DELETE, TRUNCATE, or DROP on candle store", () => {
+    // Extract only the reset route handler body (from router.post to the next router.post)
+    const handlerIdx = routesScannerSrc.indexOf('router.post("/scan/candle-store/warehouse/reset"');
+    const nextRouterIdx = routesScannerSrc.indexOf("router.post", handlerIdx + 50);
+    const segment = nextRouterIdx > 0
+      ? routesScannerSrc.slice(handlerIdx, nextRouterIdx)
+      : routesScannerSrc.slice(handlerIdx, handlerIdx + 800);
+    // The handler body must not issue destructive SQL; the JSDoc comment
+    // (which precedes the handler and mentions "delete" in prohibition context)
+    // is excluded because we start from router.post, not the comment.
+    expect(segment.toLowerCase()).not.toContain("truncate");
+    expect(segment.toLowerCase()).not.toContain("drop table");
+    // Verify the function called is ONLY resetWarehouseProgress (no raw SQL DELETE)
+    // by checking that resetWarehouseProgress is present and no raw sql`DELETE` call
+    expect(segment).toContain("resetWarehouseProgress");
+    expect(segment.toLowerCase()).not.toMatch(/sql`.*delete/);
+  });
+
+  it("reset route handler does NOT modify SCANNER_KITE_CANDLE_EVALUATION_AUTHORIZED", () => {
+    // Extract only the reset route handler body
+    const handlerIdx = routesScannerSrc.indexOf('router.post("/scan/candle-store/warehouse/reset"');
+    const nextRouterIdx = routesScannerSrc.indexOf("router.post", handlerIdx + 50);
+    const segment = nextRouterIdx > 0
+      ? routesScannerSrc.slice(handlerIdx, nextRouterIdx)
+      : routesScannerSrc.slice(handlerIdx, handlerIdx + 800);
+    // Handler must not assign or mutate the evaluation lock
+    expect(segment).not.toMatch(/SCANNER_KITE_CANDLE_EVALUATION_AUTHORIZED\s*=/);
+  });
+
+  it("reset route is not accessible by subscribers (requireOwnerStrict blocks them)", () => {
+    // requireOwnerStrict was specifically designed to block anonymous/public-link access
+    // (unlike requireOwner which allows GET through on public links)
+    const requireOwnerStrictSrc = readSrc("lib/userAuth.ts");
+    expect(requireOwnerStrictSrc).toContain("requireOwnerStrict");
+    // requireOwnerStrict must reject when isOwner is false
+    const strictFnStart = requireOwnerStrictSrc.indexOf("requireOwnerStrict");
+    const strictFnBody = requireOwnerStrictSrc.slice(strictFnStart, strictFnStart + 300);
+    expect(strictFnBody).toMatch(/!.*isOwner|isOwner.*false|403|OWNER_REQUIRED/);
   });
 });

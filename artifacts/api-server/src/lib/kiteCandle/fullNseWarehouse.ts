@@ -25,10 +25,20 @@
  *
  * History-sufficiency (Correction 2)
  * ────────────────────────────────────
- *   MIN_BARS_FOR_STORAGE = 1  (any bar is worth storing)
- *   MIN_BARS_FOR_EVALUATION = 200  (EMA200 binding constraint)
- *   Rows with < 200 bars are stored as status='insufficient' and are always
+ *   MIN_BARS_FOR_STORAGE = 1    (any bar is worth storing)
+ *   MIN_BARS_FOR_EVALUATION = 252  (HIGH_LOW_52W binding constraint)
+ *   Rows with 200–251 bars have EMA200 but NOT a reliable 52-week range.
+ *   Rows with < 252 bars are stored as status='insufficient' and are always
  *   NOT_EVALUATED (INSUFFICIENT_CANONICAL_HISTORY) at evaluation time.
+ *
+ * Calendar-range sufficiency:
+ *   WAREHOUSE_HISTORY_DAYS = 400 calendar days
+ *   → ~276 trading days (400 × 252/365), buffer of ~24 days beyond 252.
+ *   Sufficient even accounting for: incomplete current session (excluded by
+ *   Kite daily API during market hours), Indian holidays (~15/year), and
+ *   any transient data gaps. The `to` date defaults to today in
+ *   centralEquityCandles; the daily bar for today is only included after
+ *   market close (15:30 IST), so weekday daytime runs get completed bars only.
  *
  * Staged / resumable (Correction 3)
  * ────────────────────────────────

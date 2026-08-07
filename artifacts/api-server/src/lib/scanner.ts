@@ -56,6 +56,19 @@ export async function getHistory(
 // is a synchronous Map lookup that never triggers a Kite HTTP call.
 
 /**
+ * Test-only export: the inner Kite-candle evaluation function.
+ * Allows runtime lock proof tests to verify NOT_EVALUATED with mocked dependencies
+ * WITHOUT setting up the full Express / auth / session middleware stack.
+ *
+ * DO NOT use in production routes — call buildRow() instead.
+ */
+export const _buildRowFromKiteCandles_testOnly = (
+  entry: import("./universe").UniverseEntry,
+  kiteQuotes?: Map<string, import("./marketData/compat").KiteScannerQuote> | null,
+): Promise<import("@workspace/api-zod").StockRow | null> =>
+  buildRowFromKiteCandles(entry, kiteQuotes);
+
+/**
  * Kite Session Average Traded Price (ATP).
  *
  * Source:    Kite REST batch quote `average_price` field.
@@ -403,10 +416,14 @@ async function buildRowFromKiteCandles(
     warnings: [...candleStoreWarnings, atpWarning],
   });
 
-  // Minimum bar count for the complete indicator stack:
-  //   ≥200 required for EMA200 — the canonical long-trend anchor.
-  //   30 – 199 bars: compute partial indicators but keep NOT_EVALUATED.
-  if (bars < 200) {
+  // Minimum bar count for the complete mandatory indicator stack:
+  //   ≥252 required for 52-week H/L — the binding constraint.
+  //   A row with 200–251 bars has EMA200 available but lacks a reliable
+  //   annual range: the "near 52W high" confirmation rule is unreliable.
+  //   Any row with < 252 completed bars is NOT_EVALUATED regardless of
+  //   the evaluation lock — this is a DATA COMPLETENESS gate, not a
+  //   phase gate.  See historySufficiency.ts for per-field thresholds.
+  if (bars < 252) {
     return {
       symbol: entry.symbol,
       name:   entry.name,
@@ -418,7 +435,7 @@ async function buildRowFromKiteCandles(
         score: null,
         confidence: null,
         reasons: [],
-        setupMessage: `INSUFFICIENT_CANONICAL_HISTORY: ${bars} daily bars available (need ≥200 for EMA200, the binding constraint; session_date=${storeEntry.sessionDate ?? "unknown"}; ~${Math.ceil((200 - bars) / 21)} trading months until evaluation-eligible).`,
+        setupMessage: `INSUFFICIENT_CANONICAL_HISTORY: ${bars} daily bars available (need ≥252 for 52-week H/L, the binding constraint; EMA200 ${bars >= 200 ? "IS" : "NOT YET"} available; session_date=${storeEntry.sessionDate ?? "unknown"}; ~${Math.ceil((252 - bars) / 21)} trading months until evaluation-eligible).`,
       },
       provenance,
       rowSource: toScannerRowSource(provenance, entry.symbol),

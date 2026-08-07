@@ -22,7 +22,7 @@ import type { StockRow } from "@workspace/api-zod";
 import { shouldDemoteSignal } from "../lib/scannerProvenance";
 import { buildScannerSourceHealth } from "../lib/scannerSourceHealth";
 import { getKiteReadiness } from "../lib/kiteReadiness";
-import { requireOwner, requireSubscriberOrOwner } from "../lib/userAuth";
+import { requireOwner, requireOwnerStrict, requireSubscriberOrOwner } from "../lib/userAuth";
 import { SECTORS, UNIVERSE, getEntry, INDEX_CONSTITUENTS } from "../lib/universe";
 import { computeSectorCoverage } from "../lib/sectorCoverage";
 import { getStockHistoryWithSeries, scanAll, getCachedScanRows, refreshScanInBackground, getScanRowsFast } from "../lib/scanner";
@@ -802,6 +802,41 @@ router.get("/scan/candle-store/metrics", requireOwner, async (_req, res, next) =
       storeMetrics,
       warehouseMetrics,
       generatedAt: new Date().toISOString(),
+    });
+  } catch (err) { next(err); }
+});
+
+/**
+ * POST /api/scan/candle-store/warehouse/reset — owner-strict reset of the
+ * full-NSE warehouse progress cursor.
+ *
+ * Authorization: requireOwnerStrict — blocks anonymous GET-through-public-link
+ * (unlike requireOwner which allows anonymous reads on a public share).
+ *
+ * What this route does:
+ *   - Resets kite_warehouse_progress cursor to CANARY (cursor_idx=0).
+ *   - Does NOT delete candle history from kite_candle_store.
+ *   - Does NOT modify SCANNER_KITE_CANDLE_EVALUATION_AUTHORIZED.
+ *   - Does NOT start the warehouse run immediately (next scheduled cycle triggers it).
+ *
+ * What this route does NOT do:
+ *   - Cannot alter the evaluation lock (SCANNER_KITE_CANDLE_EVALUATION_AUTHORIZED=false).
+ *   - Cannot delete or truncate kite_candle_store rows.
+ *   - Cannot be called by subscriber users or anonymous requests.
+ *   - Accepts no query-parameter bypasses of any kind.
+ */
+router.post("/scan/candle-store/warehouse/reset", requireOwnerStrict, async (_req, res, next) => {
+  try {
+    const { resetWarehouseProgress, getFullNseWarehouseMetrics } =
+      await import("../lib/kiteCandle/fullNseWarehouse");
+    await resetWarehouseProgress();
+    const metrics = getFullNseWarehouseMetrics();
+    res.json({
+      ok: true,
+      message: "Warehouse progress cursor reset to CANARY (cursor_idx=0). Candle history is UNCHANGED. Next scheduled cycle will restart from canary batch.",
+      evaluationLockUnchanged: true,
+      candleHistoryDeleted: false,
+      metrics: { warehouseRunning: metrics.warehouseRunning, lastWarehouseAt: metrics.lastWarehouseAt },
     });
   } catch (err) { next(err); }
 });

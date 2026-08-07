@@ -1,0 +1,93 @@
+FINAL_PHASE_A_CORRECTION — HOLD_DEPLOYMENT_UNTIL_COMPLETENESS_CONTRACT_IS_CONSISTENT
+
+The Phase A deployment design is accepted except for the following bounded closure items. Do not introduce any new scope or task.
+
+1. Correct evaluation sufficiency
+
+If 52-week high/low is part of the mandatory scanner input contract:
+
+MIN_BARS_FOR_EVALUATION must be at least 252 completed trading-session candles, not 200.
+
+Fetch a sufficiently long calendar range to reliably obtain at least 252 completed sessions. Do not include the current incomplete daily candle as a completed session.
+
+A row with:
+
+- 200–251 completed bars may have EMA200 available;
+- but it must remain NOT_EVALUATED if 52-week data is mandatory.
+
+Return per-field readiness:
+
+rsiReady
+ema20Ready
+ema50Ready
+ema100Ready
+ema200Ready
+macdReady
+volumeBaselineReady
+week52Ready
+allMandatoryInputsReady
+
+Only `allMandatoryInputsReady=true` may be considered Phase-B evaluation-ready.
+
+2. Verify indicator implementation boundaries
+
+Test the actual production indicator functions—not only documented constants—to establish the exact number of price observations required for RSI14, MACD and every other indicator.
+
+Prevent off-by-one errors such as 14 price points being treated as 14 price changes.
+
+3. Protect the warehouse reset route
+
+Prove `POST /api/scan/candle-store/warehouse/reset` is:
+
+- strictly owner-authenticated;
+- mutation protected;
+- unavailable to anonymous/subscriber users;
+- unable to alter the evaluation lock;
+- limited to resetting progress only;
+- unable to delete candle history.
+
+4. Add executable runtime lock proof
+
+Add at least one real registered-route/runtime test for:
+
+- curated scanner;
+- full-NSE scanner;
+- export response;
+- Home setup/mover consumer.
+
+With canonical candles present and recommendations otherwise calculable, each must still return:
+
+signal=NOT_EVALUATED
+score=null
+confidence=null
+action=null
+reason=PHASE_A_POPULATION_ONLY
+
+Source-text inspection alone is not sufficient.
+
+5. Rerun the existing battery
+
+Required floors:
+
+- api-server ≥ 6,474 tests;
+- scanner ≥ 1,250 tests;
+- four-package TSC clean;
+- both production builds pass;
+- git diff --check clean;
+- all three compile-time locks false;
+- broker execution hard-disabled.
+
+After these corrections, return only:
+
+- exact commit;
+- corrected minimum-history contract;
+- four runtime-test results;
+- reset-route authorization proof;
+- battery totals;
+- unchanged post-publish checklist.
+
+Do not ask for additional planning approval.
+
+Required current verdict:
+
+PROMPT_33_PHASE_A_READY_EXCEPT_FOR_HISTORY_COMPLETENESS_AND_RUNTIME_ROUTE_PROOF
