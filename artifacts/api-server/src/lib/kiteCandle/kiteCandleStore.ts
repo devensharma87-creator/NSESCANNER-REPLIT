@@ -28,7 +28,7 @@ import { sql } from "drizzle-orm";
 import { logger } from "../logger";
 import { centralEquityCandles } from "../marketData/compat";
 import type { YahooChart } from "../marketData/analyticsYahoo";
-import { UNIVERSE, INACTIVE_SYMBOLS } from "../universe";
+import { UNIVERSE, INACTIVE_SYMBOLS, KITE_NSE_SYMBOL_OVERRIDE } from "../universe";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -106,21 +106,86 @@ export const MIN_INDICATOR_BARS = 200;
 /** Days of history to request from Kite. 365 calendar ≈ 252 trading bars. */
 const KITE_HISTORY_DAYS = 365;
 
-/** Concurrent Kite requests per batch during refresh. */
-const REFRESH_CONCURRENCY = 6;
+/**
+ * Kite Historical Data API rate limit: ≈ 3 requests/second per account.
+ * Source: Kite Connect API documentation (historical data endpoint).
+ *
+ * With REFRESH_CONCURRENCY=6 parallel requests and BATCH_PAUSE_MS=2000 ms
+ * between batches, the effective rate is:
+ *   6 req / (avg_call_latency_ms + 2000 ms) ≈ 6/4000 ≈ 1.5 req/s
+ * which is comfortably within the 3 req/s limit.
+ */
+const KITE_HISTORICAL_RPS_LIMIT = 3; // documented Kite historical API rate (req/sec)
+const REFRESH_CONCURRENCY = 6;       // parallel Kite calls per batch
 
-/** Pause between concurrency batches to respect Kite API rate limits. */
-const BATCH_PAUSE_MS = 500;
+/**
+ * Pause between batches ensures effective rate ≤ KITE_HISTORICAL_RPS_LIMIT.
+ * Formula: BATCH_PAUSE_MS ≥ (REFRESH_CONCURRENCY / KITE_HISTORICAL_RPS_LIMIT) * 1000
+ *          = (6 / 3) * 1000 = 2000 ms minimum.
+ * We use 2000 ms; actual rate is lower because each Kite call takes ~1-3 s.
+ */
+const BATCH_PAUSE_MS = 2_000;        // ms between concurrency batches (rate limiter)
 
 /** Data older than this is promoted from 'ok' → 'stale' in memory. */
 const STALE_THRESHOLD_MS = 18 * 60 * 60 * 1000; // 18 h
 
-/** Refresh intervals (next timer after a completed refresh). */
-const REFRESH_INTERVAL_MARKET_HOURS_MS = 20 * 60 * 1000;  // 20 min
-const REFRESH_INTERVAL_OFF_HOURS_MS    = 4 * 60 * 60 * 1000; // 4 h
+/** Off-hours / weekends: 4-hour refresh cadence for failure recovery + new listings. */
+const REFRESH_INTERVAL_OFF_HOURS_MS = 4 * 60 * 60 * 1000; // 4 h
+
+/**
+ * Refresh schedule policy:
+ *
+ *   DURING MARKET HOURS (Mon–Fri 09:15–15:30 IST = 03:45–10:00 UTC):
+ *     EOD daily bars do not finalize until the session closes. Refreshing during
+ *     market hours re-downloads the same in-progress partial bar — wasteful and
+ *     semantically wrong. The partial bar is always appended from the Kite batch
+ *     quote in buildRowFromKiteCandles(). Schedule next refresh for 15:35 IST.
+ *
+ *   POST-CLOSE (15:30–21:00 IST on trading days = 10:00–15:30 UTC):
+ *     Refresh captures the completed final daily bar for today.
+ *     Then fall through to 4 h off-hours cadence for any retry needs.
+ *
+ *   OFF-HOURS / WEEKENDS (all other times):
+ *     4-hour cadence for failure recovery and new-listing detection.
+ *
+ * IST↔UTC offsets (no daylight-saving in India):
+ *   09:15 IST = 03:45 UTC  (market open; utcMins=225)
+ *   15:30 IST = 10:00 UTC  (session close; utcMins=600)
+ *   15:35 IST = 10:05 UTC  (5 min post-close; utcMins=605)
+ */
+function computeNextRefreshDelayMs(): number {
+  const now = new Date();
+  const utcMins = now.getUTCHours() * 60 + now.getUTCMinutes();
+  const day = now.getUTCDay(); // 0=Sun, 6=Sat
+
+  // Off-hours base: 4 hours
+  let delayMs = REFRESH_INTERVAL_OFF_HOURS_MS;
+
+  // On weekdays only (Mon=1 … Fri=5):
+  if (day >= 1 && day <= 5) {
+    if (utcMins >= 225 && utcMins < 605) {
+      // During/around market hours — schedule for 5 min post-close (605 utcMins)
+      const minsToPostClose = 605 - utcMins;
+      delayMs = Math.min(delayMs, minsToPostClose * 60 * 1000);
+    }
+    // Post-close (utcMins ≥ 605): fall through to 4 h off-hours
+  }
+
+  // Minimum 5 min to prevent tight retry storms
+  delayMs = Math.max(delayMs, 5 * 60 * 1000);
+
+  // Double if circuit breaker open (half-open retry cadence)
+  if (isCircuitBreakerOpen()) delayMs *= 2;
+
+  return delayMs;
+}
 
 /** First refresh delay after server boot — gives Kite session time to establish. */
 const INITIAL_REFRESH_DELAY_MS = 90_000; // 90 s
+
+// Kite NSE symbol overrides are defined in universe.ts (KITE_NSE_SYMBOL_OVERRIDE)
+// and imported above. The store uses the universe canonical symbol as its primary
+// key; the Kite override is applied only at the Kite API call boundary.
 
 /** Circuit breaker: open for this duration after CIRCUIT_OPEN_THRESHOLD failures. */
 const CIRCUIT_OPEN_DURATION_MS = 60 * 60 * 1000; // 1 h
@@ -400,8 +465,13 @@ export function getKiteCandleStoreMetrics(): KiteCandleStoreMetrics {
 async function fetchEntryFromKite(symbol: string): Promise<KiteCandleEntry> {
   const exchange = "NSE";
   const timeframe = "day";
+  // Use the current Kite NSE trading symbol — some curated-universe names predate
+  // company renames on the exchange. The override maps the canonical universe symbol
+  // to the live Kite instrument name; the result is stored under the universe symbol
+  // so all lookups by getKiteCandleSeries(universeSymbol) continue to work.
+  const kiteSymbol = KITE_NSE_SYMBOL_OVERRIDE[symbol] ?? symbol;
   try {
-    const chart = await centralEquityCandles(symbol, "day", KITE_HISTORY_DAYS);
+    const chart = await centralEquityCandles(kiteSymbol, "day", KITE_HISTORY_DAYS);
     if (!chart) {
       return {
         symbol, exchange, timeframe,
@@ -572,13 +642,7 @@ export async function runKiteCandleRefresh(): Promise<RefreshResult> {
 function scheduleNextRefresh(): void {
   if (schedulerTimer) clearTimeout(schedulerTimer);
 
-  const isOpen = circuitBreakerOpenUntil != null && Date.now() < circuitBreakerOpenUntil.getTime();
-  const baseIntervalMs = isMarketHours()
-    ? REFRESH_INTERVAL_MARKET_HOURS_MS
-    : REFRESH_INTERVAL_OFF_HOURS_MS;
-  // Double the interval when the circuit is open (half-open retry cadence)
-  const intervalMs = isOpen ? baseIntervalMs * 2 : baseIntervalMs;
-
+  const intervalMs = computeNextRefreshDelayMs();
   nextScheduledRefreshAt = new Date(Date.now() + intervalMs);
 
   schedulerTimer = setTimeout(async () => {
@@ -635,8 +699,10 @@ export async function initKiteCandleStore(): Promise<void> {
   // • Empty or all-stale → fire sooner (90 s) so first scan has data quickly.
   // • Has fresh ok entries → fire after a normal interval.
   const hasFreshData = Array.from(memCache.values()).some(e => e.status === "ok");
+  // Fresh data loaded: use the smart schedule (avoids redundant market-hours refreshes).
+  // Empty or stale: fire sooner (INITIAL_REFRESH_DELAY_MS) so the first scan has data.
   const firstDelayMs = hasFreshData
-    ? (isMarketHours() ? REFRESH_INTERVAL_MARKET_HOURS_MS : REFRESH_INTERVAL_OFF_HOURS_MS)
+    ? computeNextRefreshDelayMs()
     : INITIAL_REFRESH_DELAY_MS;
 
   nextScheduledRefreshAt = new Date(Date.now() + firstDelayMs);

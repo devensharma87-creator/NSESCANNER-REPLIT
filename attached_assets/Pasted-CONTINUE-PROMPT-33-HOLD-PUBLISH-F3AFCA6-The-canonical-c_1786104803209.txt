@@ -1,0 +1,131 @@
+CONTINUE_PROMPT_33 — HOLD_PUBLISH_F3AFCA6
+
+The canonical candle-store foundation is promising, but Gates 1–6 are not accepted yet. Do not publish and do not create follow-up tasks.
+
+1. Full-universe coverage
+
+The store must cover the complete eligible production scanner universe, not only 199 curated stocks.
+
+Report reconciled counts:
+
+total universe
+= excluded/unsupported
++ pending
++ candle-complete
++ stale-last-good
++ insufficient-history
++ provider-failed
+
+Explain the five missing rows in the reported 194/199 result.
+
+Verify both the full-NSE scanner and curated scanner consume the same canonical store.
+
+2. Eliminate all provider calls from scan/UI paths
+
+Prove scanner requests make zero:
+
+- Kite historical-candle calls;
+- Yahoo candle calls;
+- per-symbol intraday VWAP calls;
+- direct provider calls of any kind.
+
+Daily and intraday data acquisition must run only through bounded background ingestion. UI and scanner requests must read canonical cached data.
+
+3. Correct VWAP semantics
+
+Daily candles cannot generate session VWAP.
+
+Audit getIntradayVwap() and prove it does not create an N-per-scan provider path.
+
+Use only a verified Kite session-level value with documented semantics. If Kite average_price is used, label it accurately and verify that it represents the required measure. Do not silently rename it VWAP.
+
+If VWAP is a required score component and it is unavailable:
+
+signal=NOT_EVALUATED
+score=null
+confidence=null
+action=null
+reason=SESSION_VWAP_UNAVAILABLE
+
+Do not merely skip a required score component and continue calculating a recommendation. Do not change thresholds or weights to accommodate missing inputs.
+
+4. Performance gate
+
+A 77-second scan does not pass a 25-second timeout.
+
+Required acceptance:
+
+- warm-cache API response within the declared timeout;
+- cold-start response returns immediately from last-good/cache or honest NOT_EVALUATED rows;
+- refresh runs asynchronously;
+- concurrent requests do not multiply work;
+- p50/p95 response timings recorded;
+- no timeout returning an unrelated old 198-row cache without explicit stale provenance.
+
+5. Rate-limit and scheduling correctness
+
+Replace concurrency-only control with a documented requests-per-second limiter matching the configured provider contract.
+
+Daily history should not be downloaded every 20 minutes unnecessarily. Define separate schedules for:
+
+- completed daily candles;
+- current-session/intraday data;
+- instrument-master changes;
+- failure recovery.
+
+Record request counts per refresh and per symbol.
+
+6. Cross-replica correctness
+
+Prove:
+
+- only one replica refreshes;
+- non-winning replicas hydrate L1 from PostgreSQL after the winner finishes;
+- newly started replicas do not remain empty;
+- schema creation is idempotent;
+- failed refresh never destroys last-good data.
+
+7. Fail-closed warm-up
+
+During initial deployment and empty-table warm-up:
+
+- Yahoo may be displayed only as DELAYED/INFO_ONLY/NOT_FOR_SIGNALS;
+- all such Indian-equity rows must be NOT_EVALUATED;
+- no numeric score, recommendation, ranking, mover/setup inclusion, alert or paper/trading admission is permitted.
+
+Change the inaccurate summary “cold-start → Yahoo fallback” to “cold-start → NOT_EVALUATED with optional delayed display-only context.”
+
+8. Complete verification battery
+
+Run and report:
+
+- api-server full tests;
+- scanner full tests;
+- api-zod and api-client-react tests/typechecks;
+- all four TSC checks;
+- api-server and scanner production builds;
+- git diff --check;
+- DB migration idempotency;
+- zero live-provider calls in tests;
+- V2 locks false;
+- broker execution hard-disabled.
+
+9. Safe deployment sequence
+
+Once these gates pass:
+
+- deploy the NOT_EVALUATED safety contract and candle-store writer;
+- allow production store hydration;
+- inspect production coverage metrics;
+- activate canonical store reading only when coverage is healthy;
+- incomplete rows must remain NOT_EVALUATED;
+- take production desktop/mobile screenshots;
+- verify scanner exports, rankings, filters, Home setups and downstream admissions.
+
+Only then return:
+
+ACCEPT_PROMPT_33_PRODUCTION_SCANNER_RECOVERY_CANONICAL_CANDLE_COVERAGE_AND_YAHOO_CONTAINMENT
+
+Current verdict:
+
+PROMPT_33_CANONICAL_STORE_FOUNDATION_IMPLEMENTED — FULL_UNIVERSE_PERFORMANCE_SEMANTICS_AND_PRODUCTION_VERIFICATION_PENDING

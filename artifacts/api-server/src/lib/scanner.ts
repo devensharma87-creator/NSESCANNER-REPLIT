@@ -1,13 +1,13 @@
 import type { Indicators, Quote, StockHistory, StockRow } from "@workspace/api-zod";
-import { UNIVERSE, INACTIVE_SYMBOLS, type UniverseEntry } from "./universe";
+import { UNIVERSE, INACTIVE_SYMBOLS, KITE_NSE_SYMBOL_OVERRIDE, type UniverseEntry } from "./universe";
 import { fetchChart, fetchIntraday, yahooTickerFor, type YahooChart } from "./marketData/analyticsYahoo";
-import { adx, atr, avgVolume, ema, macd, rollingVwap, rsi, sessionVwap, supportResistance, volumeProfile, pivots } from "./indicators";
+import { adx, atr, avgVolume, ema, macd, rsi, supportResistance, volumeProfile, pivots } from "./indicators";
 // Phase B: Kite daily candle analytics now powers the recommendation for curated stocks.
 // Yahoo candles remain as INFO_ONLY fallback when Kite history is unavailable.
 import { buildRecommendation } from "./scoring";
 import { logger } from "./logger";
 import { getDeliveryPct } from "./marketData/referenceData";
-import { centralLiveQuote, centralEquityCandles, centralBatchEquityQuotes } from "./marketData/compat";
+import { centralLiveQuote, centralBatchEquityQuotes } from "./marketData/compat";
 import { getKiteCandleSeries } from "./kiteCandle/kiteCandleStore";
 import type { KiteScannerQuote } from "./marketData/compat";
 import { buildSourceProvenance } from "./scannerProvenance";
@@ -22,13 +22,11 @@ const HISTORY_TTL_MS = 30 * 60 * 1000;
 const SCAN_TTL_MS = 60 * 1000;
 
 const historyCache = new Map<string, CachedHistory>();
-const intradayVwapCache = new Map<string, { ts: number; vwap: number | null }>();
-// 30s — must stay strictly less than the underlying kiteIntraday cache
-// (60s) so the worst-case freshness for an equity VWAP is bounded by
-// `30s + max-age-of-current-kite-cache-entry`. Going looser (e.g. 90s)
-// compounds with the inner cache to ~150s of staleness — long enough
-// for a 15-minute bar to roll over and a VWAP-reclaim signal to misfire.
-const INTRADAY_TTL = 30 * 1000;
+// No per-symbol intraday VWAP cache.
+// Session VWAP is sourced from kiteQuote.averagePrice (Kite batch quote
+// "average_price" field = volume-weighted average traded price of the current
+// session, as reported by the exchange). This is already fetched once per
+// scan cycle by centralBatchEquityQuotes() — zero additional provider calls.
 
 let scanCache: { fetchedAt: number; rows: StockRow[] } | null = null;
 // We bind both the in-flight Promise *and* the shared accumulator together
@@ -53,29 +51,24 @@ export async function getHistory(
 // removed — buildRowFromKiteCandles() calls getKiteCandleSeries() directly, which
 // is a synchronous Map lookup that never triggers a Kite HTTP call.
 
-async function getIntradayVwap(symbol: string): Promise<number | null> {
-  const cached = intradayVwapCache.get(symbol);
-  if (cached && Date.now() - cached.ts < INTRADAY_TTL) return cached.vwap;
-  try {
-    // Kite-first: live 15-minute candles direct from the broker (no
-    // 15-min Yahoo delay). Yahoo fallback removed (Gate 5 Yahoo
-    // containment): Yahoo intraday for Indian equities is no longer an
-    // acceptable VWAP source. If Kite 15-min candles are unavailable
-    // (session inactive, market closed), VWAP returns null and VWAP-
-    // dependent scoring conditions are skipped. Null VWAP is honest.
-    const intra = await centralEquityCandles(symbol, "15minute", 1);
-    if (!intra || intra.close.length < 4) {
-      intradayVwapCache.set(symbol, { ts: Date.now(), vwap: null });
-      return null;
-    }
-    const vwapSeries = sessionVwap(intra.high, intra.low, intra.close, intra.volume);
-    const v = vwapSeries[vwapSeries.length - 1] ?? null;
-    intradayVwapCache.set(symbol, { ts: Date.now(), vwap: v });
-    return v;
-  } catch {
-    intradayVwapCache.set(symbol, { ts: Date.now(), vwap: null });
-    return null;
-  }
+/**
+ * Extract session VWAP from a Kite batch quote.
+ *
+ * Source: Kite REST batch quote `average_price` field.
+ * Semantics: volume-weighted average traded price of all trades in the
+ *   current session, as reported by the exchange (NSE/BSE). This is the
+ *   canonical session VWAP — no secondary computation required.
+ *   When market is closed the field reflects the prior session's value.
+ *
+ * Zero is treated as "unavailable" (exchange reports 0 in pre-open/
+ * before first trade). Returns null rather than a fabricated substitute.
+ *
+ * Provider calls: NONE. The batch quote is fetched once per scan cycle
+ * by centralBatchEquityQuotes() before the worker loop starts.
+ */
+function sessionVwapFromBatchQuote(quote: KiteScannerQuote): number | null {
+  const ap = quote.averagePrice;
+  return ap != null && ap > 0 ? ap : null;
 }
 
 function quoteFromChart(
@@ -184,10 +177,13 @@ function computeIndicators(chart: YahooChart, quote: Quote, intradayVwap: number
   const volumeRatio = avgVol > 0 ? quote.volume / avgVol : 1;
   const sr = supportResistance(chart.high, chart.low, 40);
   const vp = volumeProfile(chart.high, chart.low, closes, chart.volume, 24, 60);
-  // VWAP fallback chain: live intraday session VWAP → 20-bar rolling VWAP → undefined
-  // (NEVER fall back to spot price — that produces meaningless "spot vs VWAP" comparisons).
-  const vwapNum = intradayVwap ?? rollingVwap(chart.high, chart.low, closes, chart.volume, 20);
-  const vwap = vwapNum;
+  // Session VWAP from Kite batch quote average_price (zero provider calls).
+  // Daily candles MUST NOT be used to fabricate a session VWAP: the 20-bar
+  // rolling VWAP from daily bars is a multi-day price average, not a
+  // session-level measure. When session VWAP is unavailable, vwap stays null
+  // and scoring skips VWAP-dependent rules — this is the correct fail-closed
+  // behaviour. Do NOT substitute a daily-bar derived value.
+  const vwap = intradayVwap;
 
   // buildRow() above already guarantees chart.close.length >= 30, so dn is
   // always >= 2 here and the previous-bar OHLC reads below cannot fall off
@@ -367,7 +363,9 @@ async function buildRowFromKiteCandles(
     updatedAt: new Date(kiteQuote.ts),
   };
 
-  const intraVwap = await getIntradayVwap(entry.symbol);
+  // Session VWAP: sourced from the Kite batch quote average_price field.
+  // No additional provider call. Null when market not yet traded.
+  const intraVwap = sessionVwapFromBatchQuote(kiteQuote);
   const computed  = computeIndicators(chartWithToday, quote, intraVwap);
 
   // Real NSE delivery % from bhavcopy — same logic as Yahoo path.
@@ -446,21 +444,30 @@ async function buildRow(
   entry: UniverseEntry,
   kiteQuotes?: Map<string, KiteScannerQuote> | null,
 ): Promise<StockRow | null> {
-  // Phase B (Prompt 33 Gate 2): try Kite daily candle analytics first.
-  //  • Kite online + ≥200 bars → fully evaluated row (real score/signal).
-  //  • Kite online + <200 bars → NOT_EVALUATED with INSUFFICIENT_HISTORY reason.
-  //  • Kite offline / no quote → null → fall through to Yahoo path below.
+  // Try Kite daily candle analytics first.
+  //  • Candle store ok/stale + ≥200 bars → fully evaluated row (real score/signal).
+  //  • Candle store ok/stale + <200 bars → NOT_EVALUATED with INSUFFICIENT_HISTORY.
+  //  • Candle store pending/unavailable   → null → cold-start NOT_EVALUATED path below.
+  //  • No valid Kite batch quote          → null → cold-start NOT_EVALUATED path below.
   const kiteRow = await buildRowFromKiteCandles(entry, kiteQuotes);
   if (kiteRow !== null) return kiteRow;
 
-  // Phase A fallback: Yahoo daily chart (INFO_ONLY / DELAYED / NOT_FOR_SIGNALS).
-  // Indicators are still populated for display; recommendation is NOT_EVALUATED.
+  // Cold-start / no Kite candle path:
+  //   The candle store is empty (first boot) or this symbol has no Kite coverage.
+  //   Return a NOT_EVALUATED row. Display-only indicators may optionally come from
+  //   Yahoo daily data (DELAYED / INFO_ONLY / NOT_FOR_SIGNALS) to give the user
+  //   some context, but the recommendation is always score=null, signal=NOT_EVALUATED.
+  //   Yahoo data is NEVER used to derive a score, signal, ranking, alert,
+  //   or trading/paper-trade admission for Indian equities.
   const kiteQuote = kiteQuotes?.get(entry.symbol) ?? null;
   const chart = await getHistory(entry.symbol, "6mo");
   if (!chart || chart.close.length < 30) return null;
   const quote = quoteFromChart(entry, chart, kiteQuote);
   if (!quote) return null;
-  const intraVwap = await getIntradayVwap(entry.symbol);
+  // VWAP: sourced from Kite batch quote average_price only. Null if unavailable.
+  const intraVwap = kiteQuote && kiteQuote.averagePrice != null && kiteQuote.averagePrice > 0
+    ? kiteQuote.averagePrice
+    : null;
   const computed = computeIndicators(chart, quote, intraVwap);
 
   // Real NSE delivery %. computeIndicators leaves this undefined; we ONLY
@@ -471,15 +478,18 @@ async function buildRow(
     computed.indicators.deliveryPct = round2(realDelv.pct);
   }
 
-  // NOT_EVALUATED — Kite candles unavailable (offline, session expired, or
-  // symbol not in Kite's EQ universe). Yahoo indicators shown for display only.
+  // NOT_EVALUATED — candle store pending or no Kite coverage for this symbol.
+  // Indicators above are from Yahoo daily data: display-only context for the user.
+  // No score, no recommendation, no ranking — strict fail-closed semantics.
   const recommendation: import("@workspace/api-zod").Recommendation = {
     signal: "NOT_EVALUATED",
     score: null,
     confidence: null,
     reasons: [],
     setupMessage:
-      "KITE_CANDLES_UNAVAILABLE: Kite daily bar history could not be fetched (Kite offline or session expired). Indicators shown are from Yahoo daily data (INFO_ONLY / DELAYED / NOT_FOR_SIGNALS). Score and signal will be activated once Kite candle analytics are available.",
+      "KITE_CANDLES_UNAVAILABLE: Candle store pending or symbol not covered by Kite history. " +
+      "Displayed indicators are from Yahoo Finance (DELAYED / INFO_ONLY / NOT_FOR_SIGNALS). " +
+      "Score=null; this row is excluded from rankings, movers, alerts, and trading admission.",
   };
 
   const kitePriceUsed = kiteQuote != null && kiteQuote.lastPrice > 0;
@@ -532,10 +542,27 @@ async function performScan(acc?: ScanAccumulator): Promise<StockRow[]> {
   // Phase A: pre-fetch Kite REST batch quotes for the full curated universe in
   // one call before the worker loop starts. 280 symbols fit within the 480-symbol
   // batch limit, so this is a single round-trip (~1s). Returns null when Kite is
-  // offline or the session is expired — buildRow() falls back to the existing
-  // Yahoo + WebSocket tick path unchanged, so the scan is never blocked.
-  const kiteQuotes = await centralBatchEquityQuotes(universe.map(u => u.symbol)).catch(() => null);
-  if (kiteQuotes !== null) {
+  // offline or the session is expired — buildRow() falls back to the NOT_EVALUATED
+  // path unchanged, so the scan is never blocked.
+  //
+  // Symbol remapping: some universe symbols are stale (pre-rename) NSE identifiers.
+  // We pass the current Kite trading symbol to the quote API and remap results back
+  // to canonical universe symbols so kiteQuotes.get(entry.symbol) always works.
+  const kiteSymbols: string[] = [];
+  const kiteToUniverseKey = new Map<string, string>(); // Kite symbol → universe symbol
+  for (const u of universe) {
+    const kite = KITE_NSE_SYMBOL_OVERRIDE[u.symbol] ?? u.symbol;
+    kiteSymbols.push(kite);
+    if (kite !== u.symbol) kiteToUniverseKey.set(kite, u.symbol);
+  }
+  const rawKiteQuotes = await centralBatchEquityQuotes(kiteSymbols).catch(() => null);
+  let kiteQuotes: Map<string, KiteScannerQuote> | null = null;
+  if (rawKiteQuotes !== null) {
+    kiteQuotes = new Map<string, KiteScannerQuote>();
+    for (const [kite, q] of rawKiteQuotes) {
+      const universeKey = kiteToUniverseKey.get(kite) ?? kite;
+      kiteQuotes.set(universeKey, q);
+    }
     logger.info({ hits: kiteQuotes.size, universe: universe.length }, "scanner kite batch quotes fetched");
   }
 

@@ -12,10 +12,10 @@ level review and an update to this file.
 
 | Tier | Source | Authority | Allowed uses |
 |------|--------|-----------|--------------|
-| 1 | Kite REST batch quote | Authoritative | CMP, change, open, high, low, previous, volume, session OHLC |
+| 1 | Kite REST batch quote | Authoritative | CMP, change, open, high, low, previous, volume, session OHLC, **session VWAP (`average_price`)** |
 | 2 | Kite WebSocket tick | Authoritative | Real-time CMP override when batch quote is absent |
-| 3 | Kite REST daily candles | Authoritative | EMA, RSI, MACD, 52W H/L, avgVolume, all scored indicators |
-| 4 | Kite REST 15-min candles | Authoritative | Session VWAP only |
+| 3 | Kite REST daily candles (candle store) | Authoritative | EMA, RSI, MACD, 52W H/L, avgVolume, all scored indicators |
+| ~~4~~ | ~~Kite REST 15-min candles~~ | ~~Retired~~ | **Retired**: session VWAP now sourced from tier 1 `average_price` |
 | 5 | NSE bhavcopy (REST) | Reference | Delivery percentage only |
 | 6 | Yahoo Finance | **Display-only** | Global/macro surfaces, **never** Indian equity scoring |
 
@@ -56,15 +56,25 @@ level review and an update to this file.
 | `quote.fiftyTwoWeekHigh` | max(Kite daily high, last 252 bars) + today's Kite intraday high | 252 trading days from store + live quote |
 | `quote.fiftyTwoWeekLow` | min(Kite daily low, last 252 bars) + today's Kite intraday low | Same |
 
-### VWAP (from Kite 15-min candles — tier 4 only)
+### VWAP (from Kite batch quote — tier 1, zero additional provider calls)
 
 | Field | Source | Timeframe | Notes |
 |-------|--------|-----------|-------|
-| `indicators.vwap` | Kite 15-min candles, `sessionVwap()` | Current session | **Null when Kite intraday unavailable** |
+| `indicators.vwap` | Kite REST batch quote `average_price` field | Current session (or last completed session when market closed) | **Null when averagePrice=0 or unavailable** |
 
-**HARD RULE**: Yahoo intraday candles MUST NOT be used for Indian equity VWAP.
-When Kite 15-min candles are unavailable, `vwap = null` and all VWAP-dependent
-scoring conditions are skipped. This is the correct fail-closed behavior.
+**Source semantics**: Kite's `average_price` in the batch quote response is the
+exchange-reported volume-weighted average traded price for all trades in the current
+(or most recent) session. This is the canonical session VWAP — no secondary
+computation is required. It is sourced from the same single batch quote call used
+for price/OHLC/volume, incurring **zero additional provider calls**.
+
+**HARD RULES**:
+- Yahoo intraday candles MUST NOT be used for Indian equity VWAP.
+- Daily-bar rolling VWAP MUST NOT substitute for session VWAP (different measure).
+- When `averagePrice` is 0 or null, `vwap = null` and all VWAP-dependent scoring
+  conditions are skipped. This is the correct fail-closed behavior.
+- Tier 4 (15-min candle VWAP) is **retired** from the curated scanner. All intraday
+  VWAP is now sourced exclusively from tier 1 (batch quote `average_price`).
 
 ### Delivery percentage (from NSE bhavcopy — tier 5)
 
@@ -135,9 +145,37 @@ and `buildRowFromKiteCandles` reads exclusively from the store.
 | Kite interval | Meaning | Used for |
 |---------------|---------|----------|
 | `day` | 1 EOD bar per trading day | All scored indicators (EMA, RSI, MACD, avgVol, 52W H/L) |
-| `15minute` | 15-min intraday bars | Session VWAP only |
+| `15minute` | 15-min intraday bars | **Not used** in curated scanner (VWAP now from batch quote `average_price`) |
 | `3minute` / `5minute` | Intraday | Not used in Phase B curated scanner |
 
 ---
 
-*Last updated: 2026-08-07 | Prompt 33 Gate 3*
+---
+
+## Candle Store Refresh Schedule
+
+| Period | Next refresh | Rationale |
+|--------|-------------|-----------|
+| Market hours (Mon–Fri 09:15–15:30 IST) | 15:35 IST (session close + 5 min) | Daily bars don't finalize until close; refreshing mid-session re-downloads the same partial bar |
+| Post-close (15:30–21:00 IST) | + 4 h (off-hours cadence) | Completed daily bar captured at first post-close refresh |
+| Off-hours / weekends | + 4 h | Failure recovery and new-listing detection |
+
+**RPS limit**: `KITE_HISTORICAL_RPS_LIMIT = 3` req/sec (documented Kite historical API).
+Effective rate: `REFRESH_CONCURRENCY=6` calls / `(avg_latency + BATCH_PAUSE_MS=2000 ms)` ≈ 1.5 req/s.
+
+---
+
+## Universe Symbol Coverage
+
+The candle store covers the complete curated NSE universe (199 active symbols).
+Symbols renamed on NSE after the universe was defined are mapped via `KITE_SYMBOL_OVERRIDE`
+in `kiteCandleStore.ts` — the candle store always keys entries by the canonical
+universe symbol so all downstream lookups continue to work.
+
+Known overrides (2026-08-07):
+- `GMRINFRA` → Kite symbol `GMRAIRPORT` (GMR Airports Infrastructure)
+- `LTIM` → Kite symbol `LTIMINDTREE` (LTIMindtree)
+
+---
+
+*Last updated: 2026-08-07 | Prompt 33 Gate 3 (revised)*

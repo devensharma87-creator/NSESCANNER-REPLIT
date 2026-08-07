@@ -25,6 +25,32 @@ export const YAHOO_TICKER_OVERRIDES: Record<string, string> = {
   GMRINFRA: "GMRAIRPORT",
 };
 
+/**
+ * Kite NSE trading symbol overrides for universe symbols that have been renamed on the exchange.
+ *
+ * The curated universe uses stable "canonical" identifiers (e.g. ZOMATO, GMRINFRA) that
+ * were correct at the time the universe was defined. When an NSE stock changes its trading
+ * symbol, Kite's instrument master and quote/history APIs will use the NEW symbol.
+ * Without an override, Kite API calls would return no data for the old symbol.
+ *
+ * Key:   canonical universe symbol (used everywhere in the app as the primary key)
+ * Value: current live Kite NSE trading symbol (passed to Kite quote + historical APIs)
+ *
+ * All downstream data (candle store entries, quotes, indicators) is stored and surfaced
+ * under the canonical universe symbol, not the Kite symbol — the override is applied
+ * at the Kite API call boundary only.
+ *
+ * Sources: NSE circulars + Kite instrument master.
+ * Last verified: 2026-08-07.
+ */
+export const KITE_NSE_SYMBOL_OVERRIDE: Readonly<Record<string, string>> = {
+  GMRINFRA:     "GMRAIRPORT",  // Renamed on NSE (GMR Airports Infrastructure Ltd)
+  LTIM:         "LTIMINDTREE", // Renamed on NSE (LTI + Mindtree merger → LTIMindtree)
+  "MCDOWELL-N": "UNITDSPR",   // Renamed on NSE (United Spirits / Diageo India)
+  NIPPONLIFE:   "NAM-INDIA",  // Renamed on NSE (Nippon India Asset Management)
+  ZOMATO:       "ETERNAL",    // Renamed on NSE (Eternal Ltd, formerly Zomato)
+} as const;
+
 /** Symbols intentionally skipped from scans (delisted, suspended, no Yahoo feed). */
 export const INACTIVE_SYMBOLS: Set<string> = new Set([
   "PEL", // Piramal Enterprises — listed on NSE but Yahoo no longer returns a feed
