@@ -1,0 +1,52 @@
+AUTHORIZE_PROMPT_33_PHASE_A_STORE_POPULATION_DEPLOYMENT
+
+Authorization is limited strictly to Phase A deployment of commit fe12160 for Stock Scanner Pro.
+
+Mandatory boundaries:
+
+1. Deploy only the verified Prompt 33 Phase A changes.
+2. Do not modify the separate Global project.
+3. Keep these compile-time locks unchanged:
+   - SCANNER_KITE_CANDLE_EVALUATION_AUTHORIZED = false as boolean
+   - FNO_PAPER_V2_RUNTIME_AUTHORIZED = false as boolean
+   - SWING_PAPER_V2_RUNTIME_AUTHORIZED = false as boolean
+4. Keep broker execution hard-disabled.
+5. Do not activate Phase B scoring.
+6. Do not change strategy formulas, thresholds, weights, admission rules, capital ledgers or existing F&O/swing logic.
+7. Start only the 50-symbol warehouse canary.
+8. Stop population immediately on:
+   - 401/403 authentication failure;
+   - persistent 429;
+   - distributed-lock failure;
+   - destructive schema anomaly;
+   - unexpected DB growth;
+   - option-snapshot regression;
+   - any numeric Indian-equity score or actionable signal while the lock is false.
+9. Do not manually reset warehouse progress unless the canary failure has been diagnosed and recorded.
+10. Do not mark Prompt 33 complete after deployment. Phase A is population and verification only.
+
+After publishing, execute the complete 12-point post-publish checklist and provide evidence containing:
+
+- deployed commit/build identity;
+- production schema creation result;
+- curated-store counts;
+- canary 50-symbol results;
+- full-NSE progress phase and cursor;
+- distributed lock and rolling-RPS evidence;
+- 401/403/429 counts;
+- actual storage used per stored symbol;
+- evaluationStatus.authorized=false;
+- representative scanner API rows showing NOT_EVALUATED, score=null, confidence=null and action=null;
+- proof of zero Yahoo-derived Indian scores/actions;
+- reset-route anonymous/subscriber 403 proof;
+- losing-replica DB hydration evidence;
+- p50/p95 scanner response time;
+- at least five healthy 3/3 NFO snapshot ticks;
+- desktop and mobile production screenshots;
+- rollback readiness.
+
+Required post-deployment verdict:
+
+PROMPT_33_PHASE_A_DEPLOYED — CANONICAL_STORE_POPULATION_UNDER_VERIFICATION — PHASE_B_EVALUATION_LOCKED
+
+Do not enable Phase B without a separate owner authorization after production warehouse completeness, accuracy, performance and provenance are independently verified.
