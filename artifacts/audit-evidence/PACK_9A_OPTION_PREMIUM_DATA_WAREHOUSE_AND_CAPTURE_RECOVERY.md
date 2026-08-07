@@ -1,356 +1,350 @@
-# Pack 9A — Option Premium Data Warehouse & Capture Recovery
-## Audit Evidence Document
+# Pack 9A — Option Premium Data Warehouse and Capture Recovery
+## Gate 0–9 Closure Evidence
 
-**Task:** Pack 9A — Option-Premium Data Warehouse and Capture Recovery  
-**Status:** COMPLETE  
-**Date:** 2026-08-06  
-**api-server test count:** see Gate 10 below  
-**scanner test count:** see Gate 10 below  
-
----
-
-## Executive Summary
-
-Pack 9A resolves the root cause of `option_chain_snapshot` having 0 rows (which caused
-Pack 9 to return `BLOCKED_PACK_9_DATA_FOUNDATION_INSUFFICIENT`), hardens the ingestor
-with production-grade reliability features, and establishes the data-warehouse interfaces
-required for future F&O research qualification (Pack 9 V2).
-
-**No strategy qualification, no paper-trading impact.** The `SWING_PAPER_V2` gate
-proceeds independently. `FNO_PAPER_V2` qualification requires ≥ 6 months (≈ 130 trading
-days) of real option-premium history through this ingestor — that timer starts when the
-ingestor is activated in production.
+**Generated:** 2026-08-07 (09:37–09:47 IST)  
+**Evaluator:** Pack 9A live capture canary and archive readiness closure  
+**Branch:** `main` — HEAD `063d393`, Production deployed `d48dbb2`  
+**Market window at evaluation:** OPEN (09:20–15:25 IST)
 
 ---
 
-## Gate 1 — Forensic Root Cause
+## Gate 0 — Preflight
 
-### Root Cause (CONFIRMED)
+| Prerequisite | Status | Detail |
+|---|---|---|
+| `OPTION_SNAPSHOT_ENABLED=1` | ✅ PRESENT | Secret confirmed present, value='1', TRUTHY set |
+| API server restarted after secret | ✅ CONFIRMED | Server started 03:59:37 UTC (09:29 IST) — after market open |
+| Market window (OPEN) | ✅ OPEN | 09:37 IST — within NSE cash session (09:20–15:25) |
+| Kite session active | ❌ EXPIRED | Log: `kiteOffline: true`; "Kite session expired / throttled / index uncovered" |
+| `OPTION_SNAPSHOT_ARCHIVE_PATH` | ⚠️ ABSENT | Expected per Gate 5 — fail-closed confirmed |
+| `option_chain_snapshot` row count | ❌ 0 ROWS | No successful captures despite 4 scheduled ticks |
+| NSE option chain API reachable | ❌ TIMEOUT | All 3 indices (NIFTY/BANKNIFTY/SENSEX) → AbortError: operation aborted due to timeout |
 
-`option_chain_snapshot` had 0 rows and 0 ingestion runs because:
-
-1. `isOptionSnapshotEnabled()` returns `true` only when `OPTION_SNAPSHOT_ENABLED` is
-   explicitly set to a truthy value, OR `REPLIT_DEPLOYMENT === "1"`.
-2. In dev environments, `REPLIT_DEPLOYMENT` is unset → `isOptionSnapshotEnabled()` → `false`.
-3. The api-server was never republished after the ingestor code was committed, so
-   production never ran with `REPLIT_DEPLOYMENT="1"` and this code active.
-4. Result: ingestor silently no-ops in dev, never reaches production.
-
-### Fix
-
-Set `OPTION_SNAPSHOT_ENABLED=1` as a persistent Replit Secret, then republish.
-This activates capture in both dev and production without requiring `REPLIT_DEPLOYMENT`.
-
-### Secondary Finding
-
-The schema comment said "default 30 days" retention but the code default was 825 days.
-This was a **stale comment only** — NOT the root cause of 0 rows. Fixed in schema
-comment (`optionChainSnapshot.ts` line 35, updated to reflect 825-day default).
-
-### Existing Data
-
-- `iv_history`: 316 rows, 6 underlyings (2026-05-05 → 2026-08-06). Daily ATM IV only.
-  NOT per-contract premiums. **Cannot substitute for option_chain_snapshot.**
-- `backtest_runs`: 81 runs (45 DIRECTIONAL, 36 REAL_REPLAY). Unaffected.
+**Conclusion:** Prerequisite #3 (valid Kite session) and the NSE option chain reachability condition are both absent. Per prompt rules, all remaining gates are read-only source/DB/test verification.
 
 ---
 
-## Gate 2 — Schema Enhancement (4 New Columns)
+## Gate 1 — Production Boot and Schema
 
-**File:** `lib/db/src/schema/optionChainSnapshot.ts`
+### Scheduler Registration
+- `startOptionSnapshotIngestor()` is called at `artifacts/api-server/src/routes/index.ts:112`
+- Log confirms scheduler started: `"option-snapshot: starting ingestor"` at 03:59:40 UTC
+- Tick timer registered via `setInterval(tick, intervalMs)` at ingestor line 782
+- Idempotency guard: `if (tickTimer != null) return;` at line 665
 
-| Column | Type | Default | Purpose |
-|--------|------|---------|---------|
-| `schema_version` | `VARCHAR(8)` | `'v1'` | Replay-compatibility version; bump on semantic capture change |
-| `lot_size` | `INTEGER` | null | Date-effective NSE lot size at capture time |
-| `market_status` | `VARCHAR(16)` | null | Session state: `open`/`pre_open`/`closed` |
-| `canary_marker` | `VARCHAR(64)` | null | Exact-key marker for bounded canary runs; null in production |
+### isOptionSnapshotEnabled
+- `OPTION_SNAPSHOT_ENABLED=1` → TRUTHY set includes `"1"` → returns `true`
+- Auto-detect: `process.env["REPLIT_DEPLOYMENT"] === "1"` (fallback when override unset)
+- Fail-closed on unrecognised value → returns `false`
 
-All 4 columns are nullable for backward compatibility with any legacy rows.
+### Schema Columns (DB introspection — confirmed)
 
-**Migration:** `artifacts/api-server/src/lib/optionSnapshotMigrations.ts`
-- `ensureOptionSnapshotV1Schema()` — lazy memoized `ALTER TABLE … ADD COLUMN IF NOT EXISTS`
-- `_resetMigrationLatch()` — test hook for isolation
-- Called once at `startOptionSnapshotIngestor()` boot before the first tick
+| Column | DB type | Length | Default | Nullable |
+|---|---|---|---|---|
+| `schema_version` | character varying | 8 | 'v1' | YES |
+| `lot_size` | integer | — | — | YES |
+| `market_status` | character varying | 16 | — | YES |
+| `canary_marker` | character varying | 64 | — | YES |
 
----
+All 4 Pack 9A columns present in live DB with correct types and constraints. ✅
 
-## Gate 3 — Archive-Before-Delete Interface
+### Schema Migration Idempotency
+- `ensureOptionSnapshotV1Schema()` uses `ALTER TABLE … ADD COLUMN IF NOT EXISTS`
+- Called once per process via `migrationComplete` latch (line 26)
+- Log at 03:59:40 UTC: `"option-snapshot-migrations: v1 columns ensured (idempotent)"` ✅
+- Future-timestamp rows in DB: **0** ✅
 
-**File:** `artifacts/api-server/src/lib/optionSnapshotArchive.ts`
+### Uniqueness / PK
+- Primary key: `(underlying, expiry, strike, opt_type, captured_at)`
+- ON CONFLICT DoUpdate: updates mutable fields (ltp, oi, iv, bid, ask, greeks, spot)
+- `schema_version` and `canary_marker` are NOT updated on conflict (provenance preserved)
 
-### Storage Projection Constants
+### Owner-Only Routes (source-confirmed)
+All 5 routes registered under `strictOwner` middleware:
+- `GET  /api/option-snapshots/diagnostics`
+- `POST /api/option-snapshots/run-now`
+- `GET  /api/option-snapshots/storage`
+- `GET  /api/option-snapshots/gaps`
+- `GET  /api/option-snapshots/analytics`
 
-| Constant | Value | Derivation |
-|----------|-------|------------|
-| `ESTIMATED_BYTES_PER_ROW_DATA` | 304 bytes | 32 columns × ~9.5 bytes avg |
-| `ESTIMATED_BYTES_PER_ROW_INDEX` | 150 bytes | PK (btree) + 2 secondary indexes |
-| `ESTIMATED_BYTES_PER_ROW_TOTAL` | 454 bytes | data + index overhead |
-| `ROWS_PER_TICK_CONSERVATIVE` | 200 | window=10, 2 sides, 2 expiries, 3 indices: ≈200 |
-| `ROWS_PER_TICK_WORST_CASE` | 252 | window=10, 3 indices × 2 expiries × 21 strikes × 2 sides |
-| `TICKS_PER_DAY` | 75 | 9:15–15:30 IST = 375 min ÷ 5-min interval |
-
-### 24-Month Storage Projection
-
-| Period | Trading Days | Conservative | Worst Case |
-|--------|-------------|-------------|-----------|
-| 1 day | 1 | 6.84 MB | 8.61 MB |
-| 30 days | 30 | 205 MB | 258 MB |
-| 90 days | 90 | 616 MB | 776 MB |
-| 6 months | 130 | 890 MB | 1.12 GB |
-| 12 months | 260 | 1.78 GB | 2.24 GB |
-| 24 months | 520 | 3.56 GB | 4.48 GB |
-
-**Owner action:** Allocate 4–8 GB durable storage, set `OPTION_SNAPSHOT_ARCHIVE_PATH`.
-
-### Fail-Closed Guarantee
-
-`runRetentionSweep()` refuses deletion in the following cases:
-- `OPTION_SNAPSHOT_ARCHIVE_PATH` not set → `SKIPPED_ARCHIVE_REQUIRED`
-- Archive write fails → `SKIPPED_ARCHIVE_FAILED`
-- Archive SHA-256 verify fails → `SKIPPED_ARCHIVE_FAILED`
-- Only proceeds to DELETE after `WRITE_AND_VERIFIED` outcome
+Routes are not reachable without owner session cookie — confirmed not bypassable in public mode (uses `requireOwnerStrict`, not `requireOwner`).
 
 ---
 
-## Gate 4 — Ingestor Hardening (Pack 9A Additions)
+## Gate 2 — Live Canary
 
-**File:** `artifacts/api-server/src/lib/optionChainSnapshotIngestor.ts`
+**STATUS: BLOCKED**
 
-### Circuit Breaker
+Canary marker: `p9a-canary-20260807-<shortId>` (not executed — prerequisite absent)
 
-- Threshold: `CIRCUIT_BREAKER_THRESHOLD = 5` consecutive full failures (all underlyings fail)
-- Open duration: `CIRCUIT_RESET_MINUTES = 15`
-- Reset: any partial success (≥ 1 underlying ok) resets the counter
-- State: `consecutiveFullFailures`, `circuitOpenUntil` (in-process, reset on restart)
+### Run History (from `option_chain_snapshot_run`)
 
-### Alert Deduplication
+| Metric | Value |
+|---|---|
+| Total run records | 4 |
+| Total rows written | 0 |
+| Total underlyings_ok | 0 |
+| Full-failure runs | 4 |
+| First tick | 2026-08-07 03:59:40 UTC (09:29 IST) |
+| Last tick | 2026-08-07 04:14:37 UTC (09:44 IST) |
+| Span covered | ~15 minutes, 4 × 5-min interval ticks |
 
-- Failure alert: fires once on circuit trip, then suppressed for `ALERT_COOLDOWN_MINUTES = 60`
-- Recovery alert: fires once on first success after circuit reset, 60-min cooldown
-- State: `lastFailureAlertAt`, `lastRecoveryAlertAt`
-- Transport: logs at WARN level (Telegram integration deferred to separate pack per scope)
+### Failure Mode
 
-### Advisory Lock
+Each tick attempts `fetchOptionChain("NIFTY" | "BANKNIFTY" | "SENSEX")` which proxies through the NSE option chain endpoint:
+```
+NSE fetch failed
+    path: "/api/option-chain-indices?symbol=NIFTY"
+    err: "The operation was aborted due to timeout"
+```
+Both the Kite path (session expired → 0 chains) and the NSE path (network timeout → 0 chains) fail, producing `src: "none"`, `rows: 0`, `ok: 0`, `err: 3` per tick.
 
-- `SELECT pg_try_advisory_lock(0x534E4150)` before each tick
-- Skips tick if another session holds the lock (multi-replica safe)
-- `pg_advisory_unlock` in finally block
-- Fail-open on DB error (prefer occasional duplicate over lock starvation)
-
-### Tick Timeout
-
-- `TICK_TIMEOUT_MS = 60_000` (60 seconds)
-- `Promise.race([runIngestionTick(), timeout(60_000)])`
-- Timeout treated as synthetic full failure for circuit-breaker accounting
-
-### New Fields in `flattenChainToRows`
-
-All 4 new columns populated on every row:
-- `schemaVersion: "v1"` (always)
-- `lotSize`: from `SNAPSHOT_LOT_SIZES[underlying]` — NIFTY=65, BANKNIFTY=30, SENSEX=20
-- `marketStatus`: from `computeMarketStatus(startedAt)` at tick start
-- `canaryMarker`: null for production; set on manual/canary runs
-
-### `upsertRows` Update Policy
-
-ON CONFLICT: updates market data fields (ltp, volume, oi, iv, bid, ask, greeks, spot, atm_strike,
-lot_size, market_status, source). Does **NOT** update `schema_version` or `canary_marker` on
-conflict — preserves provenance of the row that first claimed the bucket.
+### Circuit State at Evaluation
+- `consecutiveFullFailures`: 4 (1 short of the CIRCUIT_BREAKER_THRESHOLD=5 trip)
+- `circuitOpenUntil`: null (circuit not yet open)
+- At the 5th full-failure tick, the circuit will trip and suppress ticks for 15 minutes
 
 ---
 
-## Gate 5 — Diagnostics Routes Enhancement
+## Gate 3 — Scheduler and Resilience (Source-Verified)
 
-**File:** `artifacts/api-server/src/routes/optionChainSnapshot.ts`
+| Mechanism | Location | Status |
+|---|---|---|
+| Advisory lock | `pg_try_advisory_lock(0x534e4150)` — `tryAcquireAdvisoryLock()` lines 313–328 | ✅ Confirmed |
+| Fail-open on lock error | `catch { return true; }` — prefers tick over lock starvation | ✅ Confirmed |
+| Lock release | `releaseAdvisoryLock()` in `finally` block line 773 | ✅ Confirmed |
+| Circuit breaker | `consecutiveFullFailures` counter; threshold=5; reset=15min | ✅ Confirmed |
+| Circuit auto-reset | `if (now >= circuitOpenUntil) { circuitOpenUntil = null; ... }` line 569 | ✅ Confirmed |
+| Alert dedup | `lastFailureAlertAt`/`lastRecoveryAlertAt` — 60-min cooldown | ✅ Confirmed |
+| Tick timeout | `Promise.race([runIngestionTick(), setTimeout(TICK_TIMEOUT_MS)])` line 714–719 | ✅ Confirmed |
+| Timeout as full failure | Synthetic RunResult with `errors: [{ underlying: "*", message: "tick_timeout" }]` | ✅ Confirmed |
+| Market-closed skip | `if (!force && marketStatus !== "open") return skippedReason: "market_closed"` | ✅ Confirmed |
+| Market-closed ≠ full failure | `isFullFailure = underlyingsOk===0 && errors.length>0 && !skippedReason` | ✅ Confirmed |
+| Ingestor idempotency | `if (tickTimer != null) return;` | ✅ Confirmed |
+| Retention separate timer | `setInterval(retentionSweep, 24 × 60 × 60_000)` — daily, independent | ✅ Confirmed |
 
-### New Endpoints
+### Reliability Constants
 
-| Endpoint | Method | Purpose |
-|----------|--------|---------|
-| `/api/option-snapshots/diagnostics` | GET | Full status: config, circuit, coverage, research-readiness, archive |
-| `/api/option-snapshots/storage` | GET | Pure-compute storage projections (no DB call) |
-| `/api/option-snapshots/gaps` | GET | Coverage gap analysis by IST day and underlying |
-| `/api/option-snapshots/run-now` | POST | Manual trigger (force=1 bypasses market gate) |
-| `/api/option-snapshots/analytics` | GET | OI/IV analytics (existing, enhanced) |
+| Constant | Value | Rationale |
+|---|---|---|
+| `CIRCUIT_BREAKER_THRESHOLD` | 5 | 5 consecutive full-failure ticks before circuit trips |
+| `CIRCUIT_RESET_MINUTES` | 15 | 15-minute pause before retry after circuit trips |
+| `ALERT_COOLDOWN_MINUTES` | 60 | Max 1 Telegram owner alert per hour per kind |
+| `TICK_TIMEOUT_MS` | 60,000 ms | Hard abort at 60s — well under the 5-min tick interval |
 
-### Research-Readiness Response
+---
 
-```json
-{
-  "researchReadiness": {
-    "ready": false,
-    "distinctTradingDaysCovered": 0,
-    "requiredTradingDays": 130,
-    "underlyingsCovered": 0,
-    "requiredUnderlyings": 3,
-    "reason": "Insufficient data: 0/130 days ...",
-    "earliestQualificationDate": "Approximately 26 calendar weeks from today"
-  }
+## Gate 4 — Diagnostics Routes (Source-Verified)
+
+All 5 diagnostic routes confirmed registered with `strictOwner` guard. No secrets, connection strings, or archive file paths exposed in raw form — `getArchivePath()` is used internally; diagnostics endpoint reports `archiveConfigured: true/false`, not the path value.
+
+Diagnostics state classifications (source-verified):
+- `CONFIGURED_AND_RUNNING` — enabled + timer running + last run exists
+- `CONFIGURED_NOT_RUNNING` — enabled + timer not started (startup failure)
+- `DISABLED` — `isOptionSnapshotEnabled()` returns false
+- `NO_RUNS_YET` — timer running but no ticks completed yet
+
+---
+
+## Gate 5 — Archive Infrastructure (Fail-Closed)
+
+| Item | Value |
+|---|---|
+| `OPTION_SNAPSHOT_ARCHIVE_PATH` | **NOT SET** |
+| `getArchivePath()` return value | `null` |
+| Retention sweep outcome when unset | `SKIPPED_ARCHIVE_REQUIRED` |
+| Rows deleted | 0 (deletion refused) |
+| Log message | `"option-snapshot: retention BLOCKED — configure OPTION_SNAPSHOT_ARCHIVE_PATH"` |
+
+### Archive Fail-Closed Logic (source-confirmed)
+```
+if (!archivePath) {
+  return { outcome: "SKIPPED_ARCHIVE_REQUIRED", snapshotRowsDeleted: 0, runRowsDeleted: 0 };
 }
 ```
+Second guard: archive write failure also blocks deletion:
+```
+if (archiveResult !== "WRITE_AND_VERIFIED") {
+  return { outcome: "SKIPPED_ARCHIVE_FAILED", snapshotRowsDeleted: 0, ... };
+}
+```
+**No unarchived row can be deleted. Current retention=825 days → no rows at risk.**
 
-### Safety Declaration
+### Storage Projections (from `projectStorage()`)
 
-All diagnostic endpoints include `"noSignalOrPaperTradingImpact": true` in their response.
+| Period | Trading Days | Conservative Rows | Worst-Case Rows | Conservative Total | Worst-Case Total |
+|---|---|---|---|---|---|
+| 1 trading day | 1 | 15,000 | 18,900 | 6.8 MB | 8.6 MB |
+| 30 trading days | 30 | 450,000 | 567,000 | 205.6 MB | 259.0 MB |
+| 90 trading days | 90 | 1,350,000 | 1,701,000 | 616.8 MB | 776.9 MB |
+| 6 months (~130d) | 130 | 1,950,000 | 2,457,000 | 890.7 MB | 1.12 GB |
+| 12 months (~260d) | 260 | 3,900,000 | 4,914,000 | 1.74 GB | 2.24 GB |
+| 24 months (~520d) | 520 | 7,800,000 | 9,828,000 | 3.47 GB | 4.49 GB |
+
+Formula: `rows = days × 75 ticks/day × 200–252 rows/tick`; `total = rows × 454 bytes/row`.
+
+**6-month capture (~130 trading days, ~890 MB–1.1 GB) fits within Replit's operational DB tier. Archive required before 12-month mark.**
+
+### Archive Infrastructure Decision Required
+
+Owner must set `OPTION_SNAPSHOT_ARCHIVE_PATH` to ONE of:
+1. **Replit Object Storage FUSE mount** — recommended for Replit-native durability
+2. **NFS mount** — durable across restarts, requires external provider
+3. **S3-backed FUSE mount** — large scale, requires AWS credentials
+
+Archive format: JSONL files partitioned by `(date, underlying)` with SHA-256 manifest per partition. Two-step delete guard: WRITE_AND_VERIFIED before any row deletion.
 
 ---
 
-## Gate 6 — Backfill Feasibility Matrix
+## Gate 6 — Data-Foundation Clock
 
-### Classification Table
+| Metric | Value |
+|---|---|
+| Rows in `option_chain_snapshot` | **0** |
+| First capture timestamp | Not yet |
+| Required coverage for backtest eligibility | 130 trading days (~6 months) |
+| Estimated qualification date (from first successful capture) | ~February 2027 |
 
-| Data Field | Source | Classification | Notes |
-|-----------|--------|---------------|-------|
-| NIFTY spot candles | Kite historical | `BACKFILL_VERIFIED` | 2 years in `tools/fno-backtester/data/` |
-| BANKNIFTY spot candles | Kite historical | `BACKFILL_VERIFIED` | Same |
-| SENSEX spot candles | Kite historical | `BACKFILL_VERIFIED` | Same |
-| Expired option LTP | Kite | `FUTURE_CAPTURE_ONLY` | Kite `getHistoricalData` covers equity/futures only, not expired option contracts |
-| Expired option bid/ask | Kite | `FUTURE_CAPTURE_ONLY` | Same |
-| Expired option IV | Kite | `FUTURE_CAPTURE_ONLY` | Same |
-| Expired option Greeks | Kite | `FUTURE_CAPTURE_ONLY` | Same |
-| Expired option OI | Kite | `FUTURE_CAPTURE_ONLY` | NSE bhav-copy has OI but not per-tick |
-| Historical option premiums | Upstox shadow | `NOT_ENTITLED` | Shadow account not entitled to option premium history |
-| Exchange historical data | NSE direct | `FUTURE_CAPTURE_ONLY` | API not available; web scraping excluded |
+**Current state: Day 0 of the data accumulation phase. No data yet.**
 
-### Implication
-
-All option premium fields are `FUTURE_CAPTURE_ONLY`. The 6-month qualification timer for
-`FNO_PAPER_V2` begins at first live capture with `OPTION_SNAPSHOT_ENABLED=1` active in
-production.
-
-**Synthetic premium reconstruction is explicitly prohibited** per Pack 9 protocol
-(directional proxies from spot movement are not real option data).
+The data-foundation clock starts the moment the first successful capture lands. Backtest-Lab replay capability requires unbroken daily coverage across ≥ 130 trading days.
 
 ---
 
-## Gate 7 — Canary Capture Status
+## Gate 7 — Test Coverage (27 new tests)
 
-**Status:** `PARTIAL_PACK_9A — LIVE_CANARY_PENDING_MARKET_WINDOW`
+**New file:** `artifacts/api-server/src/lib/p31.pack9aCanary.test.ts`  
+**Test count:** 27 tests across 9 describe blocks — all pass ✅
 
-All code is complete and tested. A live canary capture cannot be performed during market-closed
-hours (NSE close = 15:30 IST). The canary will execute at the next market open using:
+| Test ID | Coverage |
+|---|---|
+| P9A-T01 | `isCircuitOpen`: returns false on fresh state |
+| P9A-T02 | `isCircuitOpen`: auto-resets after `CIRCUIT_RESET_MINUTES` |
+| P9A-T03 | `updateCircuitBreaker`: counter increments, no trip before threshold |
+| P9A-T04 | `updateCircuitBreaker`: trips exactly at threshold, sets `openUntil` |
+| P9A-T05 | `updateCircuitBreaker`: any partial success resets counter to 0 |
+| P9A-T06 | `updateCircuitBreaker`: market-closed result does NOT count as full failure |
+| P9A-T07 | `shouldSendOwnerAlert`: first alert of each kind always allowed |
+| P9A-T08 | `shouldSendOwnerAlert`: second alert within cooldown suppressed (dedup) |
+| P9A-T09 | `shouldSendOwnerAlert`: allowed again after cooldown expires |
+| P9A-T10 | `shouldSendOwnerAlert`: failure/recovery channels are independent |
+| P9A-T11 | `SNAPSHOT_LOT_SIZES`: NIFTY=65, BANKNIFTY=30, SENSEX=20 |
+| P9A-T12 | `SNAPSHOT_LOT_SIZES`: entry exists for every SNAPSHOT_INDEX (no universe drift) |
+| P9A-T13 | `CIRCUIT_BREAKER_THRESHOLD` = 5 |
+| P9A-T14 | `CIRCUIT_RESET_MINUTES` = 15 |
+| P9A-T15 | `ALERT_COOLDOWN_MINUTES` = 60 |
+| P9A-T16 | `TICK_TIMEOUT_MS` = 60,000 ms |
+| P9A-T17 | `projectStorage`: returns 6 time-horizon projections |
+| P9A-T18 | `projectStorage`: 1-day projection matches formula exactly |
+| P9A-T19 | `projectStorage`: conservative always < worst-case |
+| P9A-T20 | `projectStorage`: 130-day data estimate < 2 GB (fits Replit tier) |
+| P9A-T21 | `getArchivePath`: returns null when env var unset |
+| P9A-T22 | `getArchivePath`: returns configured value when set |
+| P9A-T23 | `getArchiveInfrastructureRequirement`: returns non-empty requirement string |
+| P9A-T24 | `runRetentionSweep`: SKIPPED_ARCHIVE_REQUIRED, 0 deletions, no DB hit when archive absent |
+| P9A-T25 | `startOptionSnapshotIngestor`: idempotent safe no-op when ENABLED=0 |
+| P9A-T26 | `FNO_PAPER_V2_RUNTIME_AUTHORIZED` = `false as boolean` (Pack 32 compile-time lock) |
+| P9A-T27 | `SWING_PAPER_V2_RUNTIME_AUTHORIZED` = `false as boolean` (Pack 32 compile-time lock) |
+
+**Existing tests (prior to this task):**
+- `optionChainSnapshotIngestor.test.ts`: 9 test cases covering `bucketTimestamp`, `selectStrikesAroundAtm`, `flattenChainToRows`, `isOptionSnapshotEnabled`, `getSnapshotConfig`, `SNAPSHOT_INDICES`
+- `optionSnapshotAnalytics.test.ts` + `canonicalFnoReadiness.test.ts`: 72 additional tests
+
+**Total Pack 9A test surface:** 108 tests ✅
+
+---
+
+## Gate 8 — Verification Battery
+
+| Suite | Test Files | Tests | Status |
+|---|---|---|---|
+| `@workspace/api-server` | 273 | **6,268** | ✅ ALL PASS |
+| `@workspace/scanner` | 52 | **1,250** | ✅ ALL PASS |
+| `@workspace/api-zod` TSC | — | — | ✅ CLEAN |
+| `@workspace/api-client-react` TSC | — | — | ✅ CLEAN |
+| `@workspace/api-server` TSC | — | — | ✅ CLEAN |
+| `@workspace/scanner` TSC | — | — | ✅ CLEAN |
+
+Previous floor (Pack 32): api-server 6,241 / scanner 1,250  
+**New floor (Pack 9A Gate 7): api-server 6,268 (+27) / scanner 1,250**
+
+---
+
+## Gate 9 — Verdict
 
 ```
-POST /api/option-snapshots/run-now?force=1&canaryMarker=p9a-canary-20260806-001
+WAITING_FOR_OPTION_SNAPSHOT_ACTIVATION
+  — Kite session expired (prerequisite #3 absent)
+  — NSE option chain API timeout for all 3 indices (NIFTY/BANKNIFTY/SENSEX)
+  — 0 rows captured across 4 scheduled ticks (03:59–04:14 UTC, 2026-08-07)
 ```
 
-Expected outcome: rows with `canary_marker = 'p9a-canary-20260806-001'` in
-`option_chain_snapshot`, isolated from production rows for exact-key deletion via:
+### What IS Confirmed Operational
 
-```sql
-DELETE FROM option_chain_snapshot WHERE canary_marker = 'p9a-canary-20260806-001';
+| Component | Status |
+|---|---|
+| Scheduler registered and firing | ✅ 4 ticks fired at correct 5-min intervals |
+| Run records written to `option_chain_snapshot_run` | ✅ 4 rows, correct schema |
+| Pack 9A schema columns in DB | ✅ All 4 present with correct types |
+| Schema migration idempotency | ✅ ADD COLUMN IF NOT EXISTS confirmed |
+| Circuit breaker state machine | ✅ 4 consecutive full failures tracked (1 short of trip) |
+| Advisory lock (pg_try_advisory_lock) | ✅ Confirmed in source and logs |
+| Alert dedup (cooldown 60 min) | ✅ Confirmed in source |
+| Tick timeout (60s) | ✅ Confirmed in source |
+| Archive fail-closed (no deletion without ARCHIVE_PATH) | ✅ Confirmed in source and DB |
+| Owner-only routes (strictOwner) | ✅ Confirmed in source |
+| FNO V2 compile-time lock unchanged | ✅ `false as boolean` in v2PaperLocks.ts |
+| Test suite floor | ✅ 6,268 api-server + 1,250 scanner |
+| 4-package TSC clean | ✅ |
+
+### What Is Blocking Capture
+
+| Blocker | Root Cause | Owner Action Required |
+|---|---|---|
+| Kite session expired | The Zerodha Kite session token is stale — this happens automatically when the Kite access token expires (typically daily) | Re-authenticate via `GET /api/kite/callback` from the owner dashboard |
+| NSE option chain API timeout | The NSE option chain endpoint (`/api/option-chain-indices?symbol=…`) is timing out from the Replit server environment — likely NSE's anti-bot protection or geo-blocking | (a) Renew Kite session — Kite path is the primary; NSE is fallback. With a live Kite session, the Kite option chain path should succeed. (b) If Kite option chain also fails, an NSE proxy may be needed. |
+
+### Recovery Path
+
+1. **Owner renews Kite session** via `/api/kite/callback` (standard Zerodha Kite login flow)
+2. API server detects Kite online → Kite path in `fetchOptionChain` becomes available
+3. Next scheduled tick (within 5 minutes of Kite session renewal) → capture fires
+4. `option_chain_snapshot` rows begin accumulating
+5. Circuit breaker resets on first successful tick
+6. Canary can be re-run via `POST /api/option-snapshots/run-now?force=1&canaryMarker=p9a-canary-20260807-<shortId>` (owner-only)
+7. Verify ≥ 1 row with `canary_marker IS NOT NULL` in DB
+
+### Outstanding Infrastructure Items (non-blocking for capture restart)
+
+- **`OPTION_SNAPSHOT_ARCHIVE_PATH` not set** — retention sweep is fail-closed, no rows deleted. Required before 12-month mark. Owner must provision durable storage (Replit Object Storage FUSE, NFS, or S3-FUSE) and set the secret.
+- **Telegram owner alert for circuit trips** — noted as `TODO` in ingestor line 747 — not wired yet. Alert fires to owner logger only (visible in Replit logs), not Telegram. Separate task.
+
+---
+
+## Appendix — Canary Execution Instructions (When Kite Session Active)
+
+Once Kite session is renewed and capture resumes:
+
+```bash
+# 1. Trigger a force-run with canary marker (from api-server container)
+cd /home/runner/workspace
+pnpm --filter @workspace/api-server exec tsx -e "
+  import('@workspace/api-server/src/lib/optionChainSnapshotIngestor.js').then(m =>
+    m.runIngestionTick({ force: true, canaryMarker: 'p9a-canary-20260807-001' })
+      .then(r => console.log(JSON.stringify(r, null, 2)))
+  );
+"
+
+# 2. Verify canary rows landed in DB
+# SELECT underlying, expiry, strike, opt_type, canary_marker, captured_at, ltp, oi
+# FROM option_chain_snapshot
+# WHERE canary_marker = 'p9a-canary-20260807-001'
+# ORDER BY underlying, expiry, strike, opt_type;
 ```
 
----
-
-## Gate 8 — Zero Signal/Paper-Trading Impact Verification
-
-### Structural Analysis
-
-| Module | Connection to trading pipeline? | Verdict |
-|--------|-------------------------------|---------|
-| `optionChainSnapshotIngestor.ts` | Calls `fetchOptionChain()` (read-only) + writes to 2 snapshot tables only | CLEAN |
-| `optionSnapshotArchive.ts` | File I/O + SELECT + DELETE from snapshot tables only | CLEAN |
-| `optionSnapshotMigrations.ts` | ALTER TABLE on snapshot table only | CLEAN |
-| `optionChainSnapshot.ts` (route) | Read-only from snapshot tables + one manual-trigger POST | CLEAN |
-
-### Explicit Exclusions
-
-The following modules are NOT imported by any Pack 9A code:
-- `paperTrading.ts`, `fnoSignals.ts`, `oiLab.ts`, `swingScanner.ts`
-- `kiteOrders.ts`, `brokerIntegrations.ts`
-- Any module in `src/routes/fno/` or `src/routes/swing/`
-
-### API Response Declaration
-
-All Pack 9A API endpoints include `"noSignalOrPaperTradingImpact": true`.
+Expected: ≥ 42 rows per underlying per expiry (ATM ± 10 strikes × 2 legs), 2 expiries = ~168 rows per underlying, ~504 rows total (3 underlyings). Partial success (1–2 underlyings) is also acceptable for PARTIAL verdict.
 
 ---
 
-## Gate 9 — Test File
-
-**File:** `artifacts/api-server/src/lib/p30.pack9a.warehouse.test.ts`
-
-**Test categories:** 24  
-**Tests written:** 86 (exceeds 60+ minimum)  
-**Tests passing:** 86/86 ✅
-
-| Category | Description | Count |
-|----------|-------------|-------|
-| 1 | Root-cause reproduction | 4 |
-| 2 | Scheduler registration | 3 |
-| 3 | Market-calendar / session gating | 4 |
-| 4 | Canonical contract identity | 4 |
-| 5 | Strike / expiry selection | 5 |
-| 6 | Date-effective lot size | 4 |
-| 7 | Null versus genuine zero | 5 |
-| 8 | Future / stale / out-of-session rejection | 4 |
-| 9 | Uniqueness and idempotency | 3 |
-| 10 | Multi-leg synchronization | 2 |
-| 11 | Rate-limit / request budget | 4 |
-| 12 | Retries and circuit behavior | 5 |
-| 13 | Restart recovery | 3 |
-| 14 | Archive-before-delete | 3 |
-| 15 | Manifest hashes / counts | 5 |
-| 16 | Deletion blocked on archive failure | 4 |
-| 17 | Restore / deduplication | 2 |
-| 18 | Storage projections | 3 |
-| 19 | Backfill classifications | 3 |
-| 20 | Canary isolation | 3 |
-| 21 | Owner-only diagnostics | 4 |
-| 22 | Zero signal / paper / broker impact | 3 |
-| 23 | Zero secret leakage | 3 |
-| 24 | Global-project exclusion | 3 |
-
----
-
-## Gate 10 — Full Verification Battery
-
-### api-server tests
-- Pack 9 prior tests (p29): 79/79 PASS (untouched)
-- Pack 9A new tests (p30): 86/86 PASS
-- Full suite: **6,129 tests / 271 files — ALL PASS** ✅
-
-### TSC Status
-- lib/db: ✅ Clean (rebuilt with new columns)
-- api-server: ✅ Clean (no errors)
-- scanner: N/A (not modified by Pack 9A)
-- 4-pkg: All clean
-
-### Git check
-- No trailing whitespace
-- No .only or .skip in test files
-
----
-
-## Pack 9A Owner Actions Required
-
-Before `FNO_PAPER_V2` qualification can begin:
-
-1. **Set `OPTION_SNAPSHOT_ENABLED=1`** as a Replit Secret (persistent across deploys).
-2. **Republish** the api-server to activate the ingestor in production.
-3. **Monitor** `/api/option-snapshots/diagnostics` to confirm capture is running.
-4. **Configure archive** (optional but recommended for 24+ month retention):
-   Set `OPTION_SNAPSHOT_ARCHIVE_PATH` to a durable storage path (4–8 GB).
-5. **Wait ≈ 130 trading days (26 weeks)** for research-readiness qualification.
-6. **Run canary** at next market open to confirm end-to-end row capture:
-   `POST /api/option-snapshots/run-now?force=1&canaryMarker=p9a-canary-20260806-001`
-
----
-
-## Files Created / Modified by Pack 9A
-
-| File | Type | Lines | Description |
-|------|------|-------|-------------|
-| `lib/db/src/schema/optionChainSnapshot.ts` | Modified | 187 | +4 new columns: schema_version, lot_size, market_status, canary_marker |
-| `artifacts/api-server/src/lib/optionSnapshotMigrations.ts` | Created | ~60 | Runtime ALTER TABLE ensure for new columns |
-| `artifacts/api-server/src/lib/optionSnapshotArchive.ts` | Created | ~250 | Storage projections + archive-before-delete interface |
-| `artifacts/api-server/src/lib/optionChainSnapshotIngestor.ts` | Replaced | ~470 | Circuit-breaker, alert dedup, advisory lock, tick timeout, new fields |
-| `artifacts/api-server/src/routes/optionChainSnapshot.ts` | Replaced | ~350 | Enhanced diagnostics, storage, gaps, research-readiness endpoints |
-| `artifacts/api-server/src/lib/p30.pack9a.warehouse.test.ts` | Created | ~900 | 86 tests, 24 categories |
-| `artifacts/audit-evidence/PACK_9A_...` | Created | this file | Evidence document |
-
----
-
-END_PACK_9A_OPTION_PREMIUM_DATA_WAREHOUSE_AND_CAPTURE_RECOVERY
+*Evidence generated: Pack 9A, 2026-08-07*  
+*Next action: Owner renews Kite session → capture resumes automatically → re-run Gates 2–6 for ACCEPT verdict*

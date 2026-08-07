@@ -1,0 +1,297 @@
+# PROMPT 31 — PACK 9A LIVE CAPTURE CANARY AND ARCHIVE READINESS CLOSURE
+
+## Execution mode
+
+Build here\. Execute this as one bounded operational\-closure task for **Stock Scanner Pro**\.
+
+Do not reopen strategy research, redesign the warehouse, or add unrelated work\. Pack 9A implementation is already complete in code; this prompt verifies that it works in the deployed runtime and classifies the remaining archive dependency honestly\.
+
+## Objective
+
+Close the operational gap left after Pack 9A by:
+
+1. activating the existing option\-chain snapshot ingestor in the deployed API server;
+2. proving a live, continuous capture window during NSE market hours;
+3. proving scheduler, locking, deduplication, schema, diagnostics, and fail\-closed retention behaviour;
+4. verifying whether the configured archive target is genuinely durable and restorable;
+5. returning an exact acceptance, partial, or blocked verdict without fabricating readiness\.
+
+No strategy may be qualified or activated in this task\. `FNO_PAPER_V2`, `SWING_PAPER_V2`, broker execution, thresholds, signals, entries, stops, targets, sizing, and ledgers remain unchanged\.
+
+## Frozen project boundary
+
+- Work only in **Stock Scanner Pro**:
+  - `artifacts/api-server`
+  - `artifacts/scanner` only if diagnostics UI verification requires it
+  - shared packages strictly required by those surfaces
+  - `artifacts/audit-evidence`
+- `artifacts/global` is a separate project and is **FROZEN**\. Do not edit, test, build, screenshot, or include it in acceptance counts\.
+- No commit, push, pull, fetch, publish, deploy, database deletion, or broker action unless explicitly authorized below\.
+- A normal API\-server restart/republish initiated by the owner to load the new secret is a prerequisite, not permission for unrelated deployment work\.
+
+## Owner prerequisites and authorization boundary
+
+Before execution, verify these facts without printing secret values:
+
+1. `OPTION_SNAPSHOT_ENABLED` is present and equals `1` in the deployed API\-server environment\.
+2. The API server has been republished/restarted **after** that secret was added\.
+3. A valid Kite session is active\.
+4. NSE is in a valid live capture window\. Start after 09:20 IST and finish before 15:25 IST\.
+
+If any prerequisite is absent, perform only read\-only checks and return:
+
+`WAITING_FOR_OPTION_SNAPSHOT_ACTIVATION — <exact missing prerequisite>`
+
+Do not ask for or expose credential values\.
+
+`OPTION_SNAPSHOT_ARCHIVE_PATH` is not mandatory for starting capture\. However, it must **not** point to an unverified ephemeral Replit deployment filesystem\. Only treat the archive as configured if its storage is demonstrated durable across process/deployment restarts and supports read\-back verification\. If no such target exists, leave retention deletion fail\-closed and classify archive infrastructure as pending\.
+
+## Gate 0 — Read\-only preflight
+
+Record:
+
+- repository identity and remote;
+- branch and HEAD;
+- working\-tree status;
+- relevant prior Pack 9A evidence path and terminator;
+- redacted presence/absence of `OPTION_SNAPSHOT_ENABLED` and `OPTION_SNAPSHOT_ARCHIVE_PATH`;
+- API\-server process start time proving whether it restarted after the secret change;
+- current IST time and market status;
+- current `option_chain_snapshot` row count, minimum/maximum `captured_at`, distinct index count, and distinct canary\-marker count\.
+
+Do not mutate anything in this gate\.
+
+## Gate 1 — Production boot and schema proof
+
+Prove from the running deployed process and production database that:
+
+- the option snapshot scheduler is registered exactly once;
+- capture is enabled for this process;
+- `schema_version`, `lot_size`, `market_status`, and `canary_marker` exist with the expected types/default/nullability;
+- runtime migration is idempotent;
+- owner\-only snapshot routes reject anonymous/non\-owner access;
+- diagnostics expose capture state without secrets or connection strings;
+- no DB\-test runtime lock was changed\.
+
+Do not rely only on source inspection\. Use runtime responses and read\-only database metadata as proof\.
+
+## Gate 2 — Live canary execution
+
+During the valid market window, generate a unique marker such as:
+
+`p9a-canary-<YYYYMMDD>-<shortRunId>`
+
+Invoke the existing owner\-only endpoint once:
+
+`POST /api/option-snapshots/run-now?force=1&canaryMarker=<marker>`
+
+Then observe continuous scheduled capture for **at least 30 minutes**\. Do not replace the duration with rapid synthetic calls\.
+
+Required indices:
+
+- NIFTY
+- BANKNIFTY
+- SENSEX
+
+For each index prove:
+
+- at least one successful manual canary capture;
+- continuing scheduler captures after the manual run;
+- correct index/instrument identity;
+- expiry and strike identity retained;
+- CE/PE contract\-side identity retained;
+- provider `asOf`/capture timestamps are not materially future\-dated;
+- `captured_at` is ordered and in the expected observation window;
+- `lot_size`, `schema_version`, `market_status`, and `canary_marker` have honest values;
+- missing premium/OI/IV fields remain null and are never converted to zero;
+- the same contract/timestamp is not duplicated;
+- no unrelated operational tables are written\.
+
+Record exact row counts, successful/failed tick counts, distinct contracts, distinct expiries, capture interval distribution, gap distribution, and per\-index coverage\. Redact credentials and connection strings\.
+
+Do not delete valid captured market data after the canary\.
+
+## Gate 3 — Scheduler and resilience proof
+
+Using runtime observations and targeted tests, prove:
+
+- scheduled ticks continue after the manual canary;
+- only one replica owns the advisory lock per tick;
+- a second concurrent invocation skips safely rather than duplicating rows;
+- the 60\-second timeout is enforced;
+- partial index success is recorded honestly;
+- five consecutive full failures open the 15\-minute circuit breaker;
+- any later partial/successful capture resets recovery state as designed;
+- failure and recovery alerts are deduplicated to at most once per 60 minutes;
+- no alert claims success when only a partial capture occurred\.
+
+Do not deliberately disrupt live providers or production capture\. Exercise destructive/failure branches only with injected test doubles\.
+
+## Gate 4 — Gap and readiness diagnostics
+
+Verify the registered owner\-only endpoints at runtime:
+
+- `/api/option-snapshots/storage`
+- `/api/option-snapshots/gaps`
+- `/api/option-snapshots/diagnostics`
+
+Confirm they distinguish:
+
+- no data;
+- capture warming up;
+- healthy live capture;
+- partial index coverage;
+- stale capture;
+- market closed;
+- circuit open;
+- archive not configured;
+- archive configured but unhealthy\.
+
+Diagnostics must expose no secrets, API keys, tokens, passwords, full connection strings, or archive credentials\.
+
+Capture authenticated visual evidence of the diagnostics surface at 390×844, 768×1024, and 1440×900 if a UI route exists\. Use real runtime diagnostics, not fabricated success fixtures\. If no UI route exists, record JSON runtime evidence and classify the screenshot requirement as not applicable; do not create an unrelated dashboard\.
+
+## Gate 5 — Archive durability and restore proof
+
+### If `OPTION_SNAPSHOT_ARCHIVE_PATH` is absent
+
+Prove that:
+
+- retention deletion remains fail\-closed;
+- no rows are deleted;
+- diagnostics say archive infrastructure is pending;
+- capture continues and storage projections remain visible\.
+
+Return the partial verdict defined below\. Do not invent or silently choose a local archive path\.
+
+### If `OPTION_SNAPSHOT_ARCHIVE_PATH` is present
+
+First prove the target is durable and approved for this project\. Then, using a bounded non\-destructive sample export:
+
+1. write an archive object/file;
+2. produce a manifest with row count, min/max timestamp, schema version, byte size, and SHA\-256;
+3. read the archive back;
+4. restore it into an isolated temporary table or in\-memory verification target;
+5. reconcile row count and representative field hashes;
+6. remove only the temporary verification target, not the source rows or durable archive;
+7. prove an archive write/hash/read\-back failure prevents retention deletion\.
+
+Do **not** run a production retention deletion in this task\. This gate proves readiness, not authorization to delete historical rows\.
+
+## Gate 6 — Data\-foundation clock
+
+Record the exact first successful production capture timestamp\. This timestamp starts the real option\-premium evidence accumulation clock\.
+
+Do not claim a fixed qualification date unless it is derived from the frozen Pack 9 protocol\. Report:
+
+- current captured calendar/session coverage;
+- required minimum coverage from the frozen protocol;
+- remaining coverage gap;
+- earliest possible research re\-entry date as an explicitly labelled estimate, if calculable\.
+
+`FNO_PAPER_V2` remains blocked until the frozen research protocol’s data sufficiency and qualification gates pass\. `SWING_PAPER_V2` is a separate roadmap item and must not be blocked by option\-premium accumulation\.
+
+## Gate 7 — Load\-bearing tests
+
+Add or update focused tests only where runtime closure exposes missing coverage\. At minimum preserve proof for:
+
+1. enablement and disabled\-state honesty;
+2. schema migration idempotency;
+3. owner\-only routes;
+4. unique canary marker propagation;
+5. CE/PE and contract identity;
+6. null\-not\-zero semantics;
+7. timestamp future/stale rejection;
+8. duplicate tick/idempotency behaviour;
+9. advisory\-lock contention;
+10. partial success;
+11. circuit opening and recovery;
+12. alert deduplication;
+13. timeout behaviour;
+14. diagnostics state classification;
+15. secret redaction;
+16. archive absent → no deletion;
+17. archive hash failure → no deletion;
+18. archive read\-back mismatch → no deletion;
+19. storage projection arithmetic;
+20. gap analysis across IST sessions;
+21. market\-closed classification;
+22. unrelated\-table non\-interference;
+23. capture\-clock calculation;
+24. hard\-disabled FNO V2 invariants\.
+
+No live provider calls or operational DB writes are allowed from unit tests\.
+
+## Gate 8 — Verification battery
+
+Run and record:
+
+- targeted Pack 9A/canary tests;
+- `pnpm run test:full` for `@workspace/api-server` — floor: **6,129** passing;
+- scanner full suite if scanner code changed — floor: **1,250** passing;
+- TypeScript checks for api\-server, scanner, api\-zod, and api\-client\-react;
+- API\-server production build;
+- scanner production build only if scanner code changed;
+- `git diff --check`;
+- `.skip`/`.only` audit;
+- secret/credential sentinel scan;
+- proof `DB_TEST_RUNTIME_AUTHORIZED` is unchanged;
+- proof `artifacts/global` is untouched\.
+
+Fix regressions caused by this task\. Report unrelated transient failures honestly and rerun once for confirmation; do not suppress tests\.
+
+## Gate 9 — Evidence and verdict
+
+Append the runtime closure to the existing Pack 9A evidence file \(or create a clearly linked closure file if append\-only evidence policy requires it\)\. Include:
+
+- preflight and configuration state;
+- exact canary window and marker;
+- per\-index and per\-contract coverage;
+- scheduler/resilience results;
+- diagnostics results;
+- archive durability result;
+- data\-foundation clock;
+- tests, typechecks, builds, git integrity;
+- files changed;
+- remaining owner actions;
+- production deployment status\.
+
+End with exactly one appropriate terminator:
+
+- `END_PACK_9A_OPTION_PREMIUM_CAPTURE_AND_ARCHIVE_OPERATIONAL`
+- `END_PACK_9A_CAPTURE_OPERATIONAL_ARCHIVE_INFRASTRUCTURE_PENDING`
+- `END_PACK_9A_LIVE_CANARY_PENDING_MARKET_WINDOW`
+- `END_PACK_9A_LIVE_CANARY_BLOCKED`
+
+Return exactly one primary verdict:
+
+1. `ACCEPT_PACK_9A_OPTION_PREMIUM_CAPTURE_AND_ARCHIVE_OPERATIONAL`
+  - live 30\-minute capture passes;
+  - scheduler continues;
+  - archive durability/read\-back passes;
+  - retention remains unexecuted but is technically ready\.
+2. `PARTIAL_PACK_9A — CAPTURE_OPERATIONAL_ARCHIVE_INFRASTRUCTURE_PENDING`
+  - live capture and scheduler pass;
+  - no approved durable archive target exists;
+  - retention is correctly fail\-closed and no rows were deleted\.
+3. `PARTIAL_PACK_9A — LIVE_CANARY_PENDING_MARKET_WINDOW`
+  - prerequisites/code checks pass, but a valid 30\-minute market window was unavailable\.
+4. `BLOCKED_PACK_9A_CANARY — <exact reason>`
+  - activation, capture, schema, identity, scheduler, or data\-integrity proof fails\.
+
+## Required final response
+
+Lead with the verdict, then report:
+
+- whether capture is actually running in the deployed process;
+- canary start/end IST and duration;
+- exact per\-index rows/contracts/expiries/gaps;
+- duplicate, stale, future\-timestamp, and null\-to\-zero results;
+- scheduler/circuit/lock/alert status;
+- archive configuration and durability verdict;
+- first successful production capture timestamp and data\-coverage clock;
+- full verification counts;
+- evidence path and terminator;
+- next roadmap action\.
+
+Do not describe Pack 9A as fully complete unless the live capture proof passes\. Do not describe archive readiness as complete without durable write/hash/read\-back proof\.
