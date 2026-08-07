@@ -632,9 +632,9 @@ function ScannerSnapshot({
       valueAreaHigh?: number | null; valueAreaLow?: number | null; pointOfControl?: number | null;
     };
     recommendation: {
-      signal: "STRONG_BUY" | "BUY" | "NEUTRAL" | "SELL" | "STRONG_SELL";
-      score: number;
-      confidence?: number;
+      signal: "STRONG_BUY" | "BUY" | "NEUTRAL" | "SELL" | "STRONG_SELL" | "NOT_EVALUATED";
+      score: number | null;
+      confidence?: number | null;
       timeframe?: string;
       target?: number; stopLoss?: number; riskRewardRatio?: number;
       reasons?: Array<{ label: string; detail?: string; weight: number; bullish: boolean }>;

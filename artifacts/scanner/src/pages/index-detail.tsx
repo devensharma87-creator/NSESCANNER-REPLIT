@@ -218,8 +218,8 @@ export default function IndexDetail() {
                     </TableCell>
                     <TableCell className="text-right font-mono tabular-nums">{s.indicators?.rsi14?.toFixed(1) ?? "—"}</TableCell>
                     <TableCell className="text-right font-mono tabular-nums">{s.indicators?.volumeRatio != null ? `${s.indicators.volumeRatio.toFixed(1)}×` : "—"}</TableCell>
-                    <TableCell className={`text-right font-mono tabular-nums ${s.recommendation.score > 0 ? "text-signal-strong-buy" : s.recommendation.score < 0 ? "text-signal-strong-sell" : ""}`}>
-                      {s.recommendation.score > 0 ? "+" : ""}{s.recommendation.score}
+                    <TableCell className={`text-right font-mono tabular-nums ${(s.recommendation.score ?? 0) > 0 ? "text-signal-strong-buy" : (s.recommendation.score ?? 0) < 0 ? "text-signal-strong-sell" : ""}`}>
+                      {s.recommendation.score == null ? "—" : `${s.recommendation.score > 0 ? "+" : ""}${s.recommendation.score}`}
                     </TableCell>
                     <TableCell className="text-right"><SignalBadge signal={s.recommendation.signal} /></TableCell>
                   </TableRow>

@@ -2,7 +2,8 @@ import type { Indicators, Quote, StockHistory, StockRow } from "@workspace/api-z
 import { UNIVERSE, INACTIVE_SYMBOLS, type UniverseEntry } from "./universe";
 import { fetchChart, fetchIntraday, yahooTickerFor, type YahooChart } from "./marketData/analyticsYahoo";
 import { adx, atr, avgVolume, ema, macd, rollingVwap, rsi, sessionVwap, supportResistance, volumeProfile, pivots } from "./indicators";
-import { buildRecommendation } from "./scoring";
+// buildRecommendation intentionally removed — curated scanner now emits
+// NOT_EVALUATED for all Indian equity rows until Kite candle analytics (Phase B).
 import { logger } from "./logger";
 import { getDeliveryPct } from "./marketData/referenceData";
 import { centralLiveQuote, centralEquityCandles, centralBatchEquityQuotes } from "./marketData/compat";
@@ -296,27 +297,24 @@ async function buildRow(
   if (realDelv) {
     computed.indicators.deliveryPct = round2(realDelv.pct);
   }
-  const recommendation = buildRecommendation({
-    quote,
-    indicators: computed.indicators,
-    closes: computed.closes,
-    ema9Series: computed.ema9Series,
-    ema21Series: computed.ema21Series,
-    ema20Series: computed.ema20Series,
-    ema50Series: computed.ema50Series,
-    rsiSeries: computed.rsiSeries,
-    macdHistSeries: computed.macdHistSeries,
-  });
+  // NOT_EVALUATED — Phase A: indicators derived from Yahoo daily candles.
+  // Yahoo candles are INFO_ONLY / DELAYED / NOT_FOR_SIGNALS for Indian equities.
+  // Score and signal are null; they will be populated in Phase B when Kite
+  // candle analytics are wired in. The indicator fields are still populated for
+  // display. Never use these for paper-trade admission or trading decisions.
+  const recommendation: import("@workspace/api-zod").Recommendation = {
+    signal: "NOT_EVALUATED",
+    score: null,
+    confidence: null,
+    reasons: [],
+    setupMessage:
+      "Indicators derived from Yahoo daily candles (INFO_ONLY / DELAYED / NOT_FOR_SIGNALS). Score and signal require verified Kite candle analytics (Phase B).",
+  };
 
   // Honest SIGNAL labelling — Phase A (Kite price overlay):
-  // Recommendation/score is computed ENTIRELY from the Yahoo daily chart and
-  // Yahoo/Kite intraday VWAP. Kite data only supplies the live price/OHLC/volume.
-  // Signal source stays "yahoo" so shouldDemoteSignal() remains honest — a Kite
-  // batch quote can never promote a Yahoo-derived swing signal to authoritative.
-  //
+  // Kite data supplies the live price/OHLC/volume.
+  // Signal source stays "yahoo" so shouldDemoteSignal() remains honest.
   // kitePriceOverlay=true when the Kite REST batch quote was used for price.
-  // asOf tracks the freshest displayed timestamp (Kite batch ts > WS tick > Yahoo).
-  // scan-level health reads kitePriceOverlay to emit KITE_PARTIAL (not YAHOO_INFO_ONLY).
   const kitePriceUsed = kiteQuote != null && kiteQuote.lastPrice > 0;
   const asOfMs = new Date(quote.updatedAt).getTime(); // already set to best source in quoteFromChart
   const provWarning = kitePriceUsed

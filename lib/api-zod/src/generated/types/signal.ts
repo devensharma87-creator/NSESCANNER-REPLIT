@@ -14,4 +14,11 @@ export const Signal = {
   NEUTRAL: "NEUTRAL",
   SELL: "SELL",
   STRONG_SELL: "STRONG_SELL",
+  /**
+   * Row lacks the Kite candle analytics required for a trusted evaluation.
+   * Yahoo-derived indicators are shown for informational purposes only —
+   * they must NOT generate a numeric score, trading signal, or paper
+   * admission. Use NOT_EVALUATED until Kite candle analytics are available.
+   */
+  NOT_EVALUATED: "NOT_EVALUATED",
 } as const;

@@ -33,6 +33,22 @@
  */
 
 import type { Quote, StockRow, Recommendation } from "@workspace/api-zod";
+
+/**
+ * Returned for every Indian equity row that lacks Kite candle analytics.
+ * Yahoo-derived indicators are DISPLAY-ONLY (info/delayed) — they must not
+ * produce a numeric score, trading signal, or paper-trade admission.
+ * Score and signal will be populated once Kite candle analytics are wired in
+ * (Phase B). See Prompt 33 / Pack 9A requirements.
+ */
+const NOT_EVALUATED_RECOMMENDATION: Recommendation = {
+  signal: "NOT_EVALUATED",
+  score: null,
+  confidence: null,
+  reasons: [],
+  setupMessage:
+    "Kite candle analytics not yet available for this row. Score and signal require verified Kite candle data — Yahoo-derived indicators are shown for reference only (INFO_ONLY / DELAYED / NOT_FOR_SIGNALS).",
+};
 import { buildSourceProvenance, type DataSourceProvider } from "./scannerProvenance";
 import { fetchIntraday, fetchChart, yahooTickerFor, isYahooPaused, yahooPausedForMs, fetchYahooBatchQuotes, type YahooBatchQuote } from "./marketData/analyticsYahoo";
 import { ema, rsi, atr, sessionVwap, macd as macdSeries } from "./indicators";
@@ -385,13 +401,11 @@ function rowFromKiteOnly(
     fiftyTwoWeekLow: undefined,
     updatedAt: new Date(kq.ts),
   };
-  const recommendation = buildRecommendation({
-    rsiVal: null,
-    trend: "NEUTRAL",
-    volumeRatio: null,        // unknown — do NOT pretend it's "1×" (neutral-ish)
-    changePct: kq.changePercent,
-    vwapAbove: null,
-  });
+  // Kite-only rows: no candle history → no indicators → NOT_EVALUATED.
+  // Indian equity rows must NEVER receive a numeric score or trading signal
+  // derived purely from price change. Score and signal remain null until
+  // Kite candle analytics (Phase B) are wired in.
+  const recommendation = NOT_EVALUATED_RECOMMENDATION;
   // Honest indicator object: we don't have intraday bars for this symbol,
   // so EMAs / RSI / MACD / VWAP / ATR are simply unknown. Leaving them
   // undefined makes the UI render "—" instead of a misleading "0.00".
@@ -452,13 +466,11 @@ function rowFromKitePlusIndicators(
     fiftyTwoWeekLow: ind.low52w ?? undefined,
     updatedAt: new Date(kq.ts),
   };
-  const recommendation = buildRecommendation({
-    rsiVal: ind.rsi14,
-    trend,
-    volumeRatio: ind.volumeRatio,
-    changePct: kq.changePercent,
-    vwapAbove,
-  });
+  // Kite price + Yahoo indicators: indicators are shown for display only
+  // (INFO_ONLY / DELAYED / NOT_FOR_SIGNALS). Yahoo daily candles are NOT
+  // trusted for Indian equity trading signals. Score and signal are null
+  // until Kite candle analytics (Phase B) are wired in.
+  const recommendation = NOT_EVALUATED_RECOMMENDATION;
   // trendStrength is a derivative of the EMA20 / EMA50 stack. When EITHER
   // EMA is missing, classifyTrend returns "NEUTRAL" — but that "neutral"
   // is "we don't know", not a measured equilibrium. Emit undefined for

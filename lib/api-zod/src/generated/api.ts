@@ -131,7 +131,7 @@ export const GetMarketTrendResponse = zod.object({
     "BEARISH",
     "STRONG_BEARISH",
   ]),
-  score: zod.number().describe("-100 to 100"),
+  score: zod.number().nullable().describe("-100 to 100 (null when NOT_EVALUATED)"),
   headline: zod.string(),
   breadth: zod.object({
     advancers: zod.number(),
@@ -238,9 +238,10 @@ export const GetMarketTrendResponse = zod.object({
               "NEUTRAL",
               "SELL",
               "STRONG_SELL",
+              "NOT_EVALUATED",
             ]),
-            score: zod.number().describe("-100 to 100"),
-            confidence: zod.number().describe("0 to 100"),
+            score: zod.number().nullable().describe("-100 to 100 (null when NOT_EVALUATED)"),
+            confidence: zod.number().nullable().describe("0 to 100 (null when NOT_EVALUATED)"),
             timeframe: zod
               .string()
               .optional()
@@ -606,9 +607,10 @@ export const GetMarketTrendResponse = zod.object({
               "NEUTRAL",
               "SELL",
               "STRONG_SELL",
+              "NOT_EVALUATED",
             ]),
-            score: zod.number().describe("-100 to 100"),
-            confidence: zod.number().describe("0 to 100"),
+            score: zod.number().nullable().describe("-100 to 100 (null when NOT_EVALUATED)"),
+            confidence: zod.number().nullable().describe("0 to 100 (null when NOT_EVALUATED)"),
             timeframe: zod
               .string()
               .optional()
@@ -1076,9 +1078,10 @@ export const ListSectorsResponse = zod.object({
             "NEUTRAL",
             "SELL",
             "STRONG_SELL",
+            "NOT_EVALUATED",
           ]),
-          score: zod.number().describe("-100 to 100"),
-          confidence: zod.number().describe("0 to 100"),
+          score: zod.number().nullable().describe("-100 to 100 (null when NOT_EVALUATED)"),
+          confidence: zod.number().nullable().describe("0 to 100 (null when NOT_EVALUATED)"),
           timeframe: zod
             .string()
             .optional()
@@ -1459,9 +1462,10 @@ export const GetSectorResponse = zod.object({
           "NEUTRAL",
           "SELL",
           "STRONG_SELL",
+          "NOT_EVALUATED",
         ]),
-        score: zod.number().describe("-100 to 100"),
-        confidence: zod.number().describe("0 to 100"),
+        score: zod.number().nullable().describe("-100 to 100 (null when NOT_EVALUATED)"),
+        confidence: zod.number().nullable().describe("0 to 100 (null when NOT_EVALUATED)"),
         timeframe: zod
           .string()
           .optional()
@@ -1803,9 +1807,10 @@ export const GetSectorResponse = zod.object({
           "NEUTRAL",
           "SELL",
           "STRONG_SELL",
+          "NOT_EVALUATED",
         ]),
-        score: zod.number().describe("-100 to 100"),
-        confidence: zod.number().describe("0 to 100"),
+        score: zod.number().nullable().describe("-100 to 100 (null when NOT_EVALUATED)"),
+        confidence: zod.number().nullable().describe("0 to 100 (null when NOT_EVALUATED)"),
         timeframe: zod
           .string()
           .optional()
@@ -2074,7 +2079,7 @@ export const GetSectorResponse = zod.object({
 export const ListStocksQueryParams = zod.object({
   sector: zod.coerce.string().optional(),
   signal: zod
-    .enum(["STRONG_BUY", "BUY", "NEUTRAL", "SELL", "STRONG_SELL"])
+    .enum(["STRONG_BUY", "BUY", "NEUTRAL", "SELL", "STRONG_SELL", "NOT_EVALUATED"])
     .optional(),
   search: zod.coerce.string().optional(),
 });
@@ -2153,9 +2158,9 @@ export const ListStocksResponseItem = zod.object({
     })
     .optional(),
   recommendation: zod.object({
-    signal: zod.enum(["STRONG_BUY", "BUY", "NEUTRAL", "SELL", "STRONG_SELL"]),
-    score: zod.number().describe("-100 to 100"),
-    confidence: zod.number().describe("0 to 100"),
+    signal: zod.enum(["STRONG_BUY", "BUY", "NEUTRAL", "SELL", "STRONG_SELL", "NOT_EVALUATED"]),
+    score: zod.number().nullable().describe("-100 to 100 (null when NOT_EVALUATED)"),
+    confidence: zod.number().nullable().describe("0 to 100 (null when NOT_EVALUATED)"),
     timeframe: zod
       .string()
       .optional()
@@ -2534,9 +2539,9 @@ export const GetStockDetailResponse = zod.object({
       ),
   }),
   recommendation: zod.object({
-    signal: zod.enum(["STRONG_BUY", "BUY", "NEUTRAL", "SELL", "STRONG_SELL"]),
-    score: zod.number().describe("-100 to 100"),
-    confidence: zod.number().describe("0 to 100"),
+    signal: zod.enum(["STRONG_BUY", "BUY", "NEUTRAL", "SELL", "STRONG_SELL", "NOT_EVALUATED"]),
+    score: zod.number().nullable().describe("-100 to 100 (null when NOT_EVALUATED)"),
+    confidence: zod.number().nullable().describe("0 to 100 (null when NOT_EVALUATED)"),
     timeframe: zod
       .string()
       .optional()
@@ -3151,9 +3156,10 @@ export const GetTopScansResponse = zod.object({
           "NEUTRAL",
           "SELL",
           "STRONG_SELL",
+          "NOT_EVALUATED",
         ]),
-        score: zod.number().describe("-100 to 100"),
-        confidence: zod.number().describe("0 to 100"),
+        score: zod.number().nullable().describe("-100 to 100 (null when NOT_EVALUATED)"),
+        confidence: zod.number().nullable().describe("0 to 100 (null when NOT_EVALUATED)"),
         timeframe: zod
           .string()
           .optional()
@@ -3495,9 +3501,10 @@ export const GetTopScansResponse = zod.object({
           "NEUTRAL",
           "SELL",
           "STRONG_SELL",
+          "NOT_EVALUATED",
         ]),
-        score: zod.number().describe("-100 to 100"),
-        confidence: zod.number().describe("0 to 100"),
+        score: zod.number().nullable().describe("-100 to 100 (null when NOT_EVALUATED)"),
+        confidence: zod.number().nullable().describe("0 to 100 (null when NOT_EVALUATED)"),
         timeframe: zod
           .string()
           .optional()
@@ -7495,7 +7502,7 @@ export const GetPreMarketResponse = zod.object({
             "Reason ATR%\/gapVsAtr could not be computed (e.g. 'ATR(14) unavailable')",
           ),
         signal: zod
-          .enum(["STRONG_BUY", "BUY", "NEUTRAL", "SELL", "STRONG_SELL"])
+          .enum(["STRONG_BUY", "BUY", "NEUTRAL", "SELL", "STRONG_SELL", "NOT_EVALUATED"])
           .optional(),
       }),
     )
@@ -7529,7 +7536,7 @@ export const GetPreMarketResponse = zod.object({
             "Reason ATR%\/gapVsAtr could not be computed (e.g. 'ATR(14) unavailable')",
           ),
         signal: zod
-          .enum(["STRONG_BUY", "BUY", "NEUTRAL", "SELL", "STRONG_SELL"])
+          .enum(["STRONG_BUY", "BUY", "NEUTRAL", "SELL", "STRONG_SELL", "NOT_EVALUATED"])
           .optional(),
       }),
     )

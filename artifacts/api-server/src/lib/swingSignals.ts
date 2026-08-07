@@ -183,8 +183,8 @@ export interface SwingSignal {
   triggeredAt: Date;
   /** IST date string YYYY-MM-DD when the signal fired. */
   signalDate: string;
-  /** STRONG_BUY score reported by the scanner, 0-100. */
-  score: number;
+  /** STRONG_BUY score reported by the scanner, 0-100 (null for NOT_EVALUATED rows, which never reach here). */
+  score: number | null;
   /** LTP at signal-detection time → entry price (paper fill). */
   entryPrice: number;
   /** ATR-driven swing stop. */

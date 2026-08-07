@@ -14,6 +14,8 @@ export function SignalBadge({ signal, className }: { signal: SignalType, classNa
       case "BUY": return { bg: "bg-signal-buy", text: "text-white", label: "BULLISH" };
       case "SELL": return { bg: "bg-signal-sell", text: "text-white", label: "BEARISH" };
       case "STRONG_SELL": return { bg: "bg-signal-strong-sell", text: "text-white", label: "STRONG BEARISH" };
+      case "NOT_EVALUATED":
+        return { bg: "bg-muted", text: "text-muted-foreground", label: "NOT EVALUATED" };
       case "NEUTRAL":
       default: return { bg: "bg-signal-neutral", text: "text-secondary-foreground", label: "NEUTRAL" };
     }

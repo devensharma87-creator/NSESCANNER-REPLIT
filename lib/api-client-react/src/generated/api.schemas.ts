@@ -17,6 +17,11 @@ export const Signal = {
   NEUTRAL: "NEUTRAL",
   SELL: "SELL",
   STRONG_SELL: "STRONG_SELL",
+  /**
+   * Row lacks the Kite candle analytics required for a trusted evaluation.
+   * Indicators may be shown for informational purposes only.
+   */
+  NOT_EVALUATED: "NOT_EVALUATED",
 } as const;
 
 export interface Quote {
@@ -240,10 +245,15 @@ export interface EntryPlan {
 
 export interface Recommendation {
   signal: Signal;
-  /** -100 to 100 */
-  score: number;
-  /** 0 to 100 */
-  confidence: number;
+  /**
+   * -100 to 100, or null when signal is NOT_EVALUATED (row lacks
+   * the Kite candle analytics required for a trusted score).
+   */
+  score: number | null;
+  /**
+   * 0 to 100, or null when signal is NOT_EVALUATED.
+   */
+  confidence: number | null;
   /** e.g. swing, intraday, positional */
   timeframe?: string;
   target?: number;

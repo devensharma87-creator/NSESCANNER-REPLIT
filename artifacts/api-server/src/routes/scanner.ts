@@ -386,15 +386,16 @@ router.get("/sectors", requireSubscriberOrOwner("SECTORS"), async (req, res, nex
     }
     const out = SECTORS.map(sec => {
       const list = grouped.get(sec) ?? [];
-      const avgScore = list.length
-        ? Math.round(list.reduce((a, b) => a + b.recommendation.score, 0) / list.length)
+      const scoredList = list.filter(r => r.recommendation.score != null);
+      const avgScore = scoredList.length
+        ? Math.round(scoredList.reduce((a, b) => a + (b.recommendation.score ?? 0), 0) / scoredList.length)
         : 0;
       const avgChange = list.length
         ? round2(list.reduce((a, b) => a + b.quote.changePercent, 0) / list.length)
         : 0;
       const gainers = list.filter(r => r.quote.changePercent > 0).length;
       const losers = list.filter(r => r.quote.changePercent < 0).length;
-      const topPick = list.slice().sort((a, b) => b.recommendation.score - a.recommendation.score)[0]
+      const topPick = list.slice().sort((a, b) => (b.recommendation.score ?? -Infinity) - (a.recommendation.score ?? -Infinity))[0]
         ?? list[0];
       return {
         sector: sec,
@@ -423,11 +424,14 @@ router.get("/sectors/:sector", requireSubscriberOrOwner("SECTORS"), async (req, 
       res.status(404).json({ error: "Sector not found" });
       return;
     }
-    const avgScore = Math.round(list.reduce((a, b) => a + b.recommendation.score, 0) / list.length);
+    const scoredList = list.filter(r => r.recommendation.score != null);
+    const avgScore = scoredList.length
+      ? Math.round(scoredList.reduce((a, b) => a + (b.recommendation.score ?? 0), 0) / scoredList.length)
+      : 0;
     const avgChange = round2(list.reduce((a, b) => a + b.quote.changePercent, 0) / list.length);
     const gainers = list.filter(r => r.quote.changePercent > 0).length;
     const losers = list.filter(r => r.quote.changePercent < 0).length;
-    const topPick = list.slice().sort((a, b) => b.recommendation.score - a.recommendation.score)[0]!;
+    const topPick = list.slice().sort((a, b) => (b.recommendation.score ?? -Infinity) - (a.recommendation.score ?? -Infinity))[0]!;
     const summary = {
       sector: list[0]!.sector,
       stockCount: list.length,
@@ -440,7 +444,7 @@ router.get("/sectors/:sector", requireSubscriberOrOwner("SECTORS"), async (req, 
     const data = GetSectorResponse.parse({
       sector: list[0]!.sector,
       summary,
-      stocks: list.sort((a, b) => b.recommendation.score - a.recommendation.score),
+      stocks: list.sort((a, b) => (b.recommendation.score ?? -Infinity) - (a.recommendation.score ?? -Infinity)),
     });
     res.json(data);
   } catch (err) { next(err); }
@@ -458,7 +462,7 @@ router.get("/stocks", async (req, res, next) => {
     if (search) filtered = filtered.filter(r =>
       r.symbol.toLowerCase().includes(search) || r.name.toLowerCase().includes(search),
     );
-    filtered = filtered.slice().sort((a, b) => b.recommendation.score - a.recommendation.score);
+    filtered = filtered.slice().sort((a, b) => (b.recommendation.score ?? -Infinity) - (a.recommendation.score ?? -Infinity));
     const data = ListStocksResponse.parse(filtered);
     res.json(data);
   } catch (err) { next(err); }
@@ -480,7 +484,7 @@ router.get("/stocks/:symbol", async (req, res, next) => {
     const peerCandidates = rows
       .filter(r => r.sector === entry.sector && r.symbol !== entry.symbol)
       .slice()
-      .sort((a, b) => b.recommendation.score - a.recommendation.score)
+      .sort((a, b) => (b.recommendation.score ?? -Infinity) - (a.recommendation.score ?? -Infinity))
       .slice(0, 6)
       .map(p => ({ symbol: p.symbol, name: p.name, changePercent: p.quote.changePercent, price: p.quote.price }));
 
@@ -692,9 +696,12 @@ router.get("/stocks/:symbol/history", async (req, res, next) => {
 router.get("/scan/top", async (_req, res, next) => {
   try {
     const rows = await getScanRowsFast();
-    const sorted = rows.slice().sort((a, b) => b.recommendation.score - a.recommendation.score);
-    const topBuys = sorted.filter(r => r.recommendation.score > 0).slice(0, 10);
-    const topSells = sorted.slice().reverse().filter(r => r.recommendation.score < 0).slice(0, 10);
+    // Only rows with a numeric score qualify for top-buys/top-sells.
+    // NOT_EVALUATED rows (score=null) are excluded from directional rankings.
+    const scoredRows = rows.filter(r => r.recommendation.score != null);
+    const sorted = scoredRows.slice().sort((a, b) => (b.recommendation.score ?? 0) - (a.recommendation.score ?? 0));
+    const topBuys = sorted.filter(r => (r.recommendation.score ?? 0) > 0).slice(0, 10);
+    const topSells = sorted.slice().reverse().filter(r => (r.recommendation.score ?? 0) < 0).slice(0, 10);
     // Honest signal-quality labelling: a top pick whose underlying quote is a
     // delayed Yahoo reference or stale must NOT be presented as a live Kite
     // signal. We never silently drop it (that would hide picks when Kite is
@@ -828,9 +835,9 @@ router.get("/scan/full-nse", async (req, res, next) => {
     if (search) rows = rows.filter(r => r.symbol.includes(search) || (r.name ?? "").toUpperCase().includes(search));
 
     // Signal filter — must match the actual emitted enum (Signal type from
-    // api-zod): STRONG_BUY | BUY | NEUTRAL | SELL | STRONG_SELL.
+    // api-zod): STRONG_BUY | BUY | NEUTRAL | SELL | STRONG_SELL | NOT_EVALUATED.
     const signal = String(req.query["signal"] ?? "").trim().toUpperCase();
-    const allowedSigs = new Set(["STRONG_BUY","BUY","NEUTRAL","SELL","STRONG_SELL"]);
+    const allowedSigs = new Set(["STRONG_BUY","BUY","NEUTRAL","SELL","STRONG_SELL","NOT_EVALUATED"]);
     if (signal && allowedSigs.has(signal)) {
       rows = rows.filter(r => r.recommendation.signal === signal);
     }
@@ -845,7 +852,7 @@ router.get("/scan/full-nse", async (req, res, next) => {
           case "changePct": return r.quote.changePercent;
           case "volume": return r.quote.volume;
           case "rsi": return r.indicators?.rsi14 ?? 0;
-          case "score": return r.recommendation.score;
+          case "score": return r.recommendation.score ?? -Infinity;
           case "deliveryPct": return r.indicators?.deliveryPct ?? 0;
           default: return r.quote.changePercent;
         }
@@ -972,7 +979,7 @@ router.get("/scan/full-nse/export", async (req, res, next) => {
     }
     // Sort by score desc — same as the UI's default sort so the CSV reads
     // like the on-screen table.
-    filtered = filtered.slice().sort((a, b) => b.recommendation.score - a.recommendation.score);
+    filtered = filtered.slice().sort((a, b) => (b.recommendation.score ?? -Infinity) - (a.recommendation.score ?? -Infinity));
 
     // Flatten StockRow → wide spreadsheet row. Surfaces every populated
     // indicator + recommendation field so the file is genuinely useful for

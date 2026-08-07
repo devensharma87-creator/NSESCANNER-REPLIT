@@ -1,6 +1,18 @@
 import { cn } from "@/lib/utils";
 
-export function ScoreBar({ score, className }: { score: number, className?: string }) {
+export function ScoreBar({ score, className }: { score: number | null, className?: string }) {
+  // score=null means NOT_EVALUATED — render a blank bar with em-dash label.
+  if (score == null) {
+    return (
+      <div className={cn("flex items-center gap-2 w-full min-w-[90px]", className)}>
+        <span className="font-mono text-xs font-bold tabular-nums w-9 text-right text-muted-foreground">—</span>
+        <div className="relative h-1.5 flex-1 bg-muted overflow-hidden rounded-full">
+          <div className="absolute top-0 bottom-0 left-1/2 w-px bg-border/70 z-10" />
+        </div>
+      </div>
+    );
+  }
+
   // Score is -100 to 100
   let color = "bg-signal-neutral";
   if (score >= 50) color = "bg-signal-strong-buy";

@@ -33,10 +33,36 @@ export async function loadFnoInstruments(kc: any): Promise<FnoInstrument[]> {
           return [] as FnoInstrument[];
         }),
       ]);
-      const rows = [...nfo, ...bfo];
+
+      // If NFO returned empty while BFO succeeded (common on first boot while the
+      // Kite session is freshly established), wait 3 s and retry once.
+      // Without this, nfo:0 → NIFTY and BANKNIFTY option chains return null for
+      // the entire tick, since `lastGoodRows` is null on a cold start.
+      let nfoFinal = nfo;
+      if (nfo.length === 0 && bfo.length > 0) {
+        logger.warn(
+          { bfo: bfo.length },
+          "Kite NFO instruments returned empty (possible cold-start race). Retrying in 3 s…",
+        );
+        await new Promise<void>(r => setTimeout(r, 3_000));
+        nfoFinal = await (kc.getInstruments("NFO") as Promise<FnoInstrument[]>).catch((err: Error) => {
+          logger.warn({ err: err.message }, "Kite NFO instruments retry failed");
+          return [] as FnoInstrument[];
+        });
+        if (nfoFinal.length > 0) {
+          logger.info({ nfo: nfoFinal.length, bfo: bfo.length }, "Kite NFO instruments recovered after retry");
+        } else {
+          logger.warn(
+            { lastGoodCached: (lastGoodRows ?? []).length },
+            "Kite NFO instruments still empty after retry — NIFTY/BANKNIFTY chains will be unavailable until next tick",
+          );
+        }
+      }
+
+      const rows = [...nfoFinal, ...bfo];
       if (rows.length > 0) {
         lastGoodRows = rows;
-        logger.info({ nfo: nfo.length, bfo: bfo.length, total: rows.length }, "F&O instruments combined");
+        logger.info({ nfo: nfoFinal.length, bfo: bfo.length, total: rows.length }, "F&O instruments combined");
       }
       return rows.length > 0 ? rows : (lastGoodRows ?? []);
     } finally {

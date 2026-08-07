@@ -644,7 +644,7 @@ function buildSectorHeatmap(rows: Awaited<ReturnType<typeof scanAll>>): SectorHe
     const gainers = list.filter(r => r.quote.changePercent > 0).length;
     const losers  = list.filter(r => r.quote.changePercent < 0).length;
     const avgCh   = list.reduce((a, r) => a + r.quote.changePercent, 0) / list.length;
-    const top     = list.slice().sort((a, b) => b.recommendation.score - a.recommendation.score)[0];
+    const top     = list.slice().sort((a, b) => (b.recommendation.score ?? -Infinity) - (a.recommendation.score ?? -Infinity))[0];
     entries.push({
       sector: sec,
       avgChangePercent: +avgCh.toFixed(2),

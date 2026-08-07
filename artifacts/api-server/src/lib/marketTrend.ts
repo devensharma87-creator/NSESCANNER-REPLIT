@@ -117,11 +117,14 @@ export async function getMarketTrend(): Promise<MarketTrend> {
   const sectorSums: SectorSummary[] = [];
   for (const [sec, list] of sectorMap.entries()) {
     if (list.length === 0) continue;
-    const avgScore = Math.round(list.reduce((a, b) => a + b.recommendation.score, 0) / list.length);
+    const scoredList = list.filter(r => r.recommendation.score != null);
+    const avgScore = scoredList.length
+      ? Math.round(scoredList.reduce((a, b) => a + (b.recommendation.score ?? 0), 0) / scoredList.length)
+      : 0;
     const avgChange = +(list.reduce((a, b) => a + b.quote.changePercent, 0) / list.length).toFixed(2);
     const gainers = list.filter(r => r.quote.changePercent > 0).length;
     const losers = list.filter(r => r.quote.changePercent < 0).length;
-    const topPick = list.slice().sort((a, b) => b.recommendation.score - a.recommendation.score)[0]!;
+    const topPick = list.slice().sort((a, b) => (b.recommendation.score ?? -Infinity) - (a.recommendation.score ?? -Infinity))[0]!;
     sectorSums.push({ sector: sec, stockCount: list.length, avgScore, avgChangePercent: avgChange, gainers, losers, topPick });
   }
   const leaders = sectorSums.slice().sort((a, b) => (b.avgChangePercent ?? 0) - (a.avgChangePercent ?? 0)).slice(0, 3);

@@ -147,7 +147,7 @@ function getSortValue(s: StockRow, key: SortKey): number | string {
     case "vol": return s.indicators?.volumeRatio ?? -Infinity;
     case "delivery": return s.indicators?.deliveryPct ?? -Infinity;
     case "futOi": { const b = (s.indicators as Record<string, unknown> | undefined)?.futOiBuildup as string | undefined; return b === "LONG_BUILDUP" ? 4 : b === "SHORT_COVERING" ? 3 : b === "NEUTRAL" ? 2 : b === "LONG_UNWINDING" ? 1 : b === "SHORT_BUILDUP" ? 0 : -1; }
-    case "score": return s.recommendation.score;
+    case "score": return s.recommendation.score ?? -Infinity;
   }
 }
 
