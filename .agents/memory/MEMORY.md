@@ -1,4 +1,4 @@
-- [Pack 33 closure](pack33-closure.md) — Phase A controls proven (df1253b); lock=false; 278/6416 tests; AUTHORIZE_PROMPT_33_PHASE_A_STORE_POPULATION_DEPLOYMENT pending owner sign-off.
+- [Pack 33 closure](pack33-closure.md) — 4 predeploy corrections complete (6179ce9); 279/6474 api-server tests; global ingestion lock 88_274_614; staged warehouse; AUTHORIZE_PROMPT_33_PHASE_A_STORE_POPULATION_DEPLOYMENT pending.
 - [Pack 9A canary closure](pack9a-canary-closure.md) — canary PENDING: dev verified NOT_EVALUATED; prod must be published then canary re-run (3/3, 252 rows, 30 min).
 - [Pack 34 closure](pack34-closure.md) — Read-only production truth audit; PARTIAL verdict (market closed); 2 P1 + 4 P2 defects; no P0; all trust-tier guards PASS; 7 screenshots; 3 deliverable CSVs/MD; 2026-08-06.
 - [Pack 32 closure](pack32-closure.md) — V2 cohort isolation foundation; compile-time hard locks; 4 canonical cohort IDs; null-resolution compat; migration ready-not-executed; CohortSelector+V2NotActivatedPanel UI; 112 tests/40 cats; api-server 6241, scanner 1250; 4-pkg TSC clean; COMPLETE 2026-08-06.
