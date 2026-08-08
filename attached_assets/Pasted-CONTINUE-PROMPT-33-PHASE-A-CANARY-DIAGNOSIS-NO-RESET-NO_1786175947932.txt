@@ -1,0 +1,183 @@
+CONTINUE_PROMPT_33_PHASE_A_CANARY_DIAGNOSIS — NO_RESET_NO_PHASE_B
+
+Phase A safety deployment is accepted, but Phase A population is not closed.
+
+Do not create a new task.
+Do not reset kite_warehouse_progress.
+Do not automatically retry the STOPPED canary.
+Do not enable Phase B.
+Keep all three compile-time locks false.
+Keep broker execution hard-disabled.
+
+1. Freeze the STOPPED state
+
+Confirm that phase=STOPPED prevents automatic warehouse retries.
+
+The scheduler may remain registered, but it must perform no provider calls and no cursor changes until the diagnosed remediation is explicitly authorized.
+
+Prove this through logs and DB cursor comparisons across at least two scheduler intervals.
+
+2. Produce exact canary forensics
+
+For each of the 50 canary symbols, report:
+
+- original scanner symbol;
+- Kite trading symbol;
+- exchange;
+- segment;
+- instrument token;
+- ISIN where available;
+- instrument status;
+- listing date where available;
+- number of returned candles;
+- first and last completed candle dates;
+- HTTP status;
+- provider error classification;
+- validation result;
+- final classification.
+
+Use these classifications:
+
+SUCCESS_COMPLETE
+INSUFFICIENT_LISTING_HISTORY
+NO_HISTORICAL_DATA
+INSTRUMENT_IDENTITY_UNRESOLVED
+UNSUPPORTED_INSTRUMENT_TYPE
+INACTIVE_OR_DELISTED
+AUTH_FAILURE
+RATE_LIMITED
+TRANSIENT_PROVIDER_FAILURE
+DATA_VALIDATION_FAILED
+
+Do not state “probably SME/illiquid” without evidence.
+
+3. Correct canary accounting
+
+Expected insufficient history for a newly listed but valid equity is not the same as provider failure.
+
+A valid symbol with 1–251 completed bars should:
+
+- store its available canonical history;
+- remain NOT_EVALUATED;
+- carry INSUFFICIENT_CANONICAL_HISTORY;
+- not count as a hard provider failure.
+
+Define separate thresholds for:
+
+- hard failure rate;
+- expected insufficient-history rate;
+- identity-resolution failure rate;
+- validation failure rate.
+
+Do not proceed if hard failures exceed the approved threshold.
+
+4. Reconcile production universes
+
+Explain exactly:
+
+- CURATED_SIGNAL_UNIVERSE = 199;
+- FULL_NSE_SCANNER_UNIVERSE / warehouse eligible = 8,454;
+- production full-NSE scan rows = 4,429.
+
+Provide set arithmetic:
+
+warehouseEligible
+= scannerQuoteCovered
++ noLiveQuote
++ unsupported/excluded
++ inactive
++ identityUnresolved
++ other documented categories
+
+No unexplained residual is permitted.
+
+Stocks without live quotes may remain warehouse candidates, but they must not receive live-session recommendations.
+
+5. Reconcile the rate-limit contract
+
+The report says maxObservedRps=5 and “within 10 RPS,” while the implementation previously declared KITE_HISTORICAL_RPS_LIMIT=3.
+
+Determine the authoritative configured limit for the exact historical endpoint and current Kite plan.
+
+Then prove:
+
+- the configured limiter does not exceed the authoritative limit;
+- rolling RPS is calculated across all replicas;
+- curated and warehouse requests share the same global budget;
+- no burst exceeds the limit;
+- 429 remains zero.
+
+If the approved internal limit is three RPS, maxObservedRps=5 is a defect and must be fixed before retry.
+
+6. Production multi-replica proof
+
+Do not use a dev workflow restart as production proof.
+
+For production replicas:
+
+- identify the winning refresh replica;
+- identify a losing replica;
+- prove the losing replica reloads the 199 DB rows into L1;
+- prove no provider requests are made during that reload;
+- record hydration time.
+
+7. Correct NFO evidence wording
+
+The five option-chain reads taken seconds apart prove live chain availability only.
+
+They do not prove five scheduled option-snapshot ticks or the Prompt 31 30-minute production canary.
+
+Label them:
+
+LIVE_OPTION_CHAIN_HEALTH_PROBES
+
+Separately query production option_snapshot_run records and prove scheduled captures using distinct run IDs, timestamps, 3/3 underlyings and expected row counts.
+
+Do not close Prompt 31 in this step.
+
+8. Complete authenticated visual evidence
+
+Capture authenticated production screenshots at desktop and mobile widths showing:
+
+- scanner rows;
+- NOT_EVALUATED badges;
+- null score/action presentation;
+- no Yahoo Indian analytical badges;
+- explicit Phase A population notice;
+- candle-store diagnostics/metrics.
+
+Login-page screenshots alone do not satisfy the scanner visual gate.
+
+9. Reset-route runtime boundary
+
+Existing 401 evidence proves unauthenticated rejection.
+
+Also test a valid authenticated non-owner/subscriber identity and prove rejection by the strict-owner boundary. Record the actual expected HTTP status according to the middleware contract.
+
+Do not expose credentials or cookies.
+
+10. Record, but do not expand, adjacent production defects
+
+Record these in the existing roadmap/evidence:
+
+- intermittent DB_LATENCY;
+- INSTRUMENTS_REFRESH_FAILED;
+- legacy candle-warehouse query against the missing/old candle table.
+
+Determine whether either data defect affects the canonical scanner, F&O lifecycle, option-snapshot capture or backtesting. Do not create unrelated tasks in this step.
+
+Return:
+
+- exact 50-symbol forensic matrix;
+- corrected canary counts;
+- universe reconciliation;
+- authoritative rate-limit reconciliation;
+- STOPPED-state no-retry proof;
+- production multi-replica hydration proof;
+- scheduled NFO run evidence;
+- authenticated screenshots;
+- proposed bounded canary remediation.
+
+Required verdict remains:
+
+PROMPT_33_PHASE_A_DEPLOYED — FULL_NSE_CANARY_STOPPED_PENDING_ROOT_CAUSE — PHASE_B_EVALUATION_LOCKED
