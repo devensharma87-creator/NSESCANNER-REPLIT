@@ -1,0 +1,214 @@
+ADDENDUM TO PROMPT_33B — LIVE PRODUCTION SCREENSHOT RECONCILIATION
+
+Treat the newly supplied production screenshots as load-bearing evidence. Do not create another task.
+
+A. Scanner-count reconciliation
+
+The production screenshot reports:
+
+- universeCount=8,920
+- liveFeedCount=4,421
+- noFeedCount=4,499
+- displayed/scannedCount=4,426
+- progress=0/8,920
+- scan duration=1294.5 seconds
+- state=STALE CACHE
+- source badge=Kite (live)
+- trust badge=KITE TRADE-GRADE
+
+These values are internally inconsistent.
+
+Produce one exact accounting equation:
+
+eligibleOrdinaryEquities
+= canonicalLiveQuoteRows
++ canonicalLastCloseRows
++ noQuoteRows
++ excludedRows where applicable
+
+And:
+
+apiRows
+= evaluatedRows
++ notEvaluatedRows
+= displayedRows before user filtering
+
+Every count must be derived from the same immutable scan generation ID and timestamp.
+
+Fix:
+- stale generation mixing,
+- progress stuck at zero,
+- displayed/live-feed mismatch,
+- cache-generation race,
+- scan completion state,
+- background refresh replacing last-good data,
+- filter state applied before the response finishes.
+
+B. Equity-universe contamination
+
+The screenshot visibly includes non-standard securities such as:
+
+- EEPL-SM
+- 925SCL28C...
+- 737NTPC...
+- other SME, debt, government-security or special-series symbols
+
+The user-facing Full Scanner must not describe these as ordinary NSE equities.
+
+Apply the canonical security eligibility contract to:
+1. warehouse eligibility,
+2. full-scanner display universe,
+3. live-feed counts,
+4. breadth calculations,
+5. gainers/losers,
+6. score/ranking eligibility.
+
+Report separate counts for:
+- ordinary main-board equity,
+- SME equity,
+- trade-to-trade equity,
+- debt/government security,
+- sovereign gold bond,
+- ETF/fund,
+- inactive/delisted,
+- unresolved,
+- other unsupported.
+
+Unresolved instruments fail closed and must not enter ordinary-equity breadth, rankings or signals.
+
+Do not rely exclusively on trading-symbol suffixes.
+
+C. Scanner source/trust labels
+
+The following combination is prohibited:
+
+STALE CACHE + Kite (live) + KITE TRADE-GRADE + evaluation lock false.
+
+Resolve labels from one canonical state machine.
+
+Expected examples:
+
+- market closed + valid current-session close:
+  CLOSED — KITE — asOf <timestamp>
+- stale last-good cache:
+  READY_STALE — KITE — sessionDate <date> — asOf <timestamp>
+- evaluation lock false:
+  PHASE A — DATA POPULATION ONLY — NOT EVALUATED
+- provider unavailable:
+  UNAVAILABLE — <reason>
+- partial quote coverage:
+  READY_PARTIAL — <available>/<eligible> instruments
+
+KITE TRADE-GRADE must be impossible while:
+- SCANNER_KITE_CANDLE_EVALUATION_AUTHORIZED=false,
+- required technical inputs are absent,
+- source is stale,
+- market/session validity is unresolved.
+
+D. Phase-A table rendering
+
+While evaluation is locked:
+
+- quote/OHLC/change fields may remain visible if canonical;
+- VWAP/EMA/RSI/52W fields display available canonical values only;
+- unavailable technical fields remain “—”;
+- score=null;
+- confidence=null;
+- signal=NOT_EVALUATED;
+- action=null;
+- row displays exact machine-readable reason;
+- no score bar;
+- no BUY/SELL control.
+
+Add a visible column or expandable reason:
+PHASE_A_POPULATION_ONLY,
+INSUFFICIENT_CANONICAL_HISTORY,
+KITE_CANDLE_UNAVAILABLE,
+LIVE_QUOTE_UNAVAILABLE,
+STALE_CANONICAL_DATA,
+SECURITY_TYPE_INELIGIBLE.
+
+E. Performance investigation
+
+The displayed full-scan duration of 1294.5 seconds fails the performance gate.
+
+Measure separately:
+- instrument-master load,
+- batch-quote acquisition,
+- DB/cache hydration,
+- row transformation,
+- classification,
+- filtering/sorting,
+- response serialization,
+- frontend rendering.
+
+Requirements:
+- no N-per-row provider calls;
+- no full scan blocking on warehouse population;
+- last-good response remains available during refresh;
+- immutable generation swap only after completion;
+- API p50/p95 target below 25 seconds;
+- frontend must progressively/virtually render large row sets;
+- timeout or partial completion must show READY_PARTIAL, not empty success.
+
+F. Home-page input-level truth
+
+The live Home screenshot contains mixed states:
+
+- Indian index analytics unavailable,
+- market breadth populated,
+- top gainers/losers populated,
+- bullish/bearish setups unavailable,
+- F&O ban list unavailable,
+- global data unavailable.
+
+This can be valid only if each section independently discloses:
+- source,
+- asOf,
+- sessionDate,
+- fresh/stale,
+- exact dependency status,
+- whether it can drive signals.
+
+Fix all false-zero behaviour:
+- missing index quote must not display 0.00;
+- missing percentage change must not display ±0.00%;
+- missing trend input must not become neutral;
+- missing volatility input must not become zero;
+- missing derived score must render “—/UNAVAILABLE”.
+
+Market Mood must publish an input-availability vector. If mandatory inputs are absent, it must return UNAVAILABLE or READY_PARTIAL—not a fully valid numeric score.
+
+G. Screenshot-specific regression tests
+
+Add runtime/component tests proving:
+
+1. 4,421 live-feed rows cannot produce 4,426 canonical-live displayed rows without an explained category.
+2. A rendered 4,426-row table cannot show progress 0/8,920.
+3. Stale cache cannot show Kite live.
+4. Evaluation lock false cannot show KITE TRADE-GRADE.
+5. Market-closed cannot be labelled live.
+6. Debt/SDL/SGB/SME instruments cannot enter ordinary-equity counts.
+7. NOT_EVALUATED rows remain visible under the All filter.
+8. Missing index values render “—”, not zero.
+9. Missing index analytics cannot generate a valid index signal.
+10. Available breadth plus unavailable indices produces READY_PARTIAL with an input vector.
+11. Missing F&O-ban upstream remains UNAVAILABLE and cannot be converted to ALL CLEAR.
+12. Stale last-good values retain original sessionDate and asOf.
+13. A 1294-second background scan cannot replace last-good data with an empty response.
+14. Generation IDs remain consistent across header counts, progress and rows.
+
+H. Updated production evidence
+
+After deployment authorization, capture authenticated production evidence of:
+
+- Home at 390, 768 and 1440 widths;
+- Full Scanner at the same widths;
+- exact API JSON corresponding to each screenshot;
+- immutable generation ID;
+- reconciled counts;
+- explicit Phase-A state;
+- no non-equity contamination in the ordinary-equity table;
+- no false zero or false trade-grade labels.
+
+Do not claim this closure using fixture or development screenshots.

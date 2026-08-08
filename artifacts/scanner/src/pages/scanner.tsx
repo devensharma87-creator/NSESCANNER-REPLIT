@@ -32,6 +32,18 @@ interface FullNseResponse {
   rested: number;
   /** True when the most recent scan ran without an authenticated Kite session — coverage will be limited to whatever Yahoo can supply. */
   kiteOffline?: boolean;
+  /**
+   * True when SCANNER_KITE_CANDLE_EVALUATION_AUTHORIZED=false (Phase A).
+   * No score, no signal, no trade-grade — only price/OHLC/volume is live.
+   * Prevents contradictory "KITE TRADE-GRADE" label while evaluation is locked.
+   */
+  evaluationLockActive?: boolean;
+  /** Same as evaluationLockActive — explicit Phase A flag. */
+  phaseA?: boolean;
+  /** Breakdown of the Kite instrument universe by eligibility class. */
+  eligibilityBreakdown?: Record<string, number>;
+  /** Count of rows that actually have a live Kite quote (vs. no-feed). */
+  liveQuoteCount?: number;
 }
 
 interface FullNseStatus {
@@ -80,8 +92,12 @@ function useFullNseStocks() {
       lastUpdated: q.data.lastUpdated,
       scanMs: q.data.scanMs,
       failures: q.data.failures,
+      liveQuoteCount: q.data.liveQuoteCount,
       rested: q.data.rested,
       kiteOffline: q.data.kiteOffline,
+      evaluationLockActive: q.data.evaluationLockActive ?? false,
+      phaseA: q.data.phaseA ?? false,
+      eligibilityBreakdown: q.data.eligibilityBreakdown,
     } : null,
   };
 }
@@ -592,49 +608,93 @@ export default function ScannerPage() {
             <h1 className="text-2xl font-bold font-mono tracking-tight">FULL SCANNER</h1>
             <DataSourceBadge
               source={fullMeta?.kiteOffline ? "yahoo" : "kite"}
-              status={fullMeta?.kiteOffline ? "delayed" : "live"}
-              fallbackActive={!!fullMeta?.kiteOffline}
-              // Real wall-clock of the last successful scan (ISO from
-              // server). Previously we were passing `sourceDate` which is
-              // the bhavcopy date (no time component) — that always
-              // parsed to midnight UTC and made the pill read "15h ago"
-              // even on a fresh scan.
+              // C-fix: Canonical state machine — "live" is prohibited when:
+              //   • evaluation lock is active (Phase A — NOT_EVALUATED)
+              //   • Kite session is offline (Yahoo fallback)
+              // Only show "live" when Kite is connected AND evaluation is unlocked.
+              // FeedStatus = "live" | "delayed" | "stale" | "down" — no "info" variant.
+              // Phase A uses "delayed" because data is present but not evaluation-ready.
+              status={
+                fullMeta?.phaseA
+                  ? "delayed"       // Phase A: price data only, evaluation locked
+                  : fullMeta?.kiteOffline
+                    ? "delayed"     // Yahoo fallback
+                    : "live"        // Kite connected and evaluation unlocked
+              }
+              fallbackActive={!!fullMeta?.kiteOffline || !!fullMeta?.phaseA}
               lastUpdated={fullMeta?.lastUpdated}
               refreshMs={60_000}
               autoStaleAfterMs={120_000}
-              note={fullMeta?.kiteOffline ? "Kite session offline — Yahoo backup active" : undefined}
+              note={
+                fullMeta?.phaseA
+                  ? "Phase A: price/OHLC data only. Evaluation locked — no signals."
+                  : fullMeta?.kiteOffline
+                    ? "Kite session offline — Yahoo backup active"
+                    : undefined
+              }
               compact
             />
-            {/* P1 unified vocabulary — same axis as Home Market Pulse.
-                Kite live → KITE_TRADE_GRADE; Kite offline (Yahoo fallback)
-                → INFO_ONLY; scan never landed → UNAVAILABLE. */}
+            {/* C-fix: KITE_TRADE_GRADE is prohibited when evaluation lock is active
+                (SCANNER_KITE_CANDLE_EVALUATION_AUTHORIZED=false). When phaseA=true,
+                force fallbackUsed=true so the chip renders INFO_ONLY/PHASE_A,
+                not KITE_TRADE_GRADE. */}
             <UnifiedGradeChip
               chipId="scanner-boot"
               source="kite"
               runtime={{
                 hasData: Boolean(fullMeta),
                 asOf: fullMeta?.lastUpdated ?? null,
-                fallbackUsed: !!fullMeta?.kiteOffline,
+                // Phase A forces INFO_ONLY — KITE_TRADE_GRADE is impossible
+                // while evaluation is locked, even with an active Kite session.
+                fallbackUsed: !!fullMeta?.kiteOffline || !!fullMeta?.phaseA,
               }}
-              note="Full-scanner LTP + indicators. Kite live is trade-grade; Yahoo backup path degrades the chip to INFO_ONLY."
-              warning={fullMeta?.kiteOffline ? "Kite offline — Yahoo backup active. Not trade-grade." : undefined}
+              note={
+                fullMeta?.phaseA
+                  ? "Phase A: LTP + OHLC + volume from Kite. Evaluation locked — no score, no signal. KITE TRADE-GRADE requires Phase B."
+                  : "Full-scanner LTP + indicators. Kite live is trade-grade; Yahoo backup path degrades the chip to INFO_ONLY."
+              }
+              warning={
+                fullMeta?.phaseA
+                  ? "Phase A active — SCANNER_KITE_CANDLE_EVALUATION_AUTHORIZED=false. All rows carry NOT_EVALUATED. No trade signals."
+                  : fullMeta?.kiteOffline
+                    ? "Kite offline — Yahoo backup active. Not trade-grade."
+                    : undefined
+              }
             />
           </div>
+          {/* D-fix: Phase-A banner — visible when evaluation lock is active.
+              KITE TRADE-GRADE is impossible while SCANNER_KITE_CANDLE_EVALUATION_AUTHORIZED=false.
+              All rows carry NOT_EVALUATED signal. Price/OHLC/volume are live from Kite. */}
+          {fullMeta?.phaseA && (
+            <div
+              className="mt-1 inline-flex items-start gap-2 px-3 py-2 rounded-md border border-violet-500/40 bg-violet-500/10 text-violet-300 text-[11px] font-mono max-w-2xl"
+              data-testid="phase-a-banner"
+              role="status"
+            >
+              <span className="font-bold uppercase tracking-wider">Phase A — Data Population Only</span>
+              <span className="text-violet-200/80">
+                — SCANNER_KITE_CANDLE_EVALUATION_AUTHORIZED=false. All rows carry NOT_EVALUATED.
+                Price/OHLC/volume from Kite are live. Score, signal, and BUY/SELL controls are locked until Phase B.
+                KITE TRADE-GRADE cannot be active while this banner is visible.
+              </span>
+            </div>
+          )}
           <p className="text-sm text-muted-foreground">
             {(() => {
-              // Honest universe / coverage breakdown — addresses the audit
-              // finding that the old copy ("All NSE stocks tracked live")
-              // overstates reality whenever the broker session is offline
-              // or upstream rate-limits cull a portion of each cycle.
+              // A-fix: Canonical count reconciliation.
+              // universeSize = ORDINARY_EQUITY_ELIGIBLE (post-eligibility filter).
+              // Accounting equation: universeSize = liveQuoteCount + failures
+              //   liveQuoteCount — rows that got any quote (Kite or Yahoo)
+              //   failures — eligible symbols with zero quote coverage this cycle
               const universe = fullMeta?.universeSize ?? 0;
-              // B2.1-D9: Don't default failures to 0 when metadata is absent.
-              // "0 no-feed" is a fabricated zero — show "…" until metadata arrives.
               const failures = fullMeta != null ? (fullMeta.failures ?? 0) : null;
-              const live = universe && failures != null ? Math.max(0, universe - failures) : 0;
+              // Use explicit liveQuoteCount when available (post-v17 API),
+              // fall back to universe-failures formula for backward compat.
+              const live = fullMeta?.liveQuoteCount ?? (universe && failures != null ? Math.max(0, universe - failures) : 0);
               return (
                 <>
-                  Universe <span className="font-mono text-foreground">{universe ? universe.toLocaleString("en-IN") : "…"}</span>
-                  {" · "}live feed <span className="font-mono text-foreground">{universe && failures != null ? live.toLocaleString("en-IN") : "…"}</span>
+                  Ordinary-equity universe <span className="font-mono text-foreground">{universe ? universe.toLocaleString("en-IN") : "…"}</span>
+                  {" · "}with quote <span className="font-mono text-foreground">{universe && failures != null ? live.toLocaleString("en-IN") : "…"}</span>
                   {" · "}no feed this cycle <span className="font-mono text-foreground">{failures != null ? failures.toLocaleString("en-IN") : "…"}</span>
                   {" · "}sortable column headers · screen presets narrow the view · hover any row for the top reasons behind its signal.
                 </>

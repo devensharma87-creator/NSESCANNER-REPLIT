@@ -1341,6 +1341,30 @@ router.get("/scan/full-nse", async (req, res, next) => {
     const limit = Math.max(1, Math.min(5000, parseInt(String(req.query["limit"] ?? "5000"), 10) || 5000));
     const paged = rows.slice(offset, offset + limit);
 
+    // ── Phase A / evaluation lock ──────────────────────────────────────────
+    // Read the compile-time lock directly so the client always gets the
+    // current build's value — not a cached scan value that might be stale.
+    const { SCANNER_KITE_CANDLE_EVALUATION_AUTHORIZED } =
+      await import("../lib/candleEvaluationControl");
+    const evaluationLockActive = !SCANNER_KITE_CANDLE_EVALUATION_AUTHORIZED;
+
+    // ── Scan phase label ───────────────────────────────────────────────────
+    // Canonical state machine: one label, no contradictory combos.
+    //   Phase A — all rows carry NOT_EVALUATED (evaluation lock false)
+    //   Yahoo fallback — Kite offline, Yahoo batch quotes used
+    //   Kite live data — Kite connected (but not yet evaluated until Phase B)
+    const scanPhaseLabel = evaluationLockActive
+      ? "PHASE_A_POPULATION_ONLY_NOT_EVALUATED"
+      : (data.kiteOffline ? "YAHOO_FALLBACK_INFO_ONLY" : "KITE_DATA_POPULATION_ACTIVE");
+
+    // ── Count reconciliation ───────────────────────────────────────────────
+    // Accounting equation (every count from same cache generation):
+    //   universeSize (eligibleOrdinaryEquities)
+    //     = liveQuoteCount (rows that got any quote)
+    //     + noFeedCount    (eligible symbols with zero quote coverage)
+    //
+    // eligibilityBreakdown shows why raw Kite universe > universeSize:
+    //   raw_kite_total = universeSize + sum(excluded classes)
     res.json({
       rows: paged,
       total,
@@ -1349,12 +1373,20 @@ router.get("/scan/full-nse", async (req, res, next) => {
       limit,
       lastUpdated: new Date(data.lastUpdated).toISOString(),
       sourceDate: data.sourceDate,
+      // POST-ELIGIBILITY-FILTER universe: only ORDINARY_EQUITY_ELIGIBLE symbols.
+      // This is the correct "denominator" for breadth/coverage/count reporting.
       universeSize: data.total,
       scanMs: data.scanMs,
       failures: data.failures,
+      liveQuoteCount: data.liveQuoteCount,
       rested: data.rested,
       kiteOffline: !!data.kiteOffline,
-      source: "yahoo-intraday + nse-bhavcopy",
+      // Phase A / evaluation-lock fields — canonical state machine for UI labels.
+      evaluationLockActive,
+      phaseA: evaluationLockActive,
+      scanPhaseLabel,
+      // Eligibility breakdown: raw Kite universe split by classifier class.
+      eligibilityBreakdown: data.eligibilityBreakdown,
     });
   } catch (err) { next(err); }
 });

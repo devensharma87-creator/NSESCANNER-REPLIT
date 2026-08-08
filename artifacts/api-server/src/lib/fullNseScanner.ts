@@ -71,6 +71,8 @@ import { UNIVERSE, INACTIVE_SYMBOLS } from "./universe";
 import { logger } from "./logger";
 import { loadBlob, saveBlob } from "./diskCache";
 import { centralKiteNseEqInstruments, centralBatchEquityQuotes, type KiteScannerQuote } from "./marketData/compat";
+import { classifyInstrument, WAREHOUSE_EXCLUDED_CLASSES } from "./kiteCandle/instrumentEligibility";
+import { SCANNER_KITE_CANDLE_EVALUATION_AUTHORIZED } from "./candleEvaluationControl";
 import { buildAllSwingSignals } from "./swingSignals";
 import { runEquityPaperTradingTick } from "./paperTradingEq";
 import { EQUITY_RISK } from "./paperAccount";
@@ -162,21 +164,42 @@ const DISK_CACHE_NAME = "full-nse-scan";
 // Kite-offline scans returned 0–4 rows out of 2,455; v16 caches
 // instead carry the full universe priced from /v7/finance/quote.
 // Bump invalidates the broken empties saved on disk.
-const DISK_CACHE_VERSION = 16;
+// v17 (2026-08-08): Applied canonical classifyInstrument eligibility filter to
+// the universe-building step. SDL bonds (-SG), Sovereign Gold Bonds (-GB),
+// SME equities (-SM/-ST), BZ-series, and other non-ordinary-equity instruments
+// are now excluded from symbolList and tracked in eligibilityBreakdown.
+// Old v16 caches carry SME/SDL/SGB rows that contaminate the breadth and score
+// surfaces — invalidate to force a clean re-scan with the filtered universe.
+// Also added phaseA and evaluationLockActive fields to the cache/response.
+const DISK_CACHE_VERSION = 17;
 const DISK_CACHE_MAX_AGE_MS = 60 * 60_000;
 
 interface Cache {
   rows: StockRow[];
   lastUpdated: number;
   sourceDate: string;
+  /** Ordinary-equity-eligible universe count (post-eligibility filter). */
   total: number;
   scanMs: number;
+  /** Eligible symbols that produced no quote row this cycle. */
   failures: number;
+  /** Rows that carried a live Kite quote (liveQuoteCount = rows.length when no Yahoo fallback rows). */
+  liveQuoteCount: number;
   rested: number;
   enriched: number;
   degraded?: boolean;
   /** True when the most recent scan ran without an authenticated Kite session. */
   kiteOffline?: boolean;
+  /**
+   * Breakdown of the raw Kite instrument universe by eligibility class.
+   * Counts BEFORE the eligible-only filter, so ordinary + excluded = raw total.
+   */
+  eligibilityBreakdown: Record<string, number>;
+  /**
+   * True when SCANNER_KITE_CANDLE_EVALUATION_AUTHORIZED=false (Phase A).
+   * All rows carry NOT_EVALUATED signal — no score, no trade signals.
+   */
+  phaseA: boolean;
 }
 
 interface Progress { scanned: number; total: number; startedAt: number | null; running: boolean }
@@ -553,10 +576,50 @@ async function performFullScan(): Promise<Cache> {
   let sourceDate = "";
   let degraded = false;
 
+  // ── Eligibility breakdown (track every scan cycle) ────────────────
+  // Used for accurate count reconciliation in the API response.
+  // Keys are InstrumentEligibilityClass values.
+  const eligibilityBreakdown: Record<string, number> = {};
+
   const kiteInst = await centralKiteNseEqInstruments();
   if (kiteInst && kiteInst.list.length > 0) {
-    symbolList = kiteInst.list.map(i => i.tradingsymbol);
+    // Apply the canonical eligibility classifier to every instrument from the
+    // Kite master BEFORE building symbolList. This excludes SDL bonds (-SG),
+    // Sovereign Gold Bonds (-GB), SME equities (-SM/-ST), BZ-series, and any
+    // other non-ordinary-equity instruments that slipped through the
+    // kiteScanner.ts heuristic filter (which misses SDL bonds with 3+ digit
+    // numeric prefixes like "656KA30-SG" and SME equities like "EEPL-SM").
+    //
+    // inCurrentMaster=true: all items in kiteInst.list passed the raw Kite
+    // getInstruments() call and are present in today's master — this is the
+    // affirmative evidence required by the classifier contract.
+    //
+    // instrumentType/segment/exchange are set to the constants confirmed by
+    // kiteScanner.ts lines 194-195: only `segment=NSE, instrument_type=EQ`
+    // instruments reach the list. exchange=NSE is the invariant for NSE equities.
+    const rawSymbols = kiteInst.list.map(i => i.tradingsymbol);
+    const eligibleSymbols: string[] = [];
+    for (const sym of rawSymbols) {
+      const inst = kiteInst.bySymbol.get(sym);
+      const cls = classifyInstrument({
+        symbol: sym,
+        name: inst?.name ?? sym,
+        instrumentType: "EQ",
+        segment: "NSE",
+        exchange: "NSE",
+        inCurrentMaster: true,
+      }).eligibilityClass;
+      eligibilityBreakdown[cls] = (eligibilityBreakdown[cls] ?? 0) + 1;
+      if (!WAREHOUSE_EXCLUDED_CLASSES.has(cls)) {
+        eligibleSymbols.push(sym);
+      }
+    }
+    symbolList = eligibleSymbols;
     sourceDate = `kite:${new Date(kiteInst.fetchedAt).toISOString().slice(0, 10)}`;
+    logger.info(
+      { rawTotal: rawSymbols.length, eligible: eligibleSymbols.length, breakdown: eligibilityBreakdown },
+      "Full NSE scanner: universe filtered by canonical eligibility classifier",
+    );
   } else {
     const bhav = await getAllSymbols();
     if (bhav && bhav.symbols.length > 0) {
@@ -845,13 +908,16 @@ async function performFullScan(): Promise<Cache> {
     rows,
     lastUpdated: Date.now(),
     sourceDate,
-    total: symbolList.length,
+    total: symbolList.length,           // ordinary-equity-eligible count
     scanMs: Date.now() - start,
     failures: symbolList.length - rows.length,
+    liveQuoteCount: rows.length,        // all rows that produced any quote this cycle
     rested: 0,
     enriched: enrichedCount,
     degraded,
     kiteOffline: !kiteQuotes,
+    eligibilityBreakdown,               // breakdown by class (includes non-eligible counts)
+    phaseA: !SCANNER_KITE_CANDLE_EVALUATION_AUTHORIZED,
   };
   logger.info({
     rows: rows.length,

@@ -6,6 +6,43 @@ Format: `## YYYY-MM-DD — <short title>` then bullet points with: what changed,
 
 ---
 
+## 2026-08-08 — ADDENDUM_33B Live Production Screenshot Reconciliation
+
+### B — Equity-universe contamination (CLOSED)
+- Applied `classifyInstrument` (with `inCurrentMaster: true`) to every instrument in the Kite NSE EQ list inside `fullNseScanner.ts` before building `symbolList`. SDL bonds with 3+ digit numeric prefixes (`656KA30-SG`, `737NTPC-SG`, `925SCL28C-SG`), SME equities (`EEPL-SM`, `ANYCO-ST`), SGBs, BZ-series instruments are now excluded from the ordinary-equity universe. Old `isLikelyTradeableEquity()` heuristic in `kiteScanner.ts` missed these — the canonical classifier closes the gap.
+- Bumped `DISK_CACHE_VERSION` to 17 — invalidates old caches carrying SME/SDL/SGB contamination.
+- `universeSize` in the API response now correctly reflects only `ORDINARY_EQUITY_ELIGIBLE` count, not the raw Kite instrument total (≈8920→≈2400–2500).
+
+### A — Count reconciliation (CLOSED)
+- Added `liveQuoteCount` to Cache interface and API response. Accounting equation: `universeSize = liveQuoteCount + failures`. Both counts now explicit from the same scan generation.
+- Added `eligibilityBreakdown: Record<string, number>` (by InstrumentEligibilityClass) to Cache and API response. Consumers can show `raw_kite_total = eligible + sum(excluded classes)`.
+- Frontend updated: "Ordinary-equity universe · with quote · no feed" replaces the ambiguous "Universe · live feed · no feed".
+
+### C — Label state machine (CLOSED)
+- API route now imports `SCANNER_KITE_CANDLE_EVALUATION_AUTHORIZED` and adds `evaluationLockActive`, `phaseA`, `scanPhaseLabel` to the `/scan/full-nse` response. Three canonical `scanPhaseLabel` values: `PHASE_A_POPULATION_ONLY_NOT_EVALUATED`, `YAHOO_FALLBACK_INFO_ONLY`, `KITE_DATA_POPULATION_ACTIVE`. Removed the stale hardcoded `source: "yahoo-intraday + nse-bhavcopy"` field.
+- Frontend `DataSourceBadge` status: `"live"` only when Kite connected AND `phaseA=false`. Phase A forces `"delayed"`.
+- `UnifiedGradeChip` `fallbackUsed` forced true when `phaseA=true` — prevents `KITE_TRADE_GRADE` chip while evaluation is locked. Contradictory combination `STALE CACHE + Kite live + KITE TRADE-GRADE + evaluation-lock-false` is now structurally impossible.
+
+### D — Phase-A table rendering (CLOSED)
+- Phase-A banner added to scanner header: violet-tinted, `data-testid="phase-a-banner"`, visible whenever `fullMeta.phaseA=true`. Explicitly states "SCANNER_KITE_CANDLE_EVALUATION_AUTHORIZED=false. All rows carry NOT_EVALUATED. KITE TRADE-GRADE cannot be active while this banner is visible."
+- Existing `SignalBadge` + `ScoreBar` already handle `NOT_EVALUATED` rows; `setupMessage` carries machine-readable reason codes.
+
+### G — Regression tests (CLOSED, 40 tests)
+- New file: `src/lib/fullNseScanner.eligibilityGates.test.ts` — 40 tests covering G1–G14:
+  G1 count consistency (liveQuote ≤ universe, surplus explained), G2 progress vs rows consistency, G3 stale→STALE_CACHE, G4 phaseA→no KITE_TRADE_GRADE, G5 market-closed→DELAYED, G6 SDL/SGB/SME excluded from ordinary-equity count, G7 NOT_EVALUATED visible under All filter, G8 missing values → "—" not "0.00", G9 null candle→score=null, G10 partial inputs→READY_PARTIAL, G11 null ban list→null not false, G12 stale cache retains original timestamps, G13 empty scan cannot replace last-good cache, G14 universeSize=liveQuoteCount+failures.
+
+### Sections deferred
+- **E (performance)**: 1294.5s scan root cause not yet addressed. Requires N-per-row call audit + immutable generation-swap mechanism. Separate task.
+- **F (home-page false zeros)**: Market Mood `compositeBias?.score ?? 0` false-zero + F&O ban unavailable→false ambiguity. Separate task.
+- **H (production evidence)**: Requires post-deploy authenticated screenshots. Cannot complete until deployment.
+
+### Battery
+- api-server: **6629 / 283 files** PASS (+40 new: 6629 vs 6589)
+- scanner: **1250 / 52 files** PASS
+- 4-pkg TSC: CLEAN
+
+---
+
 ## 2026-08-08 — Pack 33 Control-Only Deployment (PROMPT_33_CONTROL_ONLY_DEPLOYMENT_AND_REMAINING_EVIDENCE_CLOSURE)
 
 - **Classifier reformed (B)**: `inCurrentMaster: boolean` is now a required param. Instruments absent from the Kite master → `UNRESOLVED_SECURITY_TYPE` immediately regardless of suffix. `OMFURN-ST` (token NOT_FOUND in cache) → UNRESOLVED, not SME. Suffixes are supporting evidence for in-master instruments only. `ORDINARY_EQUITY_ELIGIBLE` requires affirmative evidence (inCurrentMaster=true + exchange=NSE + segment=NSE + instrument_type=EQ + no exclusion). All 46 eligibility tests updated to pass `inCurrentMaster`.
