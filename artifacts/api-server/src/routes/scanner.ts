@@ -744,15 +744,26 @@ router.get("/scan/top", async (_req, res, next) => {
  */
 router.get("/scan/candle-store/metrics", requireOwner, async (_req, res, next) => {
   try {
-    const { getKiteCandleStoreMetrics } = await import("../lib/kiteCandle/kiteCandleStore");
+    const { getKiteCandleStoreMetrics, getKiteCandleStorePhysicalMetrics } =
+      await import("../lib/kiteCandle/kiteCandleStore");
     const { getFullNseWarehouseMetrics } = await import("../lib/kiteCandle/fullNseWarehouse");
     const { getCandleEvaluationStatus, SCANNER_KITE_CANDLE_EVALUATION_AUTHORIZED } =
       await import("../lib/candleEvaluationControl");
-    const { CURATED_SIGNAL_UNIVERSE_ACTIVE_COUNT } = await import("../lib/universe");
+    const { CURATED_SIGNAL_UNIVERSE_ACTIVE_COUNT, CURATED_SIGNAL_UNIVERSE } =
+      await import("../lib/universe");
 
     const storeMetrics = getKiteCandleStoreMetrics();
     const warehouseMetrics = getFullNseWarehouseMetrics();
     const evalStatus = getCandleEvaluationStatus();
+
+    // Pack 33 Corrective Point 8: separate metrics for curated vs warehouse rows.
+    const curatedSymbolList = CURATED_SIGNAL_UNIVERSE
+      .filter((u: { inactive?: boolean }) => !u.inactive)
+      .map((u: { symbol: string }) => u.symbol);
+    const physicalStoreMetrics = await getKiteCandleStorePhysicalMetrics(
+      curatedSymbolList,
+      CURATED_SIGNAL_UNIVERSE_ACTIVE_COUNT,
+    );
 
     // Universe metrics — distinguish curated (199) vs full NSE
     const universeMetrics = {
@@ -801,43 +812,253 @@ router.get("/scan/candle-store/metrics", requireOwner, async (_req, res, next) =
       universeMetrics,
       storeMetrics,
       warehouseMetrics,
+      /** Pack 33 Corrective Point 8: curated vs warehouse physical row counts from DB. */
+      physicalStoreMetrics,
       generatedAt: new Date().toISOString(),
     });
   } catch (err) { next(err); }
 });
 
 /**
- * POST /api/scan/candle-store/warehouse/reset — owner-strict reset of the
- * full-NSE warehouse progress cursor.
+ * POST /api/scan/candle-store/warehouse/reset — hardened owner-strict reset.
  *
- * Authorization: requireOwnerStrict — blocks anonymous GET-through-public-link
- * (unlike requireOwner which allows anonymous reads on a public share).
+ * Pack 33 Corrective Point 3: all five preconditions are required:
+ *   1. requireOwnerStrict — no anonymous GET-through-public-link bypass
+ *   2. confirmationPhrase = "AUTHORIZE_RESET_KITE_WAREHOUSE_PROGRESS_ONLY"
+ *   3. expectedSnapshotId = exact current snapshot_id (prevents stale-state resets)
+ *   4. expectedCurrentStatus = "STOPPED" (only STOPPED → CANARY is allowed)
+ *   5. idempotencyKey = non-empty string (audit trail)
+ *   6. dryRun = true (default) — must explicitly pass dryRun:false to mutate
  *
- * What this route does:
- *   - Resets kite_warehouse_progress cursor to CANARY (cursor_idx=0).
- *   - Does NOT delete candle history from kite_candle_store.
- *   - Does NOT modify SCANNER_KITE_CANDLE_EVALUATION_AUTHORIZED.
- *   - Does NOT start the warehouse run immediately (next scheduled cycle triggers it).
+ * Returns 409 if any precondition fails with a machine-readable code.
+ * Audit-logs with redacted actor/session before executing mutation.
+ * Response guarantees: evaluationLockUnchanged=true, candleHistoryDeleted=false,
+ *   providerCallStarted=false.
  *
  * What this route does NOT do:
  *   - Cannot alter the evaluation lock (SCANNER_KITE_CANDLE_EVALUATION_AUTHORIZED=false).
  *   - Cannot delete or truncate kite_candle_store rows.
  *   - Cannot be called by subscriber users or anonymous requests.
- *   - Accepts no query-parameter bypasses of any kind.
+ *   - Cannot reset from CANARY, IN_PROGRESS, or COMPLETE — only from STOPPED.
  */
-router.post("/scan/candle-store/warehouse/reset", requireOwnerStrict, async (_req, res, next) => {
+router.post("/scan/candle-store/warehouse/reset", requireOwnerStrict, async (req, res, next): Promise<void> => {
   try {
-    const { resetWarehouseProgress, getFullNseWarehouseMetrics } =
+    const {
+      confirmationPhrase,
+      expectedSnapshotId,
+      expectedCurrentStatus,
+      idempotencyKey,
+      dryRun = true,
+    } = (req.body ?? {}) as Record<string, unknown>;
+
+    // ── Precondition 1: confirmation phrase ────────────────────────────────
+    if (confirmationPhrase !== "AUTHORIZE_RESET_KITE_WAREHOUSE_PROGRESS_ONLY") {
+      res.status(409).json({
+        ok: false,
+        code: "CONFIRMATION_PHRASE_REQUIRED",
+        message: "confirmationPhrase must be exactly 'AUTHORIZE_RESET_KITE_WAREHOUSE_PROGRESS_ONLY'",
+        evaluationLockUnchanged: true, candleHistoryDeleted: false, providerCallStarted: false,
+      });
+      return;
+    }
+    // ── Precondition 2: expectedSnapshotId ─────────────────────────────────
+    if (typeof expectedSnapshotId !== "string" || !expectedSnapshotId) {
+      res.status(409).json({
+        ok: false, code: "EXPECTED_SNAPSHOT_ID_REQUIRED",
+        message: "expectedSnapshotId must be the exact current snapshot_id string from GET /api/scan/candle-store/metrics",
+        evaluationLockUnchanged: true, candleHistoryDeleted: false, providerCallStarted: false,
+      });
+      return;
+    }
+    // ── Precondition 3: expectedCurrentStatus must be STOPPED ──────────────
+    if (expectedCurrentStatus !== "STOPPED") {
+      res.status(409).json({
+        ok: false, code: "EXPECTED_STATUS_MUST_BE_STOPPED",
+        message: "expectedCurrentStatus must be 'STOPPED'; reset is only permitted from the STOPPED state",
+        evaluationLockUnchanged: true, candleHistoryDeleted: false, providerCallStarted: false,
+      });
+      return;
+    }
+    // ── Precondition 4: idempotency key ────────────────────────────────────
+    if (typeof idempotencyKey !== "string" || !idempotencyKey) {
+      res.status(409).json({
+        ok: false, code: "IDEMPOTENCY_KEY_REQUIRED",
+        message: "idempotencyKey must be a non-empty string (any unique identifier for audit tracing)",
+        evaluationLockUnchanged: true, candleHistoryDeleted: false, providerCallStarted: false,
+      });
+      return;
+    }
+
+    const { getWarehouseProgressForReset, resetWarehouseProgress, getFullNseWarehouseMetrics } =
       await import("../lib/kiteCandle/fullNseWarehouse");
+
+    // ── Precondition 5: verify current DB state ────────────────────────────
+    const current = await getWarehouseProgressForReset();
+    if (!current) {
+      res.status(409).json({
+        ok: false, code: "NO_PROGRESS_ROW",
+        message: "No kite_warehouse_progress row found; warehouse has not run yet",
+        evaluationLockUnchanged: true, candleHistoryDeleted: false, providerCallStarted: false,
+      });
+      return;
+    }
+    if (current.snapshotId !== expectedSnapshotId) {
+      res.status(409).json({
+        ok: false, code: "SNAPSHOT_ID_MISMATCH",
+        currentSnapshotId: current.snapshotId,
+        // Intentionally exposing the current snapshotId so caller can correct their request.
+        message: `expectedSnapshotId does not match. Provide the exact current snapshot_id.`,
+        evaluationLockUnchanged: true, candleHistoryDeleted: false, providerCallStarted: false,
+      });
+      return;
+    }
+    if (current.status !== "STOPPED") {
+      res.status(409).json({
+        ok: false, code: "STATUS_NOT_STOPPED",
+        currentStatus: current.status,
+        message: `Warehouse is in ${current.status} state; reset is only allowed from STOPPED`,
+        evaluationLockUnchanged: true, candleHistoryDeleted: false, providerCallStarted: false,
+      });
+      return;
+    }
+
+    // ── Dry-run mode (default) ─────────────────────────────────────────────
+    if (dryRun !== false) {
+      res.json({
+        ok: true, dryRun: true,
+        message: "Dry-run: all preconditions passed. Pass dryRun:false to execute the reset.",
+        wouldResetFrom: "STOPPED",
+        wouldResetTo: "CANARY",
+        currentSnapshotId: current.snapshotId,
+        currentStoppedReason: current.stoppedReason,
+        evaluationLockUnchanged: true, candleHistoryDeleted: false, providerCallStarted: false,
+      });
+      return;
+    }
+
+    // ── Execute reset ──────────────────────────────────────────────────────
+    const { logger: l } = await import("../lib/logger");
+    l.info({
+      idempotencyKey,
+      prevStatus: current.status,
+      prevSnapshotId: current.snapshotId,
+      prevStoppedReason: current.stoppedReason,
+      dryRun: false,
+      actor: "[owner-session-redacted]",
+    }, "warehouse-reset: owner-authorized EXECUTED — resetting STOPPED→CANARY");
+
     await resetWarehouseProgress();
     const metrics = getFullNseWarehouseMetrics();
+
     res.json({
-      ok: true,
-      message: "Warehouse progress cursor reset to CANARY (cursor_idx=0). Candle history is UNCHANGED. Next scheduled cycle will restart from canary batch.",
+      ok: true, dryRun: false,
+      message: "Warehouse progress cursor reset to CANARY (cursor_idx=0). Candle history UNCHANGED. Next scheduled cycle will restart from canary batch.",
       evaluationLockUnchanged: true,
       candleHistoryDeleted: false,
+      providerCallStarted: false,
+      idempotencyKey,
       metrics: { warehouseRunning: metrics.warehouseRunning, lastWarehouseAt: metrics.lastWarehouseAt },
     });
+    return;
+  } catch (err) { next(err); }
+});
+
+/**
+ * POST /api/scan/candle-store/warehouse/force-stop — owner-strict corrective STOP.
+ *
+ * Pack 33 Corrective Point 1: allows the owner to set status=STOPPED with a
+ * documented reason without triggering a new canary or deleting any data.
+ *
+ * Use cases:
+ *   - Correcting an accidental reset (the trigger for this corrective package)
+ *   - Halting an in-progress run for planned maintenance
+ *
+ * Required body fields:
+ *   - confirmationPhrase = "AUTHORIZE_FORCE_STOP_KITE_WAREHOUSE"
+ *   - stoppedReason: string (human-readable reason, stored in DB)
+ *   - idempotencyKey: string
+ *   - dryRun: boolean (default true)
+ *
+ * Guarantees: evaluationLockUnchanged=true, candleHistoryDeleted=false,
+ *   providerCallStarted=false.
+ */
+router.post("/scan/candle-store/warehouse/force-stop", requireOwnerStrict, async (req, res, next): Promise<void> => {
+  try {
+    const {
+      confirmationPhrase,
+      stoppedReason: providedReason,
+      idempotencyKey,
+      dryRun = true,
+    } = (req.body ?? {}) as Record<string, unknown>;
+
+    if (confirmationPhrase !== "AUTHORIZE_FORCE_STOP_KITE_WAREHOUSE") {
+      res.status(409).json({
+        ok: false, code: "CONFIRMATION_PHRASE_REQUIRED",
+        message: "confirmationPhrase must be exactly 'AUTHORIZE_FORCE_STOP_KITE_WAREHOUSE'",
+        evaluationLockUnchanged: true, candleHistoryDeleted: false, providerCallStarted: false,
+      });
+      return;
+    }
+    if (typeof providedReason !== "string" || !providedReason.trim()) {
+      res.status(409).json({
+        ok: false, code: "STOPPED_REASON_REQUIRED",
+        message: "stoppedReason must be a non-empty descriptive string (stored in DB for audit)",
+        evaluationLockUnchanged: true, candleHistoryDeleted: false, providerCallStarted: false,
+      });
+      return;
+    }
+    if (typeof idempotencyKey !== "string" || !idempotencyKey) {
+      res.status(409).json({
+        ok: false, code: "IDEMPOTENCY_KEY_REQUIRED",
+        message: "idempotencyKey must be a non-empty string",
+        evaluationLockUnchanged: true, candleHistoryDeleted: false, providerCallStarted: false,
+      });
+      return;
+    }
+
+    const { getWarehouseProgressForReset, forceStopWarehouse, getFullNseWarehouseMetrics } =
+      await import("../lib/kiteCandle/fullNseWarehouse");
+
+    const current = await getWarehouseProgressForReset();
+
+    if (dryRun !== false) {
+      res.json({
+        ok: true, dryRun: true,
+        message: "Dry-run: all preconditions passed. Pass dryRun:false to force-stop.",
+        currentState: current
+          ? { status: current.status, snapshotId: current.snapshotId, stoppedReason: current.stoppedReason }
+          : null,
+        wouldSetStoppedReason: providedReason,
+        evaluationLockUnchanged: true, candleHistoryDeleted: false, providerCallStarted: false,
+      });
+      return;
+    }
+
+    const { logger: l } = await import("../lib/logger");
+    l.info({
+      idempotencyKey,
+      prevStatus: current?.status,
+      prevSnapshotId: current?.snapshotId,
+      stoppedReason: providedReason,
+      actor: "[owner-session-redacted]",
+    }, "warehouse-force-stop: owner-authorized EXECUTED");
+
+    await forceStopWarehouse(providedReason);
+    const after = await getWarehouseProgressForReset();
+    const metrics = getFullNseWarehouseMetrics();
+
+    res.json({
+      ok: true, dryRun: false,
+      message: `Warehouse force-stopped. Candle history UNCHANGED. Evaluation lock UNCHANGED.`,
+      evaluationLockUnchanged: true,
+      candleHistoryDeleted: false,
+      providerCallStarted: false,
+      idempotencyKey,
+      before: { status: current?.status ?? null, stoppedReason: current?.stoppedReason ?? null },
+      after: { status: after?.status ?? null, stoppedReason: after?.stoppedReason ?? null },
+      metrics: { warehouseRunning: metrics.warehouseRunning, lastWarehouseAt: metrics.lastWarehouseAt },
+    });
+    return;
   } catch (err) { next(err); }
 });
 

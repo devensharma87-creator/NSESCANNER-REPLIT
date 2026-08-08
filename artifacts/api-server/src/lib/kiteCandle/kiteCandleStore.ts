@@ -497,6 +497,54 @@ export async function acquireGlobalIngestionLock(
 }
 
 /**
+ * Bounded polling until a Postgres advisory lock is released by the winner,
+ * then reloads from DB.
+ *
+ * Replaces the fixed `sleep(15_000)` that was insufficient for the full
+ * warehouse run (~196 s for 199 symbols at 3 req/s). The loser now polls every
+ * POLL_INTERVAL_MS for the lock to become acquirable. When it can acquire the
+ * lock, the winner has finished and all DB rows are written; the loser then
+ * releases the lock immediately and reloads.
+ *
+ * Max wait: MAX_POLL_MS (10 min). If the winner hasn't finished, reloads
+ * whatever is in DB at that point.
+ */
+async function pollForLockReleaseAndReload(
+  lockKey: number,
+  lockDescription: string,
+  mode: string,
+): Promise<number> {
+  const POLL_INTERVAL_MS = 5_000;
+  const MAX_POLL_MS = 10 * 60 * 1_000; // 10 min maximum
+  const pollStart = Date.now();
+  let lockFree = false;
+
+  while (Date.now() - pollStart < MAX_POLL_MS) {
+    await sleep(POLL_INTERVAL_MS);
+    // Try to acquire — success means winner released the lock.
+    try {
+      const result = (await db.execute(
+        sql`SELECT pg_try_advisory_lock(${lockKey}) AS acquired`,
+      )) as unknown as { rows: Array<{ acquired: boolean }> };
+      if (result.rows[0]?.acquired === true) {
+        // Immediately release — we only needed to detect the winner is done.
+        await db.execute(sql`SELECT pg_advisory_unlock(${lockKey})`);
+        lockFree = true;
+        break;
+      }
+    } catch { /* DB error polling — break and reload with whatever is available */ break; }
+  }
+
+  const waitedMs = Date.now() - pollStart;
+  const reloaded = await loadFromDb();
+  logger.info(
+    { reloaded, lockFree, waitedMs, lockDescription, mode },
+    "kiteCandleStore: reloaded from DB after winner released lock",
+  );
+  return reloaded;
+}
+
+/**
  * Release the global Kite historical-ingestion lock (88_274_614).
  * Best-effort — lock auto-releases on session close anyway.
  */
@@ -548,6 +596,113 @@ export function getKiteCandleSeries(
     status: "pending",
     errorCode: "KITE_CANDLE_STORE_PENDING",
   };
+}
+
+// ─── Separate physical-store metrics (Point 8) ───────────────────────────────
+
+export interface KiteCandlePhysicalStoreMetrics {
+  /** Description of what each field counts. */
+  description: string;
+  /** Total rows in kite_candle_store (curated + warehouse). */
+  totalPhysicalStoreRows: number;
+  /** Curated universe symbols present in kite_candle_store (subset of 199). */
+  curatedUniverseCount: number;
+  curatedStoredCount: number;
+  curatedReadyCount: number;        // barCount >= MIN_BARS_FOR_EVALUATION
+  curatedOkCount: number;
+  curatedInsufficientCount: number;
+  curatedUnavailableCount: number;
+  /** Warehouse (non-curated) row counts. */
+  warehouseStoredCount: number;
+  warehouseOkCount: number;
+  warehouseInsufficientCount: number;
+  warehouseHardFailureCount: number; // unavailable
+  warehouseStaleCount: number;
+  /** True if the DB query succeeded; false means counts may be stale in-memory estimates. */
+  liveQuerySuccess: boolean;
+  queriedAt: string;
+}
+
+/**
+ * Run a live DB query to count curated vs warehouse rows separately.
+ *
+ * Motivation (Pack 33 Corrective Point 8): the in-memory storeMetrics conflates
+ * curated and warehouse rows in `totalSymbols`. This function provides exact
+ * per-universe counts from the physical DB row state (not L1 memCache).
+ *
+ * Result is NOT cached — callers should cache it externally if needed.
+ */
+export async function getKiteCandleStorePhysicalMetrics(
+  curatedSymbols: string[],
+  curatedActiveCount: number,
+): Promise<KiteCandlePhysicalStoreMetrics> {
+  const queriedAt = new Date().toISOString();
+  const description =
+    "Physical DB row counts split by curated (199-symbol universe) vs warehouse (all other NSE EQ). " +
+    "curatedStoredCount = curated symbols present in DB (subset of curatedUniverseCount). " +
+    "warehouseStoredCount = all other rows. " +
+    "curatedReadyCount = curated rows with status=ok|stale AND bar_count>=" + MIN_INDICATOR_BARS + ".";
+
+  try {
+    await ensureKiteCandleSchema();
+
+    // Single-pass aggregation: label each row as curated or warehouse.
+    // Parameterized ANY($1::text[]) avoids N-symbol WHERE IN explosion.
+    const result = await db.execute(sql`
+      SELECT
+        COUNT(*)                                                                  AS total_rows,
+        COUNT(*) FILTER (WHERE symbol = ANY(${curatedSymbols}::text[]))           AS curated_stored,
+        COUNT(*) FILTER (
+          WHERE symbol = ANY(${curatedSymbols}::text[])
+            AND status IN ('ok', 'stale')
+            AND bar_count >= ${MIN_INDICATOR_BARS}
+        )                                                                         AS curated_ready,
+        COUNT(*) FILTER (WHERE symbol = ANY(${curatedSymbols}::text[]) AND status = 'ok')          AS curated_ok,
+        COUNT(*) FILTER (WHERE symbol = ANY(${curatedSymbols}::text[]) AND status = 'insufficient') AS curated_insufficient,
+        COUNT(*) FILTER (WHERE symbol = ANY(${curatedSymbols}::text[]) AND status = 'unavailable')  AS curated_unavailable,
+        COUNT(*) FILTER (WHERE NOT (symbol = ANY(${curatedSymbols}::text[])))                       AS warehouse_stored,
+        COUNT(*) FILTER (WHERE NOT (symbol = ANY(${curatedSymbols}::text[])) AND status = 'ok')     AS warehouse_ok,
+        COUNT(*) FILTER (WHERE NOT (symbol = ANY(${curatedSymbols}::text[])) AND status = 'insufficient') AS warehouse_insufficient,
+        COUNT(*) FILTER (WHERE NOT (symbol = ANY(${curatedSymbols}::text[])) AND status = 'unavailable')  AS warehouse_hard_failure,
+        COUNT(*) FILTER (WHERE NOT (symbol = ANY(${curatedSymbols}::text[])) AND status = 'stale')        AS warehouse_stale
+      FROM kite_candle_store
+    `);
+
+    // drizzle wraps pg rows — try both shapes (rows array or plain result)
+    const row: Record<string, unknown> = (
+      (result as unknown as { rows: Record<string, unknown>[] }).rows?.[0] ?? result
+    ) as Record<string, unknown>;
+
+    const n = (k: string): number => Number(row[k] ?? 0);
+    return {
+      description,
+      totalPhysicalStoreRows:  n("total_rows"),
+      curatedUniverseCount:    curatedActiveCount,
+      curatedStoredCount:      n("curated_stored"),
+      curatedReadyCount:       n("curated_ready"),
+      curatedOkCount:          n("curated_ok"),
+      curatedInsufficientCount: n("curated_insufficient"),
+      curatedUnavailableCount:  n("curated_unavailable"),
+      warehouseStoredCount:    n("warehouse_stored"),
+      warehouseOkCount:        n("warehouse_ok"),
+      warehouseInsufficientCount: n("warehouse_insufficient"),
+      warehouseHardFailureCount:  n("warehouse_hard_failure"),
+      warehouseStaleCount:     n("warehouse_stale"),
+      liveQuerySuccess: true,
+      queriedAt,
+    };
+  } catch (err) {
+    logger.warn({ err }, "kiteCandleStore: physicalStoreMetrics DB query failed — returning zero counts");
+    return {
+      description,
+      totalPhysicalStoreRows: 0, curatedUniverseCount: curatedActiveCount,
+      curatedStoredCount: 0, curatedReadyCount: 0, curatedOkCount: 0,
+      curatedInsufficientCount: 0, curatedUnavailableCount: 0,
+      warehouseStoredCount: 0, warehouseOkCount: 0, warehouseInsufficientCount: 0,
+      warehouseHardFailureCount: 0, warehouseStaleCount: 0,
+      liveQuerySuccess: false, queriedAt,
+    };
+  }
 }
 
 // ─── Metrics ─────────────────────────────────────────────────────────────────
@@ -780,13 +935,18 @@ export async function runKiteCandleRefresh(mode: RefreshMode = "FULL"): Promise<
   if (!globalLocked) {
     logger.warn(
       { mode },
-      "kiteCandleStore: curated refresh skipped — global ingestion lock held by another replica/job; will retry next cycle",
+      "kiteCandleStore: curated refresh skipped — global ingestion lock held by another replica/job; polling for winner to finish",
     );
-    // Reload from DB so this replica still benefits from the other job's work.
-    await sleep(15_000);
-    const reloaded = await loadFromDb();
-    logger.info({ reloaded, mode }, "kiteCandleStore: reloaded from DB after global lock miss");
-    return { ...emptyResult, skipped: true, skipReason: "GLOBAL_LOCK_HELD" };
+    // ── Bounded polling until winner releases lock (Pack 33 Corrective Point 7) ──
+    // Fixed 15 s sleep was insufficient: the warehouse winner takes ~196 s for
+    // 199 symbols at 3 req/s. Loser reloaded at 15 s got < 50 rows.
+    // Fix: poll for global lock release, then reload. Max 10 minutes.
+    const reloaded = await pollForLockReleaseAndReload(
+      KITE_HISTORICAL_INGESTION_GLOBAL_LOCK,
+      "global lock (warehouse winner)",
+      mode,
+    );
+    return { ...emptyResult, skipped: true, skipReason: "GLOBAL_LOCK_HELD", ...(reloaded != null ? { reloadedCount: reloaded } : {}) } as RefreshResult;
   }
 
   // Then acquire curated-specific lock — prevents duplicate curated runs if
@@ -794,10 +954,14 @@ export async function runKiteCandleRefresh(mode: RefreshMode = "FULL"): Promise<
   const locked = await tryAcquireRefreshLock();
   if (!locked) {
     await releaseGlobalIngestionLock();
-    logger.info({ mode }, "kiteCandleStore: refresh skipped — curated advisory lock held (another replica refreshing)");
-    await sleep(15_000);
-    const reloaded = await loadFromDb();
-    logger.info({ reloaded, mode }, "kiteCandleStore: reloaded from DB after curated lock miss");
+    logger.info({ mode }, "kiteCandleStore: refresh skipped — curated advisory lock held (another replica refreshing); polling for winner");
+    // ── Bounded polling for curated lock release ──────────────────────────────
+    const reloaded = await pollForLockReleaseAndReload(
+      ADVISORY_LOCK_KEY,
+      "curated lock (another replica refreshing)",
+      mode,
+    );
+    return { ...emptyResult, skipped: true, skipReason: "CURATED_LOCK_HELD", ...(reloaded != null ? { reloadedCount: reloaded } : {}) } as RefreshResult;
     return { ...emptyResult, skipped: true, skipReason: "LOCK_HELD" };
   }
 

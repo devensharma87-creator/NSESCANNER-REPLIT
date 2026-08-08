@@ -6,6 +6,22 @@ Format: `## YYYY-MM-DD — <short title>` then bullet points with: what changed,
 
 ---
 
+## 2026-08-08 — Pack 33 Corrective Control Repair (PROMPT_33_CORRECTIVE_CONTROL_REPAIR)
+
+- 11-point corrective package triggered by accidental owner-boundary test resetting production `kite_warehouse_progress` from STOPPED→CANARY via unauthenticated route.
+- **Sliding-window rate limiter** (`lib/kiteCandle/tokenBucket.ts`): full rewrite replacing token-bucket; starts empty (no cold-burst); `resetMetrics()` preserves window timestamps; clock/sleeper injected for deterministic testing; 24 tests.
+- **Canonical instrument eligibility classifier** (`lib/kiteCandle/instrumentEligibility.ts`): 10-class taxonomy (ORDINARY_EQUITY_ELIGIBLE, DEBT_GOVERNMENT_SECURITY, SOVEREIGN_GOLD_BOND, SME_EQUITY_POLICY_EXCLUDED, UNRESOLVED_SECURITY_TYPE…); `classifyInstrument()`, `classifyInstrumentBatch()`, `summarizeEligibility()`; 42 tests. Root cause of Aug 7 CANARY_VALIDATION_FAILED: 36/50 canary symbols were SDL bonds, gold bonds, SME-ST instruments.
+- **Durable STOPPED state** (`lib/kiteCandle/fullNseWarehouse.ts`): when snapshotId changes (midnight IST roll) and status=STOPPED, preserve STOPPED (do not silently reset to CANARY); only IN_PROGRESS/CANARY/COMPLETE trigger a new snapshot cycle. New exports: `forceStopWarehouse()`, `getWarehouseProgressForReset()`.
+- **Losing-replica hydration** (`lib/kiteCandle/kiteCandleStore.ts`): replaced fixed `sleep(15_000)` with bounded `pollForLockReleaseAndReload()` (10-min cap, 5s poll, exits when lock released or data appears); new `getKiteCandleStorePhysicalMetrics()` for DB-sourced split-count metrics.
+- **Hardened reset route** (`routes/scanner.ts`): requires all 5 preconditions (confirmationPhrase, expectedSnapshotId, expectedCurrentStatus="STOPPED", idempotencyKey, dryRun=false); default dryRun=true.
+- **New force-stop route** (`POST /api/scan/candle-store/warehouse/force-stop`): requireOwnerStrict; sets status=STOPPED with documented reason; guarantees evaluationLockUnchanged, candleHistoryDeleted=false, providerCallStarted=false; used to correct the accidental reset post-deploy.
+- **Separate physicalStoreMetrics**: `GET /api/scan/candle-store/metrics` now includes `physicalStoreMetrics` (live DB row counts, split curated vs warehouse, liveQuerySuccess flag).
+- Battery: api-server **281 files / 6568 tests** PASS; scanner **52 files / 1250 tests** PASS; 4-pkg TSC CLEAN; all 3 compile-time locks = false.
+- Deliverables: `CANARY_50_MATRIX_2026-08-07.md`, `ADJACENT_DEFECTS_ROADMAP_2026-08-08.md` at workspace root.
+- **Post-deploy required action**: Call `POST /api/scan/candle-store/warehouse/force-stop` on production with `confirmationPhrase: "AUTHORIZE_FORCE_STOP_KITE_WAREHOUSE"`, `stoppedReason: "ACCIDENTAL_OWNER_BOUNDARY_TEST_RESET_PENDING_REMEDIATION"`, within 5 min of deploy (before warehouse scheduler's first tick).
+- **Re-read if**: modifying warehouse eligibility, rate-limiter behavior, force-stop/reset gate logic, physicalStoreMetrics query, or Phase B authorization.
+- **Files**: `lib/kiteCandle/tokenBucket.ts` + `.test.ts`, `lib/kiteCandle/instrumentEligibility.ts` + `.test.ts`, `lib/kiteCandle/fullNseWarehouse.ts`, `lib/kiteCandle/kiteCandleStore.ts`, `routes/scanner.ts`; workspace root: `CANARY_50_MATRIX_2026-08-07.md`, `ADJACENT_DEFECTS_ROADMAP_2026-08-08.md`.
+
 ## 2026-08-06 — Pack 9: Professional F&O Strategy Research & Qualification (BLOCKED)
 
 - Pre-registered, net-of-cost, out-of-sample qualification protocol executed for 7 F&O strategy archetypes (NIFTY/BANKNIFTY/SENSEX).

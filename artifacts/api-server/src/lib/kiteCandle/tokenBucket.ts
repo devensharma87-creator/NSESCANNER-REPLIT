@@ -1,29 +1,36 @@
 /**
- * Token-bucket rate limiter for the Kite Historical Data API.
+ * Sliding-window rate limiter for the Kite Historical Data API.
  *
- * Problem with the prior approach (6 concurrent + 2-second pause):
- *   Six requests are released simultaneously. All 6 fire within ~100 ms,
- *   which is a burst of 60 req/s — violating the 3 req/s rolling limit —
- *   before the 2-second pause begins. The 2-second pause reduces the
- *   AVERAGE rate, but does not bound the INSTANTANEOUS rate.
+ * Replaces the prior token-bucket approach which had a cold-start burst defect:
+ * when `tokens` was refilled to `capacityTokens=3` at cycle start, 3 workers
+ * dispatched immediately at t=0 PLUS 2 more within the first 1-second measurement
+ * window, producing maxObservedRps=5 which exceeded the 3 req/s limit.
  *
- * Solution — token-bucket with rolling enforcement:
- *   Tokens refill at REFILL_RATE_PER_SEC tokens/second, up to CAPACITY.
- *   Each API call must acquire() one token before dispatching. If no token
- *   is available, the acquire() call sleeps until refill produces enough.
- *   This guarantees the rolling rate never exceeds REFILL_RATE_PER_SEC
- *   requests/second regardless of concurrency.
+ * Solution — sliding-window with injected clock:
+ *   Tracks timestamps of recent requests in a ring. Before dispatching, prunes
+ *   timestamps outside the rolling window. If the count is already at the max,
+ *   waits until the oldest expires. This guarantees: in ANY arbitrary 1-second
+ *   window, at most MAX_PER_WINDOW (3) requests are dispatched.
  *
- * 429 handling:
- *   reportRateLimit() drains the bucket, waits Retry-After + jitter, and
- *   logs diagnostics. The caller should retry after this returns.
+ * Key properties:
+ *   - No cold-start burst:    windowTimestamps starts empty; first request waits
+ *                             0 ms (immediately dispatched), but concurrently
+ *                             arriving workers wait ≥333 ms per additional slot.
+ *   - No reset burst:         resetMetrics() clears counters ONLY — it does NOT
+ *                             clear windowTimestamps, so rate limiting is seamless
+ *                             across cycle boundaries.
+ *   - Deterministic tests:    accepts an optional `clock` + `sleeper` injection so
+ *                             fake-clock tests exercise all code paths without
+ *                             real timer delays.
+ *   - 429 back-off:           reportRateLimit() fills the window to capacity so all
+ *                             in-flight workers back off immediately; then waits
+ *                             Retry-After + jitter.
  *
- * Metrics captured per refresh cycle:
- *   - requestCount        total Kite historical API calls attempted
- *   - rate429Count        HTTP 429 responses received
- *   - retryCount          total retry attempts (≥ rate429Count)
- *   - maxObservedRollingRps  peak req/s measured over any 1-second window
- *   - currentTokens       remaining bucket fill (snapshot at call time)
+ * Cross-replica enforcement:
+ *   Only one replica holds KITE_HISTORICAL_INGESTION_GLOBAL_LOCK at a time
+ *   (pg_try_advisory_lock). Each process has its own KiteHistoricalTokenBucket
+ *   singleton; because the lock serialises replicas, the per-process rate IS
+ *   the global aggregate rate.
  */
 
 import { logger } from "../logger";
@@ -31,23 +38,10 @@ import { logger } from "../logger";
 // ─── Config ──────────────────────────────────────────────────────────────────
 
 /** Kite's documented historical-data rate limit (requests per second per account). */
-const REFILL_RATE_PER_SEC = 3;
+export const MAX_PER_WINDOW = 3;
 
-/**
- * Bucket capacity = 1 second worth of tokens.
- *
- * With CAPACITY=3 and 6 concurrent workers, the first 3 workers dispatch
- * immediately; the next 3 wait ~333 ms for the next token. After that,
- * each token arrives every 333 ms. Effective rate is exactly 3 req/s.
- *
- * A higher capacity (e.g. 6) would allow a 6-request burst up front. We
- * keep it at 3 (one second's worth) so we never exceed 3 req/s even in
- * a cold-start burst.
- */
-const CAPACITY = 3;
-
-/** Rolling window for max-RPS measurement. */
-const WINDOW_MS = 1_000;
+/** Rolling enforcement window in milliseconds. */
+export const WINDOW_MS = 1_000;
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -55,87 +49,114 @@ export interface TokenBucketMetrics {
   requestCount: number;
   rate429Count: number;
   retryCount: number;
-  /** Peak req/s observed over any 1-second window in this cycle. */
+  /**
+   * Peak req/s observed over any 1-second window in this cycle.
+   * Computed as `windowTimestamps.length / (WINDOW_MS / 1000)` at the moment
+   * each request is recorded — the densest instant in the window.
+   */
   maxObservedRollingRps: number;
-  /** Current fill level (0.0 – CAPACITY). Snapshot at call time. */
+  /**
+   * Available request slots in the current window snapshot.
+   * Repurposed from the token-bucket "remaining tokens" concept:
+   *   availableSlots = MAX_PER_WINDOW − windowTimestamps.length (after pruning).
+   */
   currentTokens: number;
+}
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+function defaultSleep(ms: number): Promise<void> {
+  return new Promise(r => setTimeout(r, ms));
 }
 
 // ─── Implementation ───────────────────────────────────────────────────────────
 
-function sleep(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
-
 export class KiteHistoricalTokenBucket {
-  private tokens: number;
-  private lastRefillMs: number;
-  private readonly capacityTokens: number;
-  private readonly refillPerMs: number; // tokens / ms
+  private readonly maxPerWindow: number;
+  private readonly windowMs: number;
+  private readonly clock: () => number;
+  private readonly sleeper: (ms: number) => Promise<void>;
 
-  // Metrics
+  /**
+   * Timestamps (from `clock()`) of requests dispatched within the current
+   * rolling window. Pruned before each acquire attempt.
+   *
+   * Starts EMPTY — there is no initial token fill, so no cold-start burst.
+   * The first request dispatches immediately; subsequent concurrent requests
+   * wait until a slot opens (≥ 333 ms apart at 3 req/s).
+   */
+  private windowTimestamps: number[] = [];
+
+  // Metrics (reset per cycle; windowTimestamps is NOT reset)
   private _requestCount = 0;
   private _rate429Count = 0;
   private _retryCount = 0;
-  private _maxObservedRps = 0;
-  private _windowStart = Date.now();
-  private _windowCount = 0;
+  private _maxObservedRollingRps = 0;
 
+  /**
+   * @param maxPerWindow   Max requests per `windowMs`. Default: 3.
+   * @param windowMs       Rolling window duration in ms. Default: 1000.
+   * @param clock          Time source (injectable for deterministic tests). Default: Date.now.
+   * @param sleeper        Sleep function (injectable for deterministic tests). Default: real setTimeout.
+   */
   constructor(
-    capacityTokens = CAPACITY,
-    refillRatePerSec = REFILL_RATE_PER_SEC,
+    maxPerWindow = MAX_PER_WINDOW,
+    windowMs = WINDOW_MS,
+    clock: () => number = Date.now,
+    sleeper: (ms: number) => Promise<void> = defaultSleep,
   ) {
-    this.capacityTokens = capacityTokens;
-    this.refillPerMs = refillRatePerSec / 1_000;
-    this.tokens = capacityTokens; // start full — permits immediate initial requests
-    this.lastRefillMs = Date.now();
+    this.maxPerWindow = maxPerWindow;
+    this.windowMs = windowMs;
+    this.clock = clock;
+    this.sleeper = sleeper;
   }
 
   // ─── Private helpers ─────────────────────────────────────────────────────
 
-  /** Refill tokens proportional to elapsed wall-clock time. */
-  private refill(): void {
-    const now = Date.now();
-    const elapsed = now - this.lastRefillMs;
-    this.tokens = Math.min(
-      this.capacityTokens,
-      this.tokens + elapsed * this.refillPerMs,
-    );
-    this.lastRefillMs = now;
+  /** Remove timestamps that have expired from the rolling window. */
+  private pruneWindow(): void {
+    const cutoff = this.clock() - this.windowMs;
+    let i = 0;
+    while (i < this.windowTimestamps.length && this.windowTimestamps[i]! <= cutoff) i++;
+    if (i > 0) this.windowTimestamps.splice(0, i);
   }
 
-  /** Track requests within a sliding 1-second window and update peak RPS. */
-  private recordRequest(): void {
-    const now = Date.now();
-    if (now - this._windowStart >= WINDOW_MS) {
-      const elapsed = (now - this._windowStart) / 1_000;
-      const rps = elapsed > 0 ? this._windowCount / elapsed : 0;
-      if (rps > this._maxObservedRps) this._maxObservedRps = rps;
-      this._windowStart = now;
-      this._windowCount = 0;
+  /** Record RPS measurement after each successful dispatch. */
+  private recordRps(): void {
+    // Densest possible RPS in the window = full-window count / window_seconds.
+    // windowTimestamps already has the new timestamp pushed, so this captures
+    // the instantaneous peak.
+    const rps = this.windowTimestamps.length / (this.windowMs / 1_000);
+    if (rps > this._maxObservedRollingRps) {
+      this._maxObservedRollingRps = rps;
     }
-    this._windowCount++;
   }
 
   // ─── Public API ───────────────────────────────────────────────────────────
 
   /**
-   * Acquire a token before dispatching one Kite Historical API request.
-   * Blocks (awaits sleep) until a token is available. This is the sole
-   * rate-enforcement point — all workers must call this before every request.
+   * Acquire a dispatch slot before making one Kite Historical API call.
+   *
+   * Guarantees: in any arbitrary `windowMs`-length interval, at most
+   * `maxPerWindow` calls are dispatched — regardless of concurrency level.
+   *
+   * Since JS is single-threaded, the windowTimestamps array is updated
+   * atomically from each worker's perspective (no torn reads).
    */
   async acquire(): Promise<void> {
     while (true) {
-      this.refill();
-      if (this.tokens >= 1) {
-        this.tokens -= 1;
+      this.pruneWindow();
+      if (this.windowTimestamps.length < this.maxPerWindow) {
+        const now = this.clock();
+        this.windowTimestamps.push(now);
         this._requestCount++;
-        this.recordRequest();
+        this.recordRps();
         return;
       }
-      // Wait precisely until the next token arrives (ceil to avoid busy-loop).
-      const waitMs = Math.ceil((1 - this.tokens) / this.refillPerMs);
-      await sleep(waitMs);
+      // Wait until the oldest timestamp expires from the window (+1 ms grace).
+      const oldest = this.windowTimestamps[0]!;
+      const waitMs = Math.max(1, this.windowMs - (this.clock() - oldest) + 1);
+      await this.sleeper(waitMs);
     }
   }
 
@@ -144,20 +165,24 @@ export class KiteHistoricalTokenBucket {
    *
    * Actions:
    *   1. Increment 429 and retry counters.
-   *   2. Drain the token bucket so other in-flight workers also back off.
-   *   3. Sleep for Retry-After + jitter to avoid thundering herd on retry.
+   *   2. Fill the window to capacity so in-flight workers back off immediately
+   *      (same as draining the bucket in the old implementation).
+   *   3. Sleep for Retry-After + jitter to avoid thundering-herd on retry.
    *
-   * The caller should retry the request after this promise resolves.
+   * The caller should retry after this promise resolves.
    *
    * @param retryAfterSec  Value from the Retry-After response header (default 5).
    */
   async reportRateLimit(retryAfterSec = 5): Promise<void> {
     this._rate429Count++;
     this._retryCount++;
+    // Fill window — forces all waiting workers to re-evaluate and back off.
+    const now = this.clock();
+    while (this.windowTimestamps.length < this.maxPerWindow) {
+      this.windowTimestamps.push(now);
+    }
     const jitterMs = Math.floor(Math.random() * 1_000); // 0–999 ms
     const waitMs = retryAfterSec * 1_000 + jitterMs;
-    // Drain bucket — forces all workers to wait for refill before next acquire.
-    this.tokens = 0;
     logger.warn(
       {
         retryAfterSec,
@@ -166,45 +191,49 @@ export class KiteHistoricalTokenBucket {
         rate429Count: this._rate429Count,
         retryCount: this._retryCount,
       },
-      "kiteCandleStore: Kite 429 received — bucket drained, backing off",
+      "kiteRateLimiter: 429 received — sliding window filled, backing off",
     );
-    await sleep(waitMs);
+    await this.sleeper(waitMs);
   }
 
   /** Current metrics snapshot. */
   get metrics(): TokenBucketMetrics {
-    // Finalize the current window before reporting.
-    const now = Date.now();
-    if (this._windowCount > 0) {
-      const elapsed = (now - this._windowStart) / 1_000;
-      const rps = elapsed > 0 ? this._windowCount / elapsed : 0;
-      if (rps > this._maxObservedRps) this._maxObservedRps = rps;
-    }
+    this.pruneWindow();
     return {
       requestCount: this._requestCount,
       rate429Count: this._rate429Count,
       retryCount: this._retryCount,
-      maxObservedRollingRps: Math.round(this._maxObservedRps * 100) / 100,
-      currentTokens: Math.round(this.tokens * 100) / 100,
+      maxObservedRollingRps: Math.round(this._maxObservedRollingRps * 100) / 100,
+      currentTokens: Math.max(0, this.maxPerWindow - this.windowTimestamps.length),
     };
   }
 
-  /** Reset all counters — call at the start of each refresh cycle. */
+  /**
+   * Reset per-cycle metrics counters.
+   *
+   * IMPORTANT: does NOT clear `windowTimestamps`. Clearing timestamps would
+   * allow a burst at the start of each refresh cycle, violating the rolling
+   * rate limit. Rate limiting is continuous across metric resets.
+   */
   resetMetrics(): void {
     this._requestCount = 0;
     this._rate429Count = 0;
     this._retryCount = 0;
-    this._maxObservedRps = 0;
-    this._windowStart = Date.now();
-    this._windowCount = 0;
-    // Refill tokens — a new cycle starts fresh.
-    this.tokens = this.capacityTokens;
-    this.lastRefillMs = Date.now();
+    this._maxObservedRollingRps = 0;
+    // windowTimestamps intentionally preserved — see note above.
+  }
+
+  // ─── Test-only helpers ────────────────────────────────────────────────────
+
+  /** @internal For unit tests that need to inspect window state directly. */
+  get _windowTimestampsTestOnly(): readonly number[] {
+    return this.windowTimestamps;
   }
 }
 
 /**
  * Module-level singleton — shared by all background refresh workers.
- * Reset by runKiteCandleRefresh() at the start of each refresh cycle.
+ * Metrics are reset by runKiteCandleRefresh() at the start of each cycle.
+ * Window timestamps are NOT reset between cycles.
  */
 export const kiteHistoricalBucket = new KiteHistoricalTokenBucket();

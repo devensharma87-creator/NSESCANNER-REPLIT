@@ -1,0 +1,222 @@
+PROMPT_33_CORRECTIVE_CONTROL_REPAIR — NO_PHASE_B_NO_CANARY_RETRY
+
+A production control violation occurred: the owner-boundary test invoked the real reset endpoint and changed kite_warehouse_progress from STOPPED to CANARY.
+
+Do not create a new task.
+Do not enable Phase B.
+Do not run or reset the warehouse canary until the controls below are deployed and separately authorized.
+
+1. Corrective production STOP only
+
+Authorization is granted solely to restore the existing production warehouse-progress row to:
+
+status=STOPPED
+stoppedReason=ACCIDENTAL_OWNER_BOUNDARY_TEST_RESET_PENDING_REMEDIATION
+
+Before the update:
+
+- record the existing row;
+- record snapshot ID, cursor, status and timestamps;
+- prove no provider call is running.
+
+The corrective update must:
+
+- affect only the warehouse-progress control row;
+- not delete candle history;
+- not change any evaluation lock;
+- not change curated-store rows;
+- not start ingestion;
+- be recorded in an audit log.
+
+Return before/after evidence.
+
+2. Make STOPPED durable
+
+STOPPED must remain STOPPED across:
+
+- midnight IST;
+- a new snapshot ID;
+- server restart;
+- replica restart;
+- instrument-master changes;
+- scheduler ticks.
+
+A date change must never silently convert STOPPED to CANARY.
+
+Only an explicit, owner-authorized reset with the expected snapshot ID may leave STOPPED.
+
+3. Harden the reset endpoint
+
+The existing endpoint is too easy to invoke accidentally.
+
+Change it to require all of:
+
+- requireOwnerStrict;
+- POST only;
+- exact confirmation phrase:
+  AUTHORIZE_RESET_KITE_WAREHOUSE_PROGRESS_ONLY
+- expected current snapshot ID;
+- expected current status=STOPPED;
+- idempotency key;
+- dryRun=true by default;
+- explicit dryRun=false for mutation;
+- audit-log entry with redacted actor/session metadata.
+
+If any precondition differs, return 409 and make zero changes.
+
+The response must confirm:
+
+evaluationLockUnchanged=true
+candleHistoryDeleted=false
+providerCallStarted=false
+
+Tests must never invoke the production reset endpoint.
+
+4. Replace suffix-only eligibility with a canonical security contract
+
+Do not classify instruments solely through names such as -SG, -GB, -BZ, -ST or -SM.
+
+Build an authoritative scanner eligibility resolver using available NSE/Kite identity metadata:
+
+- exchange;
+- segment/series;
+- instrument type;
+- trading symbol;
+- instrument token;
+- ISIN where available;
+- active/inactive status.
+
+Classify every instrument as:
+
+ORDINARY_EQUITY_ELIGIBLE
+TRADE_TO_TRADE_EQUITY_POLICY_EXCLUDED
+SME_EQUITY_POLICY_EXCLUDED
+DEBT_GOVERNMENT_SECURITY
+SOVEREIGN_GOLD_BOND
+ETF_OR_FUND
+INDEX
+INACTIVE_OR_DELISTED
+UNRESOLVED_SECURITY_TYPE
+OTHER_UNSUPPORTED
+
+A suffix may be supporting evidence, not the sole authority.
+
+Do not blanket-call BZ/ST/SM “non-equity.” Record them under their correct exchange-series classifications and explain the policy reason for exclusion.
+
+5. Produce an exact canary matrix
+
+Replace approximate counts and “SUCCESS or INSUFFICIENT” entries with the exact persisted/logged outcome for each original canary symbol.
+
+For every symbol provide:
+
+- identity fields;
+- exact HTTP/provider result;
+- exact returned bar count;
+- first/last completed candle;
+- exact status;
+- exact error code;
+- exact eligibility classification.
+
+All 50 rows must reconcile exactly to:
+
+successCount
++ insufficientCount
++ hardFailureCount
+= 50
+
+No approximation symbols such as “~” are permitted.
+
+6. Implement a strict historical-request limiter
+
+Internal policy remains at most three historical requests per rolling second across all replicas.
+
+Starting the bucket empty is insufficient if capacity still permits later bursts.
+
+Use a leaky-bucket/sliding-window implementation or enforce at least approximately 334ms between global request dispatches.
+
+Prove with deterministic fake-clock tests:
+
+- no arbitrary rolling one-second interval contains more than three requests;
+- initial startup has no burst;
+- reset has no burst;
+- concurrent workers cannot exceed the limit;
+- different replicas cannot exceed the aggregate limit;
+- Retry-After is honored;
+- persistent 429 stops the job.
+
+7. Fix losing-replica hydration
+
+The current timeline does not prove successful hydration:
+
+- loser reload: approximately 15 seconds after lock miss;
+- winner completion: approximately three minutes later.
+
+The loser likely reloaded before data was written.
+
+Implement one of:
+
+- refresh-generation/version polling;
+- PostgreSQL NOTIFY/LISTEN;
+- bounded polling until the winner releases the lock and generation changes.
+
+Prove the losing production replica loads all completed rows after the winner finishes, with zero provider calls.
+
+8. Separate metrics correctly
+
+Metrics must report independently:
+
+curatedUniverseCount
+curatedStoredCount
+curatedReadyCount
+warehouseCanaryStoredCount
+warehouseInsufficientCount
+warehouseHardFailureCount
+totalPhysicalStoreRows
+
+Do not describe total store rows such as 212 as curated 199/199.
+
+Reconcile every count.
+
+9. Correct production visual proof
+
+Capture authenticated production—not development—screenshots at desktop and mobile widths showing:
+
+- Phase A banner;
+- scanner rows;
+- NOT_EVALUATED;
+- null score/action;
+- no Yahoo-derived Indian analytical score;
+- diagnostics and population status.
+
+Do not expose passwords, cookies or secrets.
+
+10. Preserve adjacent defects in the roadmap
+
+Record, without expanding scope:
+
+- INSTRUMENTS_REFRESH_FAILED is a data-availability defect and keeps F&O automation gated;
+- the missing legacy candle table affects Backtest Lab data readiness;
+- DB latency requires continued monitoring.
+
+Do not state that these have no data-integrity relevance. State their actual contained impact.
+
+11. Verification before remediation deployment
+
+Run:
+
+- api-server full suite, floor ≥ 6,515;
+- scanner full suite, floor ≥ 1,250;
+- four-package TSC;
+- both production builds;
+- migration/idempotency checks;
+- git diff --check;
+- all three compile-time locks false;
+- broker execution hard-disabled.
+
+After deployment, do not reset the warehouse.
+
+Return:
+
+PROMPT_33_PHASE_A_CONTROL_REMEDIATION_DEPLOYED — WAREHOUSE_STOPPED — CANARY_RETRY_REQUIRES_SEPARATE_OWNER_AUTHORIZATION
+
+The next live canary authorization will be considered only after these controls pass. Prompt 31 production option-snapshot verification remains reserved for the next valid market session.

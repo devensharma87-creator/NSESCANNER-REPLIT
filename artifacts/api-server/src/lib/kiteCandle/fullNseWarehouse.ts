@@ -69,6 +69,10 @@ import {
   CURATED_SIGNAL_UNIVERSE,
   INACTIVE_SYMBOLS,
 } from "../universe";
+import {
+  classifyInstrument,
+  WAREHOUSE_EXCLUDED_CLASSES,
+} from "./instrumentEligibility";
 import { kiteHistoricalBucket } from "./tokenBucket";
 import {
   getKiteCandleSeries,
@@ -271,14 +275,32 @@ export async function getEligibleNseSymbols(): Promise<EligibleSymbolResult> {
   const eligible: string[] = [];
 
   for (const [sym, inst] of instruments.bySymbol) {
-    if (centralLooksLikeEtf(sym, (inst as { name: string }).name)) {
-      etfOrSme.push({ symbol: sym, name: (inst as { name: string }).name });
-      continue;
-    }
+    const instData = inst as { name: string; instrument_type?: string; segment?: string; exchange?: string };
+
+    // Curated symbols are excluded first (refreshed by kiteCandleStore.ts).
     if (curatedSet.has(sym)) {
       curated.push(sym);
       continue;
     }
+
+    // Use the canonical eligibility classifier for all other symbols.
+    // This correctly identifies SDL bonds (-SG), Gold Bonds (-GB), SME (-ST/-SM),
+    // BZ-series, ETFs, and indices — preventing EMPTY_SERIES warehouse failures.
+    const classification = classifyInstrument({
+      symbol: sym,
+      name: instData.name ?? "",
+      instrumentType: instData.instrument_type ?? "EQ",
+      segment: instData.segment ?? "NSE",
+      exchange: instData.exchange ?? "NSE",
+    });
+
+    if (WAREHOUSE_EXCLUDED_CLASSES.has(classification.eligibilityClass)) {
+      // Group as etfOrSme for backward-compatibility with existing metrics shape.
+      // Future: expand EligibleSymbolResult.excluded to show per-class counts.
+      etfOrSme.push({ symbol: sym, name: instData.name ?? "" });
+      continue;
+    }
+
     eligible.push(sym);
   }
 
@@ -517,12 +539,9 @@ export async function runFullNseWarehousePopulation(): Promise<WarehouseRunResul
     // ── Load or create progress cursor ────────────────────────────────────
     let progress = await loadProgress();
 
-    if (!progress || progress.snapshotId !== snapshotId) {
-      // New snapshot (date changed or first run) — reset progress
-      logger.info(
-        { snapshotId, prevSnapshotId: progress?.snapshotId },
-        "fullNseWarehouse: new snapshot — resetting cursor",
-      );
+    if (!progress) {
+      // First run ever — create a fresh CANARY cursor.
+      logger.info({ snapshotId }, "fullNseWarehouse: first run — creating CANARY cursor");
       progress = {
         snapshotId, status: "CANARY",
         totalSymbols: eligibleSymbols.length,
@@ -533,6 +552,51 @@ export async function runFullNseWarehousePopulation(): Promise<WarehouseRunResul
         storageBytesEstimated: storageEstimateBytes,
       };
       await saveProgress(progress);
+    } else if (progress.snapshotId !== snapshotId) {
+      if (progress.status === "STOPPED") {
+        // *** DURABLE STOPPED — Pack 33 Corrective Point 2 ***
+        // A date change (IST day rollover) must NOT silently clear STOPPED.
+        // STOPPED is an owner-authorization gate: only a deliberate reset via
+        //   POST /api/scan/candle-store/warehouse/reset (with STOPPED precondition)
+        //   may leave this state. IST day boundary cannot override that intent.
+        //
+        // Action: update snapshotId + totalSymbols (so metrics stay current),
+        //   but preserve status=STOPPED and stoppedReason unchanged.
+        logger.warn(
+          {
+            prevSnapshotId: progress.snapshotId,
+            newSnapshotId: snapshotId,
+            stoppedReason: progress.stoppedReason,
+          },
+          "fullNseWarehouse: new snapshot but status=STOPPED — preserving STOPPED across date change; owner reset required",
+        );
+        progress = {
+          ...progress,
+          snapshotId,
+          totalSymbols: eligibleSymbols.length,
+          storageBytesEstimated: storageEstimateBytes,
+          updatedAt: new Date(),
+          // status, stoppedReason, cursorIdx, canaryValidated preserved
+        };
+        await saveProgress(progress);
+        // Continue to the STOPPED check below — it will return early.
+      } else {
+        // Normal: date change for a non-STOPPED snapshot → reset cursor to CANARY.
+        logger.info(
+          { snapshotId, prevSnapshotId: progress.snapshotId, prevStatus: progress.status },
+          "fullNseWarehouse: new snapshot — resetting cursor to CANARY",
+        );
+        progress = {
+          snapshotId, status: "CANARY",
+          totalSymbols: eligibleSymbols.length,
+          cursorIdx: 0, canaryValidated: false,
+          consecutiveErrors: 0, consecutive429s: 0,
+          startedAt: new Date(), updatedAt: new Date(),
+          stoppedReason: null,
+          storageBytesEstimated: storageEstimateBytes,
+        };
+        await saveProgress(progress);
+      }
     }
 
     if (progress.status === "COMPLETE") {
@@ -834,7 +898,9 @@ function scheduleNextWarehouseRun(): void {
 /**
  * Reset the warehouse progress cursor (sets status back to CANARY, cursor=0).
  * Exposed via POST /api/scan/candle-store/warehouse/reset.
- * Requires a non-empty snapshotId to prevent accidental resets.
+ *
+ * PRECONDITION: caller must verify current status === "STOPPED" before calling.
+ * The hardened route handler in routes/scanner.ts enforces this gate.
  */
 export async function resetWarehouseProgress(): Promise<void> {
   await ensureWarehouseProgressSchema();
@@ -845,7 +911,46 @@ export async function resetWarehouseProgress(): Promise<void> {
         stopped_reason=NULL, updated_at=NOW()
     WHERE id=1
   `);
-  logger.info("fullNseWarehouse: progress cursor reset to CANARY");
+  logger.info("fullNseWarehouse: progress cursor reset to CANARY (caller pre-verified STOPPED)");
+}
+
+/**
+ * Force-stop the warehouse with a specific reason.
+ *
+ * This is the corrective stop mechanism — used when the warehouse is in a
+ * non-STOPPED state and must be halted by owner action without triggering
+ * a full reset. It does NOT clear candle history, curated rows, or the
+ * evaluation lock.
+ *
+ * Exposed via POST /api/scan/candle-store/warehouse/force-stop (requireOwnerStrict).
+ */
+export async function forceStopWarehouse(stoppedReason: string): Promise<void> {
+  await ensureWarehouseProgressSchema();
+  await db.execute(sql`
+    UPDATE kite_warehouse_progress
+    SET status = 'STOPPED',
+        stopped_reason = ${stoppedReason},
+        updated_at = NOW()
+    WHERE id = 1
+  `);
+  logger.info(
+    { stoppedReason },
+    "fullNseWarehouse: force-stopped by owner — evaluationLock UNCHANGED, candleHistory UNCHANGED",
+  );
+}
+
+/**
+ * Load the current warehouse progress row from DB.
+ * Exported for the hardened reset route to validate preconditions.
+ * Returns null if the schema does not yet exist or the row does not exist.
+ */
+export async function getWarehouseProgressForReset(): Promise<WarehouseProgress | null> {
+  try {
+    await ensureWarehouseProgressSchema();
+    return await loadProgress();
+  } catch {
+    return null;
+  }
 }
 
 // ─── Metrics ─────────────────────────────────────────────────────────────────
