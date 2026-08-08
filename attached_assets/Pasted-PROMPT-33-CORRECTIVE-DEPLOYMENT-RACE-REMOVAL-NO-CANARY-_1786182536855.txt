@@ -1,0 +1,177 @@
+PROMPT_33_CORRECTIVE_DEPLOYMENT_RACE_REMOVAL — NO CANARY — NO PHASE B
+
+Continue the existing Prompt 33 task. Do not create another task.
+
+The corrective implementation is not yet accepted for deployment. The current proposal requires publishing and manually invoking force-stop within five minutes, while the warehouse scheduler may start automatically. This race is unacceptable.
+
+Implement and verify the following bounded corrections:
+
+1. Add a compile-time warehouse population lock
+
+Create one authoritative constant:
+
+FULL_NSE_WAREHOUSE_POPULATION_AUTHORIZED = false as boolean
+
+Requirements:
+- No environment-variable, route, query, admin, or force bypass.
+- Check the lock before scheduler registration or before its first execution.
+- Check it again before every canary/warehouse batch and before every provider request.
+- When false, no full-NSE historical request may occur.
+- Curated candle-store hydration may continue only if it is independently safe.
+- Scanner evaluation lock remains false.
+- FNO_PAPER_V2 and SWING_PAPER_V2 locks remain false.
+- Broker execution remains hard-disabled.
+
+2. Remove the five-minute deployment race
+
+After deployment, the production application must be safe even if no owner action is performed.
+
+Expected state:
+- Warehouse population job: PAUSED_BY_COMPILE_TIME_CONTROL
+- Provider requests from full-NSE warehouse: 0
+- Canary retry: 0
+- Evaluation authorization: false
+- No scoring/action from Yahoo or incomplete canonical data
+
+3. Keep the corrective force-stop endpoint
+
+Retain the hardened owner-strict endpoint, but it must not be the primary safety mechanism.
+
+It must require:
+- Exact confirmation phrase
+- Expected current snapshot ID
+- Expected current status
+- Unique idempotency key
+- dryRun=true by default
+- Explicit dryRun=false to mutate
+- Audit record with timestamp, actor ID, previous state, new state, reason and idempotency key
+- 409 on state/snapshot mismatch
+- No candle-history deletion
+- No evaluation-lock modification
+- No provider call
+
+Never print, request or expose APP_ACCESS_PASSWORD in evidence or commands.
+
+4. Prove durable STOPPED semantics
+
+STOPPED must survive:
+- Process restart
+- Replica restart
+- IST date rollover
+- Snapshot-ID change
+- Scheduler tick
+- Curated refresh
+- Metrics request
+
+A changed daily snapshot ID must not silently convert STOPPED into CANARY.
+
+5. Eligibility-classifier proof
+
+Prove the canonical classifier uses authoritative instrument attributes with an explicit precedence order:
+- exchange
+- segment
+- instrument/security type
+- series
+- tradingsymbol
+- ISIN where available
+- active/delisted status where available
+
+Suffixes may be supporting evidence only, not the primary classifier.
+
+Unknown or ambiguous instruments must fail closed as UNRESOLVED_SECURITY_TYPE.
+
+Provide the exact original 50-symbol canary matrix with:
+- symbol
+- instrument token
+- exchange
+- segment
+- series/type
+- ISIN if available
+- eligibility class
+- exact historical result
+- exact bar count
+- exact failure/rejection reason
+
+No “approximately”, “success or insufficient”, or combined classifications.
+
+6. Strict historical request limiter
+
+Prove with deterministic fake-clock tests:
+- No more than 3 historical requests in any rolling 1,000ms interval
+- Cold start cannot burst
+- resetMetrics cannot refill or bypass rate control
+- Concurrent curated and warehouse requests share the same global limiter
+- Replica serialization occurs through the global advisory lock
+- 429 backoff cannot violate the rolling-window limit
+- 401/403 stops immediately
+
+7. Losing-replica hydration
+
+A losing replica must not reload immediately and conclude success before the winning refresh completes.
+
+Implement and test one reliable mechanism:
+- generation/version polling,
+- LISTEN/NOTIFY, or
+- bounded polling until the winner publishes completion.
+
+Prove:
+- loser observes the new generation,
+- reload happens after winner completion,
+- timeout fails closed,
+- no duplicate provider refresh occurs.
+
+8. Separate metrics
+
+Expose separate values for:
+- curated universe size
+- curated stored/ok/stale/unavailable counts
+- warehouse eligible universe size
+- warehouse stored/ok/stale/insufficient/failed counts
+- total physical table rows
+- evaluation-authorized count
+- full-NSE warehouse population lock state
+- last completed generation
+- limiter rolling-window maximum
+- 429 count
+
+Curated counts must never include warehouse-only rows.
+
+9. Verification battery
+
+Run and report:
+- targeted control tests
+- full api-server suite
+- full scanner suite
+- all four TSC checks
+- api-server production build
+- scanner production build
+- git diff --check
+- skip/only audit
+- secret sentinel
+- proof artifacts/global remains untouched
+
+10. Correct verdict
+
+Do not report DEPLOYED before an actual production publish and verification.
+
+The pre-publish verdict must be exactly:
+
+PROMPT_33_CONTROL_REMEDIATION_IMPLEMENTED — DEPLOYMENT_PENDING — WAREHOUSE_POPULATION_HARD_PAUSED
+
+After publishing, first prove from production that:
+- population lock is false,
+- warehouse provider calls are zero,
+- evaluation lock is false,
+- V2 locks are false,
+- broker execution is disabled.
+
+Only then execute the force-stop dry-run and mutation through the hardened endpoint and verify the persisted state.
+
+The post-deployment verdict may then be:
+
+PROMPT_33_PHASE_A_CONTROL_REMEDIATION_DEPLOYED — WAREHOUSE_STOPPED — CANARY_RETRY_REQUIRES_SEPARATE_OWNER_AUTHORIZATION
+
+Do not retry the canary.
+Do not enable Phase B.
+Do not activate any scoring, signal, paper-trading or broker path.
+Do not close Prompt 31 using health probes; its scheduled production snapshot observation remains reserved for a valid market session.

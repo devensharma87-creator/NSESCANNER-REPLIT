@@ -805,6 +805,15 @@ router.get("/scan/candle-store/metrics", requireOwner, async (_req, res, next) =
         reason: evalStatus.reason,
         lockedCode: "PHASE_A_POPULATION_ONLY",
       },
+      warehousePopulationLock: {
+        authorized: warehouseMetrics.populationLockAuthorized,
+        lockedCode: warehouseMetrics.populationLockCode,
+        description: warehouseMetrics.populationLockAuthorized
+          ? "Warehouse population authorized. Scheduler active."
+          : "Warehouse population compile-time locked (PAUSED_BY_COMPILE_TIME_CONTROL). " +
+            "Safe after deployment with zero owner action required. " +
+            "Set FULL_NSE_WAREHOUSE_POPULATION_AUTHORIZED=true in candleEvaluationControl.ts to activate.",
+      },
     };
 
     res.json({
@@ -966,8 +975,12 @@ router.post("/scan/candle-store/warehouse/reset", requireOwnerStrict, async (req
 /**
  * POST /api/scan/candle-store/warehouse/force-stop — owner-strict corrective STOP.
  *
- * Pack 33 Corrective Point 1: allows the owner to set status=STOPPED with a
+ * Pack 33 Corrective (hardened): allows the owner to set status=STOPPED with a
  * documented reason without triggering a new canary or deleting any data.
+ *
+ * This endpoint is NOT the primary safety mechanism — that is the compile-time
+ * FULL_NSE_WAREHOUSE_POPULATION_AUTHORIZED=false constant. This endpoint provides
+ * a durable DB-state correction after the lock is eventually enabled.
  *
  * Use cases:
  *   - Correcting an accidental reset (the trigger for this corrective package)
@@ -977,7 +990,12 @@ router.post("/scan/candle-store/warehouse/reset", requireOwnerStrict, async (req
  *   - confirmationPhrase = "AUTHORIZE_FORCE_STOP_KITE_WAREHOUSE"
  *   - stoppedReason: string (human-readable reason, stored in DB)
  *   - idempotencyKey: string
+ *   - expectedSnapshotId: string — exact current snapshot_id (prevents stale-state stops)
+ *   - expectedCurrentStatus: string — exact current status (confirmation of caller's world model)
  *   - dryRun: boolean (default true)
+ *
+ * Returns 409 on any precondition failure with machine-readable code.
+ * Writes a structured audit record before executing the mutation.
  *
  * Guarantees: evaluationLockUnchanged=true, candleHistoryDeleted=false,
  *   providerCallStarted=false.
@@ -988,14 +1006,18 @@ router.post("/scan/candle-store/warehouse/force-stop", requireOwnerStrict, async
       confirmationPhrase,
       stoppedReason: providedReason,
       idempotencyKey,
+      expectedSnapshotId,
+      expectedCurrentStatus,
       dryRun = true,
     } = (req.body ?? {}) as Record<string, unknown>;
+
+    const lockGuard = { evaluationLockUnchanged: true, candleHistoryDeleted: false, providerCallStarted: false };
 
     if (confirmationPhrase !== "AUTHORIZE_FORCE_STOP_KITE_WAREHOUSE") {
       res.status(409).json({
         ok: false, code: "CONFIRMATION_PHRASE_REQUIRED",
         message: "confirmationPhrase must be exactly 'AUTHORIZE_FORCE_STOP_KITE_WAREHOUSE'",
-        evaluationLockUnchanged: true, candleHistoryDeleted: false, providerCallStarted: false,
+        ...lockGuard,
       });
       return;
     }
@@ -1003,7 +1025,7 @@ router.post("/scan/candle-store/warehouse/force-stop", requireOwnerStrict, async
       res.status(409).json({
         ok: false, code: "STOPPED_REASON_REQUIRED",
         message: "stoppedReason must be a non-empty descriptive string (stored in DB for audit)",
-        evaluationLockUnchanged: true, candleHistoryDeleted: false, providerCallStarted: false,
+        ...lockGuard,
       });
       return;
     }
@@ -1011,7 +1033,27 @@ router.post("/scan/candle-store/warehouse/force-stop", requireOwnerStrict, async
       res.status(409).json({
         ok: false, code: "IDEMPOTENCY_KEY_REQUIRED",
         message: "idempotencyKey must be a non-empty string",
-        evaluationLockUnchanged: true, candleHistoryDeleted: false, providerCallStarted: false,
+        ...lockGuard,
+      });
+      return;
+    }
+    if (typeof expectedSnapshotId !== "string" || !expectedSnapshotId) {
+      res.status(409).json({
+        ok: false, code: "EXPECTED_SNAPSHOT_ID_REQUIRED",
+        message: "expectedSnapshotId must be the exact current snapshot_id from the progress row " +
+          "(prevents force-stopping against a stale world model). " +
+          "Pass expectedSnapshotId: null to force-stop when the progress row does not exist.",
+        ...lockGuard,
+      });
+      return;
+    }
+    if (typeof expectedCurrentStatus !== "string" || !expectedCurrentStatus) {
+      res.status(409).json({
+        ok: false, code: "EXPECTED_CURRENT_STATUS_REQUIRED",
+        message: "expectedCurrentStatus must be the exact current status string from the progress row " +
+          "(e.g. 'CANARY', 'IN_PROGRESS', 'STOPPED', 'COMPLETE'). " +
+          "This confirms the caller's world model before any mutation occurs.",
+        ...lockGuard,
       });
       return;
     }
@@ -1021,27 +1063,69 @@ router.post("/scan/candle-store/warehouse/force-stop", requireOwnerStrict, async
 
     const current = await getWarehouseProgressForReset();
 
-    if (dryRun !== false) {
-      res.json({
-        ok: true, dryRun: true,
-        message: "Dry-run: all preconditions passed. Pass dryRun:false to force-stop.",
-        currentState: current
-          ? { status: current.status, snapshotId: current.snapshotId, stoppedReason: current.stoppedReason }
-          : null,
-        wouldSetStoppedReason: providedReason,
-        evaluationLockUnchanged: true, candleHistoryDeleted: false, providerCallStarted: false,
+    // ── expectedSnapshotId verification ─────────────────────────────────────
+    const actualSnapshotId = current?.snapshotId ?? null;
+    const expectedIsNull = expectedSnapshotId === "null";
+    const snapshotIdMatch = expectedIsNull
+      ? actualSnapshotId === null
+      : actualSnapshotId === expectedSnapshotId;
+    if (!snapshotIdMatch) {
+      res.status(409).json({
+        ok: false, code: "SNAPSHOT_ID_MISMATCH",
+        message: `expectedSnapshotId mismatch: caller expected "${expectedSnapshotId}" but current is "${actualSnapshotId}". ` +
+          "Re-fetch the progress row and retry with the correct snapshotId.",
+        actualSnapshotId,
+        expectedSnapshotId,
+        ...lockGuard,
       });
       return;
     }
 
+    // ── expectedCurrentStatus verification ───────────────────────────────────
+    const actualStatus = current?.status ?? null;
+    if (actualStatus !== expectedCurrentStatus) {
+      res.status(409).json({
+        ok: false, code: "STATUS_MISMATCH",
+        message: `expectedCurrentStatus mismatch: caller expected "${expectedCurrentStatus}" but current is "${actualStatus}". ` +
+          "Re-fetch the progress row and retry with the correct status.",
+        actualStatus,
+        expectedCurrentStatus,
+        ...lockGuard,
+      });
+      return;
+    }
+
+    if (dryRun !== false) {
+      res.json({
+        ok: true, dryRun: true,
+        message: "Dry-run: all preconditions passed (including snapshotId + status verification). Pass dryRun:false to force-stop.",
+        currentState: current
+          ? { status: current.status, snapshotId: current.snapshotId, stoppedReason: current.stoppedReason }
+          : null,
+        wouldSetStoppedReason: providedReason,
+        ...lockGuard,
+      });
+      return;
+    }
+
+    // ── Structured audit record (written before mutation) ────────────────────
     const { logger: l } = await import("../lib/logger");
-    l.info({
+    const { FULL_NSE_WAREHOUSE_POPULATION_AUTHORIZED } = await import("../lib/candleEvaluationControl");
+    const auditRecord = {
+      ts: new Date().toISOString(),
+      event: "warehouse-force-stop",
       idempotencyKey,
-      prevStatus: current?.status,
-      prevSnapshotId: current?.snapshotId,
-      stoppedReason: providedReason,
       actor: "[owner-session-redacted]",
-    }, "warehouse-force-stop: owner-authorized EXECUTED");
+      prevStatus: current?.status ?? null,
+      prevSnapshotId: current?.snapshotId ?? null,
+      prevStoppedReason: current?.stoppedReason ?? null,
+      newStatus: "STOPPED",
+      newStoppedReason: providedReason,
+      evaluationLockUnchanged: true,
+      candleHistoryDeleted: false,
+      populationLockAtTimeOfStop: FULL_NSE_WAREHOUSE_POPULATION_AUTHORIZED,
+    };
+    l.info(auditRecord, "warehouse-force-stop: owner-authorized EXECUTED — structured audit record");
 
     await forceStopWarehouse(providedReason);
     const after = await getWarehouseProgressForReset();
@@ -1050,13 +1134,25 @@ router.post("/scan/candle-store/warehouse/force-stop", requireOwnerStrict, async
     res.json({
       ok: true, dryRun: false,
       message: `Warehouse force-stopped. Candle history UNCHANGED. Evaluation lock UNCHANGED.`,
-      evaluationLockUnchanged: true,
-      candleHistoryDeleted: false,
-      providerCallStarted: false,
+      ...lockGuard,
       idempotencyKey,
-      before: { status: current?.status ?? null, stoppedReason: current?.stoppedReason ?? null },
-      after: { status: after?.status ?? null, stoppedReason: after?.stoppedReason ?? null },
-      metrics: { warehouseRunning: metrics.warehouseRunning, lastWarehouseAt: metrics.lastWarehouseAt },
+      before: {
+        status: current?.status ?? null,
+        snapshotId: current?.snapshotId ?? null,
+        stoppedReason: current?.stoppedReason ?? null,
+      },
+      after: {
+        status: after?.status ?? null,
+        snapshotId: after?.snapshotId ?? null,
+        stoppedReason: after?.stoppedReason ?? null,
+      },
+      metrics: {
+        warehouseRunning: metrics.warehouseRunning,
+        lastWarehouseAt: metrics.lastWarehouseAt,
+        populationLockAuthorized: metrics.populationLockAuthorized,
+        populationLockCode: metrics.populationLockCode,
+      },
+      auditRecord,
     });
     return;
   } catch (err) { next(err); }

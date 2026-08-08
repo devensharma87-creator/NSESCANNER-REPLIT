@@ -1,119 +1,113 @@
 ---
-name: Pack 33 closure — Canonical Kite Candle Store (Phase A ready)
-description: Phase A controls complete + Pack 33 Corrective deployed; force-stop applied to production; CANARY_RETRY requires separate owner authorization.
+name: Pack 33 Corrective Closure
+description: Pack 33 corrective R1+R2 state; deployment-race removal; compile-time warehouse population lock; battery counts.
 ---
 
-## Status
-Corrective deployed 2026-08-08. Production force-stop pending (must be called within 5 min of deploy).
-Return string: PROMPT_33_PHASE_A_CONTROL_REMEDIATION_DEPLOYED — WAREHOUSE_STOPPED — CANARY_RETRY_REQUIRES_SEPARATE_OWNER_AUTHORIZATION
+## Current state (2026-08-08)
 
-## Corrective (Pack 33 Corrective Control Repair)
+**Pre-publish verdict:**  
+`PROMPT_33_CONTROL_REMEDIATION_IMPLEMENTED — DEPLOYMENT_PENDING — WAREHOUSE_POPULATION_HARD_PAUSED`
 
-### Root cause of accidental CANARY reset
-Owner-boundary test accidentally called `POST /api/scan/candle-store/warehouse/reset` without requireOwnerStrict (old route). Moved prod `kite_warehouse_progress` from STOPPED→CANARY, triggering a canary run on the wrong snapshot.
+**Post-publish verdict (after production verification):**  
+`PROMPT_33_PHASE_A_CONTROL_REMEDIATION_DEPLOYED — WAREHOUSE_STOPPED — CANARY_RETRY_REQUIRES_SEPARATE_OWNER_AUTHORIZATION`
 
-### Root cause of CANARY_VALIDATION_FAILED (Aug 7)
-36/50 canary symbols were non-equity instruments (SDL bonds = 33, SGB = 1, SME = 1, BZ = 1). They return 0 bars from Kite equity endpoint → KITE_OFFLINE → counted as hard fails. Bond/non-equity instruments now excluded by `classifyInstrument()`.
+---
 
-### 7 files changed (Pack 33 Corrective)
-| File | Change |
-|------|--------|
-| lib/kiteCandle/tokenBucket.ts | Full rewrite — sliding-window, starts empty, clock/sleeper injected |
-| lib/kiteCandle/tokenBucket.test.ts | 24 tests — fake-clock, no-burst, concurrent, 429 handling |
-| lib/kiteCandle/instrumentEligibility.ts | New — 10-class canonical classifier, 42 tests |
-| lib/kiteCandle/instrumentEligibility.test.ts | 42 tests — canary 50 breakdown, per-class regression |
-| lib/kiteCandle/fullNseWarehouse.ts | Durable STOPPED across midnight; forceStopWarehouse(); getWarehouseProgressForReset() |
-| lib/kiteCandle/kiteCandleStore.ts | pollForLockReleaseAndReload(); getKiteCandleStorePhysicalMetrics() |
-| routes/scanner.ts | Hardened reset (5-preconditions); NEW force-stop route; physicalStoreMetrics in GET metrics |
+## Two compile-time locks now active
 
-## Battery (2026-08-08, post-corrective)
-- api-server: **281 files / 6568 tests** — PASS
-- scanner: **52 files / 1250 tests** — PASS
-- 4-pkg TSC: CLEAN
-- git diff --check: CLEAN
-- SCANNER_KITE_CANDLE_EVALUATION_AUTHORIZED = false as boolean ✓
-- FNO_PAPER_V2_RUNTIME_AUTHORIZED = false as boolean ✓
-- SWING_PAPER_V2_RUNTIME_AUTHORIZED = false as boolean ✓
+| Constant | File | Value | Controls |
+|----------|------|-------|----------|
+| `FULL_NSE_WAREHOUSE_POPULATION_AUTHORIZED` | `candleEvaluationControl.ts` | `false as boolean` | Warehouse scheduler registration + all Kite historical fetches for warehouse |
+| `SCANNER_KITE_CANDLE_EVALUATION_AUTHORIZED` | `candleEvaluationControl.ts` | `false as boolean` | Phase B evaluation + paper signal generation |
 
-## Production post-deploy force-stop command
-```bash
-# Step 1: Login to get session cookie
-curl -c /tmp/prod_cookies.txt -X POST "https://marketscannerbydev.in/api/auth/login" \
-  -H "Content-Type: application/json" \
-  -d '{"password": "<APP_ACCESS_PASSWORD>"}'
+Neither has any env-var, route, admin, or force bypass. Both are `false as boolean` to prevent TSC dead-code elimination.
 
-# Step 2: Dry-run first to verify current state
-curl -b /tmp/prod_cookies.txt -X POST "https://marketscannerbydev.in/api/scan/candle-store/warehouse/force-stop" \
-  -H "Content-Type: application/json" \
-  -d '{"confirmationPhrase":"AUTHORIZE_FORCE_STOP_KITE_WAREHOUSE","stoppedReason":"ACCIDENTAL_OWNER_BOUNDARY_TEST_RESET_PENDING_REMEDIATION","idempotencyKey":"pack33-corrective-2026-08-08","dryRun":true}'
+---
 
-# Step 3: Execute (after dry-run shows ok:true)
-curl -b /tmp/prod_cookies.txt -X POST "https://marketscannerbydev.in/api/scan/candle-store/warehouse/force-stop" \
-  -H "Content-Type: application/json" \
-  -d '{"confirmationPhrase":"AUTHORIZE_FORCE_STOP_KITE_WAREHOUSE","stoppedReason":"ACCIDENTAL_OWNER_BOUNDARY_TEST_RESET_PENDING_REMEDIATION","idempotencyKey":"pack33-corrective-2026-08-08","dryRun":false}'
-```
+## Deployment race removal (R2 key change)
 
-## Original Pack 33 history-sufficiency contract
+**Problem:** Previous implementation required owner to call force-stop within 5 minutes of deploy before the warehouse scheduler fired. Race was unacceptable.
 
-### Binding constraint: HIGH_LOW_52W = 252 (NOT EMA_200 = 200)
-- 52-week H/L is MANDATORY for the curated scanner (annual-range bullish confirmation)
-- A row with 200–251 bars has EMA200 available but is NOT evaluation-eligible
-- Only rows with barCount ≥ 252 (allMandatoryInputsReady=true) reach Phase B
+**Solution:** `initFullNseWarehouseScheduler()` now returns immediately (no setTimeout) when `FULL_NSE_WAREHOUSE_POPULATION_AUTHORIZED=false`. Application is safe with zero owner action after deployment.
 
-### Per-indicator minimum bars
-| Indicator | Min bars |
-|-----------|---------|
-| RSI(14) | 15 |
-| EMA(9/20/50/100/200) | 9/20/50/100/200 |
-| MACD(12,26,9) | 34 |
-| 52W H/L | **252** (BINDING) |
-| Volume baseline | 20 |
+**Three lock check points in fullNseWarehouse.ts:**
+1. `initFullNseWarehouseScheduler()` — primary guard, no setTimeout registered
+2. `runFullNseWarehousePopulation()` — returns `{skipped:true, skipReason:"PAUSED_BY_COMPILE_TIME_CONTROL"}`
+3. `fetchWarehouseEntry()` — throws `BUG: ...` if somehow reached (belt-and-suspenders)
 
-## All Phase A controls
+---
 
-### Lock 1 — Compile-time evaluation lock
-- `candleEvaluationControl.ts`: `SCANNER_KITE_CANDLE_EVALUATION_AUTHORIZED = false as boolean`
+## Force-stop endpoint hardening (R2)
 
-### Lock 2 — Distributed rate protection
-- KITE_HISTORICAL_INGESTION_GLOBAL_LOCK = 88_274_614 (global serializer)
+`POST /api/scan/candle-store/warehouse/force-stop` now requires:
+- `expectedSnapshotId` — exact current snapshotId (409 SNAPSHOT_ID_MISMATCH on mismatch)
+- `expectedCurrentStatus` — exact current status string (409 STATUS_MISMATCH on mismatch)
+- Writes structured audit record: `{ts, event, idempotencyKey, actor:"[owner-session-redacted]", prevStatus, prevSnapshotId, prevStoppedReason, newStatus, newStoppedReason, evaluationLockUnchanged:true, candleHistoryDeleted:false, populationLockAtTimeOfStop}`
 
-### Lock 3 — History sufficiency
-- MIN_BARS_FOR_EVALUATION = 252
+**The force-stop is NOT the primary safety mechanism.** The compile-time lock is. Force-stop corrects DB state after the lock is eventually enabled.
 
-### Lock 4 — Staged resumable warehouse
-- kite_warehouse_progress; CANARY(50)→IN_PROGRESS→COMPLETE; durable STOPPED across midnight
+---
 
-### Lock 5 — Hardened reset route (POST /warehouse/reset)
-- requireOwnerStrict; 5 preconditions; STOPPED→CANARY only
+## Eligibility classifier reform (R2)
 
-### Lock 5B — Force-stop route (POST /warehouse/force-stop)  [NEW in Corrective]
-- requireOwnerStrict; sets status=STOPPED with reason; evaluationLockUnchanged=true
+`instrumentEligibility.ts` — explicit precedence:
+1. exchange → 2. segment → 3. instrument_type → 4. series (from tradingsymbol suffix) → 5. tradingsymbol → 6. ISIN → 7. inactive/delisted
 
-### Lock 6 — Runtime lock proof
-- 16 executable runtime tests in candleEvaluationControl.runtime.test.ts
+New output fields:
+- `seriesCode: string | null` — extracted from tradingsymbol suffix (not a heuristic; IS the Kite series code)
+- `precedenceVector: string[]` — ordered list of signals used in the decision
 
-### Lock 7 — Per-field readiness
-- IndicatorReadiness interface; allMandatoryInputsReady=true for Phase-B eligibility
+Kite master artifact: SDL bonds and SGBs have `instrument_type=EQ, segment=NSE`. The series code from the suffix overrides the EQ type. This is documented in the classifier comments.
 
-## Advisory lock keys
-- 88_274_614 = KITE_HISTORICAL_INGESTION_GLOBAL_LOCK (shared serializer)
-- 88_274_615 = ADVISORY_LOCK_KEY (curated refresh identity)
-- 88_274_616 = FULL_NSE_WAREHOUSE_LOCK_KEY (warehouse identity)
+---
 
-## Adjacent defects (open, separate tasks)
-1. INSTRUMENTS_REFRESH_FAILED gates F&O automation (P1)
-2. Missing `candle` table → Backtest Lab uses synthetic premiums (P1)
-3. DB latency + kite_candle_store index missing (P2)
-4. Silent storeKiteCandleEntry DB write failures (12/50 in Aug 7 canary) (P2)
+## Canary 50 breakdown (tokens verified from Kite instrument cache 2026-08-08)
 
-## Deliverables at workspace root
-- `CANARY_50_MATRIX_2026-08-07.md` — exact 50-symbol breakdown
-- `ADJACENT_DEFECTS_ROADMAP_2026-08-08.md` — 4 open defects
+| Class | Count | Root cause |
+|-------|-------|------------|
+| ORDINARY_EQUITY_ELIGIBLE | 14 | Normal main-board equity |
+| DEBT_GOVERNMENT_SECURITY (series=SG) | 33 | SDL bonds — Kite master artifact |
+| SOVEREIGN_GOLD_BOND (series=GB) | 1 | RBI Gold Bond |
+| SME_EQUITY_POLICY_EXCLUDED (series=ST) | 1 | OMFURN-ST |
+| UNRESOLVED_SECURITY_TYPE (series=BZ) | 1 | SANWARIA-BZ |
 
-## Phase A authorization request pending
-String: AUTHORIZE_PROMPT_33_PHASE_A_STORE_POPULATION_DEPLOYMENT (unchanged, still pending)
+Token coverage: 49/50 (OMFURN-ST not in Kite cache — delisted from master).
 
-## Phase B activation (after Phase A evidence)
-1. Change `false → true` in candleEvaluationControl.ts
-2. Code review + redeploy required
-3. Prove: evaluated rows have all canonical inputs; incomplete = NOT_EVALUATED
+---
+
+## Production DB state (2026-08-08)
+
+- `kite_warehouse_progress.status = CANARY` (from accidental reset on Aug 7)
+- Source: test that called `POST /api/scan/candle-store/warehouse/reset` without `requireOwnerStrict`
+- Fix: that endpoint now has `requireOwnerStrict`. Deploy will bring the lock, making the CANARY status inert.
+- To correct the DB state after deploy: use the hardened force-stop endpoint with `expectedSnapshotId`+`expectedCurrentStatus`.
+
+---
+
+## Battery (2026-08-08)
+
+| Suite | Tests | Files |
+|-------|-------|-------|
+| api-server | 6582 | 282 |
+| scanner | 1250 | 52 |
+| 4-pkg TSC | CLEAN | — |
+| git diff --check | CLEAN | — |
+
+---
+
+## MIN_BARS constants (unchanged from Pack 33 R1)
+- `MIN_BARS_FOR_STORAGE = 252` (1-year candle minimum for storage eligibility)
+- `MIN_BARS_FOR_EVALUATION = 252` (52W binding; RSI_14=15; runtime proof 16 tests)
+
+---
+
+## Phase A → Phase B activation sequence (future)
+
+When canary evidence is sufficient and the owner approves:
+1. Set `FULL_NSE_WAREHOUSE_POPULATION_AUTHORIZED = true as boolean` in `candleEvaluationControl.ts`
+2. Redeploy
+3. Scheduler will register on next boot (5-min delayed first run)
+4. After warehouse reaches COMPLETE, set `SCANNER_KITE_CANDLE_EVALUATION_AUTHORIZED = true as boolean`
+5. Redeploy again for Phase B (evaluation enabled)
+
+Neither step can be done without a code edit + review + redeploy. No env-var or route bypass exists.

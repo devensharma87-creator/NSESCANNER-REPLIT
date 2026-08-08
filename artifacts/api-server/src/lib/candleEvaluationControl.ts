@@ -1,4 +1,76 @@
 /**
+ * Kite Candle Store Control — Pack 33 Gate 9 (evaluation) + Pack 33 Corrective (warehouse population).
+ *
+ * Two independent compile-time locks govern distinct lifecycle phases:
+ *
+ *   FULL_NSE_WAREHOUSE_POPULATION_AUTHORIZED  (this file, Lock W)
+ *     false → warehouse scheduler does NOT register; no Kite historical requests
+ *             for full-NSE warehouse purposes can occur regardless of DB state.
+ *     true  → warehouse population may start when all other DB/lock conditions are met.
+ *
+ *   SCANNER_KITE_CANDLE_EVALUATION_AUTHORIZED  (this file, Lock E)
+ *     false → Phase A: store populates, all rows NOT_EVALUATED.
+ *     true  → Phase B: evaluated recommendations enabled for canonical rows.
+ *
+ * Both locks must be true independently before their respective path is live.
+ * Neither has any environment-variable, route, query, admin, or force bypass.
+ */
+
+/**
+ * Compile-time warehouse population lock.
+ *
+ * false → PAUSED_BY_COMPILE_TIME_CONTROL:
+ *   - Warehouse scheduler does NOT register (no setTimeout).
+ *   - runFullNseWarehousePopulation() returns immediately with skipReason.
+ *   - fetchWarehouseEntry() throws BUG-error if somehow reached.
+ *   - No Kite historical API call occurs for full-NSE warehouse purposes.
+ *   - Curated candle-store hydration (kiteCandleStore.ts) is independent and unaffected.
+ *   - Safe after deployment even if no owner action is performed.
+ *
+ * true → warehouse population may proceed when DB/advisory-lock conditions allow.
+ *
+ * Set to `false as boolean` to prevent TypeScript dead-code elimination of guards.
+ * Changing requires a code edit + review + redeploy.
+ *
+ * RULES:
+ *   1. No environment variable, feature flag, query parameter, header,
+ *      admin route, or process.env read may bypass this constant.
+ *   2. While false, the scheduler MUST NOT register, even if the DB shows CANARY.
+ *   3. While false, no full-NSE Kite historical request may occur.
+ *   4. This lock controls WAREHOUSE POPULATION ONLY.
+ *      Curated candle-store hydration, scanner evaluation, and paper trading
+ *      are governed by their own independent locks.
+ */
+export const FULL_NSE_WAREHOUSE_POPULATION_AUTHORIZED = false as boolean;
+
+/**
+ * Machine-readable code returned when the warehouse population lock is false.
+ * Surfaced in scheduler logs, metrics, and runFullNseWarehousePopulation().skipReason.
+ */
+export const WAREHOUSE_POPULATION_LOCKED_CODE =
+  "PAUSED_BY_COMPILE_TIME_CONTROL" as const;
+
+export type WarehousePopulationLockedCode = typeof WAREHOUSE_POPULATION_LOCKED_CODE;
+
+/**
+ * Returns the current warehouse population lock status without any DB or
+ * environment-variable lookups. Safe to call on any code path.
+ */
+export function getWarehousePopulationLockStatus(): {
+  authorized: boolean;
+  lockedCode: WarehousePopulationLockedCode | null;
+  reason: string;
+} {
+  return {
+    authorized: FULL_NSE_WAREHOUSE_POPULATION_AUTHORIZED,
+    lockedCode: FULL_NSE_WAREHOUSE_POPULATION_AUTHORIZED ? null : WAREHOUSE_POPULATION_LOCKED_CODE,
+    reason: FULL_NSE_WAREHOUSE_POPULATION_AUTHORIZED
+      ? "Warehouse population authorized. Scheduler will register on next boot."
+      : "Warehouse population is compile-time locked. Set FULL_NSE_WAREHOUSE_POPULATION_AUTHORIZED=true in candleEvaluationControl.ts after canary evidence passes.",
+  };
+}
+
+/**
  * Kite Candle Evaluation Activation Control — Pack 33 Gate 9.
  *
  * Phase A: This constant is `false`.

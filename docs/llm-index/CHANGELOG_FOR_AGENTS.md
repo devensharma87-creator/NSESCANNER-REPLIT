@@ -6,6 +6,20 @@ Format: `## YYYY-MM-DD — <short title>` then bullet points with: what changed,
 
 ---
 
+## 2026-08-08 — Pack 33 Corrective R2 — Deployment Race Removal (PROMPT_33_CORRECTIVE_DEPLOYMENT_RACE_REMOVAL)
+
+- **`FULL_NSE_WAREHOUSE_POPULATION_AUTHORIZED = false as boolean`** added to `candleEvaluationControl.ts` with `getWarehousePopulationLockStatus()`. Eliminates the post-deploy race: scheduler does NOT register unless this constant is true.
+- **Three lock check points in `fullNseWarehouse.ts`**: (1) `initFullNseWarehouseScheduler()` returns without setTimeout; (2) `runFullNseWarehousePopulation()` returns `{skipped:true,skipReason:"PAUSED_BY_COMPILE_TIME_CONTROL"}` at first guard; (3) `fetchWarehouseEntry()` throws BUG-error belt-and-suspenders. `FullNseWarehouseMetrics` exposes `populationLockAuthorized`+`populationLockCode`.
+- **Force-stop hardened**: `POST /api/scan/candle-store/warehouse/force-stop` now requires `expectedSnapshotId`+`expectedCurrentStatus` (409 on mismatch); writes structured audit record `{ts, event, idempotencyKey, actor, prevStatus, prevSnapshotId, prevStoppedReason, newStatus, newStoppedReason, evaluationLockUnchanged, candleHistoryDeleted, populationLockAtTimeOfStop}` before mutation.
+- **Eligibility classifier reformed** (`instrumentEligibility.ts`): explicit precedence (exchange→segment→instrument_type→series→tradingsymbol→ISIN→inactive). New output fields: `seriesCode: string|null` (from tradingsymbol suffix — IS the Kite series code), `precedenceVector: string[]`. BZ reason no longer "non-equity". Tests rewritten (39 tests; canary 50 exact counts proved).
+- **`GET /api/scan/candle-store/metrics`**: exposes `universeMetrics.warehousePopulationLock.{authorized, lockedCode, description}`.
+- **New test file**: `fullNseWarehouse.compileTimeLock.test.ts` (17 tests): scheduler not registered, PAUSED skip, durable STOPPED 7 scenarios, losing-replica invariants.
+- **`CANARY_50_MATRIX_2026-08-08.md`**: full instrument token matrix with 49/50 tokens from Kite cache.
+- Battery: api-server **282 files / 6582 tests** PASS; scanner **52 files / 1250 tests** PASS; 4-pkg TSC CLEAN; git diff clean.
+- Pre-publish verdict: `PROMPT_33_CONTROL_REMEDIATION_IMPLEMENTED — DEPLOYMENT_PENDING — WAREHOUSE_POPULATION_HARD_PAUSED`
+
+---
+
 ## 2026-08-08 — Pack 33 Corrective Control Repair (PROMPT_33_CORRECTIVE_CONTROL_REPAIR)
 
 - 11-point corrective package triggered by accidental owner-boundary test resetting production `kite_warehouse_progress` from STOPPED→CANARY via unauthenticated route.

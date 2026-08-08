@@ -83,6 +83,10 @@ import {
   type KiteCandleEntry,
 } from "./kiteCandleStore";
 import { MIN_BARS_FOR_STORAGE, MIN_BARS_FOR_EVALUATION } from "../historySufficiency";
+import {
+  FULL_NSE_WAREHOUSE_POPULATION_AUTHORIZED,
+  getWarehousePopulationLockStatus,
+} from "../candleEvaluationControl";
 
 // ─── Config ──────────────────────────────────────────────────────────────────
 
@@ -367,6 +371,16 @@ export function validateWarehouseEntry(entry: KiteCandleEntry): string[] {
 }
 
 async function fetchWarehouseEntry(sym: string): Promise<FetchResult> {
+  // ── Compile-time population lock ── (check #3 — defensive guard; should never fire)
+  // The scheduler guard (#1) and runFullNseWarehousePopulation guard (#2) prevent
+  // this function from being reached when the lock is false. If it IS reached,
+  // that is a programming error and must not make any provider call.
+  if (!FULL_NSE_WAREHOUSE_POPULATION_AUTHORIZED) {
+    throw new Error(
+      `BUG: fetchWarehouseEntry("${sym}") invoked while FULL_NSE_WAREHOUSE_POPULATION_AUTHORIZED=false. ` +
+      "All call sites must check the compile-time lock before dispatching to this function.",
+    );
+  }
   await kiteHistoricalBucket.acquire();
   try {
     const chart = await centralEquityCandles(sym, "day", WAREHOUSE_HISTORY_DAYS);
@@ -496,6 +510,15 @@ export async function runFullNseWarehousePopulation(): Promise<WarehouseRunResul
     validationIssueCount: 0, kiteRequests: 0, durationMs: 0,
     storageEstimateBytes: 0, stoppedReason: null,
   };
+
+  // ── Compile-time population lock ── (check #2 — belt-and-suspenders after scheduler guard)
+  if (!FULL_NSE_WAREHOUSE_POPULATION_AUTHORIZED) {
+    logger.info(
+      { lockedCode: "PAUSED_BY_COMPILE_TIME_CONTROL" },
+      "fullNseWarehouse: runFullNseWarehousePopulation skipped — FULL_NSE_WAREHOUSE_POPULATION_AUTHORIZED=false",
+    );
+    return { ...emptyResult, skipped: true, skipReason: "PAUSED_BY_COMPILE_TIME_CONTROL" };
+  }
 
   if (warehouseRunning) {
     return { ...emptyResult, skipped: true, skipReason: "ALREADY_RUNNING" };
@@ -861,8 +884,31 @@ async function releaseIdentityLock(): Promise<void> {
  * Called from initKiteCandleStore() after 5-minute boot delay.
  * Runs one batch per invocation (canary or incremental).
  * Reschedules itself every 24 h (for maintenance) or sooner if IN_PROGRESS.
+ *
+ * ── Compile-time population lock (check #1 — primary guard) ──────────────────
+ * If FULL_NSE_WAREHOUSE_POPULATION_AUTHORIZED=false, the scheduler does NOT
+ * register (no setTimeout, warehouseTimer stays null). No provider calls can
+ * occur regardless of DB state or any owner action. This is the primary safety
+ * mechanism eliminating the post-deploy race. The application is safe immediately
+ * after deployment even if no operator action is performed.
  */
 export function initFullNseWarehouseScheduler(): void {
+  // ── Compile-time lock: primary guard ─────────────────────────────────────
+  if (!FULL_NSE_WAREHOUSE_POPULATION_AUTHORIZED) {
+    const lockStatus = getWarehousePopulationLockStatus();
+    logger.info(
+      {
+        lockedCode: lockStatus.lockedCode,
+        authorized: lockStatus.authorized,
+        reason: lockStatus.reason,
+      },
+      "fullNseWarehouse: scheduler NOT registered — FULL_NSE_WAREHOUSE_POPULATION_AUTHORIZED=false; " +
+      "no setTimeout registered, no provider calls possible; curated candle-store hydration unaffected",
+    );
+    // warehouseTimer stays null — safe to verify via getFullNseWarehouseMetrics().schedulerRunning===false
+    return;
+  }
+
   if (warehouseTimer) return;
 
   // 5-minute delayed first run — let curated refresh warm up L1 first.
@@ -963,9 +1009,14 @@ export interface FullNseWarehouseMetrics {
   lockKey: number;
   globalIngestionLockKey: number;
   bytesPerSymbolEstimate: number;
+  /** Compile-time population lock state. false = PAUSED_BY_COMPILE_TIME_CONTROL. */
+  populationLockAuthorized: boolean;
+  /** Machine-readable code when population lock is false. null when authorized. */
+  populationLockCode: string | null;
 }
 
 export function getFullNseWarehouseMetrics(): FullNseWarehouseMetrics {
+  const lockStatus = getWarehousePopulationLockStatus();
   return {
     schedulerRunning: warehouseTimer != null,
     warehouseRunning,
@@ -974,6 +1025,8 @@ export function getFullNseWarehouseMetrics(): FullNseWarehouseMetrics {
     lockKey: FULL_NSE_WAREHOUSE_LOCK_KEY,
     globalIngestionLockKey: 88_274_614,
     bytesPerSymbolEstimate: BYTES_PER_SYMBOL_ESTIMATE,
+    populationLockAuthorized: lockStatus.authorized,
+    populationLockCode: lockStatus.lockedCode,
   };
 }
 
