@@ -288,14 +288,16 @@ export async function getEligibleNseSymbols(): Promise<EligibleSymbolResult> {
     }
 
     // Use the canonical eligibility classifier for all other symbols.
-    // This correctly identifies SDL bonds (-SG), Gold Bonds (-GB), SME (-ST/-SM),
-    // BZ-series, ETFs, and indices — preventing EMPTY_SERIES warehouse failures.
+    // inCurrentMaster=true because we are iterating instruments.bySymbol, which
+    // is derived from the live Kite NSE EQ master fetched today. Instruments not
+    // in the master are simply absent from this map and are never passed here.
     const classification = classifyInstrument({
       symbol: sym,
       name: instData.name ?? "",
       instrumentType: instData.instrument_type ?? "EQ",
       segment: instData.segment ?? "NSE",
       exchange: instData.exchange ?? "NSE",
+      inCurrentMaster: true,
     });
 
     if (WAREHOUSE_EXCLUDED_CLASSES.has(classification.eligibilityClass)) {
@@ -960,29 +962,191 @@ export async function resetWarehouseProgress(): Promise<void> {
   logger.info("fullNseWarehouse: progress cursor reset to CANARY (caller pre-verified STOPPED)");
 }
 
+// ─── Warehouse force-stop audit (idempotent, transactional) ──────────────────
+
 /**
- * Force-stop the warehouse with a specific reason.
+ * Ensure the force-stop audit table exists.
+ * Called lazily — safe to call multiple times.
  *
- * This is the corrective stop mechanism — used when the warehouse is in a
- * non-STOPPED state and must be halted by owner action without triggering
- * a full reset. It does NOT clear candle history, curated rows, or the
- * evaluation lock.
- *
- * Exposed via POST /api/scan/candle-store/warehouse/force-stop (requireOwnerStrict).
+ * The audit table has a UNIQUE(idempotency_key) constraint that prevents
+ * duplicate SUCCESS records for the same operation key.
  */
-export async function forceStopWarehouse(stoppedReason: string): Promise<void> {
-  await ensureWarehouseProgressSchema();
+let stopAuditSchemaEnsured = false;
+async function ensureWarehouseStopAuditSchema(): Promise<void> {
+  if (stopAuditSchemaEnsured) return;
   await db.execute(sql`
-    UPDATE kite_warehouse_progress
-    SET status = 'STOPPED',
-        stopped_reason = ${stoppedReason},
-        updated_at = NOW()
-    WHERE id = 1
+    CREATE TABLE IF NOT EXISTS kite_warehouse_stop_audit (
+      id SERIAL PRIMARY KEY,
+      idempotency_key TEXT UNIQUE NOT NULL,
+      status TEXT NOT NULL,
+      ts TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      prev_status TEXT,
+      prev_snapshot_id TEXT,
+      prev_stopped_reason TEXT,
+      new_status TEXT NOT NULL DEFAULT 'STOPPED',
+      stopped_reason TEXT NOT NULL,
+      population_lock_at_stop TEXT NOT NULL,
+      evaluation_lock_unchanged TEXT NOT NULL DEFAULT 'true',
+      candle_history_deleted TEXT NOT NULL DEFAULT 'false',
+      error_message TEXT,
+      result_payload JSONB
+    )
   `);
-  logger.info(
-    { stoppedReason },
-    "fullNseWarehouse: force-stopped by owner — evaluationLock UNCHANGED, candleHistory UNCHANGED",
-  );
+  stopAuditSchemaEnsured = true;
+}
+
+export interface ForceStopAuditRecord {
+  idempotencyKey: string;
+  status: "SUCCESS" | "FAILED";
+  ts: string;
+  prevStatus: string | null;
+  prevSnapshotId: string | null;
+  prevStoppedReason: string | null;
+  newStatus: "STOPPED";
+  stoppedReason: string;
+  populationLockAtStop: boolean;
+  evaluationLockUnchanged: true;
+  candleHistoryDeleted: false;
+  errorMessage: string | null;
+}
+
+/**
+ * Force-stop the warehouse with idempotent DB-backed auditing.
+ *
+ * Guarantees:
+ *   1. The audit record (status=SUCCESS) and the progress UPDATE are written
+ *      in a single database transaction — either both commit or neither does.
+ *   2. A failed mutation NEVER produces a success audit record (tx rollback).
+ *   3. Repeating the same idempotencyKey returns the cached result without
+ *      executing any new mutation.
+ *   4. Attempt/result status is recorded explicitly in the audit table.
+ *
+ * Does NOT delete candle history, curated rows, or modify evaluation/V2 locks.
+ */
+export async function forceStopWarehouseTransactional(params: {
+  idempotencyKey: string;
+  stoppedReason: string;
+  prevStatus: string | null;
+  prevSnapshotId: string | null;
+  prevStoppedReason: string | null;
+  populationLockAtStop: boolean;
+}): Promise<{ idempotent: boolean; auditRecord: ForceStopAuditRecord }> {
+  await ensureWarehouseProgressSchema();
+  await ensureWarehouseStopAuditSchema();
+
+  const { idempotencyKey, stoppedReason, prevStatus, prevSnapshotId, prevStoppedReason, populationLockAtStop } = params;
+
+  // ── Idempotency check ────────────────────────────────────────────────────────
+  // If a SUCCESS record already exists for this key, return it without mutation.
+  const existing = await db.execute(sql`
+    SELECT id, status, ts, prev_status, prev_snapshot_id, prev_stopped_reason, stopped_reason
+    FROM kite_warehouse_stop_audit
+    WHERE idempotency_key = ${idempotencyKey} AND status = 'SUCCESS'
+    LIMIT 1
+  `);
+  if (existing.rows.length > 0) {
+    const row = existing.rows[0] as Record<string, unknown>;
+    logger.info(
+      { idempotencyKey, cachedTs: row.ts },
+      "forceStopWarehouseTransactional: idempotent replay — returning cached SUCCESS record",
+    );
+    return {
+      idempotent: true,
+      auditRecord: {
+        idempotencyKey,
+        status: "SUCCESS",
+        ts: String(row.ts ?? ""),
+        prevStatus: (row.prev_status as string | null) ?? null,
+        prevSnapshotId: (row.prev_snapshot_id as string | null) ?? null,
+        prevStoppedReason: (row.prev_stopped_reason as string | null) ?? null,
+        newStatus: "STOPPED",
+        stoppedReason: String(row.stopped_reason ?? stoppedReason),
+        populationLockAtStop,
+        evaluationLockUnchanged: true,
+        candleHistoryDeleted: false,
+        errorMessage: null,
+      },
+    };
+  }
+
+  // ── Transactional execution ───────────────────────────────────────────────────
+  // Both the audit INSERT and the progress UPDATE commit together or not at all.
+  // A failed mutation CANNOT produce a success audit record (transaction rollback).
+  const tsIso = new Date().toISOString();
+  try {
+    await db.transaction(async (tx) => {
+      // Audit record (status=SUCCESS) inserted atomically with the mutation.
+      await tx.execute(sql`
+        INSERT INTO kite_warehouse_stop_audit (
+          idempotency_key, status, ts,
+          prev_status, prev_snapshot_id, prev_stopped_reason,
+          new_status, stopped_reason,
+          population_lock_at_stop, evaluation_lock_unchanged, candle_history_deleted,
+          result_payload
+        ) VALUES (
+          ${idempotencyKey}, 'SUCCESS', NOW(),
+          ${prevStatus}, ${prevSnapshotId}, ${prevStoppedReason},
+          'STOPPED', ${stoppedReason},
+          ${String(populationLockAtStop)}, 'true', 'false',
+          ${JSON.stringify({ actor: "[owner-session-redacted]", event: "warehouse-force-stop" })}::jsonb
+        )
+      `);
+      // Progress mutation — in the same transaction as the audit INSERT.
+      await tx.execute(sql`
+        UPDATE kite_warehouse_progress
+        SET status = 'STOPPED',
+            stopped_reason = ${stoppedReason},
+            updated_at = NOW()
+        WHERE id = 1
+      `);
+    });
+
+    const auditRecord: ForceStopAuditRecord = {
+      idempotencyKey,
+      status: "SUCCESS",
+      ts: tsIso,
+      prevStatus,
+      prevSnapshotId,
+      prevStoppedReason,
+      newStatus: "STOPPED",
+      stoppedReason,
+      populationLockAtStop,
+      evaluationLockUnchanged: true,
+      candleHistoryDeleted: false,
+      errorMessage: null,
+    };
+    logger.info(
+      { ...auditRecord },
+      "forceStopWarehouseTransactional: SUCCESS — audit+mutation committed atomically",
+    );
+    return { idempotent: false, auditRecord };
+  } catch (err) {
+    // Record the failure attempt outside the failed transaction (best effort).
+    // Uses a unique key variant so it does not conflict with a future retry.
+    const errorMessage = err instanceof Error ? err.message : String(err);
+    logger.error(
+      { idempotencyKey, errorMessage },
+      "forceStopWarehouseTransactional: FAILED — transaction rolled back",
+    );
+    try {
+      await db.execute(sql`
+        INSERT INTO kite_warehouse_stop_audit (
+          idempotency_key, status, ts,
+          prev_status, prev_snapshot_id, prev_stopped_reason,
+          new_status, stopped_reason,
+          population_lock_at_stop, evaluation_lock_unchanged, candle_history_deleted,
+          error_message
+        ) VALUES (
+          ${idempotencyKey + "_FAIL_" + Date.now()}, 'FAILED', NOW(),
+          ${prevStatus}, ${prevSnapshotId}, ${prevStoppedReason},
+          'STOPPED', ${stoppedReason},
+          ${String(populationLockAtStop)}, 'true', 'false',
+          ${errorMessage}
+        )
+      `);
+    } catch { /* secondary write failure — ignore; original error is rethrown */ }
+    throw err;
+  }
 }
 
 /**

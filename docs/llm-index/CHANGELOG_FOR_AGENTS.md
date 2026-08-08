@@ -6,6 +6,16 @@ Format: `## YYYY-MM-DD — <short title>` then bullet points with: what changed,
 
 ---
 
+## 2026-08-08 — Pack 33 Control-Only Deployment (PROMPT_33_CONTROL_ONLY_DEPLOYMENT_AND_REMAINING_EVIDENCE_CLOSURE)
+
+- **Classifier reformed (B)**: `inCurrentMaster: boolean` is now a required param. Instruments absent from the Kite master → `UNRESOLVED_SECURITY_TYPE` immediately regardless of suffix. `OMFURN-ST` (token NOT_FOUND in cache) → UNRESOLVED, not SME. Suffixes are supporting evidence for in-master instruments only. `ORDINARY_EQUITY_ELIGIBLE` requires affirmative evidence (inCurrentMaster=true + exchange=NSE + segment=NSE + instrument_type=EQ + no exclusion). All 46 eligibility tests updated to pass `inCurrentMaster`.
+- **Transactional force-stop with idempotency (D)**: New `kite_warehouse_stop_audit` table (UNIQUE idempotency_key). `forceStopWarehouseTransactional()` wraps audit INSERT (status=SUCCESS) + progress UPDATE in one `db.transaction()`. Failed tx rolls back both; success audit record only exists when mutation committed. Same idempotency key → cached result, no new mutation. Failed attempt recorded with `_FAIL_<ts>` key (best effort, outside tx). Drizzle runtime table declaration added to prevent drizzle-kit DROP.
+- **Reset route population lock gate (E)**: `POST /warehouse/reset` returns 409 `POPULATION_LOCK_PREVENTS_CANARY_RESTART` when `FULL_NSE_WAREHOUSE_POPULATION_AUTHORIZED=false`. Cannot advance STOPPED→CANARY while no scheduler is registered.
+- **Pre-publish verification (A)**: Both prod builds successful (api-server 7.3MB, scanner 2.9MB). Built artifact scan: `FULL_NSE_WAREHOUSE_POPULATION_AUTHORIZED = false` and `PAUSED_BY_COMPILE_TIME_CONTROL` appears 4 times in bundle. No env-var bypass. All four lock constants confirmed `false as boolean` in source. Broker hard disable: `isLiveCashSwingOrderEnabled()` returns false when `LIVE_CASH_SWING_ORDER_ENABLED` env var absent.
+- Battery: api-server **282 files / 6589 tests** PASS; scanner **52 files / 1250 tests** PASS; 4-pkg TSC clean; git diff clean.
+
+---
+
 ## 2026-08-08 — Pack 33 Corrective R2 — Deployment Race Removal (PROMPT_33_CORRECTIVE_DEPLOYMENT_RACE_REMOVAL)
 
 - **`FULL_NSE_WAREHOUSE_POPULATION_AUTHORIZED = false as boolean`** added to `candleEvaluationControl.ts` with `getWarehousePopulationLockStatus()`. Eliminates the post-deploy race: scheduler does NOT register unless this constant is true.

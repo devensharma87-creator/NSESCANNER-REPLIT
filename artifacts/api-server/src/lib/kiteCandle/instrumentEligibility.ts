@@ -1,52 +1,63 @@
 /**
  * Canonical NSE Instrument Eligibility Resolver — Pack 33 Corrective.
  *
- * Classifies every NSE EQ instrument from the Kite instrument master into one
- * of ten policy categories using ALL available identity metadata in strict
- * precedence order.
+ * Classifies NSE EQ instruments using ALL available identity metadata from the
+ * Kite instrument master, in strict precedence order.
  *
- * Attribute precedence (highest → lowest confidence)
- * ────────────────────────────────────────────────────
- *   1. exchange     — NSE vs BSE vs other exchange
- *   2. segment      — NSE / INDICES / NSE-SME / NSE-IFSC
- *   3. instrument_type — EQ / INDEX / FUT / OPT etc.
- *   4. series       — The NSE series code embedded in the tradingsymbol suffix:
- *                     SG = State Government (SDL bonds)
- *                     GB = Gold Bond (RBI SGBs)
- *                     ST = SME Trading platform
- *                     SM = SME segment
- *                     BZ = BSZ settlement (cross-listed)
- *                     EQ = ordinary equity (no suffix)
- *                     (Kite does not expose series as a separate CSV field;
- *                      the suffix IS the series code in Kite's master convention)
- *   5. tradingsymbol — full symbol string for coupon-rate / name-pattern corroboration
- *   6. ISIN         — where present, provides exchange-independent identity
- *   7. active/delisted status — via INACTIVE_SYMBOLS set
+ * ═══════════════════════════════════════════════════════════════════════════════
+ * FUNDAMENTAL DESIGN CONTRACT
+ * ═══════════════════════════════════════════════════════════════════════════════
  *
- * Design contract
- * ───────────────
- *   - The tradingsymbol suffix (e.g. -SG, -GB) is the SERIES CODE — it is not
- *     treated as a "suffix heuristic". In Kite's NSE EQ master, the series is
- *     encoded into the tradingsymbol as the final hyphenated segment. The name
- *     field provides independent corroboration. Both must be consistent.
- *   - BZ, ST, SM series codes are NOT labeled "non-equity". Each has a documented
- *     exchange-series identity and a specific policy exclusion reason.
- *   - T2T (Trade-to-Trade / BE-series) stocks cannot be detected from the Kite
- *     master alone (no distinguishing suffix; NSE surveillance list required).
- *   - Unknown or ambiguous instruments fail closed as UNRESOLVED_SECURITY_TYPE.
+ * 1. AUTHORITATIVE SOURCE REQUIREMENT
+ *    An instrument must be present in the current Kite NSE EQ instrument master
+ *    to receive any affirmative classification. Instruments not present in the
+ *    master are classified UNRESOLVED_SECURITY_TYPE regardless of their symbol.
+ *    The caller MUST pass `inCurrentMaster: true` only for instruments that
+ *    appear in the master fetched from Kite today.
  *
- * Categories
- * ──────────
- *   ORDINARY_EQUITY_ELIGIBLE            — standard NSE main-board equity, eligible for warehouse
- *   TRADE_TO_TRADE_EQUITY_POLICY_EXCLUDED — T2T / BE-series: settlement restriction (external data needed)
- *   SME_EQUITY_POLICY_EXCLUDED          — SME-segment (ST/SM series): thin liquidity, excluded
- *   DEBT_GOVERNMENT_SECURITY            — SDL bonds / G-Secs listed as EQ but no OHLCV candles
- *   SOVEREIGN_GOLD_BOND                 — RBI Gold Bonds (GB series): debt instrument, no equity candles
- *   ETF_OR_FUND                         — exchange-traded fund or index fund
- *   INDEX                               — index instrument (NIFTY/SENSEX family)
- *   INACTIVE_OR_DELISTED                — in INACTIVE_SYMBOLS set or known stale listing
- *   UNRESOLVED_SECURITY_TYPE            — BZ-series: cross-listed BSZ settlement, OHLCV coverage unreliable
- *   OTHER_UNSUPPORTED                   — does not fit any above category; manual review needed
+ * 2. ORDINARY_EQUITY_ELIGIBLE REQUIRES AFFIRMATIVE EVIDENCE
+ *    A positive eligibility verdict requires ALL of:
+ *      a. inCurrentMaster = true
+ *      b. exchange = NSE
+ *      c. instrument_type = EQ (from the master record)
+ *      d. segment = NSE (main-board, not INDICES/SME/IFSC)
+ *      e. No exclusion pattern detected (see below)
+ *    Missing or conflicting metadata MUST fail closed as UNRESOLVED_SECURITY_TYPE.
+ *
+ * 3. SYMBOL-SUFFIX IS SUPPORTING EVIDENCE, NOT AUTHORITY
+ *    The tradingsymbol suffix (e.g. -SG, -GB, -ST, -BZ) appears in Kite's
+ *    instrument master as part of the tradingsymbol field. It is extracted and
+ *    used as a SUPPORTING SIGNAL for classification of instruments that ARE in
+ *    the master — it is NOT independently authoritative and CANNOT classify an
+ *    instrument absent from the master.
+ *    Example: "OMFURN-ST" absent from the master → UNRESOLVED (not SME), because
+ *    the master record is required to confirm the series/security type.
+ *
+ * 4. AUTHORITATIVE CLASSIFICATION PRECEDENCE (for instruments in master)
+ *    evaluated in this order; stop at first match:
+ *      1. inCurrentMaster = false          → UNRESOLVED_SECURITY_TYPE
+ *      2. exchange ≠ NSE                   → OTHER_UNSUPPORTED
+ *      3. instrument_type = INDEX OR segment = INDICES  → INDEX
+ *      4. In INACTIVE_SYMBOLS set          → INACTIVE_OR_DELISTED
+ *      5. tradingsymbol suffix = -GB (Sovereign Gold Bonds) → SOVEREIGN_GOLD_BOND
+ *      6. tradingsymbol suffix = -SG (State Dev Loans)     → DEBT_GOVERNMENT_SECURITY
+ *         OR name contains SDL coupon-rate pattern
+ *      7. tradingsymbol suffix = -ST or -SM (SME segment)  → SME_EQUITY_POLICY_EXCLUDED
+ *      8. tradingsymbol suffix = -BZ (cross-listed BSZ)    → UNRESOLVED_SECURITY_TYPE
+ *      9. ETF/fund name/symbol pattern (centralLooksLikeEtf) → ETF_OR_FUND
+ *     10. exchange=NSE + segment=NSE + instrument_type=EQ + no pattern → ORDINARY_EQUITY_ELIGIBLE
+ *     11. All others                       → OTHER_UNSUPPORTED (fail closed)
+ *
+ * 5. T2T LIMITATION
+ *    Trade-to-Trade (BE-series) stocks appear in the master with instrument_type=EQ
+ *    and no distinguishing suffix. Detection requires the external NSE T2T
+ *    surveillance list (not yet integrated). These currently fall through to step 10
+ *    and are classified ORDINARY_EQUITY_ELIGIBLE pending T2T integration.
+ *    A future authoritative NSE security-master integration (joining via instrument_token,
+ *    ISIN, exchange, segment, series/security type, and tradingsymbol) is required
+ *    before the canary can be retried.
+ *
+ * ═══════════════════════════════════════════════════════════════════════════════
  */
 
 import { INACTIVE_SYMBOLS } from "../universe";
@@ -66,7 +77,7 @@ export type InstrumentEligibilityClass =
   | "UNRESOLVED_SECURITY_TYPE"
   | "OTHER_UNSUPPORTED";
 
-/** All categories that should be EXCLUDED from warehouse population. */
+/** All categories that are EXCLUDED from warehouse population. */
 export const WAREHOUSE_EXCLUDED_CLASSES = new Set<InstrumentEligibilityClass>([
   "TRADE_TO_TRADE_EQUITY_POLICY_EXCLUDED",
   "SME_EQUITY_POLICY_EXCLUDED",
@@ -86,209 +97,112 @@ export interface InstrumentEligibilityResult {
   segment: string;
   exchange: string;
   /**
-   * NSE series code extracted from the tradingsymbol suffix.
-   * null for standard equity (no suffix). Examples:
-   *   "SG" — State Government (SDL bonds)
-   *   "GB" — Gold Bond (RBI SGBs)
-   *   "ST" — SME Trading platform
-   *   "SM" — SME segment
-   *   "BZ" — BSZ cross-settlement
+   * NSE tradingsymbol suffix extracted as a supporting signal.
+   * Examples: "SG" = SDL bond, "GB" = Gold Bond, "ST" = SME-ITP, "SM" = SME, "BZ" = BSZ.
+   * null for standard equity (no suffix).
+   *
+   * IMPORTANT: This is supporting evidence from the master record's tradingsymbol field,
+   * NOT an independent authority. An instrument absent from the master is UNRESOLVED
+   * regardless of what its suffix implies.
    */
   seriesCode: string | null;
   /**
-   * ISIN where provided by the caller (Kite master does not always include it).
-   * null if not available.
+   * Whether this instrument appears in the current Kite NSE EQ instrument master.
+   * false → UNRESOLVED_SECURITY_TYPE; no further classification is performed.
    */
+  inCurrentMaster: boolean;
+  /** ISIN where provided (Kite master does not always include it). */
   isin: string | null;
   eligibilityClass: InstrumentEligibilityClass;
-  /** Detailed rationale for the classification decision. */
+  /** Detailed rationale including which signals were applied. */
   reason: string;
   /** Policy reason for exclusion (null for ORDINARY_EQUITY_ELIGIBLE). */
   policyExclusionReason: string | null;
   /** Whether this instrument is eligible for full-NSE warehouse population. */
   warehouseEligible: boolean;
   /**
-   * Ordered list of attribute signals that contributed to this decision.
-   * Used for audit and debugging. Format: "attribute=value".
-   * Example: ["exchange=NSE", "segment=NSE", "instrument_type=EQ", "series=SG", "name_pattern=SDL_COUPON"]
+   * Ordered attribute signals that contributed to this decision, for audit.
+   * Format: "attribute=value". Example: ["inCurrentMaster=true", "exchange=NSE",
+   * "segment=NSE", "instrument_type=EQ", "suffix=SG", "name_pattern=SDL_COUPON"]
    */
   precedenceVector: string[];
 }
 
-// ─── Series code extraction ───────────────────────────────────────────────────
+// ─── Suffix extraction (supporting evidence) ──────────────────────────────────
 
 /**
- * Extract the NSE series code from a Kite tradingsymbol.
+ * Extract the trailing hyphenated segment from a Kite tradingsymbol.
  *
- * In Kite's NSE EQ instrument master, the series is encoded as the final
- * hyphenated segment of the tradingsymbol (e.g. "656KA30-SG" → "SG").
- * Standard equities have no such suffix and return null.
+ * In Kite's NSE EQ master, some security types are encoded into the tradingsymbol
+ * as a hyphenated suffix (e.g. "656KA30-SG", "SGBSEP28VI-GB", "OMFURN-ST").
+ * This extraction is a SUPPORTING SIGNAL — the extracted code is only meaningful
+ * when the instrument is confirmed to be in the current Kite master.
  *
- * This is NOT a heuristic — the series code IS the suffix in Kite's convention,
- * and it is used as a high-confidence primary signal alongside the name field.
+ * Returns null for standard equities (no hyphen suffix).
  */
-function extractSeriesCode(tradingsymbol: string): string | null {
-  const match = tradingsymbol.match(/-([A-Z]+)$/);
-  return match?.[1] ?? null;
+function extractSuffixCode(tradingsymbol: string): string | null {
+  return tradingsymbol.match(/-([A-Z]+)$/)?.[1] ?? null;
 }
 
-// ─── Per-series detection helpers ─────────────────────────────────────────────
+// ─── Classification helpers (all require inCurrentMaster=true) ────────────────
 
-/**
- * SDL bonds (State Development Loans) — series=SG.
- *
- * Primary signal: series=SG (extracted from tradingsymbol suffix).
- * Corroborating signals: name contains SDL or state coupon-rate-year pattern.
- *
- * Kite master artifact: these instruments have instrument_type=EQ and segment=NSE
- * because NSE lists them on its debt segment under the equity master. This is a
- * known master-data artifact — series=SG overrides the EQ type for classification.
- *
- * Returns the evidence signals for inclusion in the reason string.
- */
-function detectDebtGovernmentSecurity(
-  series: string | null,
-  symbol: string,
-  name: string,
-): { detected: boolean; signals: string[] } {
-  const signals: string[] = [];
-  const n = name.toUpperCase();
-  const s = symbol.toUpperCase();
-
-  if (series === "SG") {
-    signals.push("series=SG (State Government — SDL bond series code)");
-    if (/\bSDL\b/.test(n)) signals.push(`name_contains_SDL="${name}"`);
-    if (/\d+\.\d+%/.test(n)) signals.push(`name_coupon_rate_pattern="${name}"`);
-    return { detected: true, signals };
-  }
-
-  // G-Sec without -SG suffix (rare bare coupon-rate patterns, belt-and-suspenders)
-  if (/^[67]\d{2}[A-Z]{2}\d{2}$/.test(s) && /\bSDL\b/.test(n)) {
-    signals.push(`symbol_coupon_pattern="${symbol}"`, `name_SDL="${name}"`);
-    return { detected: true, signals };
-  }
-
-  // SDL name pattern with no series code: secondary check only
-  if (/\bSDL\b/.test(n) && /\d+\.\d+%.*\d{4}/.test(n)) {
-    signals.push(`name_SDL_coupon_pattern="${name}"`);
-    return { detected: true, signals };
-  }
-
-  return { detected: false, signals: [] };
-}
-
-/**
- * Sovereign Gold Bonds — series=GB.
- *
- * Primary signal: series=GB (extracted from tradingsymbol suffix).
- * Corroborating signals: tradingsymbol starts with SGB, name contains GOLD BOND.
- */
-function detectSovereignGoldBond(
-  series: string | null,
-  symbol: string,
-  name: string,
-): { detected: boolean; signals: string[] } {
-  const signals: string[] = [];
-  const s = symbol.toUpperCase();
-  const n = name.toUpperCase();
-
-  if (series === "GB") {
-    signals.push("series=GB (Gold Bond series code)");
+function detectSovereignGoldBond(suffix: string | null, symbol: string, name: string): string[] | null {
+  const s = symbol.toUpperCase(), n = name.toUpperCase();
+  if (suffix === "GB") {
+    const signals = ["suffix=GB (Gold Bond series, Kite master tradingsymbol)"];
     if (s.startsWith("SGB")) signals.push("tradingsymbol_prefix=SGB");
-    if (/GOLD\s*BOND/.test(n)) signals.push(`name_goldBond="${name}"`);
-    return { detected: true, signals };
+    if (/GOLD\s*BOND/.test(n)) signals.push(`name_pattern=GOLD_BOND`);
+    return signals;
   }
-
-  // Belt-and-suspenders: SGB prefix + name even without -GB suffix
   if (s.startsWith("SGB") && /GOLD\s*BOND/.test(n)) {
-    signals.push("tradingsymbol_prefix=SGB", `name_goldBond="${name}"`);
-    return { detected: true, signals };
+    return ["tradingsymbol_prefix=SGB", "name_pattern=GOLD_BOND"];
   }
-
-  return { detected: false, signals: [] };
+  return null;
 }
 
-/**
- * SME segment — series=ST or series=SM.
- *
- * Primary signal: series=ST (SME Trading / ITP) or series=SM (SME segment).
- * These are formal NSE series codes for the SME platform — not heuristics.
- */
-function detectSmeEquity(
-  series: string | null,
-  symbol: string,
-): { detected: boolean; signals: string[] } {
-  if (series === "ST") {
-    return {
-      detected: true,
-      signals: [`series=ST (SME Trading platform / ITP, tradingsymbol="${symbol}")`],
-    };
+function detectDebtGovSecurity(suffix: string | null, symbol: string, name: string): string[] | null {
+  const n = name.toUpperCase(), s = symbol.toUpperCase();
+  if (suffix === "SG") {
+    const signals = ["suffix=SG (State Development Loan series, Kite master tradingsymbol)"];
+    if (/\bSDL\b/.test(n)) signals.push("name_contains=SDL");
+    if (/\d+\.\d+%/.test(n)) signals.push("name_contains=coupon_rate_pattern");
+    return signals;
   }
-  if (series === "SM") {
-    return {
-      detected: true,
-      signals: [`series=SM (SME segment, tradingsymbol="${symbol}")`],
-    };
+  // Name-pattern corroboration for bare SDL symbols without suffix (rare)
+  if (/\bSDL\b/.test(n) && /\d+\.\d+%.*\d{4}/.test(n)) {
+    return ["name_pattern=SDL_coupon_rate_year"];
   }
-  return { detected: false, signals: [] };
+  if (/^[67]\d{2}[A-Z]{2}\d{2}$/.test(s) && /\bSDL\b/.test(n)) {
+    return [`symbol_pattern=coupon_rate_encoding`, "name_contains=SDL"];
+  }
+  return null;
 }
 
-/**
- * BZ-series — cross-listed instruments settled through BSZ/BSE clearing.
- *
- * Primary signal: series=BZ (extracted from tradingsymbol suffix).
- * Classification: UNRESOLVED_SECURITY_TYPE — not labeled "non-equity".
- *   BZ instruments ARE listed on NSE, but their OHLCV coverage through the
- *   Kite Historical Data API equity endpoint is unreliable.
- */
-function detectBzSeries(
-  series: string | null,
-  symbol: string,
-): { detected: boolean; signals: string[] } {
-  if (series === "BZ") {
-    return {
-      detected: true,
-      signals: [
-        `series=BZ (NSE listing, BSZ/BSE settlement, tradingsymbol="${symbol}")`,
-        "OHLCV_coverage=UNRELIABLE_VIA_KITE_EQUITY_ENDPOINT",
-      ],
-    };
-  }
-  return { detected: false, signals: [] };
+function detectSmeEquity(suffix: string | null): string[] | null {
+  if (suffix === "ST") return ["suffix=ST (NSE SME-ITP/Trading platform, Kite master tradingsymbol)"];
+  if (suffix === "SM") return ["suffix=SM (NSE SME segment, Kite master tradingsymbol)"];
+  return null;
 }
 
-/**
- * T2T (Trade-to-Trade / BE-series) — LIMITATION NOTE.
- *
- * T2T stocks appear in the Kite master with instrument_type=EQ, segment=NSE,
- * and NO distinguishing suffix. Detection requires NSE's external surveillance
- * list. This function always returns false until that integration is available.
- */
-function detectTradeToTrade(
-  _series: string | null,
-  _symbol: string,
-): { detected: boolean; signals: string[] } {
-  // Cannot detect from Kite instrument master alone.
-  // External NSE T2T surveillance list integration required.
-  return { detected: false, signals: [] };
+function detectBzSeries(suffix: string | null, symbol: string): string[] | null {
+  if (suffix === "BZ") {
+    return [
+      `suffix=BZ (NSE listing with BSZ/BSE cross-settlement, Kite master tradingsymbol="${symbol}")`,
+      "OHLCV_coverage_via_Kite_equity_endpoint=UNRELIABLE",
+    ];
+  }
+  return null;
 }
 
 // ─── Main classifier ──────────────────────────────────────────────────────────
 
 /**
- * Classify a single NSE instrument using all available identity metadata.
+ * Classify a single NSE instrument.
  *
- * Attribute precedence (evaluated in this order — stop at first match):
- *   1. exchange: instruments outside NSE fail open as OTHER_UNSUPPORTED
- *   2. segment=INDICES / instrument_type=INDEX → INDEX
- *   3. active/delisted status (INACTIVE_SYMBOLS membership)
- *   4. series=GB → SOVEREIGN_GOLD_BOND
- *   5. series=SG (or name SDL pattern) → DEBT_GOVERNMENT_SECURITY
- *   6. series=ST / series=SM → SME_EQUITY_POLICY_EXCLUDED
- *   7. series=BZ → UNRESOLVED_SECURITY_TYPE
- *   8. centralLooksLikeEtf() (ETF name/symbol patterns) → ETF_OR_FUND
- *   9. T2T detection (external data required — currently no-op)
- *  10. Default → ORDINARY_EQUITY_ELIGIBLE
+ * The caller MUST set `inCurrentMaster: true` only for instruments confirmed
+ * present in the Kite NSE EQ instrument master fetched today.
+ * Pass `inCurrentMaster: false` for any instrument not found in the master
+ * (e.g. delisted, symbol not in cache). It will be classified UNRESOLVED_SECURITY_TYPE.
  */
 export function classifyInstrument(opts: {
   symbol: string;
@@ -296,148 +210,209 @@ export function classifyInstrument(opts: {
   instrumentType: string;
   segment: string;
   exchange: string;
+  inCurrentMaster: boolean;
   isin?: string | null;
 }): InstrumentEligibilityResult {
-  const { symbol, name, instrumentType, segment, exchange, isin = null } = opts;
-  const s = symbol.toUpperCase();
+  const { symbol, name, instrumentType, segment, exchange, inCurrentMaster, isin = null } = opts;
+  const su = symbol.toUpperCase();
+  const suffix = extractSuffixCode(su);
 
-  const seriesCode = extractSeriesCode(s);
-  const base = { symbol, name, instrumentType, segment, exchange, seriesCode, isin };
+  const base = { symbol, name, instrumentType, segment, exchange, seriesCode: suffix, inCurrentMaster, isin };
 
-  // ── 1. Exchange check ─────────────────────────────────────────────────────
-  // All instruments in this classifier are expected to be NSE-listed.
-  // (Caller filters to NSE EQ master; non-NSE instruments here are unexpected.)
-  const attrVector: string[] = [
+  const attrVec: string[] = [
+    `inCurrentMaster=${inCurrentMaster}`,
     `exchange=${exchange}`,
     `segment=${segment}`,
     `instrument_type=${instrumentType}`,
-    `series=${seriesCode ?? "EQ"}`,
+    `suffix=${suffix ?? "(none)"}`,
   ];
-  if (isin) attrVector.push(`isin=${isin}`);
+  if (isin) attrVec.push(`isin=${isin}`);
 
-  // ── 2. Index instruments ──────────────────────────────────────────────────
+  // ── 1. Authoritative source requirement ───────────────────────────────────
+  // An instrument not present in the current Kite master cannot be classified.
+  // The symbol suffix alone is NOT sufficient authority — the master record must
+  // confirm the security type.
+  if (!inCurrentMaster) {
+    return {
+      ...base,
+      eligibilityClass: "UNRESOLVED_SECURITY_TYPE",
+      reason: `Instrument not present in current Kite NSE EQ instrument master (inCurrentMaster=false). ` +
+        `Symbol suffix "${suffix ?? "(none)"}" is supporting evidence only and cannot independently ` +
+        `authorize an eligibility class. Without an authoritative master record, ` +
+        `the instrument fails closed as UNRESOLVED_SECURITY_TYPE.`,
+      policyExclusionReason:
+        "Not present in the current Kite NSE EQ instrument master. A dated NSE security-master " +
+        "record joined via instrument_token, ISIN, exchange, segment, and series/security type " +
+        "is required before this instrument can receive an affirmative eligibility verdict.",
+      warehouseEligible: false,
+      precedenceVector: [...attrVec, "decision=UNRESOLVED_BY_ABSENT_FROM_MASTER"],
+    };
+  }
+
+  // ── 2. Exchange check ──────────────────────────────────────────────────────
+  if (exchange !== "NSE") {
+    return {
+      ...base,
+      eligibilityClass: "OTHER_UNSUPPORTED",
+      reason: `Non-NSE exchange "${exchange}"; only NSE main-board instruments are supported`,
+      policyExclusionReason: "Exchange is not NSE; excluded from NSE warehouse population.",
+      warehouseEligible: false,
+      precedenceVector: [...attrVec, "decision=OTHER_UNSUPPORTED_BY_EXCHANGE"],
+    };
+  }
+
+  // ── 3. Index instruments ───────────────────────────────────────────────────
   if (instrumentType === "INDEX" || segment === "INDICES") {
     return {
       ...base,
       eligibilityClass: "INDEX",
-      reason: `Index instrument: ${attrVector.join(", ")}; indices have no individual equity candle series`,
-      policyExclusionReason: "Index instruments are not tradeable equities; excluded from warehouse.",
+      reason: `Index instrument: ${attrVec.join(", ")}`,
+      policyExclusionReason: "Index instruments are not tradeable equities; no individual equity candle series exists.",
       warehouseEligible: false,
-      precedenceVector: [...attrVector, "decision=INDEX_BY_INSTRUMENT_TYPE_OR_SEGMENT"],
+      precedenceVector: [...attrVec, "decision=INDEX_BY_INSTRUMENT_TYPE_OR_SEGMENT"],
     };
   }
 
-  // ── 3. Inactive / delisted symbols ───────────────────────────────────────
-  if (INACTIVE_SYMBOLS.has(s)) {
+  // ── 4. Inactive / delisted ────────────────────────────────────────────────
+  if (INACTIVE_SYMBOLS.has(su)) {
     return {
       ...base,
       eligibilityClass: "INACTIVE_OR_DELISTED",
-      reason: `Inactive/delisted: ${attrVector.join(", ")}; in INACTIVE_SYMBOLS (curated-exclude set)`,
-      policyExclusionReason: "Delisted or suspended instruments produce stale/empty candle series; excluded from warehouse.",
+      reason: `In INACTIVE_SYMBOLS curated-exclude set: ${su}`,
+      policyExclusionReason: "Delisted or suspended instruments produce stale or empty candle series.",
       warehouseEligible: false,
-      precedenceVector: [...attrVector, "decision=INACTIVE_OR_DELISTED_BY_INACTIVE_SYMBOLS"],
+      precedenceVector: [...attrVec, "decision=INACTIVE_OR_DELISTED_BY_INACTIVE_SYMBOLS"],
     };
   }
 
-  // ── 4. Sovereign Gold Bonds (series=GB) ───────────────────────────────────
-  const sgb = detectSovereignGoldBond(seriesCode, symbol, name);
-  if (sgb.detected) {
+  // ── 5. Sovereign Gold Bonds (suffix=GB) ────────────────────────────────────
+  const sgb = detectSovereignGoldBond(suffix, symbol, name);
+  if (sgb) {
     return {
       ...base,
       eligibilityClass: "SOVEREIGN_GOLD_BOND",
-      reason: `Sovereign Gold Bond: ${sgb.signals.join("; ")}`,
-      policyExclusionReason: "RBI Sovereign Gold Bonds are debt instruments denominated in gold; Kite equity historical endpoint has no OHLCV data for them.",
+      reason: `Sovereign Gold Bond confirmed by master record: ${sgb.join("; ")}`,
+      policyExclusionReason:
+        "RBI Sovereign Gold Bonds are debt instruments; the Kite Historical Data API " +
+        "equity endpoint returns no OHLCV data for them.",
       warehouseEligible: false,
-      precedenceVector: [...attrVector, ...sgb.signals, "decision=SOVEREIGN_GOLD_BOND"],
+      precedenceVector: [...attrVec, ...sgb, "decision=SOVEREIGN_GOLD_BOND"],
     };
   }
 
-  // ── 5. SDL bonds and Government Securities (series=SG) ────────────────────
-  const debt = detectDebtGovernmentSecurity(seriesCode, symbol, name);
-  if (debt.detected) {
+  // ── 6. SDL bonds / Government Securities (suffix=SG) ─────────────────────
+  // Note: Kite master artifact — these have instrument_type=EQ, segment=NSE.
+  // The master's tradingsymbol suffix (SG) and name pattern are used together.
+  const debt = detectDebtGovSecurity(suffix, symbol, name);
+  if (debt) {
     return {
       ...base,
       eligibilityClass: "DEBT_GOVERNMENT_SECURITY",
-      reason: `Government/SDL debt security: ${debt.signals.join("; ")}. Note: Kite master uses instrument_type=EQ for these (master-data artifact); series code overrides.`,
-      policyExclusionReason: "State Development Loans and G-Secs are debt instruments; the Kite Historical Data API (equity endpoint) returns empty OHLCV series for them — no candle data exists.",
+      reason:
+        `Government/SDL debt security (Kite master-data artifact: instrument_type=EQ despite being debt): ` +
+        debt.join("; "),
+      policyExclusionReason:
+        "State Development Loans and G-Secs are debt instruments. The Kite Historical Data API " +
+        "(equity endpoint) returns empty OHLCV series for SDL/G-Sec symbols — no candle data exists.",
       warehouseEligible: false,
-      precedenceVector: [...attrVector, ...debt.signals, "decision=DEBT_GOVERNMENT_SECURITY"],
+      precedenceVector: [...attrVec, ...debt, "decision=DEBT_GOVERNMENT_SECURITY"],
     };
   }
 
-  // ── 6. SME segment (series=ST / series=SM) ────────────────────────────────
-  const sme = detectSmeEquity(seriesCode, symbol);
-  if (sme.detected) {
+  // ── 7. SME segment (suffix=ST / suffix=SM) ────────────────────────────────
+  const sme = detectSmeEquity(suffix);
+  if (sme) {
     return {
       ...base,
       eligibilityClass: "SME_EQUITY_POLICY_EXCLUDED",
-      reason: `SME segment instrument: ${sme.signals.join("; ")}`,
-      policyExclusionReason: "SME-segment stocks operate on the NSE SME platform with different trading rules, thinner liquidity, and non-standard circuit limits. Historical OHLCV coverage via Kite equity endpoint is incomplete for many SME listings.",
+      reason: `SME-segment instrument confirmed by master record: ${sme.join("; ")}`,
+      policyExclusionReason:
+        "SME-platform stocks operate under different trading rules, thinner liquidity, " +
+        "and non-standard circuit limits. Historical OHLCV coverage via Kite equity endpoint " +
+        "is incomplete for many SME listings.",
       warehouseEligible: false,
-      precedenceVector: [...attrVector, ...sme.signals, "decision=SME_EQUITY_POLICY_EXCLUDED"],
+      precedenceVector: [...attrVec, ...sme, "decision=SME_EQUITY_POLICY_EXCLUDED"],
     };
   }
 
-  // ── 7. BZ series (series=BZ, cross-listed BSZ settlement) ─────────────────
-  const bz = detectBzSeries(seriesCode, symbol);
-  if (bz.detected) {
+  // ── 8. BZ series (suffix=BZ) ──────────────────────────────────────────────
+  const bz = detectBzSeries(suffix, symbol);
+  if (bz) {
     return {
       ...base,
       eligibilityClass: "UNRESOLVED_SECURITY_TYPE",
-      reason: `Cross-listed BSZ-settlement instrument: ${bz.signals.join("; ")}. Security type is unresolved — OHLCV coverage via Kite historical equity endpoint is unreliable, making reliable classification as a data-ready equity impossible without additional provider data.`,
-      policyExclusionReason: "BZ-series instruments return empty or inconsistent OHLCV series from the Kite Historical Data API equity endpoint. Excluded until a separate Kite bond/hybrid data integration is available.",
+      reason:
+        `Cross-listed BSZ-settlement instrument confirmed by master record (instrument is NSE-listed ` +
+        `but settled via BSZ/BSE clearing): ${bz.join("; ")}. ` +
+        `OHLCV coverage via the Kite Historical Data API equity endpoint is unreliable.`,
+      policyExclusionReason:
+        "BZ-series instruments return empty or inconsistent OHLCV series from the Kite " +
+        "Historical Data API equity endpoint. Excluded until a separate Kite bond/hybrid data " +
+        "integration provides authoritative OHLCV history.",
       warehouseEligible: false,
-      precedenceVector: [...attrVector, ...bz.signals, "decision=UNRESOLVED_SECURITY_TYPE"],
+      precedenceVector: [...attrVec, ...bz, "decision=UNRESOLVED_SECURITY_TYPE_BY_BZ_SERIES"],
     };
   }
 
-  // ── 8. ETF / Fund ─────────────────────────────────────────────────────────
+  // ── 9. ETF / Fund ─────────────────────────────────────────────────────────
   if (centralLooksLikeEtf(symbol, name)) {
     const etfSignals: string[] = [];
-    const su = symbol.toUpperCase();
     const nu = name.toUpperCase();
-    if (/BEES$/.test(su)) etfSignals.push("tradingsymbol_suffix=BEES (Nippon ETF family)");
+    if (/BEES$/.test(su)) etfSignals.push("tradingsymbol_suffix=BEES");
     if (/ETF/.test(su)) etfSignals.push("tradingsymbol_contains=ETF");
-    if (/\bETF\b/.test(nu)) etfSignals.push(`name_contains_ETF="${name}"`);
-    if (/EXCHANGE\s+TRADED/.test(nu)) etfSignals.push(`name_pattern=EXCHANGE_TRADED`);
-    if (etfSignals.length === 0) etfSignals.push("matches centralLooksLikeEtf heuristic");
+    if (/\bETF\b/.test(nu)) etfSignals.push("name_contains=ETF");
+    if (/EXCHANGE\s+TRADED/.test(nu)) etfSignals.push("name_pattern=EXCHANGE_TRADED");
+    if (etfSignals.length === 0) etfSignals.push("centralLooksLikeEtf=true");
     return {
       ...base,
       eligibilityClass: "ETF_OR_FUND",
       reason: `Exchange-traded fund or index fund: ${etfSignals.join("; ")}`,
-      policyExclusionReason: "ETFs track indices/baskets and have no single-stock candle history for momentum/technical indicators; excluded from warehouse.",
+      policyExclusionReason:
+        "ETFs track indices/baskets and have no single-stock candle history for " +
+        "momentum/technical indicators; excluded from warehouse.",
       warehouseEligible: false,
-      precedenceVector: [...attrVector, ...etfSignals, "decision=ETF_OR_FUND"],
+      precedenceVector: [...attrVec, ...etfSignals, "decision=ETF_OR_FUND"],
     };
   }
 
-  // ── 9. Trade-to-Trade (limitation — external data required) ───────────────
-  const t2t = detectTradeToTrade(seriesCode, symbol);
-  if (t2t.detected) {
+  // ── 10. Ordinary NSE main-board equity (affirmative) ────────────────────
+  // Requires: inCurrentMaster=true (confirmed above) + exchange=NSE (confirmed above)
+  // + instrument_type=EQ + segment=NSE + no exclusion pattern.
+  if (instrumentType === "EQ" && segment === "NSE") {
     return {
       ...base,
-      eligibilityClass: "TRADE_TO_TRADE_EQUITY_POLICY_EXCLUDED",
-      reason: `Trade-to-Trade (BE settlement type) — detected via external surveillance list: ${t2t.signals.join("; ")}`,
-      policyExclusionReason: "T2T stocks have mandatory delivery settlement; intraday technical signals may be misleading. Excluded pending separate evaluation.",
-      warehouseEligible: false,
-      precedenceVector: [...attrVector, ...t2t.signals, "decision=TRADE_TO_TRADE"],
+      eligibilityClass: "ORDINARY_EQUITY_ELIGIBLE",
+      reason:
+        `Standard NSE main-board equity confirmed by master record: ` +
+        `inCurrentMaster=true, exchange=NSE, segment=NSE, instrument_type=EQ, ` +
+        `suffix=${suffix ?? "(none)"}; no exclusion pattern detected`,
+      policyExclusionReason: null,
+      warehouseEligible: true,
+      precedenceVector: [...attrVec, "decision=ORDINARY_EQUITY_ELIGIBLE"],
     };
   }
 
-  // ── 10. Default: ordinary NSE main-board equity ───────────────────────────
+  // ── 11. All other combinations → fail closed ────────────────────────────
   return {
     ...base,
-    eligibilityClass: "ORDINARY_EQUITY_ELIGIBLE",
-    reason: `Standard NSE main-board equity: ${attrVector.join(", ")}; no exclusion patterns detected`,
-    policyExclusionReason: null,
-    warehouseEligible: true,
-    precedenceVector: [...attrVector, "decision=ORDINARY_EQUITY_ELIGIBLE"],
+    eligibilityClass: "OTHER_UNSUPPORTED",
+    reason:
+      `Instrument does not match any affirmatively defined category: ` +
+      `${attrVec.join(", ")}. Missing or conflicting metadata fails closed.`,
+    policyExclusionReason:
+      "Cannot be classified as ORDINARY_EQUITY_ELIGIBLE — one or more required attributes " +
+      "(exchange=NSE, segment=NSE, instrument_type=EQ) are missing or unexpected.",
+    warehouseEligible: false,
+    precedenceVector: [...attrVec, "decision=OTHER_UNSUPPORTED_FAIL_CLOSED"],
   };
 }
 
 /**
  * Classify a batch of instruments.
- * Returns a Map from symbol to result for O(1) lookup by the caller.
+ * Returns a Map from symbol to result for O(1) lookup.
+ *
+ * Every input must include `inCurrentMaster` — the caller is responsible for
+ * comparing the input list against the live Kite master and setting this flag.
  */
 export function classifyInstrumentBatch(
   instruments: Array<{
@@ -446,6 +421,7 @@ export function classifyInstrumentBatch(
     instrumentType: string;
     segment: string;
     exchange: string;
+    inCurrentMaster: boolean;
     isin?: string | null;
   }>,
 ): Map<string, InstrumentEligibilityResult> {
@@ -467,12 +443,10 @@ export function summarizeEligibility(results: InstrumentEligibilityResult[]): {
   const byClass = {} as Record<InstrumentEligibilityClass, number>;
   let eligible = 0;
   let excluded = 0;
-
   for (const r of results) {
     byClass[r.eligibilityClass] = (byClass[r.eligibilityClass] ?? 0) + 1;
     if (r.warehouseEligible) eligible++;
     else excluded++;
   }
-
   return { eligible, excluded, byClass };
 }

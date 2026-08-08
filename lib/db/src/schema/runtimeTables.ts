@@ -158,6 +158,39 @@ export const kiteCandleStore = pgTable(
  *   live_note TEXT NOT NULL DEFAULT '',
  *   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
  */
+/**
+ * Pack 33 Corrective R2 declaration (2026-08-08).
+ *
+ * `kite_warehouse_stop_audit` is created at runtime by `fullNseWarehouse.ts`
+ * via raw `CREATE TABLE IF NOT EXISTS`. Stores one row per force-stop idempotency
+ * key. UNIQUE(idempotency_key) guarantees each key produces at most one mutation.
+ * Declared here so drizzle-kit push never schedules a DROP.
+ *
+ * Column types match the live DDL in ensureWarehouseStopAuditSchema() exactly.
+ */
+export const kiteWarehouseStopAudit = pgTable(
+  "kite_warehouse_stop_audit",
+  {
+    id: serial("id").primaryKey(),
+    idempotencyKey: text("idempotency_key").notNull(),
+    status: text("status").notNull(),
+    ts: timestamp("ts", { withTimezone: true }).notNull().defaultNow(),
+    prevStatus: text("prev_status"),
+    prevSnapshotId: text("prev_snapshot_id"),
+    prevStoppedReason: text("prev_stopped_reason"),
+    newStatus: text("new_status").notNull().default("STOPPED"),
+    stoppedReason: text("stopped_reason").notNull(),
+    populationLockAtStop: text("population_lock_at_stop").notNull(),
+    evaluationLockUnchanged: text("evaluation_lock_unchanged").notNull().default("true"),
+    candleHistoryDeleted: text("candle_history_deleted").notNull().default("false"),
+    errorMessage: text("error_message"),
+    resultPayload: jsonb("result_payload"),
+  },
+  (t) => [
+    unique("kite_warehouse_stop_audit_idempotency_key_key").on(t.idempotencyKey),
+  ],
+);
+
 export const reconciliationReport = pgTable("reconciliation_report", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   istDate: date("ist_date").notNull().unique(),

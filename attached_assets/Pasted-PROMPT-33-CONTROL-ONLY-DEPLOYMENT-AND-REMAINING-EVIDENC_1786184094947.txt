@@ -1,0 +1,149 @@
+PROMPT_33_CONTROL_ONLY_DEPLOYMENT_AND_REMAINING_EVIDENCE_CLOSURE
+
+Continue Prompt 33. Do not create a new task. Do not retry the canary and do not enable Phase B.
+
+The compile-time warehouse population pause is accepted in principle, but the entire remediation is not yet closed.
+
+A. Complete the missing pre-publish verification
+
+Run and record:
+
+1. api-server production build
+2. scanner production build
+3. Scan the built api-server artifact and prove:
+   - FULL_NSE_WAREHOUSE_POPULATION_AUTHORIZED is false
+   - no environment-variable bypass exists
+   - no warehouse scheduler registration can occur while false
+4. Confirm all three locks remain false:
+   - FULL_NSE_WAREHOUSE_POPULATION_AUTHORIZED
+   - SCANNER_KITE_CANDLE_EVALUATION_AUTHORIZED
+   - FNO_PAPER_V2_RUNTIME_AUTHORIZED
+   - SWING_PAPER_V2_RUNTIME_AUTHORIZED
+5. Confirm broker execution remains hard-disabled.
+
+If these checks pass, return:
+
+AUTHORIZE_PROMPT_33_CONTROL_ONLY_REMEDIATION_DEPLOYMENT
+
+B. Do not claim classifier closure
+
+The current classifier still derives series from tradingsymbol suffixes. That does not satisfy the authoritative-security-classification requirement.
+
+Correct the evidence immediately:
+
+- Do not describe suffix-derived series as authoritative.
+- Do not classify an instrument absent from the current master as SME solely because its symbol ends in -ST.
+- OMFURN-ST must remain UNRESOLVED_SECURITY_TYPE unless an authoritative dated NSE security-master record proves its class.
+- Suffixes may support a classification but cannot independently authorize eligibility.
+- ORDINARY_EQUITY_ELIGIBLE requires affirmative authoritative evidence.
+- Missing or conflicting metadata must fail closed as UNRESOLVED_SECURITY_TYPE.
+
+Design the authoritative source as a separate pre-canary requirement using a dated NSE security master/reference file joined through the strongest available identity:
+instrument token, ISIN, exchange, segment, series/security type and trading symbol.
+
+Do not run the canary while this source is unavailable or incomplete.
+
+C. Deploy only the control remediation
+
+After the owner publishes, verify production before any state mutation:
+
+1. Production build identity matches the new deployment commit.
+2. warehousePopulationLock.authorized=false.
+3. Scheduler is not registered or reports PAUSED_BY_COMPILE_TIME_CONTROL.
+4. warehouseTimer=null.
+5. Full-NSE warehouse provider requests since boot=0.
+6. Evaluation authorization=false.
+7. FNO and Swing V2 locks=false.
+8. Broker execution disabled.
+9. Existing production warehouse status may still be CANARY, but it must be inert.
+
+D. Apply corrective production STOP safely
+
+Use only the hardened owner-strict force-stop endpoint.
+
+First run dryRun=true with:
+- exact confirmation phrase,
+- expected production snapshot ID,
+- expected current status,
+- unique idempotency key,
+- corrective stopped reason.
+
+Then execute dryRun=false only if the dry-run state matches exactly.
+
+Requirements:
+
+- Mutation and successful audit record must be in one database transaction.
+- A failed mutation must not create a success audit record.
+- Record attempt/result status explicitly.
+- Repeating the same idempotency key must not create another mutation.
+- No candle rows deleted.
+- No provider call.
+- No evaluation or V2 lock modified.
+- Never print or expose owner passwords, cookies or secrets.
+
+Verify afterward:
+
+- status=STOPPED
+- stoppedReason=ACCIDENTAL_OWNER_BOUNDARY_TEST_RESET_PENDING_REMEDIATION
+- snapshot ID unchanged
+- candle history unchanged
+- evaluation lock unchanged
+- warehouse population lock false
+- exactly one successful audit event exists
+- repeated request is idempotent
+
+E. Reconfirm both mutation routes
+
+Prove that both:
+- /warehouse/reset
+- /warehouse/force-stop
+
+are protected by requireOwnerStrict and require:
+- exact confirmation,
+- expected snapshot ID,
+- expected current status,
+- unique idempotency key,
+- dry-run default,
+- 409 on mismatch,
+- audit logging.
+
+The reset route must not be usable to restart CANARY while the compile-time population lock is false.
+
+F. Reproduce previously requested control evidence
+
+Explicitly report, even if implemented in an earlier commit:
+
+1. Strict limiter proof: no more than 3 requests in any rolling 1,000ms.
+2. Cold-start and resetMetrics cannot burst.
+3. Curated and warehouse jobs share the limiter/global lock.
+4. Losing replica waits for winner generation completion before reload.
+5. Timeout fails closed.
+6. Separate metrics for:
+   - curated universe/store
+   - warehouse eligible/store
+   - total physical rows
+   - evaluation-authorized count
+   - warehouse population lock
+   - last completed generation
+   - maximum observed rolling RPS
+   - 429 count
+
+Curated counts must not include warehouse-only rows.
+
+G. Correct verdicts
+
+Before production publication:
+
+PROMPT_33_CONTROL_REMEDIATION_IMPLEMENTED — DEPLOYMENT_PENDING — WAREHOUSE_POPULATION_HARD_PAUSED
+
+After production deployment and corrective STOP verification:
+
+PROMPT_33_PHASE_A_CONTROL_REMEDIATION_DEPLOYED — WAREHOUSE_STOPPED — AUTHORITATIVE_ELIGIBILITY_FOUNDATION_PENDING — CANARY_RETRY_REQUIRES_SEPARATE_OWNER_AUTHORIZATION
+
+Do not report Prompt 33 complete.
+Do not retry the canary.
+Do not enable warehouse population.
+Do not enable scanner evaluation.
+Do not activate V2 cohorts.
+Do not change F&O/swing strategy logic.
+Do not use health probes to close Prompt 31.

@@ -898,6 +898,29 @@ router.post("/scan/candle-store/warehouse/reset", requireOwnerStrict, async (req
       return;
     }
 
+    // ── Compile-time lock gate — prevent CANARY restart while lock is false ──
+    // The reset route moves status STOPPED→CANARY. While the warehouse population
+    // lock is false, no scheduler is registered to execute the canary run, so
+    // advancing to CANARY would create a misleading DB state.
+    {
+      const { FULL_NSE_WAREHOUSE_POPULATION_AUTHORIZED: popLock } =
+        await import("../lib/candleEvaluationControl");
+      if (!popLock) {
+        res.status(409).json({
+          ok: false, code: "POPULATION_LOCK_PREVENTS_CANARY_RESTART",
+          message:
+            "FULL_NSE_WAREHOUSE_POPULATION_AUTHORIZED=false: the warehouse population " +
+            "compile-time lock is active. The reset route cannot advance status to CANARY " +
+            "while the population lock is false — no scheduler is registered to execute " +
+            "the canary run, making a STOPPED→CANARY transition misleading and inert. " +
+            "Set FULL_NSE_WAREHOUSE_POPULATION_AUTHORIZED=true in candleEvaluationControl.ts " +
+            "before using this route.",
+          evaluationLockUnchanged: true, candleHistoryDeleted: false, providerCallStarted: false,
+        });
+        return;
+      }
+    }
+
     const { getWarehouseProgressForReset, resetWarehouseProgress, getFullNseWarehouseMetrics } =
       await import("../lib/kiteCandle/fullNseWarehouse");
 
@@ -1058,8 +1081,12 @@ router.post("/scan/candle-store/warehouse/force-stop", requireOwnerStrict, async
       return;
     }
 
-    const { getWarehouseProgressForReset, forceStopWarehouse, getFullNseWarehouseMetrics } =
-      await import("../lib/kiteCandle/fullNseWarehouse");
+    const {
+      getWarehouseProgressForReset,
+      forceStopWarehouseTransactional,
+      getFullNseWarehouseMetrics,
+    } = await import("../lib/kiteCandle/fullNseWarehouse");
+    const { FULL_NSE_WAREHOUSE_POPULATION_AUTHORIZED } = await import("../lib/candleEvaluationControl");
 
     const current = await getWarehouseProgressForReset();
 
@@ -1081,7 +1108,7 @@ router.post("/scan/candle-store/warehouse/force-stop", requireOwnerStrict, async
       return;
     }
 
-    // ── expectedCurrentStatus verification ───────────────────────────────────
+    // ── expectedCurrentStatus verification ────────────────────────────────────
     const actualStatus = current?.status ?? null;
     if (actualStatus !== expectedCurrentStatus) {
       res.status(409).json({
@@ -1108,32 +1135,27 @@ router.post("/scan/candle-store/warehouse/force-stop", requireOwnerStrict, async
       return;
     }
 
-    // ── Structured audit record (written before mutation) ────────────────────
-    const { logger: l } = await import("../lib/logger");
-    const { FULL_NSE_WAREHOUSE_POPULATION_AUTHORIZED } = await import("../lib/candleEvaluationControl");
-    const auditRecord = {
-      ts: new Date().toISOString(),
-      event: "warehouse-force-stop",
+    // ── Transactional execution with DB-backed idempotency ────────────────────
+    // The audit INSERT and progress UPDATE are in one transaction.
+    // Same idempotencyKey → cached result, no new mutation.
+    const { idempotent, auditRecord } = await forceStopWarehouseTransactional({
       idempotencyKey,
-      actor: "[owner-session-redacted]",
+      stoppedReason: providedReason,
       prevStatus: current?.status ?? null,
       prevSnapshotId: current?.snapshotId ?? null,
       prevStoppedReason: current?.stoppedReason ?? null,
-      newStatus: "STOPPED",
-      newStoppedReason: providedReason,
-      evaluationLockUnchanged: true,
-      candleHistoryDeleted: false,
-      populationLockAtTimeOfStop: FULL_NSE_WAREHOUSE_POPULATION_AUTHORIZED,
-    };
-    l.info(auditRecord, "warehouse-force-stop: owner-authorized EXECUTED — structured audit record");
+      populationLockAtStop: FULL_NSE_WAREHOUSE_POPULATION_AUTHORIZED,
+    });
 
-    await forceStopWarehouse(providedReason);
     const after = await getWarehouseProgressForReset();
     const metrics = getFullNseWarehouseMetrics();
 
     res.json({
       ok: true, dryRun: false,
-      message: `Warehouse force-stopped. Candle history UNCHANGED. Evaluation lock UNCHANGED.`,
+      idempotent,
+      message: idempotent
+        ? "Idempotent replay: this idempotency key already produced a successful force-stop. No new mutation."
+        : "Warehouse force-stopped. Candle history UNCHANGED. Evaluation lock UNCHANGED. Audit+mutation committed atomically.",
       ...lockGuard,
       idempotencyKey,
       before: {
