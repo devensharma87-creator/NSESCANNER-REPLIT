@@ -45,6 +45,7 @@ import DailyAnalysisPage from "@/pages/daily-analysis";
 import SwingCash from "@/pages/swing-cash";
 import PaperTrading from "@/pages/paper-trading";
 import PaperReports from "@/pages/paper-reports";
+import HomeDebugPage from "@/pages/home-debug";
 import DisclaimerPage from "@/pages/legal/disclaimer";
 import MethodologyPage from "@/pages/legal/methodology";
 import TermsPage from "@/pages/legal/terms";
@@ -117,6 +118,9 @@ function Router() {
 
       {/* Legacy redirect — no guard needed, just bounces to / */}
       <Route path="/indices" component={IndicesRedirect} />
+
+      {/* Dev-only fixture page — owner-only, for evidence screenshots */}
+      <Route path="/debug/home-states" component={guarded(HomeDebugPage, { ownerOnly: true })} />
 
       {/* Legal pages — public, no AccessGuard. LoginGate also short-circuits
           for these paths so an unauthenticated visitor can read them from

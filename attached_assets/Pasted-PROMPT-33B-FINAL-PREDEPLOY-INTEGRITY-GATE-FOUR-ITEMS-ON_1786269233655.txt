@@ -1,0 +1,177 @@
+PROMPT_33B_FINAL_PREDEPLOY_INTEGRITY_GATE — FOUR_ITEMS_ONLY
+
+Continue the existing Prompt 33B task. Do not create new tasks, expand scope or deploy.
+
+Current verdict:
+
+CONDITIONAL_PARTIAL_PASS — DEPLOYMENT_NOT_AUTHORIZED
+
+Preserve the accepted generation lifecycle and Home null-safety work. Resolve only these four items.
+
+1. Reconcile the 8,891 versus 2,416 scanner universe contradiction
+
+Your report claims:
+
+eligible ordinary-equity universe = 2,416
+
+but your new scanner screenshot reportedly shows:
+
+universe instruments = 8,891
+
+Return an exact route matrix for:
+
+- /scanner
+- /nse-scanner if registered
+- /api/scan/full-nse
+- every API route used by those pages
+
+For each record:
+
+- raw master count
+- provisional eligible count
+- excluded count
+- unresolved count
+- live quote count
+- API row count
+- displayed row count
+- generationId
+- cache version
+- frontend field used for the displayed universe count
+
+Requirements:
+
+- Capture API JSON and UI from the same development server process and generation.
+- Provide exact screenshot file paths.
+- Explain whether 8,891 is a raw-master count or stale frontend/cache value.
+- The ordinary-equity scanner must display eligible count, not raw master count.
+- Raw master count may appear only as a separately labelled diagnostic.
+- If /scanner and /nse-scanner use different pipelines, reconcile or clearly separate them.
+- No route may present raw master securities as ordinary equities.
+- Prove cache version 18 invalidates the contaminated version 17 result.
+
+Do not use approximate counts.
+
+2. Remove production test-hook exposure
+
+The following mutable hooks must not be available in the production bundle:
+
+_setTestScanResultFactory
+_setTestPauseBeforeCommit
+_clearTestFactories
+_resetTestHooks
+
+Preferred solution:
+
+Refactor scanner state into an injectable runtime/factory:
+
+createFullNseScannerRuntime(dependencies)
+
+Production constructs one instance using real dependencies.
+Tests construct isolated instances with fake dependencies.
+
+If retaining hooks temporarily:
+
+- every hook must verify NODE_ENV === "test" or equivalent test-only authority;
+- it must throw outside tests;
+- no registered route may import it;
+- production esbuild output must contain zero hook names;
+- production runtime must have no way to replace cache/results.
+
+Add artifact-scan tests proving zero hook names in dist/index.mjs.
+
+3. Complete actual Home rendered-state proof
+
+Use the registered Home page or the complete production Home component tree.
+
+Produce development evidence for exactly:
+
+A. ALL_UNAVAILABLE
+- index values “—”
+- index changes “—”
+- index direction unavailable
+- breadth unavailable
+- A/D “—”
+- overall trend unavailable
+- Market Mood score “—”
+- F&O ban unavailable
+- no current-looking global values
+
+B. READY_PARTIAL
+- breadth available
+- indices unavailable
+- section state READY_PARTIAL
+- available and missing input vectors visible
+- no complete market-direction claim
+
+C. READY_CLOSED
+- valid previous-close index values
+- sessionDate visible
+- source/asOf visible
+- state READY_CLOSED
+- not labelled live
+- not labelled unavailable
+
+For each state provide:
+
+- actual API fixture/response contract
+- rendered DOM assertions
+- screenshot at 1440×900
+- exact screenshot path
+
+Do not use /pre-market 404 as evidence.
+
+Correct F&O-ban stale semantics:
+
+- available=false + cached symbols must render STALE/LAST KNOWN;
+- source and asOf required;
+- stale symbols cannot authorize a current “banned/not-banned” admission decision;
+- available=false + no last-good data renders UNAVAILABLE;
+- available=true + empty authoritative list renders ALL CLEAR.
+
+4. Create stable predeployment identity and complete safety proof
+
+Create a normal repository checkpoint/commit containing only the intended Prompt 33B changes. Do not push or deploy.
+
+Return:
+
+- commit hash
+- working-tree status
+- exact files in commit
+- git diff --check
+- api-server tests
+- scanner tests
+- api-server TSC
+- scanner TSC
+- api-zod TSC
+- api-client-react TSC
+- api-server production build
+- scanner production build
+- secret sentinel
+- provider import guard
+- production-bundle test-hook scan
+- built-artifact lock scan
+
+Reconfirm through source and built artifact:
+
+FULL_NSE_WAREHOUSE_POPULATION_AUTHORIZED=false
+SCANNER_KITE_CANDLE_EVALUATION_AUTHORIZED=false
+FNO_PAPER_V2_RUNTIME_AUTHORIZED=false
+SWING_PAPER_V2_RUNTIME_AUTHORIZED=false
+
+Broker proof must use the existing hard-block configuration and executable tests, not only a comment or grep.
+
+Confirm:
+
+- live cash swing execution disabled
+- F&O broker execution disabled
+- paper paths cannot invoke broker order APIs
+- eligibility canary blocked
+- warehouse canary not retried
+
+Only after all four items pass return:
+
+PROMPT_33B_PREDEPLOY_INTEGRITY_VERIFIED — OWNER_DEPLOYMENT_AUTHORIZATION_REQUIRED
+
+Do not deploy.
+Do not enable any lock.
+Do not retry any canary.

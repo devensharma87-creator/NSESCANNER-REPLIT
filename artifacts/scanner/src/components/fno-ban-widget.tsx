@@ -1,6 +1,6 @@
 import { useGetFnoBanList, getGetFnoBanListQueryKey } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { AlertOctagon, Ban, ShieldCheck, Loader2 } from "lucide-react";
+import { AlertOctagon, Ban, ShieldCheck, Loader2, AlertTriangle } from "lucide-react";
 import { Link } from "wouter";
 import { SectionSourceLabel } from "@/components/ui/section-source-label";
 
@@ -11,13 +11,21 @@ import { SectionSourceLabel } from "@/components/ui/section-source-label";
  * is breached. Banned stocks are restricted to **square-off-only** trades
  * — opening a fresh position carries a hefty exchange penalty.
  *
- * The widget renders three states:
- *   1. Loading       — neutral skeleton
- *   2. Available     — green "all clear" tile if list is empty,
- *                      red warning tile listing every banned symbol otherwise
- *   3. Unavailable   — muted "data source down" tile (NSE upstream blocked
- *                      a non-Indian IP, etc.). We never silently say
- *                      "no bans" if we don't know.
+ * The widget renders four states:
+ *   1. Loading           — neutral skeleton
+ *   2. STALE/LAST KNOWN  — available=true but stale=true: serving expired
+ *                          cache because NSE upstream refresh failed. Shows
+ *                          last-known symbols with a warning that these
+ *                          cannot authorize current admission decisions.
+ *   3. Available         — green "all clear" tile if list is empty,
+ *                          red warning tile listing every banned symbol otherwise
+ *   4. Unavailable       — muted "data source down" tile. We never silently say
+ *                          "no bans" if we don't know (no cache at all).
+ *
+ * Stale semantics (owner requirement):
+ *   - available=true, stale=true  → STALE/LAST KNOWN (symbols shown with warning)
+ *   - available=true, stale=false → current: ALL CLEAR (empty) or BANNED (>0 symbols)
+ *   - available=false             → UNAVAILABLE (no data at all, no last-good)
  */
 export default function FnoBanWidget() {
   const { data, isLoading } = useGetFnoBanList({
@@ -46,6 +54,7 @@ export default function FnoBanWidget() {
     );
   }
 
+  // UNAVAILABLE: no data at all (all upstreams failed, no cache ever populated).
   if (!data || data.available === false) {
     return (
       <Card className="border-border bg-muted/10">
@@ -67,6 +76,53 @@ export default function FnoBanWidget() {
     );
   }
 
+  // STALE / LAST KNOWN: available=true but stale=true.
+  // The refresh failed; we are serving an expired cache entry.
+  // These symbols cannot authorize a current "banned/not-banned" admission decision.
+  if (data.stale) {
+    const asOf = data.fetchedAt
+      ? new Date(data.fetchedAt).toLocaleString("en-IN", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit", day: "numeric", month: "short" })
+      : null;
+    return (
+      <Card className="border-amber-500/30 bg-gradient-to-b from-amber-500/5 to-transparent">
+        <CardHeader className="pb-2 flex-row items-center justify-between">
+          <CardTitle className="text-base font-mono flex items-center gap-2">
+            <AlertTriangle className="w-5 h-5 text-amber-500" /> F&amp;O BAN LIST
+          </CardTitle>
+          <div className="flex items-center gap-2">
+            <SectionSourceLabel sectionId="fno-ban" runtime={{ hasData: true }} />
+            <span className="text-[10px] font-mono uppercase tracking-wider text-amber-500 font-bold">
+              STALE · LAST KNOWN
+            </span>
+          </div>
+        </CardHeader>
+        <CardContent className="pt-1 pb-3">
+          <p className="text-[10px] font-mono text-amber-500/80 mb-2">
+            NSE refresh failed — showing last-known data
+            {asOf ? ` (as of ${asOf} IST)` : ""}. Cannot authorize current admission decisions.
+          </p>
+          {data.symbols.length === 0 ? (
+            <p className="text-xs font-mono text-muted-foreground">No symbols were on the ban list at last sync.</p>
+          ) : (
+            <div className="flex flex-wrap gap-1.5">
+              {data.symbols.map((sym) => (
+                <Link
+                  key={sym}
+                  href={`/stock/${sym}`}
+                  className="px-2 py-1 rounded border border-amber-500/30 bg-amber-500/10 text-amber-500 hover:bg-amber-500/20 text-[11px] font-mono font-bold tabular-nums transition-colors"
+                  title={`${sym} was on the ban list at last NSE sync — current status unknown`}
+                >
+                  {sym}
+                </Link>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    );
+  }
+
+  // ALL CLEAR: available=true, stale=false, no banned symbols.
   if (data.symbols.length === 0) {
     return (
       <Card className="border-signal-strong-buy/20 bg-gradient-to-b from-signal-strong-buy/5 to-transparent">
@@ -88,6 +144,7 @@ export default function FnoBanWidget() {
     );
   }
 
+  // BANNED: available=true, stale=false, symbols present.
   return (
     <Card className="border-signal-strong-sell/30 bg-gradient-to-b from-signal-strong-sell/5 to-transparent">
       <CardHeader className="pb-2 flex-row items-center justify-between">

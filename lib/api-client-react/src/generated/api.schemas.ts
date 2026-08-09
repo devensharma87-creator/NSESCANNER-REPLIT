@@ -1937,6 +1937,13 @@ export interface FnoBanListResponse {
   cached?: boolean;
   /** false when all NSE upstreams were unreachable; treat as 'unknown' rather than 'no bans' */
   available: boolean;
+  /**
+   * true when the response is a stale-fallback: all upstream refreshes failed
+   * and we are serving an expired cache entry.  The symbols are last-known values
+   * and MUST NOT be used for authoritative admission decisions.
+   * Render as "STALE / LAST KNOWN" with fetchedAt visible.
+   */
+  stale?: boolean;
 }
 
 export interface ParticipantOiRow {

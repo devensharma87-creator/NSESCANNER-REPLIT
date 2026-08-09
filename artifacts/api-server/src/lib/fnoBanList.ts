@@ -165,6 +165,11 @@ export interface FnoBanList {
   sourceUrl: string;
   fetchedAt: string;
   cached: boolean;
+  /** true when the response is a stale-fallback: the upstream refresh failed
+   *  and we are serving the last successfully-fetched cache entry.
+   *  Callers MUST render "STALE/LAST KNOWN" rather than treating this as a
+   *  current authoritative result for admission decisions. */
+  stale: boolean;
 }
 
 /** Returns the latest F&O ban list. In-memory cached for 30 min.
@@ -177,14 +182,15 @@ export interface FnoBanList {
  *  identity match against `cache`.
  */
 export async function getFnoBanList(): Promise<FnoBanList | null> {
-  // 1. Warm cache, still inside TTL → instant return.
+  // 1. Warm cache, still inside TTL → instant return (not stale: data is current).
   if (cache && Date.now() - cache.ts < TTL_MS) {
-    return toDto(cache, true);
+    return toDto(cache, false);
   }
   // 2. Another caller is already refreshing → ride that promise.
   if (inflight) {
     const fresh = await inflight;
     if (fresh) return toDto(fresh, false);
+    // Refresh completed but returned null → serve expired cache as STALE, or null.
     return cache ? toDto(cache, true) : null;
   }
   // 3. We are the refresher.
@@ -196,17 +202,18 @@ export async function getFnoBanList(): Promise<FnoBanList | null> {
   inflight = p;
   const fresh = await p;
   if (fresh) return toDto(fresh, false);
-  // Refresh failed — fall back to whatever we last had, if anything.
+  // Refresh failed — fall back to whatever we last had, marked explicitly STALE.
   return cache ? toDto(cache, true) : null;
 }
 
-function toDto(e: CacheEntry, cached: boolean): FnoBanList {
+function toDto(e: CacheEntry, stale: boolean): FnoBanList {
   return {
     symbols: e.symbols,
     count: e.symbols.length,
     sourceUrl: e.sourceUrl,
     fetchedAt: e.fetchedAt,
-    cached,
+    cached: true,   // always from in-process cache (either in-TTL or stale-fallback)
+    stale,          // true ONLY when serving an expired entry because all refreshes failed
   };
 }
 

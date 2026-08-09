@@ -17,4 +17,12 @@ export interface FnoBanListResponse {
   cached?: boolean;
   /** false when all NSE upstreams were unreachable; treat as 'unknown' rather than 'no bans' */
   available: boolean;
+  /**
+   * true when the response is a stale-fallback: all upstream refreshes failed
+   * and we are serving an expired cache entry.  The symbols are the last-known
+   * values — they MUST NOT be used for authoritative admission decisions.
+   * Render as "STALE / LAST KNOWN" with the fetchedAt timestamp visible.
+   * Absent (or false) when the data is current (in-TTL cache or fresh network fetch).
+   */
+  stale?: boolean;
 }

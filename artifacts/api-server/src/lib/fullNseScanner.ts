@@ -375,23 +375,38 @@ let timer: NodeJS.Timeout | null = null;
 let _testScanResultFactory: ((generationId: string) => Promise<Cache>) | null = null;
 let _testPauseBeforeCommit: (() => Promise<void>) | null = null;
 
-/** TEST ONLY: inject a fast, controlled scan result for lifecycle tests. */
+/** TEST ONLY: inject a fast, controlled scan result for lifecycle tests.
+ *  Throws in NODE_ENV !== "test" — zero production reach. */
 export function _setTestScanResultFactory(fn: ((generationId: string) => Promise<Cache>) | null): void {
+  if (process.env.NODE_ENV !== "test") {
+    throw new Error("_setTestScanResultFactory is not available outside NODE_ENV=test");
+  }
   _testScanResultFactory = fn;
 }
-/** TEST ONLY: inject a pause executed between scan complete and cache commit. */
+/** TEST ONLY: install a pause between scan complete and atomic cache commit.
+ *  Throws in NODE_ENV !== "test" — zero production reach. */
 export function _setTestPauseBeforeCommit(fn: (() => Promise<void>) | null): void {
+  if (process.env.NODE_ENV !== "test") {
+    throw new Error("_setTestPauseBeforeCommit is not available outside NODE_ENV=test");
+  }
   _testPauseBeforeCommit = fn;
 }
 /** TEST ONLY: clear just the hook factories — does NOT touch cache or progress.
- *  Use within a test when you want to arm fresh hooks for the next scan while
- *  keeping the previously seeded cache as the "last-good generation". */
+ *  Throws outside NODE_ENV==="test".  Use within a test when you want to arm
+ *  fresh hooks for the next scan while keeping the previously seeded cache. */
 export function _clearTestFactories(): void {
+  if (process.env.NODE_ENV !== "test") {
+    throw new Error("_clearTestFactories is not available outside NODE_ENV=test");
+  }
   _testScanResultFactory = null;
   _testPauseBeforeCommit = null;
 }
-/** TEST ONLY: full module-state reset between test cases (use in afterEach). */
+/** TEST ONLY: full module-state reset between test cases (use in afterEach).
+ *  Throws outside NODE_ENV==="test". */
 export function _resetTestHooks(): void {
+  if (process.env.NODE_ENV !== "test") {
+    throw new Error("_resetTestHooks is not available outside NODE_ENV=test");
+  }
   _testScanResultFactory = null;
   _testPauseBeforeCommit = null;
   cache = null;

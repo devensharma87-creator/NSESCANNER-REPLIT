@@ -60,16 +60,21 @@ router.get("/inst/fno-ban", async (_req, res, next) => {
   try {
     const list = await getFnoBanList();
     if (!list) {
+      // All upstreams unreachable AND no stale cache — truly UNAVAILABLE.
       res.json({
         symbols: [],
         count: 0,
         sourceUrl: null,
         fetchedAt: null,
         cached: false,
+        stale: false,
         available: false,
       });
       return;
     }
+    // list.stale=true → stale-fallback (refresh failed, serving expired cache)
+    // list.stale=false → current data (in-TTL cache or just fetched)
+    // available=true in both cases: we have symbols to report (even if stale)
     res.json({ ...list, available: true });
   } catch (err) {
     next(err);
