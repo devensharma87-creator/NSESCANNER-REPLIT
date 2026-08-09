@@ -1649,9 +1649,19 @@ export async function getPreMarketReport(): Promise<PreMarketReportData> {
   } catch (e) { logger.warn({ e }, "preMarket: compositeBias failed"); }
 
   // Trade setups derive from index pivots + the composite bias score.
+  // F-fix: Do NOT call buildTradeSetups when compositeBias is absent or its score
+  // is null. Passing `compositeBias?.score ?? 0` was a false-zero that fabricated
+  // a neutral bias (score=0) when the bias engine returned null. This produced
+  // NEUTRAL trade setups dressed as "derived from measured composite bias"
+  // when the composite bias had no valid inputs.
+  // Correct behaviour: skip trade setups entirely when bias is unavailable.
+  // tradeSetups remains undefined → consumers show UNAVAILABLE, not NEUTRAL.
   let tradeSetups: TradeSetupsView | undefined;
   try {
-    tradeSetups = buildTradeSetups(indexLevels, compositeBias?.score ?? 0);
+    if (compositeBias?.score != null) {
+      tradeSetups = buildTradeSetups(indexLevels, compositeBias.score);
+    }
+    // else: tradeSetups remains undefined — honest absence of bias input
   } catch (e) { logger.warn({ e }, "preMarket: tradeSetups failed"); }
 
   const data: PreMarketReportData = {

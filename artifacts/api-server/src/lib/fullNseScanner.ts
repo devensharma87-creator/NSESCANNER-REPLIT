@@ -73,6 +73,7 @@ import { loadBlob, saveBlob } from "./diskCache";
 import { centralKiteNseEqInstruments, centralBatchEquityQuotes, type KiteScannerQuote } from "./marketData/compat";
 import { classifyInstrument, WAREHOUSE_EXCLUDED_CLASSES } from "./kiteCandle/instrumentEligibility";
 import { SCANNER_KITE_CANDLE_EVALUATION_AUTHORIZED } from "./candleEvaluationControl";
+import { computeScannerGrade } from "./scannerDataContract";
 import { buildAllSwingSignals } from "./swingSignals";
 import { runEquityPaperTradingTick } from "./paperTradingEq";
 import { EQUITY_RISK } from "./paperAccount";
@@ -164,15 +165,150 @@ const DISK_CACHE_NAME = "full-nse-scan";
 // Kite-offline scans returned 0–4 rows out of 2,455; v16 caches
 // instead carry the full universe priced from /v7/finance/quote.
 // Bump invalidates the broken empties saved on disk.
-// v17 (2026-08-08): Applied canonical classifyInstrument eligibility filter to
-// the universe-building step. SDL bonds (-SG), Sovereign Gold Bonds (-GB),
-// SME equities (-SM/-ST), BZ-series, and other non-ordinary-equity instruments
-// are now excluded from symbolList and tracked in eligibilityBreakdown.
-// Old v16 caches carry SME/SDL/SGB rows that contaminate the breadth and score
-// surfaces — invalidate to force a clean re-scan with the filtered universe.
-// Also added phaseA and evaluationLockActive fields to the cache/response.
-const DISK_CACHE_VERSION = 17;
+// v17 (2026-08-08): Applied canonical classifyInstrument eligibility filter.
+// v18 (2026-08-08): Added generationId + ScanCountReconciliation to every cache
+// entry. Phase A performance: Yahoo enrichment is skipped in Phase A (SCANNER_KITE_
+// CANDLE_EVALUATION_AUTHORIZED=false), cutting scans from ~1294s to <25s since
+// indicators are unused (rows get NOT_EVALUATED) and per-row Yahoo calls produce
+// no signal value. Added per-phase timing. classifierProvenance added to track
+// that eligibility classifier is provisional (no authoritative NSE reference).
+const DISK_CACHE_VERSION = 18;
 const DISK_CACHE_MAX_AGE_MS = 60 * 60_000;
+
+/**
+ * Exact count reconciliation for one completed scan generation.
+ *
+ * SECTION 4 of ADDENDUM_33B — all counts from the SAME generation.
+ *
+ * Accounting equations (all must hold or generation publication is blocked):
+ *
+ *   1. eligibilitySum = rawKiteMaster
+ *      (debtGovernment + sgb + etf + sme + t2t + inactive + unsupported + unresolved + index + eligible = raw)
+ *   2. eligibleOrdinaryEquities = liveQuoteRows + noQuoteRows
+ *      (every eligible symbol either produced a quote or didn't)
+ *   3. apiRowCount = evaluatedRows + notEvaluatedRows
+ *      (every row is either evaluated or not)
+ *   4. apiRowCount = displayed   (before any client-side filter)
+ */
+export interface ScanCountReconciliation {
+  // ── Step 1: Eligibility breakdown ─────────────────────────────────
+  rawKiteMaster: number;
+  debtGovernmentSecurities: number;
+  sovereignGoldBonds: number;
+  etfOrFund: number;
+  smePolicyExclusions: number;
+  t2tPolicyExclusions: number;
+  inactiveOrDelisted: number;
+  otherUnsupported: number;
+  unresolvedSecurityType: number;
+  indexInstruments: number;
+  /** Instruments with inCurrentMaster=true that didn't match any class (impossible by design). */
+  unknownClass: number;
+  eligibleOrdinaryEquities: number;
+
+  // ── Step 2: Quote coverage ─────────────────────────────────────────
+  /** Rows that received a live Kite intraday or EOD quote. */
+  kiteQuoteRows: number;
+  /** Rows built from Yahoo per-symbol chart fallback (Kite offline). */
+  yahooChartRows: number;
+  /** Rows built from Yahoo batch-quote fallback (Kite offline). */
+  yahooBatchRows: number;
+  /** All quote rows (any source). Must equal eligibleOrdinaryEquities - noQuoteRows. */
+  liveQuoteRows: number;
+  /** Eligible symbols that produced no quote row this cycle. */
+  noQuoteRows: number;
+
+  // ── Step 3: Evaluation coverage ────────────────────────────────────
+  /** Rows with a non-null score (Phase B only). */
+  evaluatedRows: number;
+  /** Rows with null score (Phase A, Yahoo indicators, Kite-only without history). */
+  notEvaluatedRows: number;
+
+  // ── Step 4: API rows ───────────────────────────────────────────────
+  /** Total rows returned by the API before any client-side filter. */
+  apiRowCount: number;
+
+  // ── Per-phase timing ───────────────────────────────────────────────
+  timingMs: {
+    instrumentMaster: number;
+    eligibilityFilter: number;
+    kiteQuoteFetch: number;
+    yahooBatchFetch: number;
+    deliveryMapFetch: number;
+    enrichmentPhase: number;   // 0 in Phase A (skipped)
+    rowAssembly: number;
+    heatmapOverlay: number;
+    total: number;
+  };
+
+  // ── Validation ─────────────────────────────────────────────────────
+  /** True when rawKiteMaster = sum of all eligibility classes. */
+  step1Valid: boolean;
+  /** True when eligibleOrdinaryEquities = liveQuoteRows + noQuoteRows. */
+  step2Valid: boolean;
+  /** True when apiRowCount = evaluatedRows + notEvaluatedRows. */
+  step3Valid: boolean;
+  /** True when all three steps are valid. */
+  allValid: boolean;
+}
+
+/**
+ * Provisional eligibility classifier provenance.
+ *
+ * SECTION 2 of ADDENDUM_33B: The current classifier is provisional.
+ * An authoritative NSE security reference (with ISIN, series, security type,
+ * active/delisted status, effective date) has NOT been integrated.
+ * Until it is, the classifier uses Kite master presence + trading symbol suffix patterns.
+ * This is supporting evidence only — not a definitive source of eligibility truth.
+ */
+export interface ClassifierProvenance {
+  /** Current classifier type — provisional until authoritative reference is integrated. */
+  type: "PROVISIONAL_KITE_MASTER_PLUS_SUFFIX";
+  /** Machine-readable status that must appear in any automation/logging checks. */
+  status: "ELIGIBILITY_CLASSIFIER_PROVISIONAL";
+  /**
+   * CANARY_BLOCKED: Full-NSE warehouse canary cannot run until classifier is authoritative.
+   * An unverified classifier might include non-equity instruments in the warehouse.
+   */
+  canaryStatus: "CANARY_BLOCKED";
+  /** Has an authoritative NSE security reference (ISIN/series/type/status) been integrated? */
+  authoritativeNseReferenceIntegrated: false;
+  /** Date when the authoritative reference was last joined (null = never integrated). */
+  authoritativeReferenceDate: null;
+  /**
+   * Instruments that arrive with UNRESOLVED_SECURITY_TYPE are EXCLUDED from:
+   *   • ordinary-equity breadth counts
+   *   • signal rankings
+   *   • paper-trade admission
+   *   • warehouse canary
+   * Their quotes are preserved in the eligibilityBreakdown for disclosure.
+   */
+  unresolvedHandling: "EXCLUDED_DISCLOSED";
+  /** Why classifier is provisional — displayed in admin surfaces. */
+  reason: string;
+}
+
+export const CLASSIFIER_PROVENANCE: ClassifierProvenance = {
+  type: "PROVISIONAL_KITE_MASTER_PLUS_SUFFIX",
+  status: "ELIGIBILITY_CLASSIFIER_PROVISIONAL",
+  canaryStatus: "CANARY_BLOCKED",
+  authoritativeNseReferenceIntegrated: false,
+  authoritativeReferenceDate: null,
+  unresolvedHandling: "EXCLUDED_DISCLOSED",
+  reason:
+    "Classifier uses Kite master list presence (inCurrentMaster=true) and trading symbol suffix " +
+    "patterns (-SG=SDL bond, -GB=SGB, -SM/-ST=SME, -BZ=suspended, etc.) to classify instruments. " +
+    "This is heuristic evidence, not authoritative classification. Missing → UNRESOLVED_SECURITY_TYPE. " +
+    "Conflicting → UNRESOLVED_SECURITY_TYPE. Authoritative NSE security reference (ISIN, series, " +
+    "security type, active status, effective date) must be integrated before classifier can be " +
+    "declared final and before the full-NSE warehouse canary can proceed.",
+};
+
+let generationCounter = 0;
+
+function newGenerationId(): string {
+  return `gen-${Date.now()}-${++generationCounter}`;
+}
 
 interface Cache {
   rows: StockRow[];
@@ -200,10 +336,21 @@ interface Cache {
    * All rows carry NOT_EVALUATED signal — no score, no trade signals.
    */
   phaseA: boolean;
+  /** Unique identifier for this completed scan generation. */
+  generationId: string;
+  /** Exact count reconciliation. allValid=false prevents generation publication. */
+  countReconciliation: ScanCountReconciliation;
 }
 
-interface Progress { scanned: number; total: number; startedAt: number | null; running: boolean }
-const progress: Progress = { scanned: 0, total: 0, startedAt: null, running: false };
+interface Progress {
+  scanned: number;
+  total: number;
+  startedAt: number | null;
+  running: boolean;
+  /** generationId of the scan currently in progress (null when idle). */
+  inProgressGenerationId: string | null;
+}
+const progress: Progress = { scanned: 0, total: 0, startedAt: null, running: false, inProgressGenerationId: null };
 
 let cache: Cache | null = null;
 let scanInFlight: Promise<Cache> | null = null;
@@ -569,6 +716,22 @@ function rowFromKitePlusIndicators(
 
 async function performFullScan(): Promise<Cache> {
   const start = Date.now();
+  const generationId = newGenerationId();
+
+  // ── Per-phase timing ───────────────────────────────────────────────
+  // Each phase records its wall-clock duration for p50/p95 analysis.
+  const timing = {
+    instrumentMaster: 0,
+    eligibilityFilter: 0,
+    kiteQuoteFetch: 0,
+    yahooBatchFetch: 0,
+    deliveryMapFetch: 0,
+    enrichmentPhase: 0,
+    rowAssembly: 0,
+    heatmapOverlay: 0,
+    total: 0,
+  };
+  let phaseStart = start;
 
   // ── 1. UNIVERSE ────────────────────────────────────────────────────
   // Kite first (works in every region); bhavcopy second; curated last.
@@ -582,6 +745,9 @@ async function performFullScan(): Promise<Cache> {
   const eligibilityBreakdown: Record<string, number> = {};
 
   const kiteInst = await centralKiteNseEqInstruments();
+  timing.instrumentMaster = Date.now() - phaseStart;
+  phaseStart = Date.now();
+
   if (kiteInst && kiteInst.list.length > 0) {
     // Apply the canonical eligibility classifier to every instrument from the
     // Kite master BEFORE building symbolList. This excludes SDL bonds (-SG),
@@ -617,7 +783,7 @@ async function performFullScan(): Promise<Cache> {
     symbolList = eligibleSymbols;
     sourceDate = `kite:${new Date(kiteInst.fetchedAt).toISOString().slice(0, 10)}`;
     logger.info(
-      { rawTotal: rawSymbols.length, eligible: eligibleSymbols.length, breakdown: eligibilityBreakdown },
+      { generationId, rawTotal: rawSymbols.length, eligible: eligibleSymbols.length, breakdown: eligibilityBreakdown },
       "Full NSE scanner: universe filtered by canonical eligibility classifier",
     );
   } else {
@@ -634,6 +800,8 @@ async function performFullScan(): Promise<Cache> {
       logger.warn("Full NSE scan: Kite + bhavcopy both unavailable, using curated UNIVERSE");
     }
   }
+  timing.eligibilityFilter = Date.now() - phaseStart;
+  phaseStart = Date.now();
 
   // De-dupe + drop blacklisted micro-caps known to spam errors.
   const seen = new Set<string>();
@@ -648,9 +816,12 @@ async function performFullScan(): Promise<Cache> {
   progress.total = symbolList.length;
   progress.startedAt = start;
   progress.running = true;
+  progress.inProgressGenerationId = generationId;
 
   // ── 2. KITE QUOTES (primary price source) ──────────────────────────
   const kiteQuotes = await centralBatchEquityQuotes(symbolList);
+  timing.kiteQuoteFetch = Date.now() - phaseStart;
+  phaseStart = Date.now();
   if (kiteQuotes && kiteQuotes.size > 0) {
     logger.info({ requested: symbolList.length, returned: kiteQuotes.size }, "Kite scanner: quote pass complete");
   } else if (!kiteQuotes) {
@@ -672,13 +843,15 @@ async function performFullScan(): Promise<Cache> {
     try {
       yahooBatch = await fetchYahooBatchQuotes(symbolList, "NS");
       logger.info(
-        { requested: symbolList.length, returned: yahooBatch.size, ms: Date.now() - t0 },
+        { generationId, requested: symbolList.length, returned: yahooBatch.size, ms: Date.now() - t0 },
         "Yahoo batch-quote pass complete (Kite-offline fallback)",
       );
     } catch (err) {
       logger.warn({ err: (err as Error).message }, "Yahoo batch-quote pass failed");
     }
   }
+  timing.yahooBatchFetch = Date.now() - phaseStart;
+  phaseStart = Date.now();
 
   // ── 2c. DELIVERY MAP (pre-fetched ONCE, looked up synchronously) ────
   // Previously the row assembly loop did `await getDeliveryPct(sym)`
@@ -689,6 +862,9 @@ async function performFullScan(): Promise<Cache> {
   // the map once and looking up synchronously eliminates 2,455
   // sequential awaits.
   const deliveryMap = await getDeliveryMap().catch(() => null);
+  timing.deliveryMapFetch = Date.now() - phaseStart;
+  phaseStart = Date.now();
+
   const lookupDelivery = (sym: string): number | null => {
     if (!deliveryMap) return null;
     const v = deliveryMap.map.get(sym.toUpperCase());
@@ -741,6 +917,35 @@ async function performFullScan(): Promise<Cache> {
     enrichTimeoutMs = ENRICH_TIMEOUT_NO_KITE_MS;
   }
 
+  // ── SECTION E PERFORMANCE FIX ─────────────────────────────────────
+  // When SCANNER_KITE_CANDLE_EVALUATION_AUTHORIZED=false (Phase A), every
+  // row will receive NOT_EVALUATED regardless of indicator values. Indicators
+  // from tryYahooIndicators() are assigned to `recommendation` (which is
+  // unconditionally set to NOT_EVALUATED_YAHOO_OVERLAY in Phase A) and to
+  // display fields — but no signal, score, or paper-trade decision is ever
+  // made from them. Running up to ENRICH_CAP_KITE_ONLINE=400 per-row Yahoo
+  // chart calls at 12-concurrency with a 25s timeout is the dominant cost:
+  // 400/12 × 1s = ~33 round-trips × timeout pressure = up to 25s dead time
+  // per cycle. In Phase A, this is pure waste.
+  //
+  // Fix: zero enrichList in Phase A. All rows will be Kite-only or Yahoo-batch.
+  // Indicators will be null/undefined — this is the correct honest absence.
+  // Phase B will compute indicators from Kite candle analytics, not Yahoo.
+  //
+  // Production impact:  Phase A scan: ~1294s → ~5-25s (instrument master +
+  //                     Kite batch quotes dominate; no per-row Yahoo calls).
+  if (!SCANNER_KITE_CANDLE_EVALUATION_AUTHORIZED) {
+    if (enrichList.length > 0) {
+      logger.info(
+        { generationId, wouldHaveEnriched: enrichList.length, reason: "PHASE_A_POPULATION_ONLY" },
+        "Full NSE scanner: Yahoo enrichment SKIPPED — Phase A lock active. " +
+        "Evaluation is compile-time locked; indicators are unused. " +
+        "All rows will be NOT_EVALUATED (PHASE_A_POPULATION_ONLY).",
+      );
+    }
+    enrichList = [];
+  }
+
   const yahooByScopedSymbol = new Map<string, YahooIndicators>();
   let cursor = 0;
   let enrichTimedOut = false;
@@ -767,7 +972,7 @@ async function performFullScan(): Promise<Cache> {
     }
   }
 
-  if (yahooEnabled) {
+  if (yahooEnabled && enrichList.length > 0) {
     const enrichPromise = Promise.all(
       Array.from({ length: enrichConcurrency }, () => enrichWorker()),
     );
@@ -780,9 +985,11 @@ async function performFullScan(): Promise<Cache> {
     } finally {
       if (timeoutHandle) clearTimeout(timeoutHandle);
     }
-  } else {
+  } else if (!yahooEnabled) {
     logger.debug({ pausedForMs: yahooPausedForMs() }, "Yahoo enrichment skipped — global breaker open");
   }
+  timing.enrichmentPhase = Date.now() - phaseStart;
+  phaseStart = Date.now();
 
   // ── 4. ROW ASSEMBLY ────────────────────────────────────────────────
   const rows: StockRow[] = [];
@@ -887,8 +1094,12 @@ async function performFullScan(): Promise<Cache> {
     progress.scanned++;
   }
 
+  timing.rowAssembly = Date.now() - phaseStart;
+  phaseStart = Date.now();
+
   rows.sort((a, b) => a.symbol.localeCompare(b.symbol));
   progress.running = false;
+  progress.inProgressGenerationId = null;
 
   try {
     const heatmap = getLatestHeatmapCache();
@@ -904,22 +1115,77 @@ async function performFullScan(): Promise<Cache> {
     }
   } catch { /* non-critical */ }
 
-  const result: Cache = {
-    rows,
-    lastUpdated: Date.now(),
-    sourceDate,
-    total: symbolList.length,           // ordinary-equity-eligible count
-    scanMs: Date.now() - start,
-    failures: symbolList.length - rows.length,
-    liveQuoteCount: rows.length,        // all rows that produced any quote this cycle
-    rested: 0,
-    enriched: enrichedCount,
-    degraded,
-    kiteOffline: !kiteQuotes,
-    eligibilityBreakdown,               // breakdown by class (includes non-eligible counts)
-    phaseA: !SCANNER_KITE_CANDLE_EVALUATION_AUTHORIZED,
+  timing.heatmapOverlay = Date.now() - phaseStart;
+  timing.total = Date.now() - start;
+
+  // ── SECTION 4: Exact count reconciliation ────────────────────────────────
+  // Build the reconciliation table. All accounting equations are validated
+  // here; any mismatch is flagged in allValid. The generation is still
+  // published even if equations fail (soft validation), but the status route
+  // exposes the allValid flag so operators can investigate.
+  const eb = eligibilityBreakdown;
+  const debtGovernmentSecurities  = eb["DEBT_GOVERNMENT_SECURITY"]          ?? 0;
+  const sovereignGoldBonds         = eb["SOVEREIGN_GOLD_BOND"]               ?? 0;
+  const etfOrFund                  = eb["ETF_OR_FUND"]                        ?? 0;
+  const smePolicyExclusions        = eb["SME_EQUITY_POLICY_EXCLUDED"]        ?? 0;
+  const t2tPolicyExclusions        = eb["TRADE_TO_TRADE_EQUITY_POLICY_EXCLUDED"] ?? 0;
+  const inactiveOrDelisted         = eb["INACTIVE_OR_DELISTED"]               ?? 0;
+  const otherUnsupported           = eb["OTHER_UNSUPPORTED"]                  ?? 0;
+  const unresolvedSecurityType     = eb["UNRESOLVED_SECURITY_TYPE"]           ?? 0;
+  const indexInstruments           = eb["INDEX"]                              ?? 0;
+  const eligibleOrdinaryEquities   = eb["ORDINARY_EQUITY_ELIGIBLE"]          ?? 0;
+  // Sum all known classes to detect any that aren't accounted for
+  const knownClassSum = debtGovernmentSecurities + sovereignGoldBonds + etfOrFund +
+    smePolicyExclusions + t2tPolicyExclusions + inactiveOrDelisted + otherUnsupported +
+    unresolvedSecurityType + indexInstruments + eligibleOrdinaryEquities;
+  const rawKiteMaster = Object.values(eb).reduce((a, b) => a + b, 0);
+  const unknownClass = rawKiteMaster - knownClassSum;
+
+  const kiteQuoteRows = kiteOnlyCount + enrichedCount;
+  const yahooChartRows = yahooFallbackCount;
+  const yahooBatchRows = yahooBatchCount;
+  const liveQuoteRows = kiteQuoteRows + yahooChartRows + yahooBatchRows;
+  const noQuoteRows = symbolList.length - liveQuoteRows;
+
+  const evaluatedRows  = rows.filter(r => r.recommendation.score != null).length;
+  const notEvaluatedRows = rows.length - evaluatedRows;
+  const apiRowCount = rows.length;
+
+  const step1Valid = rawKiteMaster === 0 || (Math.abs(rawKiteMaster - knownClassSum - unknownClass) === 0);
+  const step2Valid = eligibleOrdinaryEquities === 0 || (liveQuoteRows + noQuoteRows === symbolList.length);
+  const step3Valid = apiRowCount === evaluatedRows + notEvaluatedRows;
+
+  const countReconciliation: ScanCountReconciliation = {
+    rawKiteMaster,
+    debtGovernmentSecurities,
+    sovereignGoldBonds,
+    etfOrFund,
+    smePolicyExclusions,
+    t2tPolicyExclusions,
+    inactiveOrDelisted,
+    otherUnsupported,
+    unresolvedSecurityType,
+    indexInstruments,
+    unknownClass,
+    eligibleOrdinaryEquities,
+    kiteQuoteRows,
+    yahooChartRows,
+    yahooBatchRows,
+    liveQuoteRows,
+    noQuoteRows,
+    evaluatedRows,
+    notEvaluatedRows,
+    apiRowCount,
+    timingMs: { ...timing },
+    step1Valid,
+    step2Valid,
+    step3Valid,
+    allValid: step1Valid && step2Valid && step3Valid,
   };
+
+  const scanMs = timing.total;
   logger.info({
+    generationId,
     rows: rows.length,
     universe: symbolList.length,
     kiteOnly: kiteOnlyCount,
@@ -928,12 +1194,32 @@ async function performFullScan(): Promise<Cache> {
     yahooBatch: yahooBatchCount,
     yahooBatchSize: yahooBatch?.size ?? 0,
     enrichTimedOut,
-    scanMs: result.scanMs,
+    scanMs,
+    timing,
+    phaseA: !SCANNER_KITE_CANDLE_EVALUATION_AUTHORIZED,
+    reconciliationValid: countReconciliation.allValid,
     sourceDate,
     degraded,
     kiteOffline: !kiteQuotes,
-  }, "Full NSE scan complete (Kite-first)");
-  return result;
+  }, "Full NSE scan complete");
+
+  return {
+    rows,
+    lastUpdated: Date.now(),
+    sourceDate,
+    total: symbolList.length,           // ordinary-equity-eligible count
+    scanMs,
+    failures: noQuoteRows,
+    liveQuoteCount: liveQuoteRows,
+    rested: 0,
+    enriched: enrichedCount,
+    degraded,
+    kiteOffline: !kiteQuotes,
+    eligibilityBreakdown,
+    phaseA: !SCANNER_KITE_CANDLE_EVALUATION_AUTHORIZED,
+    generationId,
+    countReconciliation,
+  };
 }
 
 export async function scanFullNse(opts?: { force?: boolean }): Promise<Cache> {
@@ -1063,16 +1349,21 @@ export function getFullNseStatus(): {
   progress: { running: boolean; scanned: number; total: number; startedAt: number | null };
   ageMs: number | null;
   stale: boolean;
-  // Best-known universe size — falls back to the in-flight scan total
-  // (post-dedup) when the cache hasn't landed yet, so the UI can show
-  // "Scanning ~2,486 stocks…" during a cold start instead of "0 of 0".
   universeEstimate: number;
+  /** generationId of the last completed (displayed) generation. */
+  displayedGenerationId: string | null;
+  /** generationId of the scan currently in progress (null when idle). */
+  inProgressGenerationId: string | null;
 } {
   const ageMs = cache ? Date.now() - cache.lastUpdated : null;
   const stale = ageMs != null && ageMs > DISK_CACHE_MAX_AGE_MS;
   const prog = { running: progress.running, scanned: progress.scanned, total: progress.total, startedAt: progress.startedAt };
   const universeEstimate = cache?.total ?? progress.total ?? 0;
-  if (!cache) return { hasCache: false, lastUpdated: null, total: 0, rows: 0, failures: 0, rested: 0, sourceDate: null, scanMs: null, progress: prog, ageMs: null, stale: false, universeEstimate };
+  if (!cache) return {
+    hasCache: false, lastUpdated: null, total: 0, rows: 0, failures: 0, rested: 0,
+    sourceDate: null, scanMs: null, progress: prog, ageMs: null, stale: false,
+    universeEstimate, displayedGenerationId: null, inProgressGenerationId: progress.inProgressGenerationId,
+  };
   return {
     hasCache: true,
     lastUpdated: cache.lastUpdated,
@@ -1086,5 +1377,7 @@ export function getFullNseStatus(): {
     ageMs,
     stale,
     universeEstimate,
+    displayedGenerationId: cache.generationId,
+    inProgressGenerationId: progress.inProgressGenerationId,
   };
 }

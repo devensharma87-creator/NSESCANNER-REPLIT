@@ -28,7 +28,8 @@ import { computeSectorCoverage } from "../lib/sectorCoverage";
 import { getStockHistoryWithSeries, scanAll, getCachedScanRows, refreshScanInBackground, getScanRowsFast } from "../lib/scanner";
 import { centralIndexQuotes, centralIsRecognisedEtf, centralLoadKiteEtfQuote, centralGetEtfRecognitionDiagnostics, centralCheckEtfRecognition } from "../lib/marketData/compat";
 import { loadEtfNav } from "../lib/etfNav";
-import { scanFullNse, getFullNseStatus, startFullNseScannerBackground, getAllScannedRows } from "../lib/fullNseScanner";
+import { scanFullNse, getFullNseStatus, startFullNseScannerBackground, getAllScannedRows, CLASSIFIER_PROVENANCE } from "../lib/fullNseScanner";
+import { computeScannerGrade } from "../lib/scannerDataContract";
 import { fetchIndexChart, fetchFundamentals, fetchStatements } from "../lib/marketData/analyticsYahoo";
 import { pivots } from "../lib/indicators";
 import { getFinancials, getHoldings, getMarketNews, getNewsForSymbol } from "../lib/financials";
@@ -1342,29 +1343,34 @@ router.get("/scan/full-nse", async (req, res, next) => {
     const paged = rows.slice(offset, offset + limit);
 
     // ── Phase A / evaluation lock ──────────────────────────────────────────
-    // Read the compile-time lock directly so the client always gets the
-    // current build's value — not a cached scan value that might be stale.
     const { SCANNER_KITE_CANDLE_EVALUATION_AUTHORIZED } =
       await import("../lib/candleEvaluationControl");
     const evaluationLockActive = !SCANNER_KITE_CANDLE_EVALUATION_AUTHORIZED;
+    const { getMarketStatusDetail } = await import("../lib/marketEvents");
+    const marketStatus = getMarketStatusDetail(new Date());
 
-    // ── Scan phase label ───────────────────────────────────────────────────
-    // Canonical state machine: one label, no contradictory combos.
-    //   Phase A — all rows carry NOT_EVALUATED (evaluation lock false)
-    //   Yahoo fallback — Kite offline, Yahoo batch quotes used
-    //   Kite live data — Kite connected (but not yet evaluated until Phase B)
+    // ── Three-dimensional data contract (ADDENDUM_33B Section 1) ─────────────
+    // Computed from INDEPENDENT inputs — dimensions cannot overwrite each other.
+    // Phase A + fresh Kite quote → READY_LIVE / PHASE_A_POPULATION_ONLY / NOT_ACTIONABLE
+    // (NOT labelled "delayed" merely because evaluation is locked)
+    const cacheAgeMs = Date.now() - data.lastUpdated;
+    const grade = computeScannerGrade({
+      kiteOnline: !data.kiteOffline,
+      evaluationAuthorized: SCANNER_KITE_CANDLE_EVALUATION_AUTHORIZED,
+      marketOpen: marketStatus.marketOpen,
+      cacheAgeMs,
+      universeSize: data.total,
+      rowCount: total,                // filtered rows count
+      refreshMs: 60_000,             // REFRESH_MS
+      maxAgeMs: 24 * 60 * 60 * 1000, // DISK_CACHE_MAX_AGE_MS
+      generationCompletedAt: new Date(data.lastUpdated).toISOString(),
+    });
+
+    // ── Scan phase label ──────────────────────────────────────────────────
     const scanPhaseLabel = evaluationLockActive
       ? "PHASE_A_POPULATION_ONLY_NOT_EVALUATED"
       : (data.kiteOffline ? "YAHOO_FALLBACK_INFO_ONLY" : "KITE_DATA_POPULATION_ACTIVE");
 
-    // ── Count reconciliation ───────────────────────────────────────────────
-    // Accounting equation (every count from same cache generation):
-    //   universeSize (eligibleOrdinaryEquities)
-    //     = liveQuoteCount (rows that got any quote)
-    //     + noFeedCount    (eligible symbols with zero quote coverage)
-    //
-    // eligibilityBreakdown shows why raw Kite universe > universeSize:
-    //   raw_kite_total = universeSize + sum(excluded classes)
     res.json({
       rows: paged,
       total,
@@ -1374,17 +1380,35 @@ router.get("/scan/full-nse", async (req, res, next) => {
       lastUpdated: new Date(data.lastUpdated).toISOString(),
       sourceDate: data.sourceDate,
       // POST-ELIGIBILITY-FILTER universe: only ORDINARY_EQUITY_ELIGIBLE symbols.
-      // This is the correct "denominator" for breadth/coverage/count reporting.
       universeSize: data.total,
       scanMs: data.scanMs,
       failures: data.failures,
       liveQuoteCount: data.liveQuoteCount,
       rested: data.rested,
       kiteOffline: !!data.kiteOffline,
-      // Phase A / evaluation-lock fields — canonical state machine for UI labels.
+      // Phase A / evaluation-lock fields — backward-compatible scalar flags.
       evaluationLockActive,
       phaseA: evaluationLockActive,
       scanPhaseLabel,
+      // ── SECTION 1: Three independent quality dimensions ────────────────────
+      // These three fields are the canonical source of truth.
+      // Use these in the UI for badge status — do NOT infer one from another.
+      dataState: grade.dataState,
+      evaluationState: grade.evaluationState,
+      actionability: grade.actionability,
+      gradeRationale: grade.rationale,
+      // ── SECTION 2: Provisional classifier provenance ──────────────────────
+      // Do NOT claim root-fixed. Classifier is PROVISIONAL until authoritative
+      // NSE security reference is integrated. CANARY_BLOCKED until then.
+      classifierProvenance: CLASSIFIER_PROVENANCE,
+      // ── SECTION 3: Immutable generation identity ──────────────────────────
+      // "Displaying 4,426 rows while scan is in progress" is only allowed with
+      // an explicit label referencing displayedGenerationId vs inProgressGenerationId.
+      generationId: data.generationId,
+      // ── SECTION 4: Exact count reconciliation ─────────────────────────────
+      // All three accounting equations must hold (allValid=true) before the
+      // generation is trusted. Mismatch is surfaced here for operator review.
+      countReconciliation: data.countReconciliation,
       // Eligibility breakdown: raw Kite universe split by classifier class.
       eligibilityBreakdown: data.eligibilityBreakdown,
     });

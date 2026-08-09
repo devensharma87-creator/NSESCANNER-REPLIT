@@ -210,10 +210,38 @@ function toDto(e: CacheEntry, cached: boolean): FnoBanList {
   };
 }
 
-/** Convenience: is `symbol` on today's ban list? Returns false if we have
- *  no list (i.e. don't false-positive when upstream is unreachable). */
-export async function isFnoBanned(symbol: string): Promise<boolean> {
+/**
+ * Tri-state F&O ban check.
+ *
+ * Returns:
+ *   true  — symbol is on the current ban list (source was reachable)
+ *   false — symbol is NOT on the ban list (source was reachable)
+ *   null  — upstream is UNAVAILABLE (all refresh URLs failed, no stale cache)
+ *
+ * CRITICAL: never collapse null→false. A null return means the ban-list source
+ * was unreachable, not that the symbol is clear. Callers must treat null as
+ * UNAVAILABLE (show "BAN STATUS UNAVAILABLE"), never as ALL_CLEAR.
+ *
+ * The old isFnoBanned() returned false when upstream was unreachable — this was
+ * a false-zero that could convert a data-outage into an ALL_CLEAR signal.
+ */
+export async function isFnoBanned(symbol: string): Promise<boolean | null> {
   const list = await getFnoBanList();
-  if (!list) return false;
+  if (list === null) return null;   // upstream unreachable — UNAVAILABLE
   return cache?.set.has(symbol.toUpperCase()) ?? false;
+}
+
+/**
+ * Legacy convenience wrapper for callers that handle only boolean.
+ * Converts null→false with an explicit warning.
+ * New callers should use isFnoBanned() directly and handle null.
+ * @deprecated Use isFnoBanned() (tri-state) for honest unavailable reporting.
+ */
+export async function isFnoBannedLegacy(symbol: string): Promise<boolean> {
+  const result = await isFnoBanned(symbol);
+  if (result === null) {
+    logger.warn({ symbol }, "isFnoBannedLegacy: upstream UNAVAILABLE — returning false (conservative). Use isFnoBanned() to handle null.");
+    return false;
+  }
+  return result;
 }

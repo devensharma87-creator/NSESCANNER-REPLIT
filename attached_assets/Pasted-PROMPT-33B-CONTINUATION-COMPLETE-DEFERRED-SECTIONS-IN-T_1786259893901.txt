@@ -1,0 +1,294 @@
+PROMPT_33B_CONTINUATION — COMPLETE_DEFERRED_SECTIONS_IN_THE_SAME_TASK
+
+Continue the existing Prompt 33B task. Do not create or propose follow-up tasks.
+
+The current status is:
+
+PROMPT_33B_PARTIALLY_IMPLEMENTED_IN_DEVELOPMENT
+
+Do not use “done”, “shipped”, “complete”, “root fixed” or “accepted” yet.
+
+The proposed E, F and H follow-up tasks are rejected. E and F must be completed now in the current task. H remains the post-deployment verification stage of this same task.
+
+1. Separate data freshness from evaluation authorization
+
+Do not map phaseA=true to delayed.
+
+Expose independent dimensions:
+
+dataState:
+- READY_LIVE
+- READY_CLOSED
+- READY_STALE
+- READY_PARTIAL
+- UNAVAILABLE
+- ERROR
+
+evaluationState:
+- AUTHORIZED
+- PHASE_A_POPULATION_ONLY
+- INSUFFICIENT_HISTORY
+- SOURCE_NOT_TRADE_GRADE
+- STALE_INPUT
+- NOT_EVALUATED
+
+actionability:
+- TRADE_GRADE
+- INFO_ONLY
+- NOT_ACTIONABLE
+
+A fresh Kite quote with evaluation locked must render:
+
+Data: KITE — READY/CLOSED — asOf <timestamp>
+Evaluation: PHASE A — NOT EVALUATED
+Actionability: NOT ACTIONABLE
+
+It must not be labelled delayed merely because evaluation is locked.
+
+Add runtime component tests proving these dimensions cannot overwrite one another.
+
+2. Do not claim authoritative eligibility closure
+
+The existing Kite-master-plus-suffix classifier is provisional.
+
+Integrate a dated authoritative NSE security reference/master before declaring ordinary-equity eligibility final.
+
+Join using the strongest available fields:
+
+- instrument token
+- ISIN
+- exchange
+- segment
+- official series/security type
+- trading symbol
+- active/delisted status
+- effective date
+
+Rules:
+
+- Kite current-master presence alone does not prove ordinary equity.
+- Suffix is supporting evidence only.
+- Missing authoritative classification → UNRESOLVED_SECURITY_TYPE.
+- Conflicting classification → UNRESOLVED_SECURITY_TYPE.
+- Unresolved instruments cannot enter ordinary-equity breadth, rankings, signals or warehouse canary.
+- Preserve their quotes in a separately disclosed unresolved category if operationally useful.
+
+Until the authoritative NSE reference is integrated, report:
+
+ELIGIBILITY_CLASSIFIER_PROVISIONAL — CANARY_BLOCKED
+
+Do not claim root-fixed.
+
+3. Implement immutable scanner generations
+
+Create one immutable completed scan-generation contract containing:
+
+- generationId
+- startedAt
+- completedAt
+- sourceAsOf
+- marketSessionDate
+- universeSnapshotId
+- eligibilityReferenceDate
+- rawInstrumentCount
+- eligibleOrdinaryEquityCount
+- liveQuoteCount
+- lastCloseOnlyCount
+- noQuoteCount
+- apiRowCount
+- evaluatedCount
+- notEvaluatedCount
+- excludedCount
+- exclusionBreakdown
+- failedCount
+- durationMs
+- status
+
+Requirements:
+
+- Header, progress, rows and export must reference the same generationId.
+- An in-progress generation cannot overwrite last-good rows.
+- Atomic swap occurs only after generation completion and validation.
+- On failure, retain the entire last-good generation.
+- Never combine counts from one generation with rows from another.
+- Progress must identify the in-progress generation separately from displayedGenerationId.
+- Displayed 4,426 rows with progress 0 must be impossible without clearly saying:
+  “Displaying previous completed generation while new scan is starting.”
+
+4. Produce exact count reconciliation
+
+No approximate counts.
+
+Return an exact table for one completed development generation:
+
+raw Kite master
+− debt/government securities
+− SGB
+− ETF/fund
+− SME policy exclusions
+− T2T policy exclusions
+− inactive/delisted
+− unsupported
+− unresolved
+= eligible ordinary equities
+
+Then:
+
+eligible ordinary equities
+= live quote rows
++ last-close-only rows
++ no-quote rows
+
+And:
+
+api rows
+= evaluated rows
++ not-evaluated rows
+
+And:
+
+displayed rows before filters
+= api rows
+
+Any mismatch must fail validation and prevent generation publication.
+
+5. Complete Section E — performance
+
+Do not defer this work.
+
+Instrument exact timing for:
+
+- instrument master
+- authoritative eligibility join
+- quote acquisition
+- DB/cache hydration
+- row transformation
+- indicator lookup
+- classification
+- sorting/filtering
+- serialization
+- frontend render
+
+Fix the root causes of the 1294.5-second production scan.
+
+Requirements:
+
+- zero per-row provider calls,
+- no blocking on warehouse population,
+- bounded batch quote requests,
+- shared cached instrument master,
+- no repeated eligibility computation per render,
+- no full-table synchronous UI rendering if virtualization/pagination is needed,
+- last-good generation served during refresh.
+
+Run at least:
+- 10 cold/warm API scans in development,
+- concurrent-request test,
+- forced provider-timeout test,
+- failed-generation preservation test.
+
+Report p50, p95 and maximum.
+
+Acceptance target:
+- API p95 below 25 seconds,
+- no empty replacement,
+- no count-generation mismatch.
+
+6. Complete Section F — Home truth
+
+Do not defer the false-zero corrections.
+
+Fix all patterns including but not limited to:
+
+- compositeBias?.score ?? 0
+- unavailable index percentage → 0
+- missing breadth → A/D 1.00
+- missing trend → NEUTRAL
+- missing VIX/volatility → 0
+- unavailable F&O ban list → ALL CLEAR
+
+Implement mandatory-input contracts for:
+
+- Indian index cards
+- market breadth
+- overall trend
+- market mood
+- global cues
+- F&O ban list
+- gainers/losers
+- bullish/bearish setups
+
+Every section returns:
+
+- state
+- source
+- asOf
+- sessionDate
+- requiredInputs
+- availableInputs
+- missingInputs
+- canCompute
+- canDriveSignals
+
+If mandatory inputs are missing:
+- derived score=null,
+- direction=null,
+- label=UNAVAILABLE or READY_PARTIAL,
+- never zero or neutral by default.
+
+F&O ban-list upstream unavailable must render UNAVAILABLE, never ALL CLEAR.
+
+7. Correct the Phase-A trust badge
+
+Prove through an actual rendered scanner component that:
+
+- KITE TRADE-GRADE cannot render while evaluation lock=false.
+- fallbackUsed=true is not being misused as a proxy for Phase A.
+- Freshness badges and actionability badges remain separate.
+- NOT_EVALUATED rows are visible under All.
+- Score/ranking filters exclude null scores without removing them from All.
+
+8. Complete the full pre-deploy battery
+
+Run and report:
+
+- new targeted runtime tests
+- full api-server suite
+- full scanner suite
+- four-package TSC
+- api-server production build
+- scanner production build
+- git diff --check
+- skip/only audit
+- secret sentinel
+- provider direct-import guard
+- built-artifact lock scan
+- artifacts/global untouched
+
+9. Deliver one consolidated defect status
+
+For every screenshot defect, return:
+
+- defect ID
+- screenshot evidence
+- root cause
+- files changed
+- runtime test
+- current status
+- production verification required
+
+Do not split remaining defects into new tasks.
+
+10. Pre-publish verdict
+
+Only after Sections A–G and the complete battery pass, return:
+
+PROMPT_33B_PRODUCTION_DATA_SURFACE_AND_API_CONTRACT_IMPLEMENTED_IN_DEVELOPMENT — OWNER_DEPLOYMENT_AUTHORIZATION_REQUIRED
+
+After publication, continue in the same task with authenticated production evidence.
+
+Do not retry the warehouse canary.
+Do not enable warehouse population.
+Do not enable evaluation.
+Do not activate V2 cohorts.
+Do not modify F&O/swing strategies.
