@@ -1,0 +1,107 @@
+PROMPT_33B — FINAL RUNTIME PROOF ONLY — NO DEPLOYMENT
+
+Continue from commit `b45df02`.
+
+Do not add architecture, features, test files or refactors. Do not deploy.
+
+All failure injection and database mutations must occur only in the isolated development environment. Production is read-only.
+
+Perform one controlled runtime proof through the actual running API server.
+
+## Required run
+
+1. Record before-state:
+
+```text
+API process PID
+database fingerprint (redacted host hash/database name/environment)
+displayed generationId
+displayed row count
+displayed data state
+latest PostgreSQL snapshot ID
+total PostgreSQL snapshot count
+```
+
+2. Trigger a valid scanner/NSE refresh containing at least 1000 validated records through the running API server.
+
+3. Inject a real PostgreSQL transaction failure into that same refresh path after validation passes.
+
+4. Prove the running server receives:
+
+```text
+reasonCode=NSE_MASTER_PERSISTENCE_FAILURE
+durablyCommitted=false
+canAuthorizeUniverse=false
+```
+
+5. Record after-state and prove:
+
+```text
+generationId unchanged
+row count unchanged
+latest snapshot ID unchanged
+snapshot count unchanged
+state=STALE or DEGRADED
+no score created
+no confidence created
+no actionable signal created
+no paper/broker action created
+```
+
+6. Remove the temporary failure injection.
+
+7. Restart development normally and confirm normal NSE URLs and database operation are restored.
+
+Do not use a separate `tsx` process calling `_saveSnapshotToDb()` as proof. The failure must pass through the same running server’s refresh and generation-commit path.
+
+## Additional confirmations
+
+Report the exact values of:
+
+```text
+FULL_NSE_WAREHOUSE_POPULATION_AUTHORIZED=false
+SCANNER_KITE_CANDLE_EVALUATION_AUTHORIZED=false
+FNO_PAPER_V2_RUNTIME_AUTHORIZED=false
+SWING_PAPER_V2_RUNTIME_AUTHORIZED=false
+```
+
+Provide redacted database fingerprints proving:
+
+* Snapshot `61` was development-only.
+* Production database was not read from with mutation authority.
+* No production row was inserted, updated or deleted.
+
+## Minimal verification
+
+Run only:
+
+* Relevant TSC check
+* Existing targeted generation/persistence tests
+* `git diff --check`
+* Working-tree status
+
+Do not rerun the complete 6,000+ test suite unless production code remains changed after removing the temporary injection.
+
+Return only:
+
+* Before-state
+* Failure event
+* After-state
+* Restoration proof
+* Four lock values
+* Database-environment proof
+* Commit hash, only if a permanent correction was required
+
+Allowed verdicts:
+
+```text
+PROMPT_33B_PREDEPLOY_VERIFIED — OWNER_DEPLOYMENT_AUTHORIZATION_REQUIRED
+```
+
+or:
+
+```text
+BLOCKED_PROMPT_33B — <EXACT_REASON>
+```
+
+Maximum response: one page. No deployment and no new tasks.
