@@ -28,7 +28,7 @@ import { computeSectorCoverage } from "../lib/sectorCoverage";
 import { getStockHistoryWithSeries, scanAll, getCachedScanRows, refreshScanInBackground, getScanRowsFast } from "../lib/scanner";
 import { centralIndexQuotes, centralIsRecognisedEtf, centralLoadKiteEtfQuote, centralGetEtfRecognitionDiagnostics, centralCheckEtfRecognition } from "../lib/marketData/compat";
 import { loadEtfNav } from "../lib/etfNav";
-import { scanFullNse, getFullNseStatus, startFullNseScannerBackground, getAllScannedRows, CLASSIFIER_PROVENANCE } from "../lib/fullNseScanner";
+import { scanFullNse, getFullNseStatus, startFullNseScannerBackground, getAllScannedRows, getCurrentClassifierProvenance } from "../lib/fullNseScanner";
 import { computeScannerGrade } from "../lib/scannerDataContract";
 import { fetchIndexChart, fetchFundamentals, fetchStatements } from "../lib/marketData/analyticsYahoo";
 import { pivots } from "../lib/indicators";
@@ -1397,10 +1397,11 @@ router.get("/scan/full-nse", async (req, res, next) => {
       evaluationState: grade.evaluationState,
       actionability: grade.actionability,
       gradeRationale: grade.rationale,
-      // ── SECTION 2: Provisional classifier provenance ──────────────────────
-      // Do NOT claim root-fixed. Classifier is PROVISIONAL until authoritative
-      // NSE security reference is integrated. CANARY_BLOCKED until then.
-      classifierProvenance: CLASSIFIER_PROVENANCE,
+      // ── SECTION 2: Dynamic classifier provenance ──────────────────────────
+      // Reflects the live NSE reference state at request time.
+      // authoritativeNseReferenceIntegrated=true when EQUITY_L.csv is loaded.
+      // CANARY_BLOCKED remains until warehouse canary authorises population.
+      classifierProvenance: getCurrentClassifierProvenance(),
       // ── SECTION 3: Immutable generation identity ──────────────────────────
       // "Displaying 4,426 rows while scan is in progress" is only allowed with
       // an explicit label referencing displayedGenerationId vs inProgressGenerationId.

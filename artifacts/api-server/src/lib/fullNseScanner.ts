@@ -421,6 +421,25 @@ export function buildClassifierProvenance(nseRefMeta: NseRefMeta): ClassifierPro
   };
 }
 
+/**
+ * Returns the current ClassifierProvenance reflecting the live NSE reference state.
+ * Callers (e.g. the scanner route) should use this rather than the static
+ * CLASSIFIER_PROVENANCE constant, which is always provisional and does not update
+ * when the authoritative NSE EQUITY_L.csv reference has been loaded.
+ */
+export function getCurrentClassifierProvenance(): ClassifierProvenance {
+  const meta = getNseSecurityMasterMeta();
+  return buildClassifierProvenance({
+    loaded: meta.loaded,
+    totalRecords: meta.totalRecords,
+    seriesCounts: meta.seriesCounts,
+    snapshotDate: meta.snapshotDate,
+    sourceHash: meta.sourceHash,
+    sourceUrl: meta.sourceUrl,
+    fetchedAt: meta.fetchedAt,
+  });
+}
+
 let generationCounter = 0;
 
 function newGenerationId(): string {

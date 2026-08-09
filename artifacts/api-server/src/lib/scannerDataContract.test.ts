@@ -259,6 +259,115 @@ describe("SECTION 7: gradeToFeedStatus — badge shows correct status string", (
   });
 });
 
+// ── GATE 2: Closed-market state machine (exact matrix from prompt) ────────────
+// Every row in the state matrix must have a passing test. The key invariant:
+// READY_CLOSED must not become READY_STALE solely because cacheAge > refreshMs
+// while the market is closed. That constitutes "stale because no ticks arrive
+// after market close" which is expected, not a data quality problem.
+
+describe("GATE 2: Closed-market state machine", () => {
+  const REFRESH = 60_000;
+  const MAX_AGE = 24 * 60 * 60 * 1000; // 24h
+
+  const baseParams = {
+    kiteOnline: true,
+    evaluationAuthorized: true,
+    universeSize: 2400,
+    rowCount: 2350,
+    refreshMs: REFRESH,
+    maxAgeMs: MAX_AGE,
+    generationCompletedAt: "2026-08-09T09:00:00.000Z",
+  };
+
+  // Row 1: OPEN + within refresh interval → READY_LIVE
+  it("OPEN + cacheAge within refresh interval → READY_LIVE", () => {
+    const g = computeScannerGrade({ ...baseParams, marketOpen: true, cacheAgeMs: 30_000 });
+    expect(g.dataState).toBe("READY_LIVE");
+  });
+
+  // Row 2: OPEN + above refresh, below hard expiry → READY_STALE
+  it("OPEN + cacheAge above refresh (90s > 60s), below hard expiry → READY_STALE", () => {
+    const g = computeScannerGrade({ ...baseParams, marketOpen: true, cacheAgeMs: 90_000 });
+    expect(g.dataState).toBe("READY_STALE");
+  });
+
+  // Row 3: CLOSED + within refresh interval → READY_CLOSED
+  it("CLOSED + cacheAge within refresh interval (30s < 60s) → READY_CLOSED", () => {
+    const g = computeScannerGrade({ ...baseParams, marketOpen: false, cacheAgeMs: 30_000 });
+    expect(g.dataState).toBe("READY_CLOSED");
+  });
+
+  // Row 4: CLOSED + above refresh, below hard expiry → READY_CLOSED  ← THE FIXED BEHAVIOUR
+  it("CLOSED + cacheAge above refresh (90s > 60s), below hard expiry → READY_CLOSED (NOT READY_STALE)", () => {
+    const g = computeScannerGrade({ ...baseParams, marketOpen: false, cacheAgeMs: 90_000 });
+    expect(g.dataState).toBe("READY_CLOSED");
+    // This is the regression guard for the closed-market READY_STALE bug.
+    // Before the fix, cacheAge > refreshMs unconditionally produced READY_STALE.
+    expect(g.dataState).not.toBe("READY_STALE");
+  });
+
+  // Row 4 extended: CLOSED + much older data (4h), still below hard expiry → READY_CLOSED
+  it("CLOSED + cacheAge 4h, below hard expiry → READY_CLOSED (weekend EOD data is expected stale)", () => {
+    const g = computeScannerGrade({ ...baseParams, marketOpen: false, cacheAgeMs: 4 * 60 * 60 * 1000 });
+    expect(g.dataState).toBe("READY_CLOSED");
+    expect(g.dataState).not.toBe("READY_STALE");
+  });
+
+  // Row 5: CLOSED + above hard expiry → ERROR
+  it("CLOSED + cacheAge above hard expiry (25h > 24h) → ERROR", () => {
+    const g = computeScannerGrade({ ...baseParams, marketOpen: false, cacheAgeMs: 25 * 60 * 60 * 1000 });
+    expect(g.dataState).toBe("ERROR");
+  });
+
+  // Row 6: UNKNOWN market status (falsy) → fail-closed, never READY_LIVE
+  it("Unknown (falsy) marketOpen → never READY_LIVE (fail-closed)", () => {
+    // TypeScript enforces boolean; this tests the JS runtime behaviour
+    // when called with an unexpected value. Must not produce READY_LIVE.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const g = computeScannerGrade({ ...baseParams, marketOpen: undefined as any, cacheAgeMs: 30_000 });
+    expect(g.dataState).not.toBe("READY_LIVE");
+    // undefined is falsy → hits "else" branch → READY_CLOSED (safe default)
+    expect(g.dataState).toBe("READY_CLOSED");
+  });
+
+  // Boundary: exactly at refreshMs (open market) — boundary is exclusive (>), so NOT stale
+  it("OPEN + cacheAge exactly at refreshMs boundary → NOT READY_STALE (boundary is exclusive >)", () => {
+    const g = computeScannerGrade({ ...baseParams, marketOpen: true, cacheAgeMs: REFRESH });
+    expect(g.dataState).not.toBe("READY_STALE");
+    expect(g.dataState).toBe("READY_LIVE");
+  });
+
+  // Boundary: one ms above refreshMs (open market) → READY_STALE
+  it("OPEN + cacheAge refreshMs+1ms → READY_STALE", () => {
+    const g = computeScannerGrade({ ...baseParams, marketOpen: true, cacheAgeMs: REFRESH + 1 });
+    expect(g.dataState).toBe("READY_STALE");
+  });
+
+  // Boundary: exactly at maxAgeMs (open market) — boundary is exclusive (>), so NOT error
+  it("OPEN + cacheAge exactly at maxAgeMs boundary → NOT ERROR (boundary is exclusive >)", () => {
+    const g = computeScannerGrade({ ...baseParams, marketOpen: true, cacheAgeMs: MAX_AGE });
+    expect(g.dataState).not.toBe("ERROR");
+  });
+
+  // Boundary: one ms above maxAgeMs → ERROR
+  it("OPEN + cacheAge maxAgeMs+1ms → ERROR", () => {
+    const g = computeScannerGrade({ ...baseParams, marketOpen: true, cacheAgeMs: MAX_AGE + 1 });
+    expect(g.dataState).toBe("ERROR");
+  });
+
+  // Negative cacheAgeMs: should not produce READY_STALE or ERROR
+  it("Negative cacheAgeMs (clock skew) → falls through to READY_LIVE (open) or READY_CLOSED (closed)", () => {
+    const gOpen = computeScannerGrade({ ...baseParams, marketOpen: true, cacheAgeMs: -1000 });
+    // -1000 > maxAgeMs → false; -1000 > refreshMs && open → false; → READY_LIVE
+    expect(gOpen.dataState).toBe("READY_LIVE");
+    const gClosed = computeScannerGrade({ ...baseParams, marketOpen: false, cacheAgeMs: -1000 });
+    expect(gClosed.dataState).toBe("READY_CLOSED");
+    // In neither case is READY_STALE or ERROR produced from negative clock skew
+    expect(gOpen.dataState).not.toBe("READY_STALE");
+    expect(gOpen.dataState).not.toBe("ERROR");
+  });
+});
+
 // ── Edge cases ───────────────────────────────────────────────────────────────
 
 describe("Edge cases", () => {
