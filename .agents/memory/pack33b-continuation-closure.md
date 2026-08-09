@@ -1,9 +1,9 @@
 ---
-name: Pack 33B Continuation Closure
-description: PROMPT_33B_CONTINUATION implementation — all 10 sections complete; production data surface + API contract; Phase A performance fix; scanner data contract; fnoBanList tri-state; preMarket false-zero; trust badge overhaul.
+name: Pack 33B Continuation Closure (including Final Predeploy Corrections)
+description: PROMPT_33B_CONTINUATION + PROMPT_33B_FINAL_PREDEPLOY_CORRECTIONS — all 10 sections + 5 blockers; Phase A performance; 3-dim data contract; generation atomicity; fnoBanList tri-state; Home false-zeros; DataSourceBadge freshness-only; classifier provisional disclosure; full battery PASS.
 ---
 
-## Sections Implemented
+## Sections Implemented (ADDENDUM_33B)
 
 ### Section 1 — Three independent quality dimensions (scannerDataContract.ts)
 - Types: `DataState`, `EvaluationState`, `Actionability`
@@ -11,63 +11,71 @@ description: PROMPT_33B_CONTINUATION implementation — all 10 sections complete
 - 38 tests proving invariants (scannerDataContract.test.ts)
 - INVARIANT: Phase A + READY_LIVE → NOT_ACTIONABLE (never TRADE_GRADE)
 
-### Section 2 — Provisional classifier provenance
-- `CLASSIFIER_PROVENANCE` export from fullNseScanner.ts
-- status: "ELIGIBILITY_CLASSIFIER_PROVISIONAL", canaryStatus: "CANARY_BLOCKED"
-- Exposed in `/api/scan/full-nse` response as `classifierProvenance`
-
-### Section 3 — Immutable generation identity
-- `generationId` added to Cache interface (format: `gen-{ts}-{counter}`)
-- `inProgressGenerationId` in Progress interface
-- `getFullNseStatus()` returns both `displayedGenerationId` and `inProgressGenerationId`
-- DISK_CACHE_VERSION bumped 17 → 18
-
-### Section 4 — Exact count reconciliation
-- `ScanCountReconciliation` type with full breakdown (rawKiteMaster → eligibleOrdinaryEquities)
-- Three accounting equations validated; `allValid` flag in API response
-- Per-phase timing recorded in `timingMs` field
-- Production verified: reconciliationValid=true, 2416/2416 rows, 4219ms cold scan
-
 ### Section E — Performance fix (Phase A enrichment skip)
-**Root cause:** 400 per-row Yahoo enrichment calls ran even in Phase A where indicators
-are unused (rows get NOT_EVALUATED). With Kite online at ENRICH_TIMEOUT=25s, this
-adds up to 25s of dead enrichment time per cycle.
-**Fix:** `if (!SCANNER_KITE_CANDLE_EVALUATION_AUTHORIZED) { enrichList = []; }`
-**Impact:** Cold Phase A scan 1294.5s → 4219ms (308× improvement)
-**p50/p95/max from 10 warm scans:** 26ms / 33ms / 33ms
+- Cold Phase A scan: 1294.5s → 4.2s (308× improvement)
+- Warm-cache: p50=26ms, p95=33ms
 
-### Section F — Home page false zeros
-1. `buildTradeSetups`: Skip when `compositeBias?.score == null` (was: `?? 0`)
-2. `isFnoBanned()`: Now tri-state `boolean | null` (null = UNAVAILABLE)
-   - `isFnoBannedLegacy()` added for backward compat with deprecation warning
+### Section F1 — Home false-zero: tradeSetups skip when bias is null
+### Section 7 — Trust badge: fallbackUsed = actionability !== "TRADE_GRADE"
+### Section 3 — Immutable generation identity (generationId, DISK_CACHE_V18)
+### Sections 2/4/5/D — Classifier provenance + count reconciliation + Phase A banner
 
-### Section 7 — Trust badge correction  
-**Bug:** `fallbackUsed: phaseA` in UnifiedGradeChip misused fallback field to proxy Phase A lock
-**Fix:** `fallbackUsed = actionability !== "TRADE_GRADE"` (from data contract)
-**Proven:** 38 tests in scannerDataContract.test.ts include invariant proofs for badge logic
+## Five Predeploy Blockers Fixed
 
-### Section 1/7 — DataSourceBadge driven by dataState + actionability
-**Bug:** Phase A + fresh Kite → badge showed "delayed" (wrong reason — data is not late)
-**Fix:** Badge status derived from `dataState` + `actionability` from the grade contract
-- `READY_LIVE + TRADE_GRADE` → "live"
-- `READY_LIVE + NOT_ACTIONABLE` → "delayed" (data is fresh; evaluation is locked)
-- `UNAVAILABLE` → "stale", `ERROR` → "down"
+### Blocker 1 — DataSourceBadge freshness-only
+**Problem:** Badge showed "delayed" when evaluation locked (evaluation ≠ freshness).
+**Fix:** DataSourceBadge status maps ONLY from dataState:
+  READY_LIVE→live, READY_CLOSED/READY_PARTIAL→delayed, READY_STALE→stale, ERROR→down
+  fallbackActive = kiteOffline only (not actionability)
+**New UI:** Separate evaluation-state-indicator + actionability-indicator badges added below header
+**Tests:** p33b.dataGradeIndicators.test.tsx — 23 tests (source + inline logic + invariants)
 
-## Battery Results (2026-08-09)
-- api-server TSC: CLEAN (0 errors)
-- scanner TSC: CLEAN (0 errors)  
-- global TSC: CLEAN (0 errors)
+### Blocker 2 — Home false-zero and false-neutral
+**Fixes in preMarket.ts:**
+- classifySentiment(null) → null (not NEUTRAL); return type: Sentiment|null
+- buildOvernightCues: score: number|null (null when no valid global inputs); catch returns null
+- buildPostMarketDigest: null changePercent rows excluded from adv/dec/breadthScore/avgChange
+  breadthScore/avgChangePercent/totalVolume are null when no valid data (not 0)
+  narrative says "Breadth data unavailable" when breadthScore=null
+  adRatio narrative uses "N/A" not "0" when adRatio missing
+- PreMarketReportData.sentiment/sentimentScore now nullable
+**Tests:** p33b.homeConsumers.test.ts — 30 tests (source guards + classifySentiment logic + buildDigest logic)
+
+### Blocker 3 — F&O ban legacy false path
+**Status:** No production callers of isFnoBanned/isFnoBannedLegacy exist.
+  instFlows.ts uses getFnoBanList() directly and already handles null (available:false).
+**Fix:** Reinforced isFnoBannedLegacy JSDoc: "TEST/COMPAT-ISOLATED ONLY — no production route may import"
+**Tests:** p33b.fnoBanGuard.test.ts — 6 tests (import guard scanning all production files)
+
+### Blocker 4 — Immutable generation behaviour
+**Fix added:** Swap guard now checks countReconciliation.allValid — reconciliation failure prevents publication:
+  `const reconciliationFailed = !next.countReconciliation.allValid`
+  `if (!downgrading && !reconciliationFailed) cache = next`
+  Logs warning when generation NOT published due to reconciliation failure.
+**Tests:** p33b.generationSwap.test.ts — 12 tests (source guards + ID logic + dev trace)
+**Dev trace:** before=null, during="gen-1786261246177-1", after="gen-1786261246177-1" (scanMs=4219, reconciliationValid=true)
+
+### Blocker 5 — Eligibility status and disclosure
+**Fix:** canaryStatus updated:
+  FROM: "CANARY_BLOCKED"
+  TO:   "CANARY_BLOCKED_AUTHORITATIVE_NSE_SECURITY_REFERENCE_REQUIRED"
+Defect status: MITIGATED_PROVISIONALLY (not FIXED)
+ClassifierProvenance.canaryStatus type updated accordingly.
+
+## Final Battery (2026-08-09)
+- api-server TSC: CLEAN
+- scanner TSC: CLEAN
+- global TSC: CLEAN
 - 4-pkg TSC: ALL CLEAN
-- api-server tests: 6667/284 files PASSED
-- scanner tests: 1250/52 files PASSED
+- api-server tests: **6,718 / 287 files** PASSED
+- scanner tests: **1,273 / 53 files** PASSED
 - git diff --check: CLEAN
-- Scanner prod build: SUCCESS (9.14s)
-- Global prod build: SUCCESS (3.33s)
-- api-server prod build: SUCCESS (7.3mb dist/index.mjs, 650ms)
-- Skip/only audit: No unconditional .skip/.only
-- Secret sentinel: CLEAN (no hardcoded values)
+- Scanner prod build: SUCCESS (9.41s)
+- api-server prod build: SUCCESS (707ms)
+- Skip/only audit: CLEAN
+- Secret sentinel: CLEAN
 - Provider import guard: CLEAN
-- scannerDataContract tests: 38/38 PASSED
-- eligibilityGates tests: 40/40 PASSED
+- artifacts/global: UNTOUCHED
 
-**Why:** PROMPT_33B_PRODUCTION_DATA_SURFACE_AND_API_CONTRACT_IMPLEMENTED_IN_DEVELOPMENT — OWNER_DEPLOYMENT_AUTHORIZATION_REQUIRED
+**Verdict:**
+PROMPT_33B_PRODUCTION_DATA_SURFACE_AND_API_CONTRACT_IMPLEMENTED_IN_DEVELOPMENT — PREDEPLOY_ACCEPTANCE_REVIEW_REQUIRED

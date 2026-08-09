@@ -267,10 +267,12 @@ export interface ClassifierProvenance {
   /** Machine-readable status that must appear in any automation/logging checks. */
   status: "ELIGIBILITY_CLASSIFIER_PROVISIONAL";
   /**
-   * CANARY_BLOCKED: Full-NSE warehouse canary cannot run until classifier is authoritative.
-   * An unverified classifier might include non-equity instruments in the warehouse.
+   * CANARY_BLOCKED_AUTHORITATIVE_NSE_SECURITY_REFERENCE_REQUIRED: warehouse canary is blocked
+   * because the classifier is provisional. An authoritative NSE security reference (ISIN,
+   * series, security type, active/delisted status) must be integrated before canary can proceed.
+   * The approximate Kite-master+suffix universe is NOT acceptable as a final equity reference.
    */
-  canaryStatus: "CANARY_BLOCKED";
+  canaryStatus: "CANARY_BLOCKED_AUTHORITATIVE_NSE_SECURITY_REFERENCE_REQUIRED";
   /** Has an authoritative NSE security reference (ISIN/series/type/status) been integrated? */
   authoritativeNseReferenceIntegrated: false;
   /** Date when the authoritative reference was last joined (null = never integrated). */
@@ -291,7 +293,7 @@ export interface ClassifierProvenance {
 export const CLASSIFIER_PROVENANCE: ClassifierProvenance = {
   type: "PROVISIONAL_KITE_MASTER_PLUS_SUFFIX",
   status: "ELIGIBILITY_CLASSIFIER_PROVISIONAL",
-  canaryStatus: "CANARY_BLOCKED",
+  canaryStatus: "CANARY_BLOCKED_AUTHORITATIVE_NSE_SECURITY_REFERENCE_REQUIRED",
   authoritativeNseReferenceIntegrated: false,
   authoritativeReferenceDate: null,
   unresolvedHandling: "EXCLUDED_DISCLOSED",
@@ -1246,7 +1248,17 @@ export async function scanFullNse(opts?: { force?: boolean }): Promise<Cache> {
         if (next.rows.length > 0) {
           const prev = cache;
           const downgrading = !prev?.degraded && next.degraded && (prev?.rows.length ?? 0) > next.rows.length;
-          if (!downgrading) cache = next;
+          // Blocker 4: reconciliation failure prevents generation publication.
+          // If the three accounting equations did not balance, the scan data is
+          // inconsistent — preserve the last-good generation, do not swap.
+          const reconciliationFailed = !next.countReconciliation.allValid;
+          if (reconciliationFailed) {
+            logger.warn(
+              { generationId: next.generationId, reconciliation: next.countReconciliation },
+              "Full NSE scan: reconciliation FAILED — generation NOT published; last-good cache preserved",
+            );
+          }
+          if (!downgrading && !reconciliationFailed) cache = next;
           if (!next.degraded) {
             try { saveBlob(DISK_CACHE_NAME, DISK_CACHE_VERSION, next); } catch { /* logged inside */ }
           }

@@ -1,0 +1,187 @@
+PROMPT_33B_FINAL_PREDEPLOY_CORRECTIONS — FIVE_BLOCKERS_ONLY
+
+Continue the existing Prompt 33B task. Do not create follow-up tasks. Do not expand scope.
+
+Current verdict:
+
+PARTIAL_PASS — FIVE_PREDEPLOY_BLOCKERS_REMAIN — DEPLOYMENT_NOT_AUTHORIZED
+
+Preserve the completed performance, cache-version, count-contract and obvious-instrument-exclusion work. Correct only the following five blockers.
+
+1. Separate freshness, evaluation and actionability in the rendered UI
+
+DataSourceBadge must represent only data source/freshness:
+
+- KITE READY_LIVE
+- KITE READY_CLOSED
+- KITE READY_STALE
+- KITE READY_PARTIAL
+- UNAVAILABLE
+- ERROR
+
+It must never display DELAYED merely because evaluation is locked.
+
+Render separate evaluation and actionability indicators:
+
+evaluationState:
+- AUTHORIZED
+- PHASE_A_POPULATION_ONLY
+- INSUFFICIENT_HISTORY
+- SOURCE_NOT_TRADE_GRADE
+- STALE_INPUT
+- NOT_EVALUATED
+
+actionability:
+- TRADE_GRADE
+- INFO_ONLY
+- NOT_ACTIONABLE
+
+Required Phase-A render:
+
+Data: KITE — READY_LIVE or READY_CLOSED — asOf <timestamp>
+Evaluation: PHASE A — NOT EVALUATED
+Actionability: NOT ACTIONABLE
+
+Add real component tests proving:
+- READY_LIVE remains live when NOT_ACTIONABLE.
+- READY_CLOSED remains closed when NOT_ACTIONABLE.
+- Phase A cannot show KITE TRADE-GRADE.
+- Evaluation state cannot mutate source freshness.
+- Source freshness cannot authorize evaluation.
+
+2. Complete all Home false-zero and false-neutral fixes
+
+Audit and correct every Home production consumer, including:
+
+- top index ticker strip,
+- Indian index cards,
+- market breadth,
+- A/D ratio,
+- overall trend,
+- Market Mood Index,
+- global cues,
+- F&O ban list,
+- trade setups,
+- gainers/losers,
+- bullish/bearish setups.
+
+Mandatory rules:
+
+- Missing quote → value=null, not 0.
+- Missing change → changePct=null, not 0%.
+- Missing breadth denominator → A/D ratio=null, not 1.00.
+- Missing trend inputs → direction=null, not NEUTRAL.
+- Missing mandatory mood inputs → mood score=null, not 50/51.
+- Global provider unavailable → no current-looking cached values.
+- Last-good values require STALE/LAST KNOWN, source, sessionDate and asOf.
+- F&O ban upstream unavailable → UNAVAILABLE, never ALL CLEAR.
+- Closed market is separate from unavailable.
+
+Add runtime tests against the actual production functions and rendered Home components for every rule above.
+
+3. Remove the F&O-ban legacy false path from production consumers
+
+Find every caller of:
+
+- isFnoBanned
+- isFnoBannedLegacy
+- getFnoBanList
+- ban-list derived status
+
+Migrate every production route, signal consumer and UI consumer to:
+
+boolean | null
+
+Contract:
+
+true = instrument is banned
+false = authoritative source available and instrument is not banned
+null = source unavailable/unverified
+
+No production path may convert null to false.
+
+`isFnoBannedLegacy` may remain only if:
+- clearly test-only or compatibility-isolated,
+- no registered production route or signal path imports it,
+- an import-guard test enforces this.
+
+4. Prove immutable generation behaviour at runtime
+
+Implement or verify atomic completed-generation publication.
+
+Add runtime tests proving:
+
+- A new scan receives a new inProgressGenerationId.
+- Existing rows continue using displayedGenerationId until completion.
+- Progress explicitly identifies the building generation.
+- Failed scan preserves the complete last-good generation.
+- Reconciliation failure prevents publication.
+- Atomic swap changes header, counts, rows and exports together.
+- CSV/JSON exports identify the same displayed generation.
+- Empty or partial failed generation cannot replace last-good rows.
+- Concurrent requests observe either the complete old generation or complete new generation—never a mixture.
+
+Return one exact development trace showing:
+
+displayedGenerationId before scan,
+inProgressGenerationId during scan,
+displayedGenerationId after successful atomic swap.
+
+5. Correct eligibility status and disclosure
+
+Do not mark authoritative eligibility as fixed.
+
+Use:
+
+eligibilityStatus:
+ELIGIBILITY_CLASSIFIER_PROVISIONAL
+
+canaryStatus:
+CANARY_BLOCKED_AUTHORITATIVE_NSE_SECURITY_REFERENCE_REQUIRED
+
+Defect status:
+
+MITIGATED_PROVISIONALLY
+
+Requirements:
+
+- Obvious SDL/SGB/SME/BZ exclusions remain active.
+- Missing/conflicting classification fails closed.
+- Unresolved securities do not enter breadth, rankings, setup generation or signals.
+- T2T classification remains unresolved until authoritative NSE reference integration.
+- Production response and UI disclose the provisional classifier.
+- Do not report an approximate universe as an authoritative final NSE equity universe.
+
+Update the consolidated defect table honestly.
+
+FULL PREDEPLOY BATTERY
+
+After the five corrections run:
+
+- targeted runtime/component tests
+- full api-server suite
+- full scanner suite
+- all package TSC checks
+- api-server production build
+- scanner production build
+- git diff --check
+- skip/only audit
+- secret sentinel
+- provider import guard
+- built-artifact lock scan
+- artifacts/global untouched proof
+
+Keep all safety locks false.
+
+Do not:
+- deploy,
+- retry warehouse canary,
+- enable warehouse population,
+- enable scanner evaluation,
+- activate V2 cohorts,
+- change F&O/swing formulas,
+- modify broker execution.
+
+Only after these five blockers pass return:
+
+PROMPT_33B_PRODUCTION_DATA_SURFACE_AND_API_CONTRACT_IMPLEMENTED_IN_DEVELOPMENT — PREDEPLOY_ACCEPTANCE_REVIEW_REQUIRED

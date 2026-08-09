@@ -232,10 +232,18 @@ export async function isFnoBanned(symbol: string): Promise<boolean | null> {
 }
 
 /**
- * Legacy convenience wrapper for callers that handle only boolean.
+ * Legacy convenience wrapper — TEST/COMPAT-ISOLATED ONLY.
  * Converts null→false with an explicit warning.
- * New callers should use isFnoBanned() directly and handle null.
- * @deprecated Use isFnoBanned() (tri-state) for honest unavailable reporting.
+ *
+ * RESTRICTIONS (enforced by p33b.fnoBanGuard.test.ts import-guard):
+ *   • No production route may import this function.
+ *   • No signal consumer (preMarket, fnoSignal, swingScanner, etc.) may import this.
+ *   • Only test helpers and explicit compatibility shims (with owner sign-off) may import it.
+ *
+ * Use isFnoBanned() directly and branch true/false/null for honest availability reporting.
+ * null = ban-list source UNAVAILABLE → render "BAN STATUS UNAVAILABLE", never "ALL CLEAR".
+ *
+ * @deprecated Use isFnoBanned() (tri-state: boolean | null) for production paths.
  */
 export async function isFnoBannedLegacy(symbol: string): Promise<boolean> {
   const result = await isFnoBanned(symbol);

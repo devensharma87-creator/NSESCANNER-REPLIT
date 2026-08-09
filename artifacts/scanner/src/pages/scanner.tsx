@@ -629,61 +629,44 @@ export default function ScannerPage() {
         <div className="space-y-1">
           <div className="flex items-center gap-3 flex-wrap">
             <h1 className="text-2xl font-bold font-mono tracking-tight">FULL SCANNER</h1>
-            {/* SECTION 1: DataSourceBadge driven by the dataState dimension only.
-                "live" = READY_LIVE and actionability=TRADE_GRADE.
-                Phase A with fresh Kite quotes: dataState=READY_LIVE but
-                actionability=NOT_ACTIONABLE → badge shows "delayed" (data is not
-                delayed; evaluation is locked — but "delayed" is the closest
-                available FeedStatus for "present but not actionable"). This is
-                correct: it says "not live-tradeable" without claiming data is late.
-                DataSourceBadge cannot show three-dimensional grade — that is the
-                UnifiedGradeChip's job (see below). */}
+            {/* BLOCKER 1: DataSourceBadge represents ONLY data source/freshness.
+                It must never show "delayed" because evaluation is locked.
+                Mapping from dataState (the freshness dimension) → FeedStatus:
+                  READY_LIVE    → "live"    (intraday quotes, market open)
+                  READY_CLOSED  → "delayed" (today's EOD data; market closed)
+                  READY_PARTIAL → "delayed" (partial coverage; live but incomplete)
+                  READY_STALE   → "stale"   (prior session data, not refreshing)
+                  UNAVAILABLE   → "stale"   (no data at all)
+                  ERROR         → "down"    (provider error)
+                Evaluation lock does NOT appear here. fallbackActive reflects only
+                whether the data source fell back (Kite→Yahoo), not evaluation state. */}
             <DataSourceBadge
               source={fullMeta?.kiteOffline ? "yahoo" : "kite"}
               status={(() => {
-                // INVARIANT: "live" is ONLY possible when both:
-                //   1. dataState=READY_LIVE (Kite intraday, market open, fresh)
-                //   2. actionability=TRADE_GRADE (evaluation authorized + Kite online)
-                // Phase A + fresh Kite: dataState=READY_LIVE, actionability=NOT_ACTIONABLE
-                //   → "delayed" (not live-tradeable even though data is fresh)
-                // Phase B + Kite open: dataState=READY_LIVE, actionability=TRADE_GRADE
-                //   → "live" (both conditions met)
                 const ds = fullMeta?.dataState;
-                const ac = fullMeta?.actionability;
-                if (!fullMeta || ds === "UNAVAILABLE" || ds === "ERROR") return "stale";
-                if (ac === "TRADE_GRADE" && ds === "READY_LIVE") return "live";
-                return "delayed";
+                if (!fullMeta || ds === "UNAVAILABLE") return "stale";
+                if (ds === "ERROR") return "down";
+                if (ds === "READY_STALE") return "stale";
+                if (ds === "READY_LIVE") return "live";
+                if (ds === "READY_CLOSED" || ds === "READY_PARTIAL") return "delayed";
+                return "stale"; // unknown state — fail conservative
               })()}
-              fallbackActive={!!fullMeta?.kiteOffline || fullMeta?.actionability !== "TRADE_GRADE"}
+              fallbackActive={!!fullMeta?.kiteOffline}
               lastUpdated={fullMeta?.lastUpdated}
               refreshMs={60_000}
               autoStaleAfterMs={120_000}
-              note={(() => {
-                const es = fullMeta?.evaluationState;
-                if (es === "PHASE_A_POPULATION_ONLY")
-                  return "Phase A: Kite price/OHLC is live. Evaluation locked — rows are NOT_EVALUATED. No signals.";
-                if (fullMeta?.kiteOffline)
-                  return "Kite session offline — Yahoo backup active";
-                return undefined;
-              })()}
+              note={fullMeta?.kiteOffline ? "Kite session offline — Yahoo backup active" : undefined}
               compact
             />
             {/* SECTION 7: UnifiedGradeChip must not show KITE TRADE-GRADE when
-                evaluation is locked. The old proxy was `fallbackUsed: phaseA` which
-                misused the fallback field to encode the Phase A lock.
-                Correct logic: fallbackUsed=true when actionability≠TRADE_GRADE.
-                This ensures KITE TRADE-GRADE is mechanically impossible in Phase A. */}
+                evaluation is locked. fallbackUsed=actionability≠TRADE_GRADE ensures
+                KITE TRADE-GRADE is mechanically impossible when evaluation is not authorized. */}
             <UnifiedGradeChip
               chipId="scanner-boot"
               source="kite"
               runtime={{
                 hasData: Boolean(fullMeta),
                 asOf: fullMeta?.lastUpdated ?? null,
-                // INVARIANT: fallbackUsed=true blocks KITE TRADE-GRADE rendering.
-                // Use actionability≠TRADE_GRADE instead of the old phaseA proxy.
-                // This correctly handles: Phase A (NOT_ACTIONABLE), Yahoo offline
-                // (INFO_ONLY), stale data (INFO_ONLY), and any future state where
-                // trade-grade evaluation is unavailable.
                 fallbackUsed: fullMeta ? fullMeta.actionability !== "TRADE_GRADE" : true,
               }}
               note={(() => {
@@ -705,6 +688,47 @@ export default function ScannerPage() {
               })()}
             />
           </div>
+          {/* BLOCKER 1: Separate evaluation and actionability indicators.
+              These are independent of the DataSourceBadge (freshness).
+              Required render for Phase A:
+                Data:         KITE — READY_LIVE — asOf <ts>       ← DataSourceBadge above
+                Evaluation:   PHASE A — NOT EVALUATED              ← this row
+                Actionability: NOT ACTIONABLE                      ← this row */}
+          {fullMeta?.evaluationState && (
+            <div className="flex items-center gap-2 flex-wrap mt-1" data-testid="grade-indicators-row">
+              <span
+                className={[
+                  "inline-flex items-center gap-1 px-2 py-0.5 rounded border text-[10px] font-mono tracking-wider font-semibold",
+                  fullMeta.evaluationState === "AUTHORIZED"
+                    ? "border-emerald-500/50 bg-emerald-500/10 text-emerald-300"
+                    : fullMeta.evaluationState === "PHASE_A_POPULATION_ONLY"
+                    ? "border-violet-500/50 bg-violet-500/10 text-violet-300"
+                    : "border-amber-500/50 bg-amber-500/10 text-amber-300",
+                ].join(" ")}
+                data-testid="evaluation-state-indicator"
+              >
+                <span className="opacity-60">Eval:</span>
+                {fullMeta.evaluationState === "PHASE_A_POPULATION_ONLY"
+                  ? "PHASE A — NOT EVALUATED"
+                  : fullMeta.evaluationState.replace(/_/g, " ")}
+              </span>
+              {fullMeta.actionability && (
+                <span
+                  className={[
+                    "inline-flex items-center gap-1 px-2 py-0.5 rounded border text-[10px] font-mono tracking-wider font-semibold",
+                    fullMeta.actionability === "TRADE_GRADE"
+                      ? "border-emerald-500/50 bg-emerald-500/10 text-emerald-300"
+                      : fullMeta.actionability === "INFO_ONLY"
+                      ? "border-blue-500/50 bg-blue-500/10 text-blue-300"
+                      : "border-zinc-500/50 bg-zinc-500/10 text-zinc-400",
+                  ].join(" ")}
+                  data-testid="actionability-indicator"
+                >
+                  {fullMeta.actionability.replace(/_/g, " ")}
+                </span>
+              )}
+            </div>
+          )}
           {/* D-fix: Phase-A banner — visible when evaluation lock is active.
               KITE TRADE-GRADE is impossible while SCANNER_KITE_CANDLE_EVALUATION_AUTHORIZED=false.
               All rows carry NOT_EVALUATED signal. Price/OHLC/volume are live from Kite. */}

@@ -49,11 +49,14 @@ interface Cue {
   inverted?: boolean;
 }
 
-function classifySentiment(score: number): Sentiment {
-  // score domain is -100..+100 (see buildOvernightCues line ~163: avg cue % * 50,
-  // clamped to ±100). Thresholds calibrated so a typical mixed overnight session
-  // (avg ~0.1-0.3% on cues → ±5-15 score) lands in NEUTRAL/BULLISH, while a
-  // strong global risk-on/off day (avg ~0.7%+ → ±35+) lands in STRONG_*.
+function classifySentiment(score: number | null): Sentiment | null {
+  // Blocker 2: null score means no valid global inputs arrived — return null,
+  // do not fabricate NEUTRAL. Consumers must render "UNAVAILABLE", not a sentiment label.
+  if (score === null) return null;
+  // score domain is -100..+100 (see buildOvernightCues: avg cue % * 50, clamped ±100).
+  // Thresholds calibrated so a typical mixed overnight session (avg ~0.1-0.3% on cues
+  // → ±5-15 score) lands in NEUTRAL/BULLISH, while a strong risk-on/off day
+  // (avg ~0.7%+ → ±35+) lands in STRONG_*.
   if (score >= 35) return "STRONG_BULLISH";
   if (score >= 12) return "BULLISH";
   if (score <= -35) return "STRONG_BEARISH";
@@ -84,8 +87,12 @@ function bucket(p: number): "bullish" | "bearish" | "neutral" {
   return "neutral";
 }
 
-/** Build the weighted overnight cue list. Returns cues + composite score in -100..+100 range. */
-async function buildOvernightCues(): Promise<{ cues: Cue[]; score: number }> {
+/**
+ * Build the weighted overnight cue list. Returns cues + composite score in -100..+100 range.
+ * score is null when no valid global inputs arrived — do NOT fabricate neutral (0).
+ * Consumers must render "UNAVAILABLE", not any sentiment label, when score is null.
+ */
+async function buildOvernightCues(): Promise<{ cues: Cue[]; score: number | null }> {
   const cues: Cue[] = [];
   let weighted = 0;
   let totalWeight = 0;
@@ -167,9 +174,12 @@ async function buildOvernightCues(): Promise<{ cues: Cue[]; score: number }> {
     } catch { /* ignore */ }
   }
 
-  const score = totalWeight > 0 ? weighted / totalWeight : 0; // % avg
-  // Score is currently in % units; clamp to -100..+100
-  return { cues, score: Math.max(-100, Math.min(100, score * 50)) };
+  // Blocker 2: score is null when no valid inputs arrived. Do NOT return 0 (false neutral).
+  // Callers must treat null as UNAVAILABLE and not render any sentiment label.
+  const score: number | null = totalWeight > 0
+    ? Math.max(-100, Math.min(100, (weighted / totalWeight) * 50))
+    : null;
+  return { cues, score };
 }
 
 /**
@@ -818,13 +828,29 @@ function buildScenarios(args: {
 
 /** Post-market digest — internal breadth, summary narrative. */
 function buildPostMarketDigest(rows: Awaited<ReturnType<typeof scanAll>>) {
-  const adv = rows.filter(r => r.quote.changePercent > 0.1).length;
-  const dec = rows.filter(r => r.quote.changePercent < -0.1).length;
-  const unc = rows.length - adv - dec;
-  const totalVol = rows.reduce((a, r) => a + (r.quote.volume ?? 0), 0);
-  const avgChg = rows.length > 0 ? rows.reduce((a, r) => a + r.quote.changePercent, 0) / rows.length : 0;
+  // Blocker 2: Only rows with valid (non-null, finite) changePercent contribute to
+  // breadth counts and average. Null changePercent rows are not counted as "unchanged" —
+  // they are excluded entirely. Missing data must not pad the denominator.
+  const validBreadthRows = rows.filter(
+    r => r.quote.changePercent != null && isFinite(r.quote.changePercent as number)
+  );
+  const adv = validBreadthRows.filter(r => (r.quote.changePercent as number) > 0.1).length;
+  const dec = validBreadthRows.filter(r => (r.quote.changePercent as number) < -0.1).length;
+  const unc = validBreadthRows.length - adv - dec;
+  // Blocker 2: volume null when no rows have volume data — do not fabricate 0.
+  const rowsWithVolume = rows.filter(r => r.quote.volume != null && (r.quote.volume as number) > 0);
+  const totalVol: number | null = rowsWithVolume.length > 0
+    ? rows.reduce((a, r) => a + (r.quote.volume ?? 0), 0)
+    : null;
+  // Blocker 2: avgChangePercent null when no valid breadth rows — do not fabricate 0%.
+  const avgChg: number | null = validBreadthRows.length > 0
+    ? validBreadthRows.reduce((a, r) => a + (r.quote.changePercent as number), 0) / validBreadthRows.length
+    : null;
   const adRatio = dec > 0 ? +(adv / dec).toFixed(2) : (adv > 0 ? null : 0);
-  const breadthScore = Math.max(-100, Math.min(100, ((adv - dec) / Math.max(1, rows.length)) * 100));
+  // Blocker 2: breadthScore null when no valid breadth data — do not fabricate 0 (false NEUTRAL).
+  const breadthScore: number | null = validBreadthRows.length > 0
+    ? Math.max(-100, Math.min(100, ((adv - dec) / validBreadthRows.length) * 100))
+    : null;
 
   // 52-week extremes — "near" = within 0.5% of the band so we capture both
   // exact prints AND the cluster of names probing the level intraday. This
@@ -850,11 +876,19 @@ function buildPostMarketDigest(rows: Awaited<ReturnType<typeof scanAll>>) {
   const lowerCircuits = rows.filter(r => r.quote.changePercent <= -CIRCUIT).length;
 
   let narrative: string;
-  if (breadthScore > 30) narrative = `Broad-based rally — ${adv} advances vs ${dec} declines (A/D ${adRatio ?? "∞"}). Buyers in control across the board.`;
-  else if (breadthScore > 10) narrative = `Mildly positive close — ${adv} advances vs ${dec} declines. Selective buying.`;
-  else if (breadthScore < -30) narrative = `Broad-based selling — ${dec} declines vs ${adv} advances (A/D ${adRatio ?? "0"}). Risk-off across the tape.`;
-  else if (breadthScore < -10) narrative = `Mildly negative close — ${dec} declines vs ${adv} advances. Selective selling.`;
-  else narrative = `Indecisive close — ${adv} advances vs ${dec} declines roughly balanced. Direction unclear.`;
+  if (breadthScore === null) {
+    narrative = "Breadth data unavailable — insufficient quote coverage to compute advance/decline ratio.";
+  } else if (breadthScore > 30) {
+    narrative = `Broad-based rally — ${adv} advances vs ${dec} declines (A/D ${adRatio ?? "∞"}). Buyers in control across the board.`;
+  } else if (breadthScore > 10) {
+    narrative = `Mildly positive close — ${adv} advances vs ${dec} declines. Selective buying.`;
+  } else if (breadthScore < -30) {
+    narrative = `Broad-based selling — ${dec} declines vs ${adv} advances (A/D ${adRatio != null ? adRatio : "N/A"}). Risk-off across the tape.`;
+  } else if (breadthScore < -10) {
+    narrative = `Mildly negative close — ${dec} declines vs ${adv} advances. Selective selling.`;
+  } else {
+    narrative = `Indecisive close — ${adv} advances vs ${dec} declines roughly balanced. Direction unclear.`;
+  }
 
   // Append a breadth-quality annotation — divergences between index move
   // and 52w extremes / circuits are the primary "warning sign" the doc
@@ -875,8 +909,8 @@ function buildPostMarketDigest(rows: Awaited<ReturnType<typeof scanAll>>) {
     unchanged: unc,
     adRatio,
     totalVolume: totalVol,
-    avgChangePercent: +avgChg.toFixed(2),
-    marketBreadthScore: +breadthScore.toFixed(1),
+    avgChangePercent: avgChg != null ? +avgChg.toFixed(2) : null,
+    marketBreadthScore: breadthScore != null ? +breadthScore.toFixed(1) : null,
     new52wHigh,
     new52wLow,
     upperCircuits,
@@ -1461,8 +1495,10 @@ const TTL = 60 * 1000; // 1 min
 
 export interface PreMarketReportData {
   mode: Mode;
-  sentiment: Sentiment;
-  sentimentScore: number;
+  /** null when no valid global inputs arrived — render "UNAVAILABLE", not any sentiment label. */
+  sentiment: Sentiment | null;
+  /** null when no valid global inputs arrived — do not fabricate 0 or 50. */
+  sentimentScore: number | null;
   narrative: string;
   keyTakeaways: string[];
   overnightCues: Cue[];
@@ -1518,7 +1554,7 @@ export async function getPreMarketReport(): Promise<PreMarketReportData> {
     fiveDayFlows,
     macroOverlay,
   ] = await Promise.all([
-    buildOvernightCues().catch(e => { logger.warn({ e }, "preMarket: overnightCues failed"); return { cues: [] as Cue[], score: 0 }; }),
+    buildOvernightCues().catch(e => { logger.warn({ e }, "preMarket: overnightCues failed"); return { cues: [] as Cue[], score: null }; }),
     buildIndexPreviews().catch(e => { logger.warn({ e }, "preMarket: indexPreviews failed"); return [] as Awaited<ReturnType<typeof buildIndexPreviews>>; }),
     buildMovers().catch(e => { logger.warn({ e }, "preMarket: movers failed"); return { topGainers: [], topLosers: [], gapUps: [], gapDowns: [], allRows: [] } as Awaited<ReturnType<typeof buildMovers>>; }),
     getMarketEvents().catch(() => null),
@@ -1533,6 +1569,7 @@ export async function getPreMarketReport(): Promise<PreMarketReportData> {
   ]);
   const { cues, score } = cuesResult;
 
+  // classifySentiment returns null when score is null — do not fabricate a label.
   const sentiment = classifySentiment(score);
   const today = todayISO();
   const eventsToday = (eventsResp?.events ?? []).filter(e => e.date.startsWith(today)).map(e => ({
@@ -1589,12 +1626,18 @@ export async function getPreMarketReport(): Promise<PreMarketReportData> {
     ? ` India VIX is at ${vixCue.value.toFixed(2)} (${vixCue.changePercent >= 0 ? "+" : ""}${vixCue.changePercent.toFixed(2)}%) — ${vixCue.value > 18 ? "elevated, expect wider intraday swings" : vixCue.value < 12 ? "complacent, surprise moves are possible" : "moderate"}.`
     : "";
 
+  // Blocker 2: sentiment may be null when no valid global inputs arrived.
+  // Do not embed a fabricated sentiment label in the narrative — say "unavailable" explicitly.
+  const sentimentLabel = sentiment != null
+    ? sentiment.toLowerCase().replace("_", " ")
+    : "unavailable (no valid global inputs this cycle)";
+
   if (mode === "PRE_MARKET") {
-    narrative = `Pre-market read is ${sentiment.toLowerCase().replace("_", " ")}. ${giftFrag}${usFrag}${asiaFrag}${vixFrag}`;
+    narrative = `Pre-market read is ${sentimentLabel}. ${giftFrag}${usFrag}${asiaFrag}${vixFrag}`;
   } else if (mode === "POST_MARKET") {
-    narrative = `Markets have closed for the day. Composite overnight setup for the next session is ${sentiment.toLowerCase().replace("_", " ")}. ${giftFrag}${usFrag}${asiaFrag}${vixFrag}`;
+    narrative = `Markets have closed for the day. Composite overnight setup for the next session is ${sentimentLabel}. ${giftFrag}${usFrag}${asiaFrag}${vixFrag}`;
   } else {
-    narrative = `Markets are live. The overnight setup that shaped today's open was ${sentiment.toLowerCase().replace("_", " ")}. ${giftFrag}${usFrag}${asiaFrag}${vixFrag}`;
+    narrative = `Markets are live. The overnight setup that shaped today's open was ${sentimentLabel}. ${giftFrag}${usFrag}${asiaFrag}${vixFrag}`;
   }
 
   // Sector heatmap derives from the same scan rows we already pulled for movers.
@@ -1609,7 +1652,7 @@ export async function getPreMarketReport(): Promise<PreMarketReportData> {
   const vixForScenarios = cues.find(c => c.label === "India VIX")
     ?? cues.find(c => c.category === "vix");
   const scenarios = buildScenarios({
-    sentimentScore: score,
+    sentimentScore: score ?? 0, // scenarios are informational display; null maps to 0 (balanced)
     giftPct: giftCue?.changePercent ?? null,
     vix: vixForScenarios?.value ?? null,
     niftyLevels,
@@ -1667,7 +1710,7 @@ export async function getPreMarketReport(): Promise<PreMarketReportData> {
   const data: PreMarketReportData = {
     mode,
     sentiment,
-    sentimentScore: +score.toFixed(2),
+    sentimentScore: score != null ? +score.toFixed(2) : null,
     narrative,
     keyTakeaways: takeaways,
     overnightCues: cues,
