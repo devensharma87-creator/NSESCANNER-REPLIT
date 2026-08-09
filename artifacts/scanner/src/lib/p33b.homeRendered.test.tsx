@@ -197,9 +197,19 @@ describe("HR-09/HR-16/HR-17: FnoBanWidget — unavailable state rendering", () =
   beforeEach(setup);
   afterEach(cleanup);
 
-  it("HR-09/HR-16: data.available=false renders UNAVAILABLE, not ALL CLEAR", () => {
+  it("HR-09/HR-16: data.status=UNAVAILABLE renders UNAVAILABLE, not ALL CLEAR", () => {
     vi.mocked(apiClient.useGetFnoBanList).mockReturnValue({
-      data: { available: false, symbols: [], count: 0, sourceDate: null },
+      data: {
+        status: "UNAVAILABLE" as const,
+        currentAvailable: false,
+        hasLastKnown: false,
+        stale: false,
+        canAuthorizeAdmission: false,
+        symbols: [],
+        count: 0,
+        sourceUrl: null,
+        sourceAsOf: null,
+      },
       isLoading: false,
     } as ReturnType<typeof apiClient.useGetFnoBanList>);
 
@@ -225,9 +235,46 @@ describe("HR-09/HR-16/HR-17: FnoBanWidget — unavailable state rendering", () =
     expect(text).not.toContain("no stocks");
   });
 
-  it("FnoBanWidget: empty ban list renders ALL CLEAR (data present, no bans)", () => {
+  it("HR-NEW: data.status=LAST_KNOWN_STALE renders stale warning, not ALL CLEAR and not UNAVAILABLE", () => {
     vi.mocked(apiClient.useGetFnoBanList).mockReturnValue({
-      data: { available: true, symbols: [], count: 0, sourceDate: "2026-08-09" },
+      data: {
+        status: "LAST_KNOWN_STALE" as const,
+        currentAvailable: false,
+        hasLastKnown: true,
+        stale: true,
+        canAuthorizeAdmission: false,
+        sourceAsOf: "2026-08-08T09:00:00.000Z",
+        symbols: ["RELIANCE", "HDFCBANK"],
+        count: 2,
+      },
+      isLoading: false,
+      isError: false,
+    } as ReturnType<typeof apiClient.useGetFnoBanList>);
+
+    renderInto(React.createElement(FnoBanWidget));
+
+    const html = getHTML().toLowerCase();
+    // LAST_KNOWN_STALE: must warn about staleness — NOT render the happy "ALL CLEAR"
+    // AND must not treat it as fully UNAVAILABLE (some data is shown)
+    expect(html).toMatch(/stale|last.known|outdated|refresh|expired/);
+    expect(html).not.toContain("all clear");
+    // canAuthorizeAdmission=false → admission blocked just like UNAVAILABLE
+    expect(html).not.toContain("no securities are banned");
+  });
+
+  it("FnoBanWidget: CURRENT empty ban list renders ALL CLEAR", () => {
+    vi.mocked(apiClient.useGetFnoBanList).mockReturnValue({
+      data: {
+        status: "CURRENT" as const,
+        currentAvailable: true,
+        hasLastKnown: true,
+        stale: false,
+        canAuthorizeAdmission: true,
+        symbols: [],
+        count: 0,
+        sourceUrl: "https://archives.nseindia.com/content/fo/fo_secban.csv",
+        sourceAsOf: "2026-08-09T00:00:00.000Z",
+      },
       isLoading: false,
     } as ReturnType<typeof apiClient.useGetFnoBanList>);
 

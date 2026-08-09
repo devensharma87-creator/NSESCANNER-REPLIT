@@ -62,6 +62,17 @@ interface FullNseResponse {
 
   // ── SECTION 3: Immutable generation identity ─────────────────────────────
   generationId?: string;
+  /**
+   * Classifier provenance — whether the eligibility classifier used the
+   * authoritative NSE EQUITY_L.csv reference or provisional heuristics.
+   * authoritativeNseReferenceIntegrated=false → universe is KITE_NSE_EQ_LIKE_PROVISIONAL.
+   */
+  classifierProvenance?: {
+    authoritativeNseReferenceIntegrated: boolean;
+    type: string;
+    status: string;
+    canaryStatus: string;
+  };
 }
 
 interface FullNseStatus {
@@ -121,6 +132,7 @@ function useFullNseStocks() {
       evaluationState: q.data.evaluationState,
       actionability: q.data.actionability,
       generationId: q.data.generationId,
+      classifierProvenance: q.data.classifierProvenance,
     } : null,
   };
 }
@@ -760,7 +772,10 @@ export default function ScannerPage() {
               const live = fullMeta?.liveQuoteCount ?? (universe && failures != null ? Math.max(0, universe - failures) : 0);
               return (
                 <>
-                  Ordinary-equity universe <span className="font-mono text-foreground">{universe ? universe.toLocaleString("en-IN") : "…"}</span>
+                  {fullMeta?.classifierProvenance?.authoritativeNseReferenceIntegrated
+                    ? "Ordinary-equity universe"
+                    : <><span className="text-amber-400 font-semibold">PROVISIONAL</span>{" universe"}</>}{" "}
+                  <span className="font-mono text-foreground">{universe ? universe.toLocaleString("en-IN") : "…"}</span>
                   {" · "}with quote <span className="font-mono text-foreground">{universe && failures != null ? live.toLocaleString("en-IN") : "…"}</span>
                   {" · "}no feed this cycle <span className="font-mono text-foreground">{failures != null ? failures.toLocaleString("en-IN") : "…"}</span>
                   {" · "}sortable column headers · screen presets narrow the view · hover any row for the top reasons behind its signal.

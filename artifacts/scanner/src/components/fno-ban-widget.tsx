@@ -55,7 +55,7 @@ export default function FnoBanWidget() {
   }
 
   // UNAVAILABLE: no data at all (all upstreams failed, no cache ever populated).
-  if (!data || data.available === false) {
+  if (!data || data.status === "UNAVAILABLE") {
     return (
       <Card className="border-border bg-muted/10">
         <CardHeader className="pb-2 flex-row items-center justify-between">
@@ -76,12 +76,12 @@ export default function FnoBanWidget() {
     );
   }
 
-  // STALE / LAST KNOWN: available=true but stale=true.
+  // STALE / LAST KNOWN: hasLastKnown=true but status=LAST_KNOWN_STALE.
   // The refresh failed; we are serving an expired cache entry.
-  // These symbols cannot authorize a current "banned/not-banned" admission decision.
-  if (data.stale) {
-    const asOf = data.fetchedAt
-      ? new Date(data.fetchedAt).toLocaleString("en-IN", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit", day: "numeric", month: "short" })
+  // canAuthorizeAdmission=false — these symbols cannot authorize current admission decisions.
+  if (data.status === "LAST_KNOWN_STALE") {
+    const asOf = data.sourceAsOf
+      ? new Date(data.sourceAsOf).toLocaleString("en-IN", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit", day: "numeric", month: "short" })
       : null;
     return (
       <Card className="border-amber-500/30 bg-gradient-to-b from-amber-500/5 to-transparent">
@@ -122,7 +122,7 @@ export default function FnoBanWidget() {
     );
   }
 
-  // ALL CLEAR: available=true, stale=false, no banned symbols.
+  // ALL CLEAR: status=CURRENT, canAuthorizeAdmission=true, no banned symbols.
   if (data.symbols.length === 0) {
     return (
       <Card className="border-signal-strong-buy/20 bg-gradient-to-b from-signal-strong-buy/5 to-transparent">
@@ -144,7 +144,7 @@ export default function FnoBanWidget() {
     );
   }
 
-  // BANNED: available=true, stale=false, symbols present.
+  // BANNED: status=CURRENT, canAuthorizeAdmission=true, symbols present.
   return (
     <Card className="border-signal-strong-sell/30 bg-gradient-to-b from-signal-strong-sell/5 to-transparent">
       <CardHeader className="pb-2 flex-row items-center justify-between">

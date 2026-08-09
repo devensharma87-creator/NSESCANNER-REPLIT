@@ -159,27 +159,59 @@ async function refresh(): Promise<CacheEntry | null> {
   return null;
 }
 
+/**
+ * Machine-readable F&O ban list availability status.
+ *
+ *   CURRENT          — fresh upstream fetch or in-TTL cache; admission can be authorized.
+ *   LAST_KNOWN_STALE — all upstream refreshes failed; serving expired cache;
+ *                      DO NOT use for admission authorization.
+ *   UNAVAILABLE      — no data at all; admission status is UNKNOWN.
+ */
+export type FnoBanStatus = "CURRENT" | "LAST_KNOWN_STALE" | "UNAVAILABLE";
+
 export interface FnoBanList {
   symbols: string[];
   count: number;
-  sourceUrl: string;
-  fetchedAt: string;
-  cached: boolean;
-  /** true when the response is a stale-fallback: the upstream refresh failed
-   *  and we are serving the last successfully-fetched cache entry.
-   *  Callers MUST render "STALE/LAST KNOWN" rather than treating this as a
-   *  current authoritative result for admission decisions. */
+  sourceUrl: string | null;
+  /**
+   * ISO timestamp of when this data was fetched from NSE upstream.
+   * null when UNAVAILABLE (no successful fetch has occurred).
+   */
+  sourceAsOf: string | null;
+  /**
+   * true when data comes from a fresh upstream fetch or an in-TTL cache entry.
+   * false for LAST_KNOWN_STALE (refresh failed) and UNAVAILABLE (no data).
+   */
+  currentAvailable: boolean;
+  /**
+   * true when we have any cached data (fresh or stale) we can return.
+   * false ONLY when UNAVAILABLE.
+   */
+  hasLastKnown: boolean;
+  /**
+   * true when serving an expired cache entry because all upstream refreshes failed.
+   * false for CURRENT and UNAVAILABLE.
+   */
   stale: boolean;
+  /**
+   * true ONLY when status === "CURRENT".
+   *
+   * NEVER use symbols to make admission decisions when canAuthorizeAdmission=false:
+   *   - LAST_KNOWN_STALE: symbols reflect last-known state, not current; do NOT authorize
+   *   - UNAVAILABLE: no data; cannot determine whether symbol is banned or not
+   */
+  canAuthorizeAdmission: boolean;
+  /**
+   * Machine-readable availability state. See FnoBanStatus above.
+   */
+  status: FnoBanStatus;
 }
 
 /** Returns the latest F&O ban list. In-memory cached for 30 min.
  *
- *  The `cached` flag in the response distinguishes a fresh upstream fetch
- *  (`false`) from any read served out of memory — either an in-TTL hit
- *  OR a stale-fallback when a refresh attempt failed. We only flip
- *  `cached=false` when the bytes we're returning came from a successful
- *  network refresh on this very call, never from a coincidental object
- *  identity match against `cache`.
+ * Returns null only when no data has ever been fetched (UNAVAILABLE).
+ * When the cache has expired and a refresh fails, returns a LAST_KNOWN_STALE
+ * result with canAuthorizeAdmission=false.
  */
 export async function getFnoBanList(): Promise<FnoBanList | null> {
   // 1. Warm cache, still inside TTL → instant return (not stale: data is current).
@@ -207,13 +239,33 @@ export async function getFnoBanList(): Promise<FnoBanList | null> {
 }
 
 function toDto(e: CacheEntry, stale: boolean): FnoBanList {
+  if (stale) {
+    // LAST_KNOWN_STALE: serving expired cache because refresh failed.
+    // canAuthorizeAdmission=false — callers must not use for admission decisions.
+    return {
+      symbols: e.symbols,
+      count: e.symbols.length,
+      sourceUrl: e.sourceUrl,
+      sourceAsOf: e.fetchedAt,
+      currentAvailable: false,
+      hasLastKnown: true,
+      stale: true,
+      canAuthorizeAdmission: false,
+      status: "LAST_KNOWN_STALE",
+    };
+  }
+  // CURRENT: in-TTL or just fetched successfully.
+  // canAuthorizeAdmission=true — symbols are the authoritative current ban list.
   return {
     symbols: e.symbols,
     count: e.symbols.length,
     sourceUrl: e.sourceUrl,
-    fetchedAt: e.fetchedAt,
-    cached: true,   // always from in-process cache (either in-TTL or stale-fallback)
-    stale,          // true ONLY when serving an expired entry because all refreshes failed
+    sourceAsOf: e.fetchedAt,
+    currentAvailable: true,
+    hasLastKnown: true,
+    stale: false,
+    canAuthorizeAdmission: true,
+    status: "CURRENT",
   };
 }
 
@@ -234,7 +286,9 @@ function toDto(e: CacheEntry, stale: boolean): FnoBanList {
  */
 export async function isFnoBanned(symbol: string): Promise<boolean | null> {
   const list = await getFnoBanList();
-  if (list === null) return null;   // upstream unreachable — UNAVAILABLE
+  // Fail closed for both UNAVAILABLE (list=null) and LAST_KNOWN_STALE (canAuthorizeAdmission=false).
+  // A stale ban list cannot authorize admission — even "not in the stale list" must not return false.
+  if (list === null || !list.canAuthorizeAdmission) return null;
   return cache?.set.has(symbol.toUpperCase()) ?? false;
 }
 

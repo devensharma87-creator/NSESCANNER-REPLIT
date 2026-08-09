@@ -1,0 +1,203 @@
+PROMPT_33B_FINAL_DATA_IDENTITY_CORRECTION — NO_DEPLOYMENT
+
+Continue Prompt 33B. Do not create another task and do not deploy commit 292651c.
+
+Preserve the accepted generation lifecycle, test-hook bundle exclusion, null-safety and performance changes.
+
+Resolve only the following three blockers.
+
+1. Correct the false 8,891 ordinary-equity conclusion
+
+Do not treat Kite instrument_type=EQ as authoritative proof of ordinary main-board equity.
+
+The project’s own evidence has already shown that Kite can label SDL/debt/security-series instruments as EQ.
+
+Immediately correct terminology:
+
+rawKiteNseInstrumentCount
+kiteInstrumentTypeEqCount
+provisionallyClassifiedCount
+authoritativelyVerifiedOrdinaryEquityCount
+unresolvedSecurityCount
+excludedSecurityCount
+
+Until the authoritative NSE reference is integrated:
+
+- authoritativelyVerifiedOrdinaryEquityCount must not equal 8,891;
+- 8,891 must be labelled KITE_NSE_EQ_LIKE_PROVISIONAL;
+- it cannot drive breadth, rankings, signals, market mood or trade actions;
+- the UI must not call it the ordinary-equity universe;
+- eligibilityStatus remains PROVISIONAL;
+- canary remains blocked.
+
+Integrate a dated authoritative NSE security reference/master using the existing NSE reference infrastructure where possible.
+
+Required authoritative fields:
+
+- security identifier/token where available
+- ISIN
+- symbol
+- exchange
+- segment
+- official series
+- security type/category
+- active/suspended/delisted status
+- effective/reference date
+- source file identifier
+- source hash
+
+Join rules:
+
+1. Strong identity match by ISIN/security identifier.
+2. Then exchange + symbol + effective date where necessary.
+3. Suffix may only support an official classification.
+4. Missing/conflicting reference → UNRESOLVED_SECURITY_TYPE.
+5. Unresolved cannot enter ordinary-equity calculations.
+
+Required classifications:
+
+ORDINARY_MAIN_BOARD_EQUITY
+TRADE_TO_TRADE_EQUITY
+SME_EQUITY
+ETF_OR_FUND
+DEBT_GOVERNMENT_SECURITY
+CORPORATE_DEBT
+SOVEREIGN_GOLD_BOND
+PREFERENCE_OR_SPECIAL_SECURITY
+INACTIVE_SUSPENDED_DELISTED
+UNRESOLVED_SECURITY_TYPE
+OTHER_UNSUPPORTED
+
+Produce an exact reconciliation from one dated snapshot:
+
+raw Kite NSE instruments
+→ Kite EQ-like instruments
+→ authoritative matches
+→ ordinary main-board equity
+→ exclusions by class
+→ unresolved
+
+No approximate counts.
+
+Until this is complete, Full Scanner may display a separate info-only provisional market tape, but the trade-grade/equity scanner must use only authoritative or curated verified equities.
+
+2. Remove production debug/fixture route exposure
+
+Remove /debug/home-states from the production route registry and production bundle.
+
+Preferred:
+
+- keep the state harness inside test files only; or
+- register it exclusively in development with a compile-time DEV guard and prove it is absent from the production bundle.
+
+Add production artifact scans proving absence of:
+
+- /debug/home-states
+- home debug fixture symbols/text
+- debug fixture query data
+- fixture-only provider responses
+
+Do not use a production-accessible owner route for visual fixtures.
+
+Recreate Home state tests using:
+
+- the actual Home component,
+- injected QueryClient/API responses inside the test environment,
+- no registered debug route.
+
+Capture development screenshots through a test/preview-only harness that cannot exist in production.
+
+Return exact screenshot paths for:
+
+- ALL_UNAVAILABLE
+- READY_PARTIAL
+- READY_CLOSED
+
+Each screenshot must include the actual Home component tree, including:
+
+- index ticker strip
+- Indian index cards
+- breadth
+- Overall Trend
+- Market Mood
+- Global Cues
+- F&O Ban List
+- gainers/losers
+- bullish/bearish setups
+
+3. Separate F&O display availability from admission authority
+
+Replace ambiguous:
+
+available=true
+stale=true
+
+with an explicit contract:
+
+currentAvailable: boolean
+hasLastKnown: boolean
+stale: boolean
+sourceAsOf: string | null
+canAuthorizeAdmission: boolean
+status:
+  CURRENT
+  LAST_KNOWN_STALE
+  UNAVAILABLE
+
+Rules:
+
+CURRENT authoritative empty list:
+currentAvailable=true
+hasLastKnown=true
+stale=false
+canAuthorizeAdmission=true
+UI may show ALL CLEAR
+
+LAST_KNOWN_STALE:
+currentAvailable=false
+hasLastKnown=true
+stale=true
+canAuthorizeAdmission=false
+UI shows STALE / LAST KNOWN with sourceAsOf
+Must not authorize banned or not-banned admission
+
+UNAVAILABLE:
+currentAvailable=false
+hasLastKnown=false
+stale=false
+canAuthorizeAdmission=false
+UI shows UNAVAILABLE
+
+Migrate every backend, API schema, client and UI consumer.
+
+Add executable tests proving stale and unavailable states fail closed for F&O admission.
+
+FINAL BATTERY
+
+Run:
+
+- targeted authoritative-identity tests
+- actual Home component tests
+- F&O admission fail-closed tests
+- full api-server suite
+- full scanner suite
+- api-server/api-zod/api-client-react/scanner TSC
+- api-server production build
+- scanner production build
+- production-bundle debug-route scan
+- production-bundle test-hook scan
+- secret sentinel
+- provider import guard
+- git diff --check
+
+Keep all locks false.
+Keep eligibility canary blocked.
+Do not deploy.
+Do not retry warehouse population.
+Do not enable evaluation.
+Do not activate V2.
+Do not alter F&O/swing strategy formulas.
+
+Return:
+
+PROMPT_33B_DATA_IDENTITY_AND_DEBUG_ISOLATION_IMPLEMENTED_IN_DEVELOPMENT — PREDEPLOY_REVIEW_REQUIRED

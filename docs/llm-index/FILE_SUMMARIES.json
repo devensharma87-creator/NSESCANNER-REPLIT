@@ -778,6 +778,68 @@
     "hash": "a4a5c0ccbc0d4598"
   },
   {
+    "path": "artifacts/api-server/src/lib/candleEvaluationControl.routes.test.ts",
+    "purpose": "test",
+    "lines": 768,
+    "exports": [],
+    "externalImports": [
+      "vitest",
+      "node:fs",
+      "node:path",
+      "node:url"
+    ],
+    "routes": [
+      "POST /scan/candle-store/warehouse/reset",
+      "POST /scan/candle-store/warehouse/reset",
+      "POST /scan/candle-store/warehouse/reset",
+      "POST /scan/candle-store/warehouse/reset"
+    ],
+    "hash": "463b9b187183a9d9"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/candleEvaluationControl.runtime.test.ts",
+    "purpose": "test",
+    "lines": 353,
+    "exports": [],
+    "externalImports": [
+      "vitest"
+    ],
+    "routes": [],
+    "hash": "db5a31e34a39df81"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/candleEvaluationControl.test.ts",
+    "purpose": "test",
+    "lines": 203,
+    "exports": [],
+    "externalImports": [
+      "vitest",
+      "node:fs",
+      "node:path",
+      "node:url"
+    ],
+    "routes": [],
+    "hash": "5dfdca37aeac517b"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/candleEvaluationControl.ts",
+    "purpose": "lib",
+    "lines": 146,
+    "exports": [
+      "FULL_NSE_WAREHOUSE_POPULATION_AUTHORIZED",
+      "WAREHOUSE_POPULATION_LOCKED_CODE",
+      "WarehousePopulationLockedCode",
+      "getWarehousePopulationLockStatus",
+      "SCANNER_KITE_CANDLE_EVALUATION_AUTHORIZED",
+      "CANDLE_EVALUATION_LOCKED_CODE",
+      "CandleEvaluationLockedCode",
+      "getCandleEvaluationStatus"
+    ],
+    "externalImports": [],
+    "routes": [],
+    "hash": "d2dde75b1532528a"
+  },
+  {
     "path": "artifacts/api-server/src/lib/candleWarehouseIngestor.test.ts",
     "purpose": "test",
     "lines": 208,
@@ -1651,15 +1713,17 @@
   {
     "path": "artifacts/api-server/src/lib/fnoBanList.ts",
     "purpose": "fno-engine",
-    "lines": 220,
+    "lines": 317,
     "exports": [
+      "FnoBanStatus",
       "FnoBanList",
       "getFnoBanList",
-      "isFnoBanned"
+      "isFnoBanned",
+      "isFnoBannedLegacy"
     ],
     "externalImports": [],
     "routes": [],
-    "hash": "26279ee88ca8cacf"
+    "hash": "03476669c9329e31"
   },
   {
     "path": "artifacts/api-server/src/lib/fnoCanonicalTaxonomy.test.ts",
@@ -2366,10 +2430,29 @@
     "hash": "cde31715adb048f3"
   },
   {
+    "path": "artifacts/api-server/src/lib/fullNseScanner.eligibilityGates.test.ts",
+    "purpose": "test",
+    "lines": 524,
+    "exports": [],
+    "externalImports": [
+      "vitest"
+    ],
+    "routes": [],
+    "hash": "ba721fb0773b4fd8"
+  },
+  {
     "path": "artifacts/api-server/src/lib/fullNseScanner.ts",
     "purpose": "scanner",
-    "lines": 999,
+    "lines": 1696,
     "exports": [
+      "ScanCountReconciliation",
+      "ClassifierProvenance",
+      "CLASSIFIER_PROVENANCE",
+      "buildClassifierProvenance",
+      "_setTestScanResultFactory",
+      "_setTestPauseBeforeCommit",
+      "_clearTestFactories",
+      "_resetTestHooks",
       "scanFullNse",
       "getAllScannedRows",
       "startFullNseScannerBackground",
@@ -2379,7 +2462,7 @@
       "@workspace/api-zod"
     ],
     "routes": [],
-    "hash": "16b21bd90f06d07d"
+    "hash": "068d95f2bce9c0d3"
   },
   {
     "path": "artifacts/api-server/src/lib/gex.test.ts",
@@ -2753,6 +2836,26 @@
     "hash": "6bb89d47208a2b68"
   },
   {
+    "path": "artifacts/api-server/src/lib/historySufficiency.ts",
+    "purpose": "lib",
+    "lines": 292,
+    "exports": [
+      "INDICATOR_MIN_BARS",
+      "IndicatorName",
+      "MIN_BARS_FOR_STORAGE",
+      "MIN_BARS_FOR_EVALUATION",
+      "IndicatorReadiness",
+      "getIndicatorReadiness",
+      "hasEvaluationSufficientHistory",
+      "hasPartialIndicatorHistory",
+      "availableIndicators",
+      "insufficiencyReason"
+    ],
+    "externalImports": [],
+    "routes": [],
+    "hash": "96e98f9ac97a9758"
+  },
+  {
     "path": "artifacts/api-server/src/lib/indexFuturesVolume.test.ts",
     "purpose": "test",
     "lines": 27,
@@ -2959,6 +3062,158 @@
     "hash": "c586fdfd036ef29a"
   },
   {
+    "path": "artifacts/api-server/src/lib/kiteCandle/fullNseWarehouse.compileTimeLock.test.ts",
+    "purpose": "test",
+    "lines": 255,
+    "exports": [],
+    "externalImports": [
+      "vitest"
+    ],
+    "routes": [],
+    "hash": "eb9e7012d8254e16"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/kiteCandle/fullNseWarehouse.ts",
+    "purpose": "lib",
+    "lines": 1211,
+    "exports": [
+      "FULL_NSE_WAREHOUSE_LOCK_KEY",
+      "WAREHOUSE_CANARY_SIZE",
+      "WAREHOUSE_BATCH_SIZE",
+      "BYTES_PER_SYMBOL_ESTIMATE",
+      "WarehouseProgress",
+      "ensureWarehouseProgressSchema",
+      "computeSnapshotId",
+      "EligibleSymbolResult",
+      "getEligibleNseSymbols",
+      "FetchResult",
+      "validateWarehouseEntry",
+      "WarehouseRunResult",
+      "runFullNseWarehousePopulation",
+      "initFullNseWarehouseScheduler",
+      "resetWarehouseProgress",
+      "ForceStopAuditRecord",
+      "forceStopWarehouseTransactional",
+      "getWarehouseProgressForReset",
+      "FullNseWarehouseMetrics",
+      "getFullNseWarehouseMetrics"
+    ],
+    "externalImports": [
+      "@workspace/db",
+      "drizzle-orm"
+    ],
+    "routes": [],
+    "hash": "f632d9d8cd98bb01"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/kiteCandle/instrumentEligibility.test.ts",
+    "purpose": "test",
+    "lines": 409,
+    "exports": [],
+    "externalImports": [
+      "vitest"
+    ],
+    "routes": [],
+    "hash": "868004b5cb330fdd"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/kiteCandle/instrumentEligibility.ts",
+    "purpose": "lib",
+    "lines": 601,
+    "exports": [
+      "InstrumentEligibilityClass",
+      "WAREHOUSE_EXCLUDED_CLASSES",
+      "InstrumentEligibilityResult",
+      "classifyInstrument",
+      "classifyInstrumentBatch",
+      "summarizeEligibility"
+    ],
+    "externalImports": [],
+    "routes": [],
+    "hash": "659ef224d4f030f1"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/kiteCandle/kiteCandleStore.g6g7.test.ts",
+    "purpose": "test",
+    "lines": 749,
+    "exports": [],
+    "externalImports": [
+      "vitest"
+    ],
+    "routes": [],
+    "hash": "929f08a1ac0ac6bc"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/kiteCandle/kiteCandleStore.test.ts",
+    "purpose": "test",
+    "lines": 260,
+    "exports": [],
+    "externalImports": [
+      "vitest"
+    ],
+    "routes": [],
+    "hash": "cb3811020142780f"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/kiteCandle/kiteCandleStore.ts",
+    "purpose": "data-source",
+    "lines": 1314,
+    "exports": [
+      "KiteCandleStatus",
+      "KiteCandleEntry",
+      "RefreshMode",
+      "RefreshResult",
+      "KiteCandleStoreMetrics",
+      "ADVISORY_LOCK_KEY",
+      "KITE_HISTORICAL_INGESTION_GLOBAL_LOCK",
+      "MIN_INDICATOR_BARS",
+      "isMarketHours",
+      "ensureKiteCandleSchema",
+      "acquireGlobalIngestionLock",
+      "releaseGlobalIngestionLock",
+      "getCuratedRefreshDueAt",
+      "getKiteCandleSeries",
+      "KiteCandlePhysicalStoreMetrics",
+      "getKiteCandleStorePhysicalMetrics",
+      "getKiteCandleStoreMetrics",
+      "getSymbolsForMode",
+      "runKiteCandleRefresh",
+      "storeKiteCandleEntry"
+    ],
+    "externalImports": [
+      "@workspace/db",
+      "drizzle-orm"
+    ],
+    "routes": [],
+    "hash": "86071590f0790345"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/kiteCandle/tokenBucket.test.ts",
+    "purpose": "test",
+    "lines": 366,
+    "exports": [],
+    "externalImports": [
+      "vitest"
+    ],
+    "routes": [],
+    "hash": "3a685ad28081b3c6"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/kiteCandle/tokenBucket.ts",
+    "purpose": "lib",
+    "lines": 240,
+    "exports": [
+      "MAX_PER_WINDOW",
+      "WINDOW_MS",
+      "TokenBucketMetrics",
+      "KiteHistoricalTokenBucket",
+      "kiteHistoricalBucket"
+    ],
+    "externalImports": [],
+    "routes": [],
+    "hash": "4b0ed8cf9abee6c4"
+  },
+  {
     "path": "artifacts/api-server/src/lib/kiteCrypto.test.ts",
     "purpose": "test",
     "lines": 146,
@@ -3016,7 +3271,7 @@
   {
     "path": "artifacts/api-server/src/lib/kiteFnoInstruments.ts",
     "purpose": "fno-engine",
-    "lines": 92,
+    "lines": 118,
     "exports": [
       "FnoInstrument",
       "loadFnoInstruments",
@@ -3028,7 +3283,7 @@
     ],
     "externalImports": [],
     "routes": [],
-    "hash": "52199fedef139891"
+    "hash": "33e8b52f17881e76"
   },
   {
     "path": "artifacts/api-server/src/lib/kiteIndexQuotes.ts",
@@ -3120,7 +3375,7 @@
   {
     "path": "artifacts/api-server/src/lib/kiteScanner.ts",
     "purpose": "data-source",
-    "lines": 452,
+    "lines": 468,
     "exports": [
       "KiteScannerInstrument",
       "KiteScannerQuote",
@@ -3139,7 +3394,7 @@
     ],
     "externalImports": [],
     "routes": [],
-    "hash": "5b85ba678e71a449"
+    "hash": "621a568575b9d9a2"
   },
   {
     "path": "artifacts/api-server/src/lib/kiteTimeout.test.ts",
@@ -3332,7 +3587,7 @@
   {
     "path": "artifacts/api-server/src/lib/marketData/compat.ts",
     "purpose": "api-route",
-    "lines": 246,
+    "lines": 247,
     "exports": [
       "centralIndexCandles",
       "centralHasIndexCoverage",
@@ -3342,7 +3597,7 @@
     ],
     "externalImports": [],
     "routes": [],
-    "hash": "124bba8f28cbc417"
+    "hash": "c74aedc3ed5ff4d5"
   },
   {
     "path": "artifacts/api-server/src/lib/marketData/diagnostics.ts",
@@ -4280,7 +4535,7 @@
   {
     "path": "artifacts/api-server/src/lib/marketTrend.ts",
     "purpose": "market-data",
-    "lines": 179,
+    "lines": 182,
     "exports": [
       "getMarketTrend"
     ],
@@ -4288,7 +4543,7 @@
       "@workspace/api-zod"
     ],
     "routes": [],
-    "hash": "c5e8780fbb95122e"
+    "hash": "fed896934a9a20df"
   },
   {
     "path": "artifacts/api-server/src/lib/newsRss.ts",
@@ -4329,6 +4584,26 @@
     "externalImports": [],
     "routes": [],
     "hash": "713b0f5f7864bbd3"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/nseSecurityMaster.ts",
+    "purpose": "lib",
+    "lines": 359,
+    "exports": [
+      "NseEquityRecord",
+      "NseSeriesClass",
+      "classifyNseSeries",
+      "getNseSecurityMaster",
+      "lookupNseEquityRecord",
+      "getNseSecurityMasterMeta",
+      "getNseSecurityMasterMap",
+      "_resetNseSecurityMasterForTest"
+    ],
+    "externalImports": [
+      "crypto"
+    ],
+    "routes": [],
+    "hash": "fad99ef98eea2f4b"
   },
   {
     "path": "artifacts/api-server/src/lib/oiBuildup.test.ts",
@@ -4473,27 +4748,35 @@
   {
     "path": "artifacts/api-server/src/lib/optionChainSnapshotIngestor.ts",
     "purpose": "fno-engine",
-    "lines": 494,
+    "lines": 806,
     "exports": [
       "SNAPSHOT_INDICES",
       "SnapshotIndex",
+      "SNAPSHOT_LOT_SIZES",
+      "CIRCUIT_BREAKER_THRESHOLD",
+      "CIRCUIT_RESET_MINUTES",
+      "ALERT_COOLDOWN_MINUTES",
+      "TICK_TIMEOUT_MS",
       "isOptionSnapshotEnabled",
       "getSnapshotConfig",
       "bucketTimestamp",
       "selectStrikesAroundAtm",
       "flattenChainToRows",
-      "runIngestionTick",
       "runRetentionSweep",
+      "runIngestionTick",
+      "isCircuitOpen",
+      "updateCircuitBreaker",
+      "shouldSendOwnerAlert",
+      "_resetCircuitBreaker",
       "getLastRun",
-      "startOptionSnapshotIngestor",
-      "stopOptionSnapshotIngestor"
+      "getCircuitState"
     ],
     "externalImports": [
       "drizzle-orm",
       "@workspace/db"
     ],
     "routes": [],
-    "hash": "f0129cd52949c691"
+    "hash": "f0095a52b14aef10"
   },
   {
     "path": "artifacts/api-server/src/lib/optionSignalGates.antiFlip.test.ts",
@@ -4786,6 +5069,51 @@
     "externalImports": [],
     "routes": [],
     "hash": "6f46087c9cd95893"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/optionSnapshotArchive.ts",
+    "purpose": "fno-engine",
+    "lines": 323,
+    "exports": [
+      "ESTIMATED_BYTES_PER_ROW_DATA",
+      "ESTIMATED_BYTES_PER_ROW_INDEX",
+      "ESTIMATED_BYTES_PER_ROW_TOTAL",
+      "ROWS_PER_TICK_CONSERVATIVE",
+      "ROWS_PER_TICK_WORST_CASE",
+      "TICKS_PER_DAY",
+      "StorageProjection",
+      "projectStorage",
+      "ArchiveOutcome",
+      "ArchiveManifest",
+      "getArchivePath",
+      "getArchiveInfrastructureRequirement",
+      "archiveSnapshotPartitionBeforeCutoff",
+      "readArchiveManifests"
+    ],
+    "externalImports": [
+      "crypto",
+      "fs",
+      "path",
+      "drizzle-orm",
+      "@workspace/db"
+    ],
+    "routes": [],
+    "hash": "c1a1fac1ed0a8078"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/optionSnapshotMigrations.ts",
+    "purpose": "fno-engine",
+    "lines": 56,
+    "exports": [
+      "ensureOptionSnapshotV1Schema",
+      "_resetMigrationLatch"
+    ],
+    "externalImports": [
+      "drizzle-orm",
+      "@workspace/db"
+    ],
+    "routes": [],
+    "hash": "f763f16faeb6e30a"
   },
   {
     "path": "artifacts/api-server/src/lib/optionStrategies.ts",
@@ -5482,6 +5810,147 @@
     "hash": "05aee24f2f01d194"
   },
   {
+    "path": "artifacts/api-server/src/lib/p29.pack9.research.test.ts",
+    "purpose": "test",
+    "lines": 944,
+    "exports": [],
+    "externalImports": [
+      "vitest"
+    ],
+    "routes": [],
+    "hash": "cc1504281238ed1b"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/p30.pack9a.warehouse.test.ts",
+    "purpose": "test",
+    "lines": 938,
+    "exports": [],
+    "externalImports": [
+      "vitest"
+    ],
+    "routes": [],
+    "hash": "61eecaa1023877e0"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/p31.pack32.cohortIsolation.test.ts",
+    "purpose": "test",
+    "lines": 990,
+    "exports": [],
+    "externalImports": [
+      "vitest"
+    ],
+    "routes": [],
+    "hash": "fc4159891d5d2fc9"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/p31.pack9aCanary.test.ts",
+    "purpose": "test",
+    "lines": 358,
+    "exports": [],
+    "externalImports": [
+      "vitest"
+    ],
+    "routes": [],
+    "hash": "51b301039d1f33e0"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/p33.notEvaluated.test.ts",
+    "purpose": "test",
+    "lines": 536,
+    "exports": [],
+    "externalImports": [
+      "vitest",
+      "@workspace/api-zod"
+    ],
+    "routes": [],
+    "hash": "42fc864802136e8c"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/p33b.bundleScan.test.ts",
+    "purpose": "test",
+    "lines": 85,
+    "exports": [],
+    "externalImports": [
+      "vitest",
+      "fs",
+      "path"
+    ],
+    "routes": [],
+    "hash": "96a969c9f9c51e70"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/p33b.fnoBanAdmission.test.ts",
+    "purpose": "test",
+    "lines": 307,
+    "exports": [],
+    "externalImports": [
+      "vitest"
+    ],
+    "routes": [],
+    "hash": "bc27c56a4c8228de"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/p33b.fnoBanGuard.test.ts",
+    "purpose": "test",
+    "lines": 114,
+    "exports": [],
+    "externalImports": [
+      "vitest",
+      "node:fs",
+      "node:path"
+    ],
+    "routes": [],
+    "hash": "fe830a293215f711"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/p33b.generationSwap.test.ts",
+    "purpose": "test",
+    "lines": 172,
+    "exports": [],
+    "externalImports": [
+      "vitest",
+      "node:fs",
+      "node:path"
+    ],
+    "routes": [],
+    "hash": "fca398f863563941"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/p33b.generationTrace.test.ts",
+    "purpose": "test",
+    "lines": 404,
+    "exports": [],
+    "externalImports": [
+      "vitest"
+    ],
+    "routes": [],
+    "hash": "ab07cdb09a4c347a"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/p33b.homeConsumers.test.ts",
+    "purpose": "test",
+    "lines": 268,
+    "exports": [],
+    "externalImports": [
+      "vitest",
+      "node:fs",
+      "node:path"
+    ],
+    "routes": [],
+    "hash": "ddf5eeb03988db97"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/p33b.nseIdentityTests.test.ts",
+    "purpose": "test",
+    "lines": 326,
+    "exports": [],
+    "externalImports": [
+      "vitest"
+    ],
+    "routes": [],
+    "hash": "8d986a0e78aca7f5"
+  },
+  {
     "path": "artifacts/api-server/src/lib/paperAccount.riskPct.test.ts",
     "purpose": "test",
     "lines": 51,
@@ -5626,6 +6095,53 @@
     ],
     "routes": [],
     "hash": "8dbd3f9202599f73"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/paperCohort.ts",
+    "purpose": "paper-trading",
+    "lines": 396,
+    "exports": [
+      "PAPER_COHORT_IDS",
+      "PaperCohortId",
+      "isPaperCohortId",
+      "ASSET_FAMILIES",
+      "AssetFamily",
+      "COHORT_GENERATIONS",
+      "CohortGeneration",
+      "COHORT_STATUSES",
+      "CohortStatus",
+      "CohortActivationState",
+      "PaperCohortMetadata",
+      "COHORT_REGISTRY",
+      "getCohortMetadata",
+      "getAllCohortMetadata",
+      "resolveFoCohortId",
+      "resolveEqCohortId",
+      "resolveSegmentCohortId",
+      "assertV2CohortNotLocked",
+      "isCohortAdmissionOpen",
+      "assertCohortAssetFamily"
+    ],
+    "externalImports": [],
+    "routes": [],
+    "hash": "c348550c2e88d575"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/paperCohortMigrations.ts",
+    "purpose": "paper-trading",
+    "lines": 193,
+    "exports": [
+      "V2_COHORT_MIGRATION_SQL",
+      "getMigrationImpactReport",
+      "runV2CohortAdditiveMigration",
+      "checkCohortColumnExists"
+    ],
+    "externalImports": [
+      "drizzle-orm",
+      "@workspace/db"
+    ],
+    "routes": [],
+    "hash": "df19b84a519d84ef"
   },
   {
     "path": "artifacts/api-server/src/lib/paperDailySummaryFo.ts",
@@ -5869,7 +6385,7 @@
       "@workspace/api-zod"
     ],
     "routes": [],
-    "hash": "e4e2fa725a400957"
+    "hash": "ffe84fb5024c04db"
   },
   {
     "path": "artifacts/api-server/src/lib/paperTradingEqProvenance.db.test.ts",
@@ -6004,7 +6520,7 @@
   {
     "path": "artifacts/api-server/src/lib/preMarket.ts",
     "purpose": "market-data",
-    "lines": 1692,
+    "lines": 1745,
     "exports": [
       "Mode",
       "Sentiment",
@@ -6016,7 +6532,7 @@
     ],
     "externalImports": [],
     "routes": [],
-    "hash": "77d19a892b79c49f"
+    "hash": "87177e65ad82caeb"
   },
   {
     "path": "artifacts/api-server/src/lib/productionConfigValidator.ts",
@@ -6123,9 +6639,10 @@
   {
     "path": "artifacts/api-server/src/lib/scanner.ts",
     "purpose": "scanner",
-    "lines": 531,
+    "lines": 785,
     "exports": [
       "getHistory",
+      "_buildRowFromKiteCandles_testOnly",
       "scanAll",
       "getCachedScanRows",
       "refreshScanInBackground",
@@ -6137,7 +6654,35 @@
       "@workspace/api-zod"
     ],
     "routes": [],
-    "hash": "92ef0968e329b850"
+    "hash": "f2856bb628fbda25"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/scannerDataContract.test.ts",
+    "purpose": "test",
+    "lines": 293,
+    "exports": [],
+    "externalImports": [
+      "vitest"
+    ],
+    "routes": [],
+    "hash": "db8311fc6c221797"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/scannerDataContract.ts",
+    "purpose": "scanner",
+    "lines": 252,
+    "exports": [
+      "DataState",
+      "EvaluationState",
+      "Actionability",
+      "ScannerGrade",
+      "computeScannerGrade",
+      "gradeToFeedStatus",
+      "evaluationStateLabel"
+    ],
+    "externalImports": [],
+    "routes": [],
+    "hash": "ccdfd3576c6d49a3"
   },
   {
     "path": "artifacts/api-server/src/lib/scannerFastPath.test.ts",
@@ -7050,7 +7595,7 @@
   {
     "path": "artifacts/api-server/src/lib/swingSignals.ts",
     "purpose": "swing-engine",
-    "lines": 401,
+    "lines": 405,
     "exports": [
       "FNO_EQUITY_UNIVERSE",
       "FNO_EQUITY_LIST",
@@ -7063,7 +7608,7 @@
       "@workspace/api-zod"
     ],
     "routes": [],
-    "hash": "1890218d2b4dd315"
+    "hash": "874a946b985e1275"
   },
   {
     "path": "artifacts/api-server/src/lib/swingTtlSweep.db.test.ts",
@@ -7552,19 +8097,23 @@
   {
     "path": "artifacts/api-server/src/lib/universe.ts",
     "purpose": "lib",
-    "lines": 442,
+    "lines": 545,
     "exports": [
       "UniverseEntry",
       "YAHOO_TICKER_OVERRIDES",
+      "KITE_NSE_SYMBOL_OVERRIDE",
+      "validateKiteSymbolOverrides",
       "INACTIVE_SYMBOLS",
       "INDEX_CONSTITUENTS",
       "UNIVERSE",
       "SECTORS",
-      "getEntry"
+      "getEntry",
+      "CURATED_SIGNAL_UNIVERSE",
+      "CURATED_SIGNAL_UNIVERSE_ACTIVE_COUNT"
     ],
     "externalImports": [],
     "routes": [],
-    "hash": "d77cff9e00d44fd0"
+    "hash": "64c96e8ae3877c3b"
   },
   {
     "path": "artifacts/api-server/src/lib/userAuth.ts",
@@ -7600,6 +8149,23 @@
     ],
     "routes": [],
     "hash": "a46fdbe4ad847345"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/v2PaperLocks.ts",
+    "purpose": "paper-trading",
+    "lines": 87,
+    "exports": [
+      "FNO_PAPER_V2_RUNTIME_AUTHORIZED",
+      "SWING_PAPER_V2_RUNTIME_AUTHORIZED",
+      "FNO_PAPER_V2_DISABLED_CODE",
+      "SWING_PAPER_V2_DISABLED_CODE",
+      "V2DisabledCode",
+      "V2LockStatus",
+      "getV2LockStatus"
+    ],
+    "externalImports": [],
+    "routes": [],
+    "hash": "abf261bce3b93980"
   },
   {
     "path": "artifacts/api-server/src/lib/watchlist.test.ts",
@@ -8489,7 +9055,7 @@
   {
     "path": "artifacts/api-server/src/routes/instFlows.ts",
     "purpose": "api-route",
-    "lines": 92,
+    "lines": 98,
     "exports": [],
     "externalImports": [
       "express"
@@ -8501,7 +9067,7 @@
       "GET /inst/fno-ban",
       "POST /inst/refresh"
     ],
-    "hash": "0da13f8297277937"
+    "hash": "5b2cd6aa02cd9b5a"
   },
   {
     "path": "artifacts/api-server/src/routes/kite.ts",
@@ -8584,7 +9150,7 @@
   {
     "path": "artifacts/api-server/src/routes/optionChainSnapshot.ts",
     "purpose": "api-route",
-    "lines": 397,
+    "lines": 551,
     "exports": [],
     "externalImports": [
       "express",
@@ -8593,10 +9159,12 @@
     ],
     "routes": [
       "GET /option-snapshots/diagnostics",
+      "GET /option-snapshots/storage",
+      "GET /option-snapshots/gaps",
       "POST /option-snapshots/run-now",
       "GET /option-snapshots/analytics"
     ],
-    "hash": "c7ccb05cd7207103"
+    "hash": "c981daba0e5b6ba3"
   },
   {
     "path": "artifacts/api-server/src/routes/optionStrategies.ts",
@@ -8740,7 +9308,7 @@
   {
     "path": "artifacts/api-server/src/routes/scanner.ts",
     "purpose": "api-route",
-    "lines": 1059,
+    "lines": 1592,
     "exports": [],
     "externalImports": [
       "express",
@@ -8768,7 +9336,7 @@
       "GET /stocks/:symbol/statements",
       "GET /stocks/:symbol/history"
     ],
-    "hash": "b09e01b5e2f0ff06"
+    "hash": "61a9a6701e020fdb"
   },
   {
     "path": "artifacts/api-server/src/routes/secretsVault.ts",
@@ -9611,6 +10179,50 @@
     "hash": "9193127a29ab65c6"
   },
   {
+    "path": "artifacts/scanner/src/lib/p33b.dataGradeIndicators.test.tsx",
+    "purpose": "test",
+    "lines": 207,
+    "exports": [],
+    "externalImports": [
+      "vitest",
+      "node:fs",
+      "node:path"
+    ],
+    "routes": [],
+    "hash": "658d1cc5c3f5ac58"
+  },
+  {
+    "path": "artifacts/scanner/src/lib/p33b.homeRendered.test.tsx",
+    "purpose": "test",
+    "lines": 497,
+    "exports": [],
+    "externalImports": [
+      "react",
+      "react-dom/client",
+      "vitest",
+      "@workspace/api-client-react",
+      "@/components/home/index-tabs",
+      "@/components/fno-ban-widget",
+      "@/components/home/breadth-bar",
+      "@/components/home/global-cues-strip"
+    ],
+    "routes": [],
+    "hash": "93faf95b4128c7cf"
+  },
+  {
+    "path": "artifacts/scanner/src/lib/p33b.scannerBundleScan.test.ts",
+    "purpose": "test",
+    "lines": 155,
+    "exports": [],
+    "externalImports": [
+      "vitest",
+      "fs",
+      "path"
+    ],
+    "routes": [],
+    "hash": "800e4abcab8fc80f"
+  },
+  {
     "path": "artifacts/scanner/src/lib/p6.designSystem.test.tsx",
     "purpose": "test",
     "lines": 344,
@@ -10403,7 +11015,7 @@
       "@/components/ui/signal-badge"
     ],
     "routes": [],
-    "hash": "5b1b3a9e5709693b"
+    "hash": "d56dc297ad4ffd74"
   },
   {
     "path": "artifacts/scanner/src/pages/flows.tsx",
@@ -10440,6 +11052,21 @@
     "hash": "9dc01235b693a366"
   },
   {
+    "path": "artifacts/scanner/src/pages/home-debug.tsx",
+    "purpose": "ui-page",
+    "lines": 273,
+    "exports": [],
+    "externalImports": [
+      "@tanstack/react-query",
+      "react",
+      "@/components/fno-ban-widget",
+      "@/components/home/breadth-bar",
+      "@/components/home/global-cues-strip"
+    ],
+    "routes": [],
+    "hash": "6d6afc999c15f1cc"
+  },
+  {
     "path": "artifacts/scanner/src/pages/index-detail.tsx",
     "purpose": "ui-page",
     "lines": 366,
@@ -10458,7 +11085,7 @@
       "@/components/tradingview-chart"
     ],
     "routes": [],
-    "hash": "aa69637e1887acc8"
+    "hash": "5f1d2237801568a4"
   },
   {
     "path": "artifacts/scanner/src/pages/indices.tsx",
@@ -10633,7 +11260,7 @@
   {
     "path": "artifacts/scanner/src/pages/option-chain.tsx",
     "purpose": "ui-page",
-    "lines": 1441,
+    "lines": 1443,
     "exports": [],
     "externalImports": [
       "react",
@@ -10648,7 +11275,7 @@
       "@/components/ui/unified-grade-chip"
     ],
     "routes": [],
-    "hash": "c68991c873f74c7d"
+    "hash": "6844eef6ccb86e3a"
   },
   {
     "path": "artifacts/scanner/src/pages/options.tsx",
@@ -10693,7 +11320,7 @@
   {
     "path": "artifacts/scanner/src/pages/paper-trading.tsx",
     "purpose": "ui-page",
-    "lines": 3064,
+    "lines": 3081,
     "exports": [],
     "externalImports": [
       "react",
@@ -10708,7 +11335,7 @@
       "@/hooks/use-toast"
     ],
     "routes": [],
-    "hash": "c823c2208a50cc66"
+    "hash": "2bb0504c8e27db42"
   },
   {
     "path": "artifacts/scanner/src/pages/portfolio-analyser.tsx",
@@ -10753,7 +11380,7 @@
   {
     "path": "artifacts/scanner/src/pages/scanner.tsx",
     "purpose": "ui-page",
-    "lines": 842,
+    "lines": 984,
     "exports": [],
     "externalImports": [
       "wouter",
@@ -10768,7 +11395,7 @@
       "@/components/ui/data-source-badge"
     ],
     "routes": [],
-    "hash": "fd7835fb5801195d"
+    "hash": "8998d2548456f370"
   },
   {
     "path": "artifacts/scanner/src/pages/secrets-vault.tsx",
@@ -11148,7 +11775,7 @@
   {
     "path": "lib/db/src/schema/optionChainSnapshot.ts",
     "purpose": "db-schema",
-    "lines": 158,
+    "lines": 188,
     "exports": [
       "optionChainSnapshotTable",
       "OptionChainSnapshotRow",
@@ -11159,7 +11786,7 @@
     ],
     "externalImports": [],
     "routes": [],
-    "hash": "fd1e5474b380a003"
+    "hash": "04c6926937228173"
   },
   {
     "path": "lib/db/src/schema/optionSignals.ts",
@@ -11247,19 +11874,21 @@
   {
     "path": "lib/db/src/schema/runtimeTables.ts",
     "purpose": "db-schema",
-    "lines": 143,
+    "lines": 204,
     "exports": [
       "dailyReportRuns",
       "notificationDeliveryLog",
       "systemAlertDedup",
       "systemAlertState",
+      "kiteCandleStore",
+      "kiteWarehouseStopAudit",
       "reconciliationReport"
     ],
     "externalImports": [
       "drizzle-orm"
     ],
     "routes": [],
-    "hash": "18aea92525266b97"
+    "hash": "ab62f9de578c14d6"
   },
   {
     "path": "lib/db/src/schema/strategyControl.ts",

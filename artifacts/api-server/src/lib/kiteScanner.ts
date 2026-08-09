@@ -75,6 +75,19 @@ interface InstrumentCache {
   bySymbol: Map<string, KiteScannerInstrument>;
   list: KiteScannerInstrument[];
   /**
+   * Total instruments returned by kc.getInstruments("NSE") BEFORE any filter.
+   * Includes ALL instrument types: INDEX, EQ (equity + debt artifacts), futures, etc.
+   * Used to populate ScanCountReconciliation.rawKiteNseInstrumentCount.
+   */
+  rawNseInstrumentCount: number;
+  /**
+   * Count of instruments with instrument_type=EQ AND segment=NSE from Kite.
+   * These are what classifyInstrument processes. NOT the same as ordinary equity —
+   * Kite labels some debt/bond instruments as EQ (known master-data artifact).
+   * Used to populate ScanCountReconciliation.kiteInstrumentTypeEqCount.
+   */
+  kiteEqSegmentCount: number;
+  /**
    * Set of tradingsymbols (upper-case) recognised as ETFs in the live Kite NSE
    * instrument master. Built data-driven from `looksLikeEtf` over the RAW rows
    * (i.e. BEFORE the `isLikelyTradeableEquity` filter, so ETFs the equity
@@ -186,14 +199,17 @@ export async function loadKiteNseEqInstruments(): Promise<InstrumentCache | null
     }
     try {
       const raw = (await ctx.kc.getInstruments("NSE")) as KiteRawInstrument[];
+      const rawNseInstrumentCount = raw.length; // ALL types before any filter
       const bySymbol = new Map<string, KiteScannerInstrument>();
       const list: KiteScannerInstrument[] = [];
       const etfSymbols = new Set<string>();
       let dropped = 0;
+      let kiteEqSegmentCount = 0; // segment=NSE AND instrument_type=EQ, before isLikelyTradeableEquity
       for (const ins of raw) {
         // Only cash-segment EQ — exclude indices, ETFs handled separately, BE-series etc.
         if (ins.segment !== "NSE" || ins.instrument_type !== "EQ") continue;
         if (!ins.tradingsymbol) continue;
+        kiteEqSegmentCount++; // Count BEFORE isLikelyTradeableEquity filter
         // Data-driven ETF capture: detect ETFs from the RAW row BEFORE the
         // tradeable-equity filter below (which intentionally drops *IETF,
         // LIQUIDBEES, etc.). This powers the portfolio analyser's ETF quote
@@ -221,9 +237,9 @@ export async function loadKiteNseEqInstruments(): Promise<InstrumentCache | null
         list.push(item);
       }
       list.sort((a, b) => a.tradingsymbol.localeCompare(b.tradingsymbol));
-      instrumentsCache = { fetchedAt: Date.now(), bySymbol, list, etfSymbols };
+      instrumentsCache = { fetchedAt: Date.now(), bySymbol, list, rawNseInstrumentCount, kiteEqSegmentCount, etfSymbols };
       logger.info(
-        { count: list.length, dropped, etfs: etfSymbols.size },
+        { count: list.length, dropped, etfs: etfSymbols.size, rawNseInstrumentCount, kiteEqSegmentCount },
         "Kite NSE EQ instruments loaded (post-filter)",
       );
       return instrumentsCache;

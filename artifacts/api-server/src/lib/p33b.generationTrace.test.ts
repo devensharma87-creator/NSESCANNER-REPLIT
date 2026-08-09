@@ -53,6 +53,10 @@ import {
 /** Minimal valid ScanCountReconciliation that satisfies allValid=true. */
 function makeReconciliation(rows: number): ScanCountReconciliation {
   return {
+    // v19: raw Kite instrument counts
+    rawKiteNseInstrumentCount: rows,
+    kiteInstrumentTypeEqCount: rows,
+    // v18: eligibility breakdown
     rawKiteMaster: rows,
     debtGovernmentSecurities: 0,
     sovereignGoldBonds: 0,
@@ -65,6 +69,11 @@ function makeReconciliation(rows: number): ScanCountReconciliation {
     indexInstruments: 0,
     unknownClass: 0,
     eligibleOrdinaryEquities: rows,
+    // v19: authoritative classification counts
+    provisionallyClassifiedCount: 0,
+    authoritativelyVerifiedOrdinaryEquityCount: rows,
+    unresolvedSecurityCount: 0,
+    excludedSecurityCount: 0,
     kiteQuoteRows: rows,
     yahooChartRows: 0,
     yahooBatchRows: 0,

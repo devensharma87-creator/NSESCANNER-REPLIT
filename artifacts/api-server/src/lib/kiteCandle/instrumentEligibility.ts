@@ -66,6 +66,24 @@ import { centralLooksLikeEtf } from "../marketData/compat";
 // ─── Public types ─────────────────────────────────────────────────────────────
 
 export type InstrumentEligibilityClass =
+  /**
+   * NSE EQUITY_L.csv reference confirms ordinary main-board equity (series=EQ).
+   * This is the ONLY class that can drive breadth, signals, and trade actions.
+   * Requires NSE authoritative reference join (see nseSecurityMaster.ts).
+   */
+  | "ORDINARY_MAIN_BOARD_EQUITY"
+  /**
+   * Kite master says EQ/NSE, suffix checks pass, but the NSE authoritative
+   * reference (EQUITY_L.csv) was unavailable OR the symbol was not found in it.
+   * CANNOT drive breadth, rankings, signals, market mood, or trade actions.
+   * Displayed in scanner for price/quote purposes only (INFO_ONLY).
+   * Will be reclassified once NSE reference becomes available.
+   */
+  | "KITE_NSE_EQ_LIKE_PROVISIONAL"
+  /**
+   * @deprecated — kept for backward compatibility. classifyInstrument no longer
+   * emits this class. Old cache entries may carry it; treat as KITE_NSE_EQ_LIKE_PROVISIONAL.
+   */
   | "ORDINARY_EQUITY_ELIGIBLE"
   | "TRADE_TO_TRADE_EQUITY_POLICY_EXCLUDED"
   | "SME_EQUITY_POLICY_EXCLUDED"
@@ -77,7 +95,15 @@ export type InstrumentEligibilityClass =
   | "UNRESOLVED_SECURITY_TYPE"
   | "OTHER_UNSUPPORTED";
 
-/** All categories that are EXCLUDED from warehouse population. */
+/**
+ * All categories that are EXCLUDED from warehouse population (scanner symbolList).
+ *
+ * ORDINARY_MAIN_BOARD_EQUITY — NOT excluded (only authoritative eligible class).
+ * KITE_NSE_EQ_LIKE_PROVISIONAL — NOT excluded from symbolList (prices shown for
+ *   informational purposes), but excluded from signals/breadth/trade actions by
+ *   the Phase A gate and PROVISIONAL check in signal generators.
+ * All others — excluded from symbolList entirely.
+ */
 export const WAREHOUSE_EXCLUDED_CLASSES = new Set<InstrumentEligibilityClass>([
   "TRADE_TO_TRADE_EQUITY_POLICY_EXCLUDED",
   "SME_EQUITY_POLICY_EXCLUDED",
@@ -88,6 +114,9 @@ export const WAREHOUSE_EXCLUDED_CLASSES = new Set<InstrumentEligibilityClass>([
   "INACTIVE_OR_DELISTED",
   "UNRESOLVED_SECURITY_TYPE",
   "OTHER_UNSUPPORTED",
+  // Note: ORDINARY_MAIN_BOARD_EQUITY is NOT here (it's eligible).
+  // Note: KITE_NSE_EQ_LIKE_PROVISIONAL is NOT here (prices shown; signals blocked by other guards).
+  // Note: ORDINARY_EQUITY_ELIGIBLE is NOT here (backward compat — old entries treated as provisional).
 ]);
 
 export interface InstrumentEligibilityResult {
@@ -212,8 +241,16 @@ export function classifyInstrument(opts: {
   exchange: string;
   inCurrentMaster: boolean;
   isin?: string | null;
+  /**
+   * NSE authoritative equity reference (EQUITY_L.csv parsed, keyed by symbol).
+   *   null/undefined → no reference loaded → KITE_NSE_EQ_LIKE_PROVISIONAL for EQ/NSE instruments
+   *   Map provided    → join performed; not-found → UNRESOLVED_SECURITY_TYPE; found → classified by series
+   */
+  nseRef?: Map<string, { series: string; isin: string; dateOfListing: string }> | null;
 }): InstrumentEligibilityResult {
-  const { symbol, name, instrumentType, segment, exchange, inCurrentMaster, isin = null } = opts;
+  // nseRef is intentionally NOT defaulted: undefined = feature not active (backward compat);
+  // null = feature active but reference unavailable; Map = authoritative reference available.
+  const { symbol, name, instrumentType, segment, exchange, inCurrentMaster, isin = null, nseRef } = opts;
   const su = symbol.toUpperCase();
   const suffix = extractSuffixCode(su);
 
@@ -375,20 +412,131 @@ export function classifyInstrument(opts: {
     };
   }
 
-  // ── 10. Ordinary NSE main-board equity (affirmative) ────────────────────
-  // Requires: inCurrentMaster=true (confirmed above) + exchange=NSE (confirmed above)
-  // + instrument_type=EQ + segment=NSE + no exclusion pattern.
+  // ── 10. NSE reference-confirmed equity classification ─────────────────────
+  // Reaches here only when: inCurrentMaster=true + exchange=NSE + no exclusion
+  // pattern (no -SG/-GB/-ST/-SM/-BZ suffix, not ETF, not INDEX, not INACTIVE).
+  // Now join against the authoritative NSE EQUITY_L.csv reference.
   if (instrumentType === "EQ" && segment === "NSE") {
+    // 10a. nseRef=undefined means the NSE reference feature is not active.
+    //      Return ORDINARY_EQUITY_ELIGIBLE for backward compatibility so existing
+    //      tests and callers that do not pass nseRef continue to work unchanged.
+    //      This is distinct from nseRef=null (feature active, reference unavailable).
+    if (nseRef === undefined) {
+      return {
+        ...base,
+        eligibilityClass: "ORDINARY_EQUITY_ELIGIBLE",
+        reason:
+          `Standard NSE main-board equity confirmed by Kite master record (NSE reference not active): ` +
+          `inCurrentMaster=true, exchange=NSE, segment=NSE, instrument_type=EQ, ` +
+          `suffix=${suffix ?? "(none)"}; no exclusion pattern detected`,
+        policyExclusionReason: null,
+        warehouseEligible: true,
+        precedenceVector: [...attrVec, "nseRef=NOT_ACTIVE", "decision=ORDINARY_EQUITY_ELIGIBLE"],
+      };
+    }
+
+    // 10b. nseRef=null: NSE reference integration is active but the reference was
+    //      not loaded (network failure, first-cycle, etc.). Fail closed — all EQ/NSE
+    //      instruments become KITE_NSE_EQ_LIKE_PROVISIONAL until the reference loads.
+    if (!nseRef) {
+      return {
+        ...base,
+        eligibilityClass: "KITE_NSE_EQ_LIKE_PROVISIONAL",
+        reason:
+          `Kite master confirms instrument_type=EQ, segment=NSE, exchange=NSE for ${su}, ` +
+          `but NSE authoritative reference (EQUITY_L.csv) was not loaded. ` +
+          `Cannot confirm ordinary main-board equity without reference join. ` +
+          `Classified as KITE_NSE_EQ_LIKE_PROVISIONAL — ` +
+          `prices displayed for informational purposes; ` +
+          `CANNOT drive breadth, rankings, signals, market mood or trade actions.`,
+        policyExclusionReason:
+          "NSE authoritative reference (EQUITY_L.csv) unavailable. " +
+          "Cannot confirm security type without reference join. Re-classified once reference loads.",
+        warehouseEligible: false,
+        precedenceVector: [...attrVec, "nseRef=UNAVAILABLE", "decision=KITE_NSE_EQ_LIKE_PROVISIONAL"],
+      };
+    }
+
+    // 10b. NSE reference loaded → join by symbol.
+    const nseRecord = nseRef.get(su);
+    if (!nseRecord) {
+      return {
+        ...base,
+        eligibilityClass: "UNRESOLVED_SECURITY_TYPE",
+        reason:
+          `Symbol ${su} is in the Kite EQ master (instrument_type=EQ, segment=NSE) but ` +
+          `NOT found in the NSE EQUITY_L.csv reference. ` +
+          `Cannot authoritatively confirm security type. Fails closed as UNRESOLVED_SECURITY_TYPE.`,
+        policyExclusionReason:
+          "Symbol absent from NSE EQUITY_L.csv — cannot authoritatively classify. " +
+          "May be a recently-listed security, a corporate action artefact, or a Kite master discrepancy.",
+        warehouseEligible: false,
+        precedenceVector: [...attrVec, "nseRef=NOT_FOUND", "decision=UNRESOLVED_SECURITY_TYPE"],
+      };
+    }
+
+    // 10c. Symbol found in NSE reference — classify by the official NSE series code.
+    const nseSeriesU = nseRecord.series.toUpperCase().trim();
+    const isinTag = nseRecord.isin ? `isin=${nseRecord.isin}` : "isin=N/A";
+    const listingTag = nseRecord.dateOfListing ? `dateOfListing=${nseRecord.dateOfListing}` : "";
+    const nseAttr = [`nseRef.series=${nseSeriesU}`, isinTag, listingTag].filter(Boolean);
+
+    if (nseSeriesU === "EQ") {
+      return {
+        ...base,
+        eligibilityClass: "ORDINARY_MAIN_BOARD_EQUITY",
+        reason:
+          `NSE EQUITY_L.csv authoritatively confirms ordinary main-board equity: ` +
+          `symbol=${su}, ${nseAttr.join(", ")}. ` +
+          `Eligible for breadth, rankings, signals, and trade actions.`,
+        policyExclusionReason: null,
+        warehouseEligible: true,
+        precedenceVector: [...attrVec, ...nseAttr, "decision=ORDINARY_MAIN_BOARD_EQUITY"],
+      };
+    }
+
+    if (nseSeriesU === "BE" || nseSeriesU === "BT") {
+      return {
+        ...base,
+        eligibilityClass: "TRADE_TO_TRADE_EQUITY_POLICY_EXCLUDED",
+        reason:
+          `NSE EQUITY_L.csv confirms Trade-to-Trade equity: ${nseAttr.join(", ")}. ` +
+          `Policy: T2T excluded — no intraday squaring allowed, circuit-to-circuit trading only.`,
+        policyExclusionReason:
+          "Trade-to-Trade (T2T) stocks must be delivered — no intraday squaring. " +
+          "Excluded from warehouse and scanner until explicit T2T policy defined.",
+        warehouseEligible: false,
+        precedenceVector: [...attrVec, ...nseAttr, "decision=TRADE_TO_TRADE_EQUITY_POLICY_EXCLUDED"],
+      };
+    }
+
+    if (nseSeriesU === "SM" || nseSeriesU === "ST") {
+      return {
+        ...base,
+        eligibilityClass: "SME_EQUITY_POLICY_EXCLUDED",
+        reason:
+          `NSE EQUITY_L.csv confirms SME equity: ${nseAttr.join(", ")}. ` +
+          `Policy: SME platform excluded — different trading rules and thinner liquidity.`,
+        policyExclusionReason:
+          "SME-platform stocks (NSE Emerge) have different trading rules and thinner liquidity; excluded from warehouse.",
+        warehouseEligible: false,
+        precedenceVector: [...attrVec, ...nseAttr, "decision=SME_EQUITY_POLICY_EXCLUDED"],
+      };
+    }
+
+    // Other NSE series (BL, N1-N9, etc.) — not ordinary main-board equity.
     return {
       ...base,
-      eligibilityClass: "ORDINARY_EQUITY_ELIGIBLE",
+      eligibilityClass: "OTHER_UNSUPPORTED",
       reason:
-        `Standard NSE main-board equity confirmed by master record: ` +
-        `inCurrentMaster=true, exchange=NSE, segment=NSE, instrument_type=EQ, ` +
-        `suffix=${suffix ?? "(none)"}; no exclusion pattern detected`,
-      policyExclusionReason: null,
-      warehouseEligible: true,
-      precedenceVector: [...attrVec, "decision=ORDINARY_EQUITY_ELIGIBLE"],
+        `NSE EQUITY_L.csv shows series=${nseSeriesU} for ${su}, ` +
+        `which is not an ordinary main-board equity series (EQ). ` +
+        `${nseAttr.join(", ")}. Excluded as OTHER_UNSUPPORTED.`,
+      policyExclusionReason:
+        `NSE EQUITY_L.csv series=${nseSeriesU} is not ordinary main-board equity (EQ). ` +
+        `Not eligible for warehouse population.`,
+      warehouseEligible: false,
+      precedenceVector: [...attrVec, ...nseAttr, "decision=OTHER_UNSUPPORTED_BY_NSE_SERIES"],
     };
   }
 

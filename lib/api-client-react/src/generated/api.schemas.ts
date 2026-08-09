@@ -1926,24 +1926,38 @@ export interface FiiDiiResponse {
   generatedAt: string;
 }
 
+/**
+ * Machine-readable F&O ban list availability status.
+ *   CURRENT          — fresh upstream data; canAuthorizeAdmission=true
+ *   LAST_KNOWN_STALE — refresh failed; serving expired cache; canAuthorizeAdmission=false
+ *   UNAVAILABLE      — no data at all; canAuthorizeAdmission=false
+ */
+export type FnoBanStatus = "CURRENT" | "LAST_KNOWN_STALE" | "UNAVAILABLE";
+
 export interface FnoBanListResponse {
   /** F&O underlyings restricted to square-off-only trades today */
   symbols: string[];
   count: number;
-  /** Upstream NSE archive URL the list was loaded from */
+  /** Upstream NSE archive URL the list was loaded from. null when UNAVAILABLE. */
   sourceUrl?: string | null;
-  fetchedAt?: string | null;
-  /** true when served from in-process cache (≤30 min old) */
-  cached?: boolean;
-  /** false when all NSE upstreams were unreachable; treat as 'unknown' rather than 'no bans' */
-  available: boolean;
   /**
-   * true when the response is a stale-fallback: all upstream refreshes failed
-   * and we are serving an expired cache entry.  The symbols are last-known values
-   * and MUST NOT be used for authoritative admission decisions.
-   * Render as "STALE / LAST KNOWN" with fetchedAt visible.
+   * ISO timestamp of when this data was fetched from NSE upstream.
+   * null when UNAVAILABLE. Replaces the old fetchedAt field.
    */
-  stale?: boolean;
+  sourceAsOf?: string | null;
+  /** true when data is from fresh upstream fetch or in-TTL cache. */
+  currentAvailable: boolean;
+  /** true when any cached data (fresh or stale) exists. false ONLY when UNAVAILABLE. */
+  hasLastKnown: boolean;
+  /** true when serving expired cache because all upstream refreshes failed. */
+  stale: boolean;
+  /**
+   * true ONLY when status === "CURRENT".
+   * NEVER use symbols for admission decisions when canAuthorizeAdmission=false.
+   */
+  canAuthorizeAdmission: boolean;
+  /** Machine-readable availability state. */
+  status: FnoBanStatus;
 }
 
 export interface ParticipantOiRow {

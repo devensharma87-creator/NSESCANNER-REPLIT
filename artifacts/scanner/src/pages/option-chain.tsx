@@ -114,7 +114,8 @@ function FnoBanBanner({ underlying }: { underlying: string }) {
 
   // Upstream NSE archive is unreachable. We must not silently say
   // "no ban" because we genuinely do not know — surface that fact.
-  if (data.available === false) {
+  // Also treat LAST_KNOWN_STALE as unknown — stale data cannot authorize ban decisions.
+  if (!data || data.status === "UNAVAILABLE" || !data.canAuthorizeAdmission) {
     return (
       <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 flex items-start gap-2">
         <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
@@ -126,7 +127,8 @@ function FnoBanBanner({ underlying }: { underlying: string }) {
     );
   }
 
-  const banned = data.symbols.includes(u);
+  // Only check ban status when canAuthorizeAdmission=true (CURRENT state).
+  const banned = data.canAuthorizeAdmission && data.symbols.includes(u);
   if (!banned) return null;
   return (
     <div className="rounded-md border-2 border-signal-strong-sell bg-signal-strong-sell/10 px-4 py-3 flex items-start gap-3">

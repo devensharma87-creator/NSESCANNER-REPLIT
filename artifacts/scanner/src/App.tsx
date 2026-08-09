@@ -1,5 +1,5 @@
+import React, { useEffect } from "react";
 import { Switch, Route, Router as WouterRouter, useLocation } from "wouter";
-import { useEffect } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -45,7 +45,13 @@ import DailyAnalysisPage from "@/pages/daily-analysis";
 import SwingCash from "@/pages/swing-cash";
 import PaperTrading from "@/pages/paper-trading";
 import PaperReports from "@/pages/paper-reports";
-import HomeDebugPage from "@/pages/home-debug";
+// HomeDebugPage is DEV-only. Vite replaces import.meta.env.DEV with false in
+// production builds and Rollup tree-shakes both the lazy() branch and the
+// underlying dynamic import(), removing the page from the production bundle.
+// Do NOT convert this to a static import — that would include it in production.
+const HomeDebugPage = (import.meta.env.DEV as boolean)
+  ? React.lazy(() => import("@/pages/home-debug"))
+  : null;
 import DisclaimerPage from "@/pages/legal/disclaimer";
 import MethodologyPage from "@/pages/legal/methodology";
 import TermsPage from "@/pages/legal/terms";
@@ -119,8 +125,12 @@ function Router() {
       {/* Legacy redirect — no guard needed, just bounces to / */}
       <Route path="/indices" component={IndicesRedirect} />
 
-      {/* Dev-only fixture page — owner-only, for evidence screenshots */}
-      <Route path="/debug/home-states" component={guarded(HomeDebugPage, { ownerOnly: true })} />
+      {/* Dev-only fixture page — owner-only, for evidence screenshots.
+          guarded(HomeDebugPage) is only reachable when import.meta.env.DEV=true.
+          In production builds Rollup removes this branch and the dynamic import entirely. */}
+      {(import.meta.env.DEV as boolean) && HomeDebugPage && (
+        <Route path="/debug/home-states" component={guarded(HomeDebugPage, { ownerOnly: true })} />
+      )}
 
       {/* Legal pages — public, no AccessGuard. LoginGate also short-circuits
           for these paths so an unauthenticated visitor can read them from
