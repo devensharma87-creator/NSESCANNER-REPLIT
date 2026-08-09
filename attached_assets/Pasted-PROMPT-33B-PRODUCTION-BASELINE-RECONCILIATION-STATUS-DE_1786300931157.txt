@@ -1,0 +1,226 @@
+PROMPT 33B — PRODUCTION BASELINE RECONCILIATION
+
+STATUS:
+DEPLOYED_LOCKED
+NO SIGNAL ACTIVATION
+NO WAREHOUSE ACTIVATION
+NO V2 ACTIVATION
+NO BROKER EXECUTION
+
+Do not expand scope, refactor unrelated code, add evidence-only modules, or run the complete test suite unless a confirmed defect requires a code change.
+
+The previous production report is NOT accepted because it contains unresolved contradictions.
+
+1. DEPLOYED COMMIT RECONCILIATION
+
+Approved commit: 1cf7832
+Reported deployed commit: c8fd8897
+
+Run and return:
+
+git diff --name-status 1cf7832..c8fd8897 -- \
+  artifacts/api-server \
+  artifacts/scanner \
+  lib
+
+Also return:
+
+git log --oneline --decorate 1cf7832..c8fd8897
+
+If any production runtime file changed, STOP and report:
+
+BLOCKED_DEPLOYMENT_COMMIT_MISMATCH
+
+Do not modify production or rollback automatically. Identify every runtime difference first.
+
+If the difference is documentation/assets only, prove that explicitly.
+
+2. PRODUCTION SCREENSHOT AUTHENTICITY
+
+The submitted filenames contain “dev” and do not prove production verification.
+
+Capture authenticated screenshots directly from:
+
+https://marketscannerbydev.in
+
+For each screenshot, provide:
+
+- visible production URL;
+- page name;
+- IST timestamp;
+- deployed commit from /api/build-info;
+- no dev, preview, or replit development URL.
+
+Required pages:
+
+- Home
+- Full Scanner
+- Deep Scan
+- Daily Analysis
+- Directional Scorer
+- F&O
+- Swing
+
+3. API/UI UNIVERSE RECONCILIATION
+
+The API reports:
+
+universeSize=2065
+liveQuoteCount=2065
+failures=0
+
+The UI reportedly displays:
+
+PROVISIONAL universe 8,891
+NO MATCHING STOCKS FOUND
+
+These cannot both be accepted.
+
+Using one authenticated production session, capture:
+
+A. Raw /api/scan/full-nse response
+B. Browser network response consumed by Full Scanner
+C. Rendered Full Scanner page
+
+All three must show the same:
+
+- generationId;
+- generatedAt;
+- universeSize;
+- liveQuoteCount;
+- failures;
+- returned row count;
+- filtered row count;
+- evaluation state.
+
+Determine exactly what 8,891 represents. If it is a raw Kite candidate count, label it separately. It must not be presented as the eligible scanner universe.
+
+With the “All” filter selected, 2,065 returned rows must not render as “NO MATCHING STOCKS FOUND.”
+
+Fix only the confirmed API-to-UI mapping defect. Do not change classification or eligibility logic without new evidence.
+
+4. STATE CONTRACT RECONCILIATION
+
+Verify and correct these contradictions:
+
+A. Phase A:
+evaluationState = PHASE_A_POPULATION_ONLY
+actionabilityState must be NOT_ACTIONABLE, not null.
+
+B. System mode:
+One report says systemMode=NORMAL.
+The F&O report says systemMode=DEGRADED.
+
+Capture both endpoints within the same 30-second window and identify the exact reason for any difference.
+
+C. Market-closed state:
+READY_CLOSED must not automatically become READY_STALE merely because no market ticks arrive while the exchange is closed.
+
+Document the intended state transition. If the source snapshot itself has expired, expose both dimensions separately:
+
+marketState=CLOSED
+freshnessState=STALE
+
+Do not collapse them into a contradictory label.
+
+5. PERFORMANCE EVIDENCE
+
+The reported scan duration is 41,616 ms, exceeding the <25-second target.
+
+Run three production Full Scanner requests without restarting the server and return:
+
+- duration for each request;
+- p50;
+- maximum;
+- cache hit/miss state;
+- provider call counts;
+- generationId;
+- whether a scan was started or an existing generation was served.
+
+Acceptance:
+
+- normal cached response <25 seconds;
+- no per-symbol provider-call fan-out;
+- no thundering herd;
+- no overlapping generation rebuilds.
+
+If normal production response remains above 25 seconds, classify it as P1 PERFORMANCE BLOCKER. Do not report “no defects.”
+
+6. MARKET-HOURS VERIFICATION
+
+Today is Monday, 10 August 2026.
+
+If executed during NSE market hours, verify all seven surfaces against the canonical pipeline:
+
+- Home
+- Full Scanner
+- Deep Scan
+- Daily Analysis
+- Directional Scorer
+- F&O
+- Swing
+
+For the same symbols/indexes, compare:
+
+- price;
+- asOf timestamp;
+- source;
+- generation/session identifier;
+- freshness;
+- evaluation status;
+- actionability status.
+
+Yahoo must remain information-only and must not authorize Indian scoring or actions.
+
+If market hours have passed, report:
+
+MARKET_HOURS_VERIFICATION_PENDING — NEXT WINDOW:
+11 August 2026, 09:15–15:30 IST
+
+Do not fabricate market-hours evidence.
+
+7. SAFETY RECONFIRMATION
+
+Return the actual runtime values:
+
+FULL_NSE_WAREHOUSE_POPULATION_AUTHORIZED=false
+SCANNER_KITE_CANDLE_EVALUATION_AUTHORIZED=false
+FNO_PAPER_V2_RUNTIME_AUTHORIZED=false
+SWING_PAPER_V2_RUNTIME_AUTHORIZED=false
+
+Also confirm:
+
+- no paper trade opened;
+- no broker order submitted;
+- no warehouse scheduler registered;
+- no evaluation score or confidence generated;
+- no owner control endpoint invoked.
+
+8. RESPONSE DISCIPLINE
+
+Return only:
+
+- deployed commit reconciliation;
+- contradiction table;
+- confirmed defects;
+- minimal fixes made, if any;
+- targeted tests/builds run, if code changed;
+- production evidence;
+- remaining blockers;
+- final verdict.
+
+Do not return self-reported total test counts as primary proof.
+Do not claim “no UI defects” while API and UI counts disagree.
+Do not create new roadmap items.
+
+Allowed final verdicts:
+
+DEPLOYED_LOCKED — PRODUCTION_BASELINE_RECONCILED — MARKET_HOURS_VERIFICATION_PENDING
+
+or
+
+DEPLOYED_LOCKED — PRODUCTION_BASELINE_BLOCKED — <exact reasons>
+
+If any safety lock is active, broker execution is reachable, or the deployed commit contains unauthorized runtime changes:
+
+ROLLBACK_REQUIRED — <exact reason>
