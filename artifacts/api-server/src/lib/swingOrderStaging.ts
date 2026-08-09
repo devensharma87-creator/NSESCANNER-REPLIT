@@ -362,10 +362,12 @@ export async function stageSwingOrder(
   {
     const { checkFnoBanAdmission } = await import("./nseFnoBanGate");
     fnoBanAdmission = await checkFnoBanAdmission(candidate.symbol, "stageSwingOrder");
-    // Log ban status for audit — do not block.
-    if (!fnoBanAdmission.allowed) {
+    // Log ban status for audit — do NOT block cash delivery staging.
+    // NSE F&O ban status (MWPL breach) applies to derivatives only;
+    // CNC/cash-delivery swing orders are NOT blocked by F&O ban membership.
+    if (!fnoBanAdmission.canAuthorizeAdmission) {
       logger.info(
-        { symbol: candidate.symbol, verdict: fnoBanAdmission.verdict, banListStatus: fnoBanAdmission.banListStatus },
+        { symbol: candidate.symbol, reasonCode: fnoBanAdmission.reasonCode, status: fnoBanAdmission.status },
         "swingOrderStaging: F&O ban gate flagged (informational — does not block cash equity staging)",
       );
     }

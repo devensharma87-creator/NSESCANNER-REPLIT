@@ -426,45 +426,105 @@ async function ensureNseMasterSnapshotSchema(): Promise<void> {
 }
 
 /**
- * Persist a fresh MasterCache snapshot to PostgreSQL. Non-blocking — errors are
- * logged but do not interrupt the caller.
+ * Result of a PostgreSQL persistence operation for an NSE master snapshot.
+ *
+ * ok=true  → INSERT committed inside a transaction; snapshotId/committedAt/sha256 are valid.
+ * ok=false → INSERT failed or RETURNING produced no row; reasonCode/errorClass describe the failure.
+ *
+ * A newly fetched snapshot is only considered durable after ok=true.
+ * A failed write MUST NOT be reported as durable success.
+ */
+export type SnapshotPersistenceResult =
+  | {
+      ok: true;
+      /** Auto-generated BIGINT id from RETURNING id::text. */
+      snapshotId: string;
+      /** ISO timestamp when the transaction committed (from RETURNING saved_at). */
+      committedAt: string;
+      /** SHA-256 prefix (8 hex chars) of the raw CSV body. */
+      sha256: string;
+    }
+  | {
+      ok: false;
+      /** Short error description or SQLSTATE code. */
+      reasonCode: string;
+      /** JavaScript error class name (e.g. "Error", "PostgresError"). */
+      errorClass: string;
+    };
+
+/**
+ * Persist a fresh MasterCache snapshot to PostgreSQL.
+ *
+ * Uses a Drizzle db.transaction() with pg_advisory_xact_lock so the INSERT is:
+ *   - Serialized across replicas (only one INSERT per snapshot window).
+ *   - Advisory lock auto-released on commit or rollback (transaction-scoped,
+ *     safe on pooled connections — no dangling session locks).
+ *
+ * Returns SnapshotPersistenceResult. ok=false is non-fatal — callers log and continue.
  *
  * EXPORTED for test mocking via vi.spyOn.
  */
-export async function _saveSnapshotToDb(entry: MasterCache): Promise<void> {
+export async function _saveSnapshotToDb(entry: MasterCache): Promise<SnapshotPersistenceResult> {
   try {
     await ensureNseMasterSnapshotSchema();
     const records = Array.from(entry.bySymbol.values());
-    await db.execute(sql`
-      INSERT INTO nse_security_master_snapshots
-        (source_url, retrieved_at, effective_date, sha256, schema_version, row_count, validation_result, records, series_counts)
-      VALUES (
-        ${entry.sourceUrl},
-        ${entry.fetchedAt}::timestamptz,
-        ${entry.snapshotDate}::date,
-        ${entry.sourceHash},
-        ${DB_SCHEMA_VERSION},
-        ${entry.totalRecords},
-        ${"ACCEPTED"},
-        ${JSON.stringify(records)}::jsonb,
-        ${JSON.stringify(entry.seriesCounts)}::jsonb
-      )
-    `);
-    // Prune old snapshots: keep DB_MAX_SNAPSHOTS most recent.
-    await db.execute(sql`
-      DELETE FROM nse_security_master_snapshots
-      WHERE id NOT IN (
-        SELECT id FROM nse_security_master_snapshots
-        ORDER BY retrieved_at DESC
-        LIMIT ${DB_MAX_SNAPSHOTS}
-      )
-    `);
+
+    const insertResult = await db.transaction(async (tx) => {
+      // pg_advisory_xact_lock: blocking, transaction-scoped — auto-released on commit/rollback.
+      // Serializes concurrent snapshot writes from multiple replicas safely on pooled connections.
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(${DB_ADVISORY_LOCK_KEY})`);
+
+      const result = await tx.execute(sql`
+        INSERT INTO nse_security_master_snapshots
+          (source_url, retrieved_at, effective_date, sha256, schema_version, row_count, validation_result, records, series_counts)
+        VALUES (
+          ${entry.sourceUrl},
+          ${entry.fetchedAt}::timestamptz,
+          ${entry.snapshotDate}::date,
+          ${entry.sourceHash},
+          ${DB_SCHEMA_VERSION},
+          ${entry.totalRecords},
+          ${"ACCEPTED"},
+          ${JSON.stringify(records)}::jsonb,
+          ${JSON.stringify(entry.seriesCounts)}::jsonb
+        )
+        RETURNING id::text AS id, saved_at
+      `);
+
+      // Prune old snapshots: keep DB_MAX_SNAPSHOTS most recent.
+      await tx.execute(sql`
+        DELETE FROM nse_security_master_snapshots
+        WHERE id NOT IN (
+          SELECT id FROM nse_security_master_snapshots
+          ORDER BY retrieved_at DESC
+          LIMIT ${DB_MAX_SNAPSHOTS}
+        )
+      `);
+
+      return result;
+    });
+
+    const rows = insertResult.rows as Array<{ id: string; saved_at: string | Date }>;
+    const row = rows[0];
+    if (!row) {
+      return { ok: false, reasonCode: "INSERT_RETURNING_EMPTY", errorClass: "Error" };
+    }
+
+    const committedAt =
+      typeof row.saved_at === "string" ? row.saved_at : new Date(row.saved_at).toISOString();
+
     logger.info(
-      { totalRecords: entry.totalRecords, sourceHash: entry.sourceHash },
-      "NSE equity master: saved snapshot to PostgreSQL (L2)",
+      { totalRecords: entry.totalRecords, sourceHash: entry.sourceHash, snapshotId: row.id, committedAt },
+      "NSE equity master: snapshot committed to PostgreSQL (L2) — transaction committed",
     );
+    return { ok: true, snapshotId: row.id, committedAt, sha256: entry.sourceHash };
   } catch (err) {
-    logger.warn({ err }, "NSE equity master: _saveSnapshotToDb failed (non-fatal)");
+    const errorClass = err instanceof Error ? err.constructor.name : "Error";
+    const reasonCode =
+      (err as { code?: string })?.code ??
+      String(err).slice(0, 120);
+    logger.warn({ err, reasonCode, errorClass }, "NSE equity master: _saveSnapshotToDb failed (non-fatal)");
+    return { ok: false, reasonCode, errorClass };
   }
 }
 
@@ -523,34 +583,15 @@ export async function _loadLatestSnapshotFromDb(reason: string): Promise<MasterC
   }
 }
 
-/** Try to acquire the PostgreSQL session advisory lock for refresh single-flight.
- *  Only used in production (NODE_ENV=production). In dev/test, advisory locks
- *  are skipped because Drizzle's connection pool uses different connections for
- *  acquire and release, causing cross-test lock leakage with pg_advisory_lock.
- */
-async function _tryAcquireAdvisoryLock(): Promise<boolean> {
-  if (process.env.NODE_ENV !== "production") return true; // single-process in dev/test
-  try {
-    const result = await db.execute(sql`SELECT pg_try_advisory_lock(${DB_ADVISORY_LOCK_KEY}) AS acquired`);
-    const rows = result.rows as Array<{ acquired: boolean }>;
-    return rows[0]?.acquired ?? false;
-  } catch {
-    // DB unavailable — proceed without lock (fail open for lock, fail closed for data).
-    return true;
-  }
-}
-
-/** Release the PostgreSQL session advisory lock. Only used in production. */
-async function _releaseAdvisoryLock(): Promise<void> {
-  if (process.env.NODE_ENV !== "production") return;
-  try {
-    await db.execute(sql`SELECT pg_advisory_unlock(${DB_ADVISORY_LOCK_KEY})`);
-  } catch {
-    // Ignore — connection reset or DB error; lock auto-releases on connection close.
-  }
-}
-
 // ── Refresh ───────────────────────────────────────────────────────────────────
+// Note: session advisory lock functions (_tryAcquireAdvisoryLock / _releaseAdvisoryLock)
+// have been removed. Session advisory locks are unsafe on pooled connections because
+// pg_advisory_lock + pg_advisory_unlock may run on different pool connections, leaving
+// dangling locks. INSERT serialization now uses pg_advisory_xact_lock inside
+// _saveSnapshotToDb's db.transaction(), which is transaction-scoped and auto-released.
+// Within a single process, concurrent HTTP fetches are de-duplicated by the `inflight`
+// Promise. Cross-replica concurrent fetches are best-effort (each replica may fetch
+// independently, but only one INSERT commits due to the xact lock serialization).
 
 async function refresh(): Promise<MasterCache | null> {
   for (const url of CANDIDATE_URLS) {
@@ -582,12 +623,19 @@ async function refresh(): Promise<MasterCache | null> {
       canAuthorizeUniverse: computeCanAuthorize(fetchedAt, false),
     };
 
-    // Persist to disk (L1) synchronously (write-temp + rename).
-    // Then await PostgreSQL (L2) — no fire-and-forget; errors logged but non-fatal.
+    // L1: Persist to disk synchronously (write-temp + rename — atomic).
+    // L2: Await PostgreSQL — errors are non-fatal (result logged; we continue).
     // We wait for the DB commit before returning so the snapshot is durable before
-    // any caller can read it as "just refreshed". Failure is non-fatal (logs warn).
+    // any caller reads it as "just refreshed". _saveSnapshotToDb uses pg_advisory_xact_lock
+    // inside db.transaction() to serialize concurrent replica writes safely.
     saveLastGoodToDisk(entry);
-    await _saveSnapshotToDb(entry);
+    const persistResult = await _saveSnapshotToDb(entry);
+    if (!persistResult.ok) {
+      logger.warn(
+        { reasonCode: persistResult.reasonCode, errorClass: persistResult.errorClass },
+        "NSE equity master: PostgreSQL persistence failed (non-fatal — disk snapshot (L1) available)",
+      );
+    }
 
     logger.info(
       { totalRecords, seriesCounts, sourceHash, url },
@@ -618,72 +666,90 @@ async function refresh(): Promise<MasterCache | null> {
  * BLOCKED_AUTHORITATIVE_NSE_REFERENCE_UNAVAILABLE rather than classifying
  * instruments as provisional.
  *
- * Refresh single-flight: a PostgreSQL session advisory lock (key 8274613)
- * prevents concurrent replicas from all hitting NSE simultaneously.
+ * Refresh single-flight: within a single process, concurrent calls share the `inflight`
+ * Promise (one HTTP fetch at a time per replica). Cross-replica write serialization is
+ * handled by pg_advisory_xact_lock inside _saveSnapshotToDb's db.transaction().
+ * Session advisory lock functions have been removed (session locks are unsafe on pooled
+ * connections — acquire and release can hit different pool connections, leaving dangling locks).
  */
 export async function getNseSecurityMaster(): Promise<MasterCache | null> {
   // L0: Return from in-memory cache if still fresh.
   if (cache && !cache.isLastGood && Date.now() - new Date(cache.fetchedAt).getTime() < TTL_MS) {
     return cache;
   }
-  // If we're serving a last-good in-memory, still attempt a background refresh
-  // but return the in-memory last-good for the current caller to avoid blocking.
+  // If we're serving a last-good in-memory, still attempt a refresh
+  // but fall through to let the inflight Promise handle it.
   if (cache && cache.isLastGood) {
     // Fall through to refresh (will update cache if HTTP succeeds).
   }
   if (inflight) return inflight;
 
   const p = (async () => {
-    // Single-flight advisory lock — non-blocking attempt.
-    const lockAcquired = await _tryAcquireAdvisoryLock();
-    if (!lockAcquired) {
-      // Another replica is already refreshing. Load from DB (L2) while we wait.
-      logger.info("NSE equity master: advisory lock not acquired — loading from DB (another replica refreshing)");
-      const dbSnap = await _loadLatestSnapshotFromDb("CONCURRENT_REFRESH_DB_FALLBACK");
-      if (dbSnap) {
-        cache = dbSnap;
-        inflight = null;
-        return cache;
-      }
-      // No DB snapshot either — return current in-memory (may be null).
-      inflight = null;
-      return cache;
-    }
-
     try {
       // L3: HTTP fetch from NSE.
       const r = await refresh();
       if (r) {
         cache = r;
-        inflight = null;
         return cache;
       }
 
-      // L3 failed. Try fallbacks if we have no in-memory cache.
+      // L3 failed. Try fallbacks if we have no usable in-memory snapshot.
       if (!cache) {
-        // L1: Try local disk.
-        const diskSnap = tryLoadLastGoodFromDisk("HTTP_FETCH_FAILED");
-        if (diskSnap) {
+        // L1 + L2: Load both disk and DB in parallel, then use the newer validated snapshot.
+        // This prevents blindly preferring instance-local disk over a fresher DB snapshot
+        // written by another replica after the current replica last synced.
+        const [diskSnap, dbSnap] = await Promise.all([
+          Promise.resolve(tryLoadLastGoodFromDisk("HTTP_FETCH_FAILED_L1_L2_COMPARE")),
+          _loadLatestSnapshotFromDb("HTTP_FETCH_FAILED_L1_L2_COMPARE"),
+        ]);
+
+        if (diskSnap && dbSnap) {
+          // Both available — prefer the newer validated snapshot by fetchedAt timestamp.
+          const diskMs = new Date(diskSnap.fetchedAt).getTime();
+          const dbMs = new Date(dbSnap.fetchedAt).getTime();
+          if (diskMs >= dbMs) {
+            logger.info(
+              { diskFetchedAt: diskSnap.fetchedAt, dbFetchedAt: dbSnap.fetchedAt },
+              "NSE equity master: L3 failed — disk (L1) newer or equal to DB (L2), using disk",
+            );
+            cache = diskSnap;
+            // Push disk to DB best-effort so other replicas get the fresher snapshot.
+            _saveSnapshotToDb(diskSnap).catch((e) =>
+              logger.warn({ err: e }, "NSE equity master: fallback disk→DB push failed (non-fatal)"),
+            );
+          } else {
+            logger.info(
+              { diskFetchedAt: diskSnap.fetchedAt, dbFetchedAt: dbSnap.fetchedAt },
+              "NSE equity master: L3 failed — DB (L2) newer than disk (L1), using DB",
+            );
+            cache = dbSnap;
+          }
+        } else if (diskSnap) {
+          logger.info(
+            { diskFetchedAt: diskSnap.fetchedAt },
+            "NSE equity master: L3 failed — disk (L1) snapshot available, DB miss",
+          );
           cache = diskSnap;
-          // Push disk snapshot to DB so other replicas benefit.
-          // Awaited — no fire-and-forget; DB failure is logged but non-fatal.
-          await _saveSnapshotToDb(diskSnap);
-          inflight = null;
-          return cache;
+          _saveSnapshotToDb(diskSnap).catch((e) =>
+            logger.warn({ err: e }, "NSE equity master: fallback disk→DB push failed (non-fatal)"),
+          );
+        } else if (dbSnap) {
+          logger.info(
+            { dbFetchedAt: dbSnap.fetchedAt },
+            "NSE equity master: L3 failed — DB (L2) snapshot available, disk miss",
+          );
+          cache = dbSnap;
+        } else {
+          logger.warn("NSE equity master: L1, L2, and L3 all failed — no snapshot available");
+          cache = null;
         }
-        // L2: Try PostgreSQL.
-        const dbSnap = await _loadLatestSnapshotFromDb("HTTP_FETCH_FAILED_DISK_MISS");
-        cache = dbSnap; // may still be null
-        inflight = null;
         return cache;
       } else {
         // We already have a last-good in memory — keep it.
         logger.warn("NSE equity master: HTTP refresh failed, continuing with in-memory last-good");
-        inflight = null;
         return cache;
       }
     } finally {
-      await _releaseAdvisoryLock();
       inflight = null;
     }
   })();

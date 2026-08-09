@@ -413,9 +413,9 @@ export async function openPaperTrade(input: LifecycleHookInput): Promise<PaperTr
     const fnoIndex = ((input.signal.index ?? "") as string).toUpperCase() || "UNKNOWN_FNO";
     const { checkFnoBanAdmission } = await import("./nseFnoBanGate");
     const banResult = await checkFnoBanAdmission(fnoIndex, "openPaperTrade");
-    if (!banResult.allowed) {
+    if (!banResult.canAuthorizeAdmission) {
       logger.info(
-        { symbol: fnoIndex, verdict: banResult.verdict, reason: banResult.reason },
+        { symbol: fnoIndex, reasonCode: banResult.reasonCode, status: banResult.status, reason: banResult.reason },
         "openPaperTrade: blocked — FNO_BAN_CHECK",
       );
       return null;

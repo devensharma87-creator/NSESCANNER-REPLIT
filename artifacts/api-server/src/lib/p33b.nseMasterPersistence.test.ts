@@ -24,13 +24,28 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 // ── Mock @workspace/db before any module that imports it ─────────────────────
 // IMPORTANT: vi.mock factories are hoisted, so no top-level variables may be
 // referenced inside them. Use vi.hoisted() to create the mock fn.
-const { dbExecuteMock, diskStore } = vi.hoisted(() => ({
-  dbExecuteMock: vi.fn().mockResolvedValue({ rows: [] }),
-  diskStore: new Map<string, unknown>(),
-}));
+const { dbExecuteMock, dbTransactionMock, diskStore } = vi.hoisted(() => {
+  const executeFn = vi.fn().mockResolvedValue({ rows: [] });
+  // db.transaction(cb) calls cb(tx) where tx.execute returns a row shaped for
+  // both pg_advisory_xact_lock (ignored) and INSERT RETURNING (id, saved_at).
+  const transactionFn = vi.fn().mockImplementation(async (cb: (tx: { execute: typeof executeFn }) => Promise<unknown>) => {
+    const tx = {
+      execute: vi.fn().mockResolvedValue({
+        rows: [{ id: "1", saved_at: new Date("2026-08-09T10:00:00Z").toISOString() }],
+      }),
+    };
+    return cb(tx);
+  });
+  return {
+    dbExecuteMock: executeFn,
+    dbTransactionMock: transactionFn,
+    diskStore: new Map<string, unknown>(),
+  };
+});
 vi.mock("@workspace/db", () => ({
   db: {
     execute: dbExecuteMock,
+    transaction: dbTransactionMock,
   },
   INSTRUMENT_ASSET_CLASSES: [],
 }));

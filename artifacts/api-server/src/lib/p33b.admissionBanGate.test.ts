@@ -60,8 +60,8 @@ describe("AG-01: CURRENT + symbol not banned → ALLOWED", () => {
     stubFetchWithBan(["HINDCOPPER"]);
     const result = await checkFnoBanAdmission("RELIANCE", "test-AG-01");
     expect(result.verdict).toBe("ALLOWED");
-    expect(result.allowed).toBe(true);
-    expect(result.rawBanResult).toBe(false);
+    expect(result.canAuthorizeAdmission).toBe(true);
+    expect(result.banned).toBe(false);
   });
 });
 
@@ -70,8 +70,8 @@ describe("AG-02: CURRENT + symbol banned → BLOCKED_BANNED", () => {
     stubFetchWithBan(["HINDCOPPER", "ADANIENT"]);
     const result = await checkFnoBanAdmission("HINDCOPPER", "test-AG-02");
     expect(result.verdict).toBe("BLOCKED_BANNED");
-    expect(result.allowed).toBe(false);
-    expect(result.rawBanResult).toBe(true);
+    expect(result.canAuthorizeAdmission).toBe(false);
+    expect(result.banned).toBe(true);
   });
 });
 
@@ -80,8 +80,8 @@ describe("AG-03: UNAVAILABLE → BLOCKED_UNAVAILABLE (fail-closed)", () => {
     stubFetchFail();
     const result = await checkFnoBanAdmission("RELIANCE", "test-AG-03");
     expect(result.verdict).toBe("BLOCKED_UNAVAILABLE");
-    expect(result.allowed).toBe(false);
-    expect(result.rawBanResult).toBeNull();
+    expect(result.canAuthorizeAdmission).toBe(false);
+    expect(result.banned).toBeNull();
   });
 
   it("BLOCKED_UNAVAILABLE for ANY symbol — no bypass possible", async () => {
@@ -90,30 +90,30 @@ describe("AG-03: UNAVAILABLE → BLOCKED_UNAVAILABLE (fail-closed)", () => {
       _resetFnoBanListForTest();
       stubFetchFail();
       const r = await checkFnoBanAdmission(sym, "test-AG-03b");
-      expect(r.allowed).toBe(false);
+      expect(r.canAuthorizeAdmission).toBe(false);
       expect(r.verdict).toBe("BLOCKED_UNAVAILABLE");
     }
   });
 });
 
-describe("AG-04: null must never be treated as false", () => {
-  it("BLOCKED_UNAVAILABLE.allowed is false, not the same as ALLOWED.allowed=false", async () => {
-    // BLOCKED (null from isFnoBanned)
+describe("AG-04: null must never be treated as false — banned null ≠ banned false", () => {
+  it("BLOCKED_UNAVAILABLE.banned is null; ALLOWED.banned is false — not the same", async () => {
+    // BLOCKED (ban list unavailable — banned is null, not false)
     stubFetchFail();
     const blocked = await checkFnoBanAdmission("RELIANCE", "test-AG-04");
-    expect(blocked.allowed).toBe(false);
-    expect(blocked.rawBanResult).toBeNull();
+    expect(blocked.canAuthorizeAdmission).toBe(false);
+    expect(blocked.banned).toBeNull();  // null = cannot determine ban status
 
-    // CLEAR (false from isFnoBanned, not banned)
+    // CLEAR (ban list CURRENT, symbol not banned — banned is false, not null)
     _resetFnoBanListForTest();
     stubFetchWithBan(["HINDCOPPER"]); // RELIANCE not banned
     const clear = await checkFnoBanAdmission("RELIANCE", "test-AG-04");
-    expect(clear.allowed).toBe(true);
-    expect(clear.rawBanResult).toBe(false);
+    expect(clear.canAuthorizeAdmission).toBe(true);
+    expect(clear.banned).toBe(false);  // false = confirmed not on ban list
 
-    // They differ in rawBanResult and verdict — null ≠ false
-    expect(blocked.rawBanResult).toBeNull();
-    expect(clear.rawBanResult).toBe(false);
+    // They differ in banned and verdict — null ≠ false
+    expect(blocked.banned).toBeNull();
+    expect(clear.banned).toBe(false);
     expect(blocked.verdict).toBe("BLOCKED_UNAVAILABLE");
     expect(clear.verdict).toBe("ALLOWED");
   });
@@ -125,8 +125,8 @@ describe("AG-05: empty current ban list → ALLOWED (ALL CLEAR is legitimate)", 
     for (const sym of ["RELIANCE", "HINDCOPPER", "INFY"]) {
       const r = await checkFnoBanAdmission(sym, "test-AG-05");
       expect(r.verdict).toBe("ALLOWED");
-      expect(r.allowed).toBe(true);
-      expect(r.rawBanResult).toBe(false);
+      expect(r.canAuthorizeAdmission).toBe(true);
+      expect(r.banned).toBe(false);
     }
   });
 });
@@ -135,33 +135,35 @@ describe("AG-05: empty current ban list → ALLOWED (ALL CLEAR is legitimate)", 
 
 describe("AG-06..AG-09: F&O signal dispatch — Gate 2.5 (index derivatives exempt)", () => {
   it("AG-06: NIFTY returns EXEMPT_INDEX_DERIVATIVE — not blocked by individual stock ban", async () => {
-    // Even when HTTP fails (ban list UNAVAILABLE), index derivatives pass through
+    // Even when HTTP fails (ban list UNAVAILABLE), index derivatives pass through.
+    // banned=false: index derivatives are definitionally not on the stock ban list (authoritative).
     stubFetchFail();
     const result = await checkFnoBanAdmission("NIFTY", "dispatchFnoWithCanonicalGates");
     expect(result.verdict).toBe("EXEMPT_INDEX_DERIVATIVE");
-    expect(result.allowed).toBe(true);
-    expect(result.rawBanResult).toBe("EXEMPT");
+    expect(result.canAuthorizeAdmission).toBe(true);
+    // Index derivatives return banned=false (authoritatively not on the stock ban list).
+    expect(result.banned).toBe(false);
   });
 
   it("AG-07: BANKNIFTY is exempt from individual stock F&O ban", async () => {
     stubFetchFail();
     const result = await checkFnoBanAdmission("BANKNIFTY", "dispatchFnoWithCanonicalGates");
     expect(result.verdict).toBe("EXEMPT_INDEX_DERIVATIVE");
-    expect(result.allowed).toBe(true);
+    expect(result.canAuthorizeAdmission).toBe(true);
   });
 
   it("AG-08: SENSEX is exempt from individual stock F&O ban", async () => {
     stubFetchFail();
     const result = await checkFnoBanAdmission("SENSEX", "dispatchFnoWithCanonicalGates");
     expect(result.verdict).toBe("EXEMPT_INDEX_DERIVATIVE");
-    expect(result.allowed).toBe(true);
+    expect(result.canAuthorizeAdmission).toBe(true);
   });
 
   it("AG-09: individual stock (HINDCOPPER) IS subject to the ban — not exempt", async () => {
     stubFetchWithBan(["HINDCOPPER"]);
     const result = await checkFnoBanAdmission("HINDCOPPER", "dispatchFnoWithCanonicalGates");
     expect(result.verdict).toBe("BLOCKED_BANNED");
-    expect(result.allowed).toBe(false);
+    expect(result.canAuthorizeAdmission).toBe(false);
   });
 });
 
@@ -172,28 +174,28 @@ describe("AG-10..AG-15: Swing staging — checkFnoBanAdmission gate for equity s
     stubFetchWithBan(["HINDCOPPER"]);
     const result = await checkFnoBanAdmission("RELIANCE", "stageSwingOrder");
     expect(result.verdict).toBe("ALLOWED");
-    expect(result.allowed).toBe(true);
+    expect(result.canAuthorizeAdmission).toBe(true);
   });
 
   it("AG-11: swing candidate IS on ban list → BLOCKED_BANNED", async () => {
     stubFetchWithBan(["HINDCOPPER", "RELIANCE"]);
     const result = await checkFnoBanAdmission("RELIANCE", "stageSwingOrder");
     expect(result.verdict).toBe("BLOCKED_BANNED");
-    expect(result.allowed).toBe(false);
+    expect(result.canAuthorizeAdmission).toBe(false);
   });
 
   it("AG-12: UNAVAILABLE → BLOCKED (fail-closed for swing too)", async () => {
     stubFetchFail();
     const result = await checkFnoBanAdmission("INFY", "stageSwingOrder");
     expect(result.verdict).toBe("BLOCKED_UNAVAILABLE");
-    expect(result.allowed).toBe(false);
+    expect(result.canAuthorizeAdmission).toBe(false);
   });
 
   it("AG-13: empty ban list → ALLOWED for any swing candidate", async () => {
     stubFetchWithBan([]);
     const result = await checkFnoBanAdmission("INFY", "stageSwingOrder");
     expect(result.verdict).toBe("ALLOWED");
-    expect(result.allowed).toBe(true);
+    expect(result.canAuthorizeAdmission).toBe(true);
   });
 
   it("AG-14: multiple swing candidates — each checked independently", async () => {
@@ -213,7 +215,7 @@ describe("AG-10..AG-15: Swing staging — checkFnoBanAdmission gate for equity s
   it("AG-15: ban check never throws — always resolves to a structured result", async () => {
     stubFetchFail();
     await expect(checkFnoBanAdmission("RELIANCE", "stageSwingOrder")).resolves.toMatchObject({
-      allowed: false,
+      canAuthorizeAdmission: false,
       verdict: "BLOCKED_UNAVAILABLE",
     });
   });

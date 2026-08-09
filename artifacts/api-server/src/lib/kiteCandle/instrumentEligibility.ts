@@ -65,11 +65,59 @@ import { centralLooksLikeEtf } from "../marketData/compat";
 
 // ─── Public types ─────────────────────────────────────────────────────────────
 
+/**
+ * CLASSIFICATION AUTHORITY LEVELS
+ * ─────────────────────────────────
+ * AUTHORITATIVE:        Classification confirmed by an official published source
+ *                       (NSE EQUITY_L.csv series code, Kite master tradingsymbol suffix,
+ *                       or definitional exclusion). Safe to exclude instruments.
+ *
+ * HEURISTIC_FAIL_CLOSED: Classification uses name-pattern evidence only (non-authoritative).
+ *                        May be retained only for EXCLUSION (fail-closed/conservative).
+ *                        MUST NEVER be used to set warehouseEligible=true.
+ *
+ * Rule 1: Only ORDINARY_MAIN_BOARD_EQUITY may enter the ordinary-equity scanner.
+ * Rule 2: All other classes must remain excluded from breadth, signals, paper admission.
+ * Rule 3: If authoritative classification cannot be established → UNRESOLVED_SECURITY_TYPE.
+ * Rule 4: Do NOT authorize using: SERIES=EQ alone, instrument_type=EQ alone, name patterns, suffix heuristics.
+ * Rule 5: Heuristics may be retained only for non-authoritative diagnostic warnings (exclusions).
+ *         They MUST NEVER set warehouseEligible=true or authorize scanner inclusion.
+ *
+ * SOURCES (in classification authority order):
+ *   1. Kite NSE EQ instrument master — required for any affirmative classification.
+ *      Source: Kite Connect API — GET /instruments (NSE EQ segment)
+ *      Fields: tradingsymbol, name, instrument_type, segment, exchange, isin
+ *      Authority: AUTHORITATIVE for master membership (inCurrentMaster).
+ *      Tradingsymbol suffixes (e.g. -SG, -GB, -ST, -SM, -PP) are AUTHORITATIVE for the
+ *      specific security type they encode: they appear in Kite's official master and reflect
+ *      the instrument's NSE designation. NOT independently authoritative without master record.
+ *
+ *   2. NSE EQUITY_L.csv — authoritative series classification.
+ *      Source: https://archives.nseindia.com/content/equities/EQUITY_L.csv
+ *      Backup: https://nsearchives.nseindia.com/content/equities/EQUITY_L.csv
+ *      Fields: SYMBOL, NAME OF COMPANY, SERIES, DATE OF LISTING, PAID UP VALUE,
+ *              MARKET LOT, ISIN NUMBER, FACE VALUE
+ *      Effective date: publication date (snapshotDate). Updated by NSE daily.
+ *      Authority: AUTHORITATIVE for series classification (EQ, BE, BT, SM, ST, BL, etc.)
+ *                 EQ = ordinary main-board. BE/BT = trade-to-trade. SM/ST = SME.
+ *                 Does NOT distinguish REITs/InvITs from ordinary EQ (both appear as EQ series).
+ *
+ *   3. REIT/InvIT classification — no authoritative NSE CSV is publicly available that
+ *      separately lists REITs/InvITs. NSE EQUITY_L.csv shows REITs as series=EQ.
+ *      Current implementation uses name patterns (REIT, INVIT in trust names) as
+ *      HEURISTIC_FAIL_CLOSED exclusion. This is conservative: if a name contains
+ *      "REIT"/"INVIT", the instrument is excluded. This can never produce a false
+ *      inclusion (heuristics may only exclude, never include).
+ *      BLOCKED_AUTHORITATIVE_NSE_SECURITY_TYPE_REFERENCE_INSUFFICIENT: would apply if
+ *      name-pattern based REIT detection is deemed insufficient. This is the current
+ *      documented limitation awaiting an official NSE REIT/InvIT registry endpoint.
+ */
 export type InstrumentEligibilityClass =
   /**
    * NSE EQUITY_L.csv reference confirms ordinary main-board equity (series=EQ).
    * This is the ONLY class that can drive breadth, signals, and trade actions.
    * Requires NSE authoritative reference join (see nseSecurityMaster.ts).
+   * Authority: AUTHORITATIVE (NSE EQUITY_L.csv series=EQ + Kite master EQ/NSE).
    */
   | "ORDINARY_MAIN_BOARD_EQUITY"
   /**
@@ -94,16 +142,32 @@ export type InstrumentEligibilityClass =
    * These are listed on NSE but are structured as trusts, not ordinary corporate equity.
    * They appear in the Kite EQ master with instrument_type=EQ; the trust structure is
    * identified via name-pattern evidence ("REIT", "INVIT", etc.).
-   * CANNOT drive breadth, rankings, signals, or trade actions — different regulatory
-   * framework, distribution-based returns, and no ordinary equity candle series.
+   * Authority: HEURISTIC_FAIL_CLOSED — NSE EQUITY_L.csv does NOT distinguish REIT from
+   * ordinary EQ (both appear as series=EQ). Name-pattern detection is used conservatively
+   * (exclusion only). May never authorize inclusion.
    */
   | "REIT_OR_INVIT"
   /**
-   * Partly-paid shares or preference shares.
+   * Partly-paid equity shares.
    * Partly-paid shares appear in the Kite master with a "-PP" tradingsymbol suffix.
-   * Preference shares are identified by name pattern.
-   * CANNOT drive breadth, rankings, signals, or trade actions — different rights
-   * and liquidity profile from ordinary equity.
+   * They may also be identified by "PARTLY PAID" in the NSE-published instrument name.
+   * Authority: AUTHORITATIVE — "-PP" Kite tradingsymbol suffix is a definitive Kite master
+   * designation. "PARTLY PAID" in the NSE-published name is highly authoritative.
+   * CANNOT drive breadth, rankings, signals, or trade actions — different rights from fully paid shares.
+   */
+  | "PARTLY_PAID_EQUITY"
+  /**
+   * Preference shares.
+   * Identified by "PREFERENCE" in the instrument name.
+   * Authority: HEURISTIC_FAIL_CLOSED — name-pattern only. No authoritative NSE series code
+   * distinguishes preference shares from ordinary equity in EQUITY_L.csv.
+   * CANNOT drive breadth, rankings, signals, or trade actions.
+   */
+  | "PREFERENCE_SHARE"
+  /**
+   * @deprecated — kept for backward compatibility. classifyInstrument no longer
+   * emits this class. Previously covered both partly-paid and preference shares.
+   * New code emits PARTLY_PAID_EQUITY or PREFERENCE_SHARE instead.
    */
   | "PARTLY_PAID_OR_PREFERENCE"
   | "ETF_OR_FUND"
@@ -130,14 +194,18 @@ export type InstrumentEligibilityClass =
  */
 export const WAREHOUSE_EXCLUDED_CLASSES = new Set<InstrumentEligibilityClass>([
   // Authoritative exclusions (confirmed by NSE reference or Kite master)
-  "KITE_NSE_EQ_LIKE_PROVISIONAL",    // NSE reference required but unavailable — fail closed
-  "ORDINARY_EQUITY_ELIGIBLE",         // deprecated pre-gate class — treat as fail-closed
+  "KITE_NSE_EQ_LIKE_PROVISIONAL",              // NSE reference required but unavailable — fail closed
+  "ORDINARY_EQUITY_ELIGIBLE",                  // deprecated pre-gate class — treat as fail-closed
   "TRADE_TO_TRADE_EQUITY_POLICY_EXCLUDED",
   "SME_EQUITY_POLICY_EXCLUDED",
   "DEBT_GOVERNMENT_SECURITY",
   "SOVEREIGN_GOLD_BOND",
-  "REIT_OR_INVIT",                    // trust-structured instruments — different regulatory framework
-  "PARTLY_PAID_OR_PREFERENCE",        // partly-paid / preference — different rights/liquidity
+  // Heuristic fail-closed exclusions (conservative — cannot produce false inclusions)
+  "REIT_OR_INVIT",                             // trust-structured; name-pattern exclusion (HEURISTIC_FAIL_CLOSED)
+  // Authoritative exclusions (new specific classes — replaces PARTLY_PAID_OR_PREFERENCE)
+  "PARTLY_PAID_EQUITY",                        // Kite -PP suffix or "PARTLY PAID" name (AUTHORITATIVE)
+  "PREFERENCE_SHARE",                          // "PREFERENCE" name pattern (HEURISTIC_FAIL_CLOSED)
+  "PARTLY_PAID_OR_PREFERENCE",                 // deprecated — kept for cache compat; never emitted
   "ETF_OR_FUND",
   "INDEX",
   "INACTIVE_OR_DELISTED",
@@ -176,6 +244,21 @@ export interface InstrumentEligibilityResult {
   policyExclusionReason: string | null;
   /** Whether this instrument is eligible for full-NSE warehouse population. */
   warehouseEligible: boolean;
+  /**
+   * Classification authority level for this decision.
+   *
+   * AUTHORITATIVE: Classification is confirmed by an official published source:
+   *   - NSE EQUITY_L.csv series code (EQ, BE, BT, SM, ST, BL, SG, GB)
+   *   - Kite master tradingsymbol suffix (-PP, -ST, -SM, -SG, -GB, -BZ)
+   *   - Definitional exclusion (INDEX instrument_type, not in master)
+   *
+   * HEURISTIC_FAIL_CLOSED: Classification uses name-pattern evidence only.
+   *   Conservative (exclusion only); may never authorize scanner inclusion.
+   *   Applies to: REIT_OR_INVIT, PREFERENCE_SHARE (name-pattern detection).
+   *   Rule: Heuristics may be retained only as non-authoritative exclusion signals.
+   *   They MUST NEVER set warehouseEligible=true.
+   */
+  authorityLevel: "AUTHORITATIVE" | "HEURISTIC_FAIL_CLOSED";
   /**
    * Ordered attribute signals that contributed to this decision, for audit.
    * Format: "attribute=value". Example: ["inCurrentMaster=true", "exchange=NSE",
@@ -282,28 +365,46 @@ function detectReitOrInvit(symbol: string, name: string): string[] | null {
 }
 
 /**
- * Detect partly-paid shares and preference shares.
+ * Detect partly-paid equity shares.
  *
- * Partly-paid shares appear in the Kite master with a "-PP" tradingsymbol suffix.
- * These are shares where only part of the face value has been called up; they trade
- * at a discount and have different rights than fully paid ordinary shares.
+ * Partly-paid shares appear in the Kite master with a "-PP" tradingsymbol suffix —
+ * this is AUTHORITATIVE (from the Kite official instrument master).
+ * They may also be identified by "PARTLY PAID" in the NSE-published name,
+ * which is also considered authoritative (NSE-published).
  *
- * Preference shares are identified by name pattern ("PREFERENCE" in the name).
+ * Authority: AUTHORITATIVE — suffix from Kite master + NSE-published name.
+ * Class: PARTLY_PAID_EQUITY
  */
-function detectPartlyPaidOrPreference(suffix: string | null, symbol: string, name: string): string[] | null {
+function detectPartlyPaidEquity(suffix: string | null, symbol: string, name: string): string[] | null {
   const nu = name.toUpperCase();
-
-  // Partly paid: Kite master tradingsymbol suffix "-PP"
+  // Authoritative: Kite master tradingsymbol suffix "-PP"
   if (suffix === "PP") {
-    return [`suffix=PP (partly paid shares, Kite master tradingsymbol="${symbol}")`];
+    return [`suffix=PP (partly-paid equity — authoritative from Kite master tradingsymbol="${symbol}")`];
   }
+  // Authoritative: NSE-published instrument name contains "PARTLY PAID"
+  if (/PARTLY[\s-]PAID/.test(nu)) return [`name_pattern=PARTLY_PAID (NSE-published instrument name — authoritative)`];
+  return null;
+}
 
-  // Partly paid: name contains "PARTLY PAID" (NSE publishes this in the instrument name)
-  if (/PARTLY[\s-]PAID/.test(nu)) return [`name_pattern=PARTLY_PAID`];
-
-  // Preference shares: name explicitly contains "PREFERENCE"
-  if (/\bPREFERENCE\b/.test(nu)) return [`name_pattern=PREFERENCE_SHARES`];
-
+/**
+ * Detect preference shares.
+ *
+ * Preference shares are identified by "PREFERENCE" in the instrument name.
+ * No authoritative NSE series code distinguishes preference shares from ordinary
+ * equity in EQUITY_L.csv (both appear as series=EQ). This detection is therefore
+ * HEURISTIC_FAIL_CLOSED — conservative exclusion only.
+ *
+ * Per Rule 5: this heuristic may only be used for exclusion (fail-closed).
+ * It must NEVER authorize eligibility.
+ *
+ * Authority: HEURISTIC_FAIL_CLOSED
+ * Class: PREFERENCE_SHARE
+ */
+function detectPreferenceShare(name: string): string[] | null {
+  const nu = name.toUpperCase();
+  if (/\bPREFERENCE\b/.test(nu)) {
+    return [`name_pattern=PREFERENCE_SHARES (heuristic-fail-closed: "PREFERENCE" in NSE name; no authoritative series code available)`];
+  }
   return null;
 }
 
@@ -359,7 +460,8 @@ export function classifyInstrument(opts: {
   const su = symbol.toUpperCase();
   const suffix = extractSuffixCode(su);
 
-  const base = { symbol, name, instrumentType, segment, exchange, seriesCode: suffix, inCurrentMaster, isin };
+  // Default authority level is AUTHORITATIVE; overridden for heuristic-only detections.
+  const base = { symbol, name, instrumentType, segment, exchange, seriesCode: suffix, inCurrentMaster, isin, authorityLevel: "AUTHORITATIVE" as const };
 
   const attrVec: string[] = [
     `inCurrentMaster=${inCurrentMaster}`,
@@ -497,46 +599,93 @@ export function classifyInstrument(opts: {
   }
 
   // ── 9a. REIT / InvIT ──────────────────────────────────────────────────────
-  // Must be checked before the NSE reference join: REITs/InvITs can appear in
+  // Must be checked before the NSE reference join: REITs/InvITs appear in
   // EQUITY_L.csv with series=EQ, making the series check alone insufficient to
-  // exclude them. Name-pattern detection is authoritative (NSE publishes trust
-  // names containing "REIT" or "INVIT") and applied here as a pre-join exclusion.
+  // exclude them.
+  //
+  // AUTHORITY: HEURISTIC_FAIL_CLOSED
+  // NSE EQUITY_L.csv does NOT distinguish REITs/InvITs from ordinary equity (both
+  // appear as series=EQ). No official NSE CSV file provides a separate REIT/InvIT
+  // registry for programmatic consumption. Detection uses name patterns (trust names
+  // containing "REIT", "INVIT") conservatively — exclusion only, never inclusion.
+  // If name-pattern detection is deemed insufficient, the correct verdict is:
+  // BLOCKED_AUTHORITATIVE_NSE_SECURITY_TYPE_REFERENCE_INSUFFICIENT.
   const reit = detectReitOrInvit(symbol, name);
   if (reit) {
     return {
       ...base,
       eligibilityClass: "REIT_OR_INVIT",
-      reason: `REIT or InvIT (trust-structured instrument) confirmed by name pattern: ${reit.join("; ")}`,
+      authorityLevel: "HEURISTIC_FAIL_CLOSED",
+      reason:
+        `REIT or InvIT (trust-structured instrument) — heuristic-fail-closed exclusion via name pattern: ${reit.join("; ")}. ` +
+        `Authority: HEURISTIC_FAIL_CLOSED — NSE EQUITY_L.csv does not distinguish REIT from ordinary EQ. ` +
+        `Name-pattern used conservatively for exclusion only.`,
       policyExclusionReason:
         "Real Estate Investment Trusts (REITs) and Infrastructure Investment Trusts (InvITs) " +
         "are structured as trusts, not ordinary corporate equity. They operate under SEBI REIT/InvIT " +
         "regulations, have distribution-based returns, and do not qualify for equity breadth, " +
-        "rankings, signals, or trade actions under current policy.",
+        "rankings, signals, or trade actions under current policy. " +
+        "Classification authority: HEURISTIC_FAIL_CLOSED (name-pattern; no official NSE REIT registry CSV available).",
       warehouseEligible: false,
-      precedenceVector: [...attrVec, ...reit, "decision=REIT_OR_INVIT"],
+      precedenceVector: [...attrVec, ...reit, "authority=HEURISTIC_FAIL_CLOSED", "decision=REIT_OR_INVIT"],
     };
   }
 
-  // ── 9b. Partly-paid / Preference shares ───────────────────────────────────
-  // Partly-paid shares have a Kite master "-PP" suffix or "PARTLY PAID" in the name.
-  // Preference shares are identified by "PREFERENCE" in the name.
-  // Applied before the NSE reference join: these may appear with series=EQ in EQUITY_L.
-  const pp = detectPartlyPaidOrPreference(suffix, symbol, name);
+  // ── 9b. Partly-paid equity shares ─────────────────────────────────────────
+  // Partly-paid shares have a Kite master "-PP" tradingsymbol suffix (AUTHORITATIVE)
+  // or "PARTLY PAID" in the NSE-published instrument name (AUTHORITATIVE).
+  // Applied before the NSE reference join: partly-paid shares may appear with series=EQ in EQUITY_L.
+  // AUTHORITY: AUTHORITATIVE (Kite master suffix + NSE-published name).
+  const pp = detectPartlyPaidEquity(suffix, symbol, name);
   if (pp) {
     return {
       ...base,
-      eligibilityClass: "PARTLY_PAID_OR_PREFERENCE",
-      reason: `Partly-paid or preference share confirmed: ${pp.join("; ")}`,
+      eligibilityClass: "PARTLY_PAID_EQUITY",
+      authorityLevel: "AUTHORITATIVE",
+      reason:
+        `Partly-paid equity share confirmed: ${pp.join("; ")}. ` +
+        `Authority: AUTHORITATIVE — Kite master tradingsymbol suffix "-PP" is a definitive ` +
+        `Kite instrument master designation; "PARTLY PAID" in NSE-published name is NSE-authoritative.`,
       policyExclusionReason:
-        "Partly-paid shares (only part of face value called up) and preference shares have " +
-        "different trading rights, liquidity profiles, and dividend treatment from ordinary equity. " +
+        "Partly-paid shares (where only part of face value has been called up) have " +
+        "different trading rights, liquidity profiles, and price behaviour from fully paid ordinary shares. " +
         "Excluded from warehouse population and scanner evaluation under current policy.",
       warehouseEligible: false,
-      precedenceVector: [...attrVec, ...pp, "decision=PARTLY_PAID_OR_PREFERENCE"],
+      precedenceVector: [...attrVec, ...pp, "authority=AUTHORITATIVE", "decision=PARTLY_PAID_EQUITY"],
     };
   }
 
-  // ── 9c. ETF / Fund ────────────────────────────────────────────────────────
+  // ── 9c. Preference shares ─────────────────────────────────────────────────
+  // Preference shares identified by "PREFERENCE" in the instrument name.
+  // AUTHORITY: HEURISTIC_FAIL_CLOSED — no authoritative NSE series code distinguishes
+  // preference shares from ordinary equity in EQUITY_L.csv. Name-pattern only.
+  // Used conservatively for exclusion only; may never authorize inclusion.
+  const pref = detectPreferenceShare(name);
+  if (pref) {
+    return {
+      ...base,
+      eligibilityClass: "PREFERENCE_SHARE",
+      authorityLevel: "HEURISTIC_FAIL_CLOSED",
+      reason:
+        `Preference share — heuristic-fail-closed exclusion: ${pref.join("; ")}. ` +
+        `Authority: HEURISTIC_FAIL_CLOSED — no authoritative NSE series code distinguishes ` +
+        `preference shares from ordinary equity in EQUITY_L.csv.`,
+      policyExclusionReason:
+        "Preference shares have different dividend treatment, priority in liquidation, " +
+        "and limited voting rights compared to ordinary equity. " +
+        "Excluded from warehouse population and scanner evaluation under current policy. " +
+        "Classification authority: HEURISTIC_FAIL_CLOSED (name-pattern; NSE EQUITY_L.csv does not provide preference-share series code).",
+      warehouseEligible: false,
+      precedenceVector: [...attrVec, ...pref, "authority=HEURISTIC_FAIL_CLOSED", "decision=PREFERENCE_SHARE"],
+    };
+  }
+
+  // ── 9d. ETF / Fund ────────────────────────────────────────────────────────
+  // AUTHORITY: HEURISTIC_FAIL_CLOSED — ETF/fund detection uses name/symbol patterns.
+  // NSE EQUITY_L.csv does not have a separate series code for ETFs (they appear as EQ).
+  // Kite master lists ETFs with instrument_type=EQ in some cases.
+  // Pattern matching on BEES suffix, "ETF" in tradingsymbol/name, "EXCHANGE TRADED" in name.
+  // Conservative exclusion only.
   if (centralLooksLikeEtf(symbol, name)) {
     const etfSignals: string[] = [];
     const nu = name.toUpperCase();
@@ -548,12 +697,14 @@ export function classifyInstrument(opts: {
     return {
       ...base,
       eligibilityClass: "ETF_OR_FUND",
-      reason: `Exchange-traded fund or index fund: ${etfSignals.join("; ")}`,
+      authorityLevel: "HEURISTIC_FAIL_CLOSED",
+      reason: `Exchange-traded fund or index fund (heuristic-fail-closed): ${etfSignals.join("; ")}`,
       policyExclusionReason:
         "ETFs track indices/baskets and have no single-stock candle history for " +
-        "momentum/technical indicators; excluded from warehouse.",
+        "momentum/technical indicators; excluded from warehouse. " +
+        "Classification authority: HEURISTIC_FAIL_CLOSED (name/symbol patterns; NSE EQUITY_L.csv does not have a distinct ETF series code).",
       warehouseEligible: false,
-      precedenceVector: [...attrVec, ...etfSignals, "decision=ETF_OR_FUND"],
+      precedenceVector: [...attrVec, ...etfSignals, "authority=HEURISTIC_FAIL_CLOSED", "decision=ETF_OR_FUND"],
     };
   }
 

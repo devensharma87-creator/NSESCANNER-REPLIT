@@ -604,9 +604,9 @@ async function dispatchFnoWithCanonicalGates(
     {
       const { checkFnoBanAdmission } = await import("./nseFnoBanGate");
       const banResult = await checkFnoBanAdmission(input.indexSymbol, "dispatchFnoWithCanonicalGates");
-      if (!banResult.allowed) {
+      if (!banResult.canAuthorizeAdmission) {
         logger.info(
-          { symbol: input.indexSymbol, verdict: banResult.verdict, reason: banResult.reason },
+          { symbol: input.indexSymbol, reasonCode: banResult.reasonCode, status: banResult.status, reason: banResult.reason },
           "fnoSignalAlerts: ENTRY blocked — FNO_BAN_CHECK",
         );
         return;
