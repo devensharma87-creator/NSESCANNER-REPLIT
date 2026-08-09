@@ -149,8 +149,8 @@ export function computeScannerGrade(input: ComputeInput): ScannerGrade {
     dataState = "UNAVAILABLE";
   } else if (cacheAgeMs > maxAgeMs) {
     dataState = "ERROR"; // hard-stale past disk cache max-age
-  } else if (cacheAgeMs > refreshMs) {
-    dataState = "READY_STALE"; // stale but within disk-cache window
+  } else if (cacheAgeMs > refreshMs && marketOpen) {
+    dataState = "READY_STALE"; // behind schedule during open-market window
   } else if (rowCount < universeSize * 0.5) {
     dataState = "READY_PARTIAL"; // < 50% coverage
   } else if (!kiteOnline) {
