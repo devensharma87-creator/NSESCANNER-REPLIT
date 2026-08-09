@@ -1,0 +1,98 @@
+PROMPT 33B — FINAL CUMULATIVE DEPLOYMENT DIFF CHECK — READ-ONLY
+
+Do not edit code and do not deploy yet.
+
+Production currently runs commit `701f3223`. Proposed deployment HEAD is `1cf7832`.
+
+The previous Gate 0 checked only `b45df02 → 1cf7832`. Now perform the actual cumulative production deployment check:
+
+```text
+701f3223 → 1cf7832
+```
+
+Run:
+
+```bash
+git diff --stat 701f3223..1cf7832
+
+git diff --name-status 701f3223..1cf7832 -- \
+  artifacts/api-server \
+  artifacts/scanner \
+  lib
+
+git diff 701f3223..1cf7832 -- \
+  artifacts/api-server \
+  artifacts/scanner \
+  lib
+```
+
+Report:
+
+1. Every runtime file that production will receive.
+2. Every database/schema/migration change.
+3. Every new environment variable or secret dependency.
+4. Every scheduler/background job change.
+5. Every route added or changed.
+6. Every safety-lock or broker-execution change.
+
+Explicitly scan the cumulative diff for:
+
+```text
+DROP TABLE
+DROP COLUMN
+TRUNCATE
+DELETE FROM
+ALTER TABLE ... DROP
+destructive migration
+authorization constant changed to true
+live placeOrder path
+debug/fixture route
+preview bypass
+new mandatory production secret
+```
+
+Confirm:
+
+```text
+all schema changes additive and idempotent
+no destructive database operation
+no safety lock enabled
+no broker execution enabled
+no missing mandatory production secret
+artifacts/global unchanged
+```
+
+Build current HEAD once:
+
+```text
+api-server production build
+scanner production build
+```
+
+Return:
+
+* Runtime changed-file inventory
+* Schema/migration inventory
+* Environment-variable inventory
+* Scheduler/route inventory
+* Destructive-operation scan result
+* Both build results
+* Rollback target
+* Final deployment verdict
+
+Do not modify files and do not rerun full test suites.
+
+Allowed verdicts:
+
+```text
+CUMULATIVE_DEPLOYMENT_DIFF_VERIFIED —
+SAFE_TO_PUBLISH_1cf7832
+```
+
+or:
+
+```text
+BLOCKED_BEFORE_DEPLOYMENT — <EXACT_REASON>
+```
+
+Maximum response: one page. No deployment until this check passes.
