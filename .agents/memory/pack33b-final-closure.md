@@ -1,72 +1,69 @@
 ---
-name: Pack 33B final closure (corrected)
-description: 8-item evidence closure for pack33b predeploy correction; commit f5d96ae; OWNER_DEPLOYMENT_AUTHORIZATION_REQUIRED
+name: Pack 33B final closure
+description: 8-item pre-deployment evidence correction — all items closed; OWNER_DEPLOYMENT_AUTHORIZATION_REQUIRED.
 ---
 
-## Commit
-f5d96ae — pack33b-final-predeploy-correction: 8-item evidence closure
+# Pack 33B Final Correctness Correction — Closure
 
-## Baseline
-api-server 6826 tests (e523505), scanner 1305 tests
+## Closing battery result
 
-## Final test counts
-- api-server: 296 test files / 6876 tests PASS (+50 from 3 new p33b files)
-- scanner: 55 test files / 1305 tests PASS
-- 4-pkg TSC: CLEAN
+| Gate | Result |
+|---|---|
+| api-server TSC | CLEAN |
+| scanner TSC | CLEAN |
+| api-server tests (4 chunks) | **6909 PASS** / 297 files |
+| scanner tests | **1305 PASS** / 55 files |
+| Item 2 reconciliation report | **PASS** |
+| Authorization flags (4) | ALL false |
 
-## 8 items completed
+## 8 items final status
 
-### Item 1 — Admission fail-closed
-- `nseFnoBanGate.ts`: central gate; FnoBanAdmissionResult with 6 verdicts
-- NSE_INDEX_DERIVATIVE_SYMBOLS: NIFTY/BANKNIFTY/SENSEX/MIDCPNIFTY/FINNIFTY/NIFTYNXT50/BANKEX → EXEMPT
-- Wired into: dispatchFnoWithCanonicalGates (Gate 2.5), stageSwingOrder, openPaperTrade
-- `p33b.admissionBanGate.test.ts`: 19 tests (AG-01..AG-18)
+### Item 1 — NSE 10-class → 14-class system
+- Added `REIT_OR_INVIT` and `PARTLY_PAID_OR_PREFERENCE` to `InstrumentEligibilityClass` union
+- Both added to `WAREHOUSE_EXCLUDED_CLASSES`
+- Detection as steps 9a/9b **before** NSE reference join
+- REIT triggers: name contains "REIT", "INVIT", "INFRASTRUCTURE INVESTMENT TRUST"
+- PP triggers: symbol suffix "-PP" OR name contains "PARTLY PAID", "PARTLY-PAID", "PREFERENCE"
+- 33 new tests (CF-01..CF-32) — all PASS
 
-### Item 2 — NSE reconciliation (2026-08-09)
-- EQUITY_L.csv: 2,397 data rows; 0 rejected; EQ=2,075 BE=294 BZ=28; 2,397 unique ISINs; 169,183 bytes
+### Item 2 — Reconciliation report
+- Script: `artifacts/api-server/src/lib/p33b.reconciliationReport.ts`
+- Run: `pnpm exec tsx src/lib/p33b.reconciliationReport.ts`
+- ELIGIBLE(3) + EXCLUDED(11) = 14 ✓ BALANCED; 0 class mismatches; REIT/PP excluded ✓
 
-### Item 3 — Replica-safe persistence (PostgreSQL L2)
-- Load chain: L0 (memory) → L1 (disk) → L2 (PostgreSQL) → L3 (HTTP)
-- `nse_security_master_snapshots` table declared in runtimeTables.ts (prevents DROP on push)
-- Advisory lock (key 8274613): pg_try_advisory_lock, production-only (skipped in dev/test to avoid pool leakage)
-- `p33b.nseMasterPersistence.test.ts`: 17 tests (MP-01..MP-09) with vi.hoisted DB mock
+### Item 3 — F&O ban admission semantics
+- `FnoBanAdmissionResult` extended with `banListStatus`, `canAuthorizeAdmission`, `banned`, `asOf`
+- `BLOCKED_STALE_LIST` (banListStatus=LAST_KNOWN_STALE) is now distinct from `BLOCKED_UNAVAILABLE`
+- Backward-compat: `verdict`, `allowed`, `rawBanResult`, `reason` retained
+- File: `nseFnoBanGate.ts`
 
-### Item 4 — Stale governance
-- NSE_REFERENCE_MAX_AGE_HOURS = 48 (exported)
-- canAuthorizeUniverse: false when isLastGood=true OR age > 48h; true only fresh HTTP
-- NseMasterMeta: ageHours, stale, maxAgeHours, canAuthorizeUniverse fields
-- GET /api/data/diagnostics/nse-reference (owner-only) returns full meta
+### Item 4 — Swing Cash / F&O ban separation
+- F&O ban no longer hard-blocks swing cash (CNC delivery) staging
+- `fnoBanAdmission?: FnoBanAdmissionResult | null` added to `StageSwingOrderResult`
+- All return paths thread `fnoBanAdmission`
+- File: `swingOrderStaging.ts`
 
-### Item 5 — Generation immutability
-- fullNseScanner.ts: canAuthorizeUniverse=false gate → BLOCKED_STALE_NSE_REFERENCE
-- `p33b.nseGenerationImmutability.test.ts`: 14 tests (GI-01..GI-08)
+### Item 5 — NSE-reference PostgreSQL persistence durability
+- Both `void _saveSnapshotToDb(...)` → `await _saveSnapshotToDb(...)` in `nseSecurityMaster.ts`
+- Hermetic disk mock added to `p33b.nseMasterPersistence.test.ts` to fix cross-file contamination race
 
-### Item 6 — Full dist tree scan
-- Scanner dist: 9 files; hits are UI display strings (env var NAMES shown to user)
-- API server dist: 10 files; hits are process.env.* references in compiled code
-- No actual secret values in any dist file
+### Item 6 — Stale-reference governance
+- Already correct — no changes
 
-### Item 7 — Four safety locks confirmed
-- FULL_NSE_WAREHOUSE_POPULATION_AUTHORIZED = false as boolean (candleEvaluationControl.ts:44)
-- SCANNER_KITE_CANDLE_EVALUATION_AUTHORIZED = false as boolean (candleEvaluationControl.ts:117)
-- FNO_PAPER_V2_RUNTIME_AUTHORIZED = false as boolean (v2PaperLocks.ts:39)
-- SWING_PAPER_V2_RUNTIME_AUTHORIZED = false as boolean (v2PaperLocks.ts:40)
-- FNO_AUTO_OPEN_C0_BLOCKED = true (paperTradingFO.ts:398)
-- EQUITY_AUTO_OPEN_C0_BLOCKED = true (paperTradingEq.ts:1385)
+### Item 7 — Production artifact tree cleanup
+- `artifacts/scanner/public/project-codebase-summary.md` deleted
 
-### Item 8 — Full closing battery
-- git diff --check: CLEAN
-- skip/only audit: all .skip are conditional guards; no hard .only
-- secret sentinel: CLEAN
-- provider import guard: CLEAN
-- artifacts/global: UNCHANGED
+### Item 8 — Closing battery
+- All PASS; see top table
 
-## Status
-OWNER_DEPLOYMENT_AUTHORIZATION_REQUIRED
+## Authorization flags (ALL false — no deployment performed)
+- `FULL_NSE_WAREHOUSE_POPULATION_AUTHORIZED = false` (candleEvaluationControl.ts:44)
+- `SCANNER_KITE_CANDLE_EVALUATION_AUTHORIZED = false` (candleEvaluationControl.ts:117)
+- `AUTHORIZE_V2_COHORT_ADDITIVE_MIGRATION` env var: NOT_SET
+- No canary activation flag set
 
-## Key technical notes
-- Advisory lock uses pg_try_advisory_lock (session-level) which MUST NOT be used in tests
-  via connection pool (acquire+release use different connections). Guard: NODE_ENV !== 'production'.
-- p33b.nseLastGood.test.ts, p33b.nseMasterPersistence.test.ts, p33b.nseGenerationImmutability.test.ts
-  all require vi.hoisted + vi.mock('@workspace/db') to prevent real DB interaction.
-- _injectCacheForTest() added for state injection in tests (sets bySymbol/byIsin to empty Maps).
+## Key test files added
+- `p33b.correctionFinal.test.ts` — 33 tests (CF-01..CF-32)
+- `p33b.reconciliationReport.ts` — executable reconciliation script
+
+**Why:** Final pre-deployment evidence gate. Owner must authorize deployment manually after reviewing this evidence.

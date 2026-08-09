@@ -55,6 +55,7 @@ import {
   alertSwingOrderApprovedDryRun,
 } from "./swingAlerts";
 import { openPaperEquityTradeFromStagedOrder } from "./paperTradingEq";
+import type { FnoBanAdmissionResult } from "./nseFnoBanGate";
 
 // ---------------------------------------------------------------------------
 // Lifecycle vocab (kept in sync with the schema CHECK constraints).
@@ -236,6 +237,12 @@ export interface StageSwingOrderResult {
   reason?: string;
   decision: SwingCashRiskDecision;
   row?: SwingOrderStagingRow;
+  /**
+   * F&O ban gate result — informational metadata for cash equity delivery trades.
+   * The individual stock F&O ban (NSE MWPL breach) does NOT restrict cash delivery.
+   * Exposed here for operator visibility and audit; never used as a hard block for CNC.
+   */
+  fnoBanAdmission?: FnoBanAdmissionResult | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -334,33 +341,45 @@ export async function stageSwingOrder(
     return { staged: false, status: "REJECTED", reason: "KILL_SWITCH_ACTIVE", decision };
   }
 
-  // F&O ban check — fail-closed for UNAVAILABLE/LAST_KNOWN_STALE; blocked when banned.
-  // Swing candidates are equity delivery trades; the F&O ban (individual stock MWPL
-  // breach) does not legally restrict equity delivery, but positions in ban-period
-  // stocks carry elevated systemic risk and must be flagged / blocked.
-  // Index derivative symbols are exempt (they're never in the individual stock ban list).
+  // F&O ban status — informational metadata for cash equity delivery trades.
+  //
+  // The individual stock F&O ban (NSE MWPL breach) does NOT legally restrict
+  // equity cash delivery trades. Cash delivery (CNC) positions are settled on a
+  // T+1 basis and are governed by delivery regulations, NOT the F&O ban which
+  // restricts new derivative positions only.
+  //
+  // Policy: record ban status as metadata on the staged order for operator
+  // visibility, but DO NOT hard-block cash equity staging on F&O ban state.
+  //
+  // Design rationale:
+  //   - Blocking cash equity on F&O ban data outage (UNAVAILABLE/STALE) would
+  //     silently freeze the swing pipeline on every upstream NSE outage — wrong
+  //     trade-off for a delivery-only product.
+  //   - The ban status is surfaced in the staging result for review/monitoring.
+  //   - Swing candidates in active F&O ban period should be flagged (not blocked)
+  //     so the operator can decide whether to proceed with the delivery trade.
+  let fnoBanAdmission: FnoBanAdmissionResult | null = null;
   {
     const { checkFnoBanAdmission } = await import("./nseFnoBanGate");
-    const banResult = await checkFnoBanAdmission(candidate.symbol, "stageSwingOrder");
-    if (!banResult.allowed) {
-      return {
-        staged: false,
-        status: "REJECTED",
-        reason: `FNO_BAN_${banResult.verdict}`,
-        decision,
-      };
+    fnoBanAdmission = await checkFnoBanAdmission(candidate.symbol, "stageSwingOrder");
+    // Log ban status for audit — do not block.
+    if (!fnoBanAdmission.allowed) {
+      logger.info(
+        { symbol: candidate.symbol, verdict: fnoBanAdmission.verdict, banListStatus: fnoBanAdmission.banListStatus },
+        "swingOrderStaging: F&O ban gate flagged (informational — does not block cash equity staging)",
+      );
     }
   }
 
   if (!stageable) {
-    return { staged: false, status, reason: "NOT_STAGEABLE_HARD_BLOCK", decision };
+    return { staged: false, status, reason: "NOT_STAGEABLE_HARD_BLOCK", decision, fnoBanAdmission };
   }
   if (!(candidate.entry > 0 && candidate.stop > 0 && candidate.target1 > 0)) {
-    return { staged: false, status, reason: "INVALID_PLAN", decision };
+    return { staged: false, status, reason: "INVALID_PLAN", decision, fnoBanAdmission };
   }
   const m = decision.metrics;
   if (!(m.qty >= 1)) {
-    return { staged: false, status, reason: "SIZING_QTY_ZERO", decision };
+    return { staged: false, status, reason: "SIZING_QTY_ZERO", decision, fnoBanAdmission };
   }
 
   // Atomic claim: serialize all concurrent stage-claim attempts for this
@@ -453,6 +472,7 @@ export async function stageSwingOrder(
       reason: "DUPLICATE_ACTIVE_STAGE",
       decision,
       row: txResult.row,
+      fnoBanAdmission,
     };
   }
 
@@ -461,7 +481,7 @@ export async function stageSwingOrder(
   if (row) {
     try { alertSwingOrderStaged(row); } catch { /* safe-fail */ }
   }
-  return { staged: true, status, decision, row };
+  return { staged: true, status, decision, row, fnoBanAdmission };
 }
 
 // ---------------------------------------------------------------------------

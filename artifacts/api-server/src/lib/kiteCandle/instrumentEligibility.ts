@@ -89,6 +89,23 @@ export type InstrumentEligibilityClass =
   | "SME_EQUITY_POLICY_EXCLUDED"
   | "DEBT_GOVERNMENT_SECURITY"
   | "SOVEREIGN_GOLD_BOND"
+  /**
+   * Real Estate Investment Trust (REIT) or Infrastructure Investment Trust (InvIT).
+   * These are listed on NSE but are structured as trusts, not ordinary corporate equity.
+   * They appear in the Kite EQ master with instrument_type=EQ; the trust structure is
+   * identified via name-pattern evidence ("REIT", "INVIT", etc.).
+   * CANNOT drive breadth, rankings, signals, or trade actions — different regulatory
+   * framework, distribution-based returns, and no ordinary equity candle series.
+   */
+  | "REIT_OR_INVIT"
+  /**
+   * Partly-paid shares or preference shares.
+   * Partly-paid shares appear in the Kite master with a "-PP" tradingsymbol suffix.
+   * Preference shares are identified by name pattern.
+   * CANNOT drive breadth, rankings, signals, or trade actions — different rights
+   * and liquidity profile from ordinary equity.
+   */
+  | "PARTLY_PAID_OR_PREFERENCE"
   | "ETF_OR_FUND"
   | "INDEX"
   | "INACTIVE_OR_DELISTED"
@@ -119,6 +136,8 @@ export const WAREHOUSE_EXCLUDED_CLASSES = new Set<InstrumentEligibilityClass>([
   "SME_EQUITY_POLICY_EXCLUDED",
   "DEBT_GOVERNMENT_SECURITY",
   "SOVEREIGN_GOLD_BOND",
+  "REIT_OR_INVIT",                    // trust-structured instruments — different regulatory framework
+  "PARTLY_PAID_OR_PREFERENCE",        // partly-paid / preference — different rights/liquidity
   "ETF_OR_FUND",
   "INDEX",
   "INACTIVE_OR_DELISTED",
@@ -228,6 +247,63 @@ function detectBzSeries(suffix: string | null, symbol: string): string[] | null 
       "OHLCV_coverage_via_Kite_equity_endpoint=UNRELIABLE",
     ];
   }
+  return null;
+}
+
+/**
+ * Detect Real Estate Investment Trusts (REITs) and Infrastructure Investment Trusts (InvITs).
+ *
+ * These instruments appear in the Kite NSE EQ master with instrument_type=EQ, but are
+ * structured as trusts, not ordinary corporate equity. Detection uses name-pattern evidence
+ * (authoritative: NSE publishes the trust name containing "REIT" or "INVIT") plus a small
+ * curated symbol set for high-confidence cases.
+ *
+ * Note: REITs/InvITs appear in EQUITY_L.csv with series=EQ in some cases, making the
+ * NSE reference join alone insufficient to exclude them. Name-pattern detection is required
+ * and is applied BEFORE the NSE reference join step.
+ */
+function detectReitOrInvit(symbol: string, name: string): string[] | null {
+  const nu = name.toUpperCase();
+
+  // REIT name patterns — authoritative from NSE trust name
+  if (/\bREIT\b/.test(nu)) return [`name_contains=REIT (Real Estate Investment Trust)`];
+  if (/REAL ESTATE INVESTMENT TRUST/.test(nu)) return [`name_pattern=REAL_ESTATE_INVESTMENT_TRUST`];
+
+  // InvIT name patterns — authoritative from NSE trust name
+  if (/\bINVIT\b/.test(nu)) return [`name_contains=INVIT (Infrastructure Investment Trust)`];
+  if (/INFRASTRUCTURE INVESTMENT TRUST/.test(nu)) return [`name_pattern=INFRASTRUCTURE_INVESTMENT_TRUST`];
+
+  // Trust name corroboration: "INVESTMENT TRUST" in context of infrastructure/real-estate
+  if (/INVESTMENT TRUST/.test(nu) && /(?:INFRASTRUCTURE|REAL ESTATE|ROADS|HIGHWAYS|POWER GRID)/.test(nu)) {
+    return [`name_pattern=INVESTMENT_TRUST_WITH_INFRASTRUCTURE_OR_REALESTATE`];
+  }
+
+  return null;
+}
+
+/**
+ * Detect partly-paid shares and preference shares.
+ *
+ * Partly-paid shares appear in the Kite master with a "-PP" tradingsymbol suffix.
+ * These are shares where only part of the face value has been called up; they trade
+ * at a discount and have different rights than fully paid ordinary shares.
+ *
+ * Preference shares are identified by name pattern ("PREFERENCE" in the name).
+ */
+function detectPartlyPaidOrPreference(suffix: string | null, symbol: string, name: string): string[] | null {
+  const nu = name.toUpperCase();
+
+  // Partly paid: Kite master tradingsymbol suffix "-PP"
+  if (suffix === "PP") {
+    return [`suffix=PP (partly paid shares, Kite master tradingsymbol="${symbol}")`];
+  }
+
+  // Partly paid: name contains "PARTLY PAID" (NSE publishes this in the instrument name)
+  if (/PARTLY[\s-]PAID/.test(nu)) return [`name_pattern=PARTLY_PAID`];
+
+  // Preference shares: name explicitly contains "PREFERENCE"
+  if (/\bPREFERENCE\b/.test(nu)) return [`name_pattern=PREFERENCE_SHARES`];
+
   return null;
 }
 
@@ -420,7 +496,47 @@ export function classifyInstrument(opts: {
     };
   }
 
-  // ── 9. ETF / Fund ─────────────────────────────────────────────────────────
+  // ── 9a. REIT / InvIT ──────────────────────────────────────────────────────
+  // Must be checked before the NSE reference join: REITs/InvITs can appear in
+  // EQUITY_L.csv with series=EQ, making the series check alone insufficient to
+  // exclude them. Name-pattern detection is authoritative (NSE publishes trust
+  // names containing "REIT" or "INVIT") and applied here as a pre-join exclusion.
+  const reit = detectReitOrInvit(symbol, name);
+  if (reit) {
+    return {
+      ...base,
+      eligibilityClass: "REIT_OR_INVIT",
+      reason: `REIT or InvIT (trust-structured instrument) confirmed by name pattern: ${reit.join("; ")}`,
+      policyExclusionReason:
+        "Real Estate Investment Trusts (REITs) and Infrastructure Investment Trusts (InvITs) " +
+        "are structured as trusts, not ordinary corporate equity. They operate under SEBI REIT/InvIT " +
+        "regulations, have distribution-based returns, and do not qualify for equity breadth, " +
+        "rankings, signals, or trade actions under current policy.",
+      warehouseEligible: false,
+      precedenceVector: [...attrVec, ...reit, "decision=REIT_OR_INVIT"],
+    };
+  }
+
+  // ── 9b. Partly-paid / Preference shares ───────────────────────────────────
+  // Partly-paid shares have a Kite master "-PP" suffix or "PARTLY PAID" in the name.
+  // Preference shares are identified by "PREFERENCE" in the name.
+  // Applied before the NSE reference join: these may appear with series=EQ in EQUITY_L.
+  const pp = detectPartlyPaidOrPreference(suffix, symbol, name);
+  if (pp) {
+    return {
+      ...base,
+      eligibilityClass: "PARTLY_PAID_OR_PREFERENCE",
+      reason: `Partly-paid or preference share confirmed: ${pp.join("; ")}`,
+      policyExclusionReason:
+        "Partly-paid shares (only part of face value called up) and preference shares have " +
+        "different trading rights, liquidity profiles, and dividend treatment from ordinary equity. " +
+        "Excluded from warehouse population and scanner evaluation under current policy.",
+      warehouseEligible: false,
+      precedenceVector: [...attrVec, ...pp, "decision=PARTLY_PAID_OR_PREFERENCE"],
+    };
+  }
+
+  // ── 9c. ETF / Fund ────────────────────────────────────────────────────────
   if (centralLooksLikeEtf(symbol, name)) {
     const etfSignals: string[] = [];
     const nu = name.toUpperCase();

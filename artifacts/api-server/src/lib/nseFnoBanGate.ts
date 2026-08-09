@@ -27,7 +27,8 @@
  *   → BLOCKED (fail-closed). BANNED → BLOCKED. CLEAR → ALLOWED.
  */
 
-import { isFnoBanned } from "./fnoBanList";
+import { isFnoBanned, getFnoBanList } from "./fnoBanList";
+import type { FnoBanStatus } from "./fnoBanList";
 import { logger } from "./logger";
 
 // ── Index derivative exemption ─────────────────────────────────────────────────
@@ -67,14 +68,38 @@ export type FnoBanAdmissionVerdict =
   | "BLOCKED_UNKNOWN";
 
 export interface FnoBanAdmissionResult {
+  // ── Core fields (backward-compatible) ────────────────────────────────────
   /** Machine-readable verdict. */
   verdict: FnoBanAdmissionVerdict;
-  /** true when admission is permitted to proceed past this gate. */
+  /** true when admission is permitted to proceed past this gate. Alias: canAuthorizeAdmission. */
   allowed: boolean;
   /** One-line reason for logging/audit. */
   reason: string;
   /** The raw tri-state from isFnoBanned(), or null if exempted/short-circuited. */
   rawBanResult: boolean | null | "EXEMPT";
+
+  // ── Extended fields (Pack 33B correctness — distinguish STALE vs UNAVAILABLE) ──
+  /**
+   * Machine-readable ban-list availability status used for this check.
+   *   CURRENT               — fresh data; check is authoritative.
+   *   LAST_KNOWN_STALE      — stale data; admission blocked (fail-closed).
+   *   UNAVAILABLE           — no data at all; admission blocked (fail-closed).
+   *   EXEMPT                — index derivative; ban list not consulted.
+   */
+  banListStatus: FnoBanStatus | "EXEMPT";
+  /** Alias for `allowed`. true ONLY when verdict is ALLOWED or EXEMPT_INDEX_DERIVATIVE. */
+  canAuthorizeAdmission: boolean;
+  /**
+   * Whether the symbol is on the ban list. Only meaningful when banListStatus=CURRENT.
+   * null for STALE, UNAVAILABLE, or EXEMPT (cannot assert banned/not-banned status).
+   */
+  banned: boolean | null;
+  /**
+   * ISO timestamp of the ban list snapshot used for this check.
+   * null when UNAVAILABLE (no successful fetch has ever occurred).
+   * Present (even if stale) when LAST_KNOWN_STALE.
+   */
+  asOf: string | null;
 }
 
 // ── Gate ──────────────────────────────────────────────────────────────────────
@@ -102,43 +127,78 @@ export async function checkFnoBanAdmission(
     return {
       verdict: "EXEMPT_INDEX_DERIVATIVE",
       allowed: true,
+      canAuthorizeAdmission: true,
       reason: "Index derivative — exempt from individual stock F&O ban list",
       rawBanResult: "EXEMPT",
+      banListStatus: "EXEMPT",
+      banned: null,
+      asOf: null,
     };
   }
 
-  // ── Individual stock check ────────────────────────────────────────────────
-  let rawResult: boolean | null;
+  // ── Individual stock check ─────────────────────────────────────────────────
+  // Call getFnoBanList() (not just isFnoBanned) so we can distinguish
+  // LAST_KNOWN_STALE from UNAVAILABLE and emit the correct verdict.
+  let list: Awaited<ReturnType<typeof getFnoBanList>>;
   try {
-    rawResult = await isFnoBanned(sym);
+    list = await getFnoBanList();
   } catch (err) {
-    // isFnoBanned never throws per its contract, but extra defence:
-    logger.error({ symbol: sym, context, err }, "nseFnoBanGate: isFnoBanned threw — fail-closed");
+    // getFnoBanList should never throw, but defensive:
+    logger.error({ symbol: sym, context, err }, "nseFnoBanGate: getFnoBanList threw — fail-closed");
     return {
       verdict: "BLOCKED_UNKNOWN",
       allowed: false,
-      reason: "isFnoBanned threw unexpectedly — fail-closed",
+      canAuthorizeAdmission: false,
+      reason: "getFnoBanList threw unexpectedly — fail-closed",
       rawBanResult: null,
+      banListStatus: "UNAVAILABLE",
+      banned: null,
+      asOf: null,
     };
   }
 
-  if (rawResult === null) {
-    // null = UNAVAILABLE or LAST_KNOWN_STALE — fail closed.
-    // We cannot distinguish STALE vs UNAVAILABLE here without calling
-    // getFnoBanList() separately; both states require blocking.
+  // null means UNAVAILABLE — no data has ever been fetched successfully.
+  if (list === null) {
     logger.warn(
       { symbol: sym, context },
-      "nseFnoBanGate: BLOCKED — isFnoBanned returned null (UNAVAILABLE or LAST_KNOWN_STALE)",
+      "nseFnoBanGate: BLOCKED_UNAVAILABLE — ban list has no data (never fetched successfully)",
     );
     return {
       verdict: "BLOCKED_UNAVAILABLE",
       allowed: false,
-      reason: "F&O ban list UNAVAILABLE or LAST_KNOWN_STALE — fail-closed",
+      canAuthorizeAdmission: false,
+      reason: "F&O ban list UNAVAILABLE (no data) — fail-closed",
       rawBanResult: null,
+      banListStatus: "UNAVAILABLE",
+      banned: null,
+      asOf: null,
     };
   }
 
-  if (rawResult === true) {
+  // LAST_KNOWN_STALE — refresh failed; serving expired cache. Admission blocked.
+  // This is now a distinct verdict from BLOCKED_UNAVAILABLE.
+  if (!list.canAuthorizeAdmission) {
+    logger.warn(
+      { symbol: sym, context, status: list.status, sourceAsOf: list.sourceAsOf },
+      "nseFnoBanGate: BLOCKED_STALE_LIST — ban list is stale; cannot authorize admission",
+    );
+    return {
+      verdict: "BLOCKED_STALE_LIST",
+      allowed: false,
+      canAuthorizeAdmission: false,
+      reason: `F&O ban list LAST_KNOWN_STALE (asOf: ${list.sourceAsOf ?? "unknown"}) — fail-closed`,
+      rawBanResult: null,
+      banListStatus: "LAST_KNOWN_STALE",
+      banned: null,        // stale list cannot assert banned/clear status
+      asOf: list.sourceAsOf,
+    };
+  }
+
+  // CURRENT — ban list is authoritative; check membership.
+  const bannedSymbols = new Set(list.symbols.map(s => s.toUpperCase()));
+  const isBanned = bannedSymbols.has(sym);
+
+  if (isBanned) {
     logger.info(
       { symbol: sym, context },
       "nseFnoBanGate: BLOCKED_BANNED — symbol is on the current F&O ban list",
@@ -146,12 +206,16 @@ export async function checkFnoBanAdmission(
     return {
       verdict: "BLOCKED_BANNED",
       allowed: false,
+      canAuthorizeAdmission: false,
       reason: `${sym} is on the NSE F&O ban list (MWPL breach) — admission blocked`,
       rawBanResult: true,
+      banListStatus: "CURRENT",
+      banned: true,
+      asOf: list.sourceAsOf,
     };
   }
 
-  // rawResult === false → CURRENT, not banned.
+  // CURRENT, not banned — admission permitted.
   logger.debug(
     { symbol: sym, context },
     "nseFnoBanGate: ALLOWED — symbol is not on the current F&O ban list",
@@ -159,7 +223,11 @@ export async function checkFnoBanAdmission(
   return {
     verdict: "ALLOWED",
     allowed: true,
+    canAuthorizeAdmission: true,
     reason: "Symbol is not on the current NSE F&O ban list",
     rawBanResult: false,
+    banListStatus: "CURRENT",
+    banned: false,
+    asOf: list.sourceAsOf,
   };
 }

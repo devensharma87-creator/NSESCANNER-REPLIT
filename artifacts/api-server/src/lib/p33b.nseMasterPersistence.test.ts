@@ -24,14 +24,33 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 // ── Mock @workspace/db before any module that imports it ─────────────────────
 // IMPORTANT: vi.mock factories are hoisted, so no top-level variables may be
 // referenced inside them. Use vi.hoisted() to create the mock fn.
-const { dbExecuteMock } = vi.hoisted(() => ({
+const { dbExecuteMock, diskStore } = vi.hoisted(() => ({
   dbExecuteMock: vi.fn().mockResolvedValue({ rows: [] }),
+  diskStore: new Map<string, unknown>(),
 }));
 vi.mock("@workspace/db", () => ({
   db: {
     execute: dbExecuteMock,
   },
   INSTRUMENT_ASSET_CLASSES: [],
+}));
+
+// ── Mock ./diskCache (in-memory stub) ─────────────────────────────────────────
+// Prevents cross-test-file disk contamination: p33b.nseGenerationImmutability
+// runs concurrently (--pool=threads) and writes to the same disk blob name
+// ("nse-security-master-last-good"). With await _saveSnapshotToDb() in the
+// production path, the two test files' disk I/O timing can interleave.
+// This hermetic in-memory mock ensures nseMasterPersistence is fully isolated.
+vi.mock("./diskCache", () => ({
+  saveBlob: (name: string, _version: number, payload: unknown) => {
+    diskStore.set(name, payload);
+  },
+  loadBlob: <T>(name: string, _version: number): T | null => {
+    return (diskStore.get(name) as T) ?? null;
+  },
+  clearBlob: (name: string) => {
+    diskStore.delete(name);
+  },
 }));
 
 import {
@@ -92,6 +111,7 @@ function stubFetchMalformed(): void {
 beforeEach(() => {
   _resetNseSecurityMasterForTest();
   _clearLastGoodDiskBlobForTest();
+  diskStore.clear(); // clear in-memory disk stub (hermetic isolation from concurrent test files)
   dbExecuteMock.mockResolvedValue({ rows: [] }); // default: no DB rows
   vi.stubGlobal("fetch", async () => { throw new Error("fetch not stubbed"); });
 });
@@ -286,7 +306,7 @@ describe("MP-07: database failure — DB errors are caught, never crash the call
       throw new Error("DB write error (stubbed)");
     });
     stubFetchWithCsv(150);
-    // The save is fire-and-forget — a write error should not fail the master fetch
+    // The save is awaited but errors are caught internally — a write error should not fail the master fetch
     const master = await getNseSecurityMaster();
     expect(master?.totalRecords).toBe(150);
     expect(master?.isLastGood).toBe(false);

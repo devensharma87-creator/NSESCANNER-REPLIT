@@ -582,10 +582,12 @@ async function refresh(): Promise<MasterCache | null> {
       canAuthorizeUniverse: computeCanAuthorize(fetchedAt, false),
     };
 
-    // Persist to disk (L1) and PostgreSQL (L2) immediately after a successful fetch.
-    // Disk write is synchronous + atomic (write-temp + rename); DB write is async + non-blocking.
+    // Persist to disk (L1) synchronously (write-temp + rename).
+    // Then await PostgreSQL (L2) — no fire-and-forget; errors logged but non-fatal.
+    // We wait for the DB commit before returning so the snapshot is durable before
+    // any caller can read it as "just refreshed". Failure is non-fatal (logs warn).
     saveLastGoodToDisk(entry);
-    void _saveSnapshotToDb(entry);
+    await _saveSnapshotToDb(entry);
 
     logger.info(
       { totalRecords, seriesCounts, sourceHash, url },
@@ -663,8 +665,9 @@ export async function getNseSecurityMaster(): Promise<MasterCache | null> {
         const diskSnap = tryLoadLastGoodFromDisk("HTTP_FETCH_FAILED");
         if (diskSnap) {
           cache = diskSnap;
-          // Also try to push disk data to DB so other replicas can benefit.
-          void _saveSnapshotToDb(diskSnap);
+          // Push disk snapshot to DB so other replicas benefit.
+          // Awaited — no fire-and-forget; DB failure is logged but non-fatal.
+          await _saveSnapshotToDb(diskSnap);
           inflight = null;
           return cache;
         }
