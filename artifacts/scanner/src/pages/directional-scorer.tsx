@@ -1,14 +1,16 @@
 // Dual-model directional scorer — PREPOST & INTRADAY modes
 // Ported from reference HTML (market-scorer.html). Pure client-side,
 // localStorage-backed. No backend dependency — bias-filter only, never a trade signal.
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
   AlertTriangle, Activity, BarChart2, Download, RefreshCw,
-  Trash2, Plus, Target, Zap, Shield,
+  Trash2, Plus, Target, Zap, Shield, Database,
 } from "lucide-react";
+import { useGetPreMarket, getGetPreMarketQueryKey } from "@workspace/api-client-react";
+import type { PreMarketReport } from "@workspace/api-client-react";
 
 // ─────────────────────────────────────────────────────── types ──────────────
 type Dir = -1 | 0 | 1;
@@ -75,6 +77,101 @@ const NEUTRAL_BAND: Record<Mode, Record<IndexSymbol, number>> = {
 const ALL_FACTORS: FactorId[] = ["f1","f2","f3","f4","f5","f6","f7","f8","f9"];
 const PROXY_FACTORS: FactorId[] = ["f1","f2"];   // intraday aggregate proxies
 const STALE_FACTORS: FactorId[] = ["f8"];         // intraday EOD-frozen
+
+// ─────────────────────────────── data-driven factor derivation ───────────────
+// Maps live premarket API response fields to BULL/NEUTRAL/BEAR for each factor.
+// F1/F2/F5/F7/F8/F9 are market-wide; F3/F4/F6 are per-index.
+function deriveFactors(data: PreMarketReport, index: IndexSymbol): Partial<FactorState> {
+  const out: Partial<FactorState> = {};
+
+  // F1 — Participant OI (FII + Pro options split — EOD)
+  if (data.participantOi) {
+    const sig = data.participantOi.signal;
+    out.f1 = sig === "BULLISH" ? 1 : sig === "BEARISH" ? -1 : 0;
+  }
+
+  // F2 — Index-futures OI buildup (aggregate price × OI)
+  if (data.indexOiBuildup) {
+    const b = data.indexOiBuildup.bias;
+    out.f2 = b === "BULLISH" ? 1 : b === "BEARISH" ? -1 : b === "UNKNOWN" ? null : 0;
+  }
+
+  // F3 — Price action: use indicative change % from the matching index preview
+  if (data.indexPreviews?.length) {
+    const preview = data.indexPreviews.find(p => {
+      const s = p.symbol.toUpperCase();
+      if (index === "NIFTY")     return s.includes("NIFTY") && !s.includes("BANK") && !s.includes("FINN");
+      if (index === "BANKNIFTY") return s.includes("BANKNIFTY") || (s.includes("BANK") && s.includes("NIFTY"));
+      return s.includes("SENSEX");
+    });
+    const chg = preview?.indicativeChangePercent;
+    if (chg != null) out.f3 = chg > 0.3 ? 1 : chg < -0.3 ? -1 : 0;
+  }
+
+  // F4 — Option-chain OI walls (NIFTY + BANKNIFTY only; SENSEX has no F&O)
+  if (data.optionSnapshots?.length) {
+    const ul = index === "NIFTY" ? "NIFTY" : index === "BANKNIFTY" ? "BANKNIFTY" : null;
+    if (ul) {
+      const snap = data.optionSnapshots.find(s => s.underlying === ul);
+      if (snap) out.f4 = snap.bias === "BULLISH" ? 1 : snap.bias === "BEARISH" ? -1 : 0;
+    }
+  }
+
+  // F5 — India VIX (overnight cue, category="vix", already inverted at source:
+  //       sentiment=bullish means VIX fell = equity bullish)
+  if (data.overnightCues?.length) {
+    const vix = data.overnightCues.find(c => c.category === "vix");
+    if (vix) out.f5 = vix.sentiment === "bullish" ? 1 : vix.sentiment === "bearish" ? -1 : 0;
+  }
+
+  // F6 — PCR (banded): 0.9–1.2 = bull, <0.7 or >1.6 = bear
+  if (data.optionSnapshots?.length) {
+    const ul = index === "NIFTY" ? "NIFTY" : index === "BANKNIFTY" ? "BANKNIFTY" : null;
+    if (ul) {
+      const snap = data.optionSnapshots.find(s => s.underlying === ul);
+      if (snap) {
+        const pcr = snap.pcrOi;
+        out.f6 = (pcr >= 0.9 && pcr <= 1.2) ? 1 : (pcr < 0.7 || pcr > 1.6) ? -1 : 0;
+      }
+    }
+  }
+
+  // F7 — Commodity / macro (crude row from macroOverlay)
+  if (data.macroOverlay?.rows?.length) {
+    const crude = data.macroOverlay.rows.find(r =>
+      r.label.toLowerCase().includes("crude") || (r.symbol ?? "").toLowerCase().includes("crude")
+    );
+    if (crude) out.f7 = crude.impact === "BULLISH" ? 1 : crude.impact === "BEARISH" ? -1 : 0;
+  }
+
+  // F8 — FII/DII cash flows (both buying = bull, both selling = bear, mixed = neutral)
+  if (data.fiiDii) {
+    const { fiiCashCr, diiCashCr } = data.fiiDii;
+    out.f8 = fiiCashCr > 0 && diiCashCr > 0 ? 1 : fiiCashCr < 0 && diiCashCr < 0 ? -1 : 0;
+  }
+
+  // F9 — Global cues: majority vote across US overnight cues
+  if (data.overnightCues?.length) {
+    const usCues = data.overnightCues.filter(c => c.category === "us");
+    if (usCues.length > 0) {
+      const bull = usCues.filter(c => c.sentiment === "bullish").length;
+      const bear = usCues.filter(c => c.sentiment === "bearish").length;
+      out.f9 = bull > bear ? 1 : bear > bull ? -1 : 0;
+    }
+  }
+
+  return out;
+}
+
+// Tracks which factors were auto-filled from API data vs manually set by user
+type OriginMap = Record<Mode, Record<IndexSymbol, Partial<Record<FactorId, true>>>>;
+function makeOriginMap(): OriginMap {
+  const modes: Mode[] = ["PREPOST","INTRADAY"];
+  const indices: IndexSymbol[] = ["NIFTY","BANKNIFTY","SENSEX"];
+  const s: any = {};
+  for (const m of modes) { s[m] = {}; for (const ix of indices) s[m][ix] = {}; }
+  return s as OriginMap;
+}
 
 const FACTOR_META = [
   {id:"f1" as FactorId, num:"01", pillar:"A", name:"Participant OI — FII + Pro options"},
@@ -269,9 +366,10 @@ interface PillarProps {
   pillarKey: string;
   mode: Mode;
   factors: FactorState;
+  dataOrigin: Partial<Record<FactorId, true>>;
   onSet: (fid: FactorId, v: Dir | null) => void;
 }
-function PillarBlock({ pillarKey, mode, factors, onSet }: PillarProps) {
+function PillarBlock({ pillarKey, mode, factors, dataOrigin, onSet }: PillarProps) {
   const pm = PILLAR_META[pillarKey]!;
   const fms = FACTOR_META.filter(f => f.pillar === pillarKey);
   const balTotal = fms.reduce((a, f) => a + WEIGHTS[mode][f.id].bal, 0);
@@ -333,6 +431,7 @@ function PillarBlock({ pillarKey, mode, factors, onSet }: PillarProps) {
             <div className="grid grid-cols-3 gap-1.5">
               {([1, 0, -1] as Dir[]).map(dv => {
                 const isOn = val === dv;
+                const isDataSourced = isOn && dataOrigin[fm.id];
                 const label = dv === 1 ? "▲ BULL" : dv === 0 ? "● NEUTRAL" : "▼ BEAR";
                 const onCls = dv === 1
                   ? "bg-signal-strong-buy/15 border-signal-strong-buy text-signal-strong-buy"
@@ -345,9 +444,12 @@ function PillarBlock({ pillarKey, mode, factors, onSet }: PillarProps) {
                     key={dv}
                     type="button"
                     onClick={() => onSet(fm.id, isOn ? null : dv)}
-                    className={`rounded px-2 py-1.5 text-[11px] font-mono font-semibold border transition-all ${isOn ? onCls : offCls}`}
+                    className={`relative rounded px-2 py-1.5 text-[11px] font-mono font-semibold border transition-all ${isOn ? onCls : offCls}`}
                   >
                     {label}
+                    {isDataSourced && (
+                      <span className="absolute top-0.5 right-0.5 text-[8px] font-mono opacity-70">◎</span>
+                    )}
                   </button>
                 );
               })}
@@ -688,8 +790,70 @@ export default function DirectionalScorer() {
   const [mode, setMode] = useState<Mode>("PREPOST");
   const [activeIdx, setActiveIdx] = useState<IndexSymbol>("NIFTY");
   const [pageState, setPageState] = useState<PageState>(makePageState);
+  const [factorOrigin, setFactorOrigin] = useState<OriginMap>(makeOriginMap);
   const [log, setLog] = useState<LogEntry[]>(loadLog);
   const [sessionDate, setSessionDate] = useState(() => new Date().toISOString().slice(0, 10));
+
+  // Premarket data — same query as the Pre/Post page
+  const { data: preData, dataUpdatedAt, isFetching: dataFetching } = useGetPreMarket({
+    query: { staleTime: 30_000, refetchInterval: 60_000, queryKey: getGetPreMarketQueryKey() },
+  });
+
+  // Derive suggested factor values for each index whenever premarket data changes
+  const suggestedByIndex = useMemo(() => {
+    if (!preData) return null;
+    return {
+      NIFTY:     deriveFactors(preData, "NIFTY"),
+      BANKNIFTY: deriveFactors(preData, "BANKNIFTY"),
+      SENSEX:    deriveFactors(preData, "SENSEX"),
+    };
+  }, [preData]);
+
+  // Auto-apply suggestions once per data refresh — only fills factors still null
+  const prevUpdatedAt = useRef(0);
+  useEffect(() => {
+    if (!suggestedByIndex || dataUpdatedAt === prevUpdatedAt.current) return;
+    prevUpdatedAt.current = dataUpdatedAt;
+
+    setPageState(prev => {
+      const next = { ...prev };
+      for (const m of ["PREPOST","INTRADAY"] as Mode[]) {
+        next[m] = { ...next[m] };
+        for (const ix of ["NIFTY","BANKNIFTY","SENSEX"] as IndexSymbol[]) {
+          const suggested = suggestedByIndex[ix];
+          const current = prev[m][ix].factors;
+          const newFactors = { ...current };
+          let changed = false;
+          for (const fid of ALL_FACTORS) {
+            if (current[fid] === null && suggested[fid] !== undefined && suggested[fid] !== null) {
+              newFactors[fid] = suggested[fid] as Dir;
+              changed = true;
+            }
+          }
+          if (changed) next[m][ix] = { ...prev[m][ix], factors: newFactors };
+        }
+      }
+      return next;
+    });
+
+    setFactorOrigin(prev => {
+      const next = { ...prev };
+      for (const m of ["PREPOST","INTRADAY"] as Mode[]) {
+        next[m] = { ...next[m] };
+        for (const ix of ["NIFTY","BANKNIFTY","SENSEX"] as IndexSymbol[]) {
+          const suggested = suggestedByIndex[ix];
+          const origin = { ...prev[m][ix] };
+          for (const fid of ALL_FACTORS) {
+            if (suggested[fid] !== undefined && suggested[fid] !== null && !origin[fid]) {
+              origin[fid] = true;
+            }
+          }
+          next[m][ix] = origin;
+        }
+      }
+      return next;
+    });
+  }, [suggestedByIndex, dataUpdatedAt]);
 
   const st = pageState[mode][activeIdx];
   const result = useMemo(() => computeScore(st.factors, st.gates, mode), [st]);
@@ -711,6 +875,12 @@ export default function DirectionalScorer() {
         },
       },
     }));
+    // Mark as manually overridden — clear data-origin badge
+    setFactorOrigin(prev => {
+      const origin = { ...prev[mode][activeIdx] };
+      delete origin[fid];
+      return { ...prev, [mode]: { ...prev[mode], [activeIdx]: origin } };
+    });
   }
 
   function setGate(g: GateReason, val: boolean) {
@@ -726,6 +896,31 @@ export default function DirectionalScorer() {
     }));
   }
 
+  // Re-apply all available suggestions for the current mode+index (overwrites current values)
+  function applyFromData() {
+    if (!suggestedByIndex) return;
+    const suggested = suggestedByIndex[activeIdx];
+    setPageState(prev => ({
+      ...prev,
+      [mode]: {
+        ...prev[mode],
+        [activeIdx]: {
+          ...prev[mode][activeIdx],
+          factors: { ...prev[mode][activeIdx].factors, ...Object.fromEntries(
+            Object.entries(suggested).filter(([, v]) => v !== null && v !== undefined)
+          )},
+        },
+      },
+    }));
+    setFactorOrigin(prev => {
+      const origin = { ...prev[mode][activeIdx] };
+      for (const fid of Object.keys(suggested) as FactorId[]) {
+        if (suggested[fid] !== null && suggested[fid] !== undefined) origin[fid] = true;
+      }
+      return { ...prev, [mode]: { ...prev[mode], [activeIdx]: origin } };
+    });
+  }
+
   function resetActive() {
     setPageState(prev => ({
       ...prev,
@@ -733,6 +928,10 @@ export default function DirectionalScorer() {
         ...prev[mode],
         [activeIdx]: { factors: emptyFactors(), gates: emptyGates() },
       },
+    }));
+    setFactorOrigin(prev => ({
+      ...prev,
+      [mode]: { ...prev[mode], [activeIdx]: {} },
     }));
   }
 
@@ -871,6 +1070,25 @@ export default function DirectionalScorer() {
           </div>
         </div>
 
+        {/* Data source bar */}
+        {preData && (
+          <div className="flex items-center gap-2 text-[11px] font-mono text-muted-foreground bg-secondary/30 border border-border/40 rounded-md px-3 py-1.5">
+            <Database className="w-3 h-3 text-sky-400 shrink-0" />
+            <span className="text-sky-400 font-semibold">Pre/Post data wired</span>
+            <span className="text-border/80">·</span>
+            <span>
+              {Object.values(suggestedByIndex?.[activeIdx] ?? {}).filter(v => v !== null && v !== undefined).length} of 9 factors suggested
+            </span>
+            <span className="text-border/80">·</span>
+            <span className="text-foreground/50">
+              updated {dataUpdatedAt ? new Date(dataUpdatedAt).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" }) : "—"}
+            </span>
+            {dataFetching && <span className="text-amber-400 animate-pulse">· refreshing</span>}
+            <span className="text-border/80 mx-1">·</span>
+            <span className="text-foreground/40">◎ = data-sourced · click any button to override</span>
+          </div>
+        )}
+
         {/* Index tabs */}
         <div className="flex gap-0 border-b border-border/40">
           {(["NIFTY","BANKNIFTY","SENSEX"] as IndexSymbol[]).map(ix => {
@@ -911,6 +1129,7 @@ export default function DirectionalScorer() {
             pillarKey={pk}
             mode={mode}
             factors={st.factors}
+            dataOrigin={factorOrigin[mode][activeIdx]}
             onSet={setFactor}
           />
         ))}
@@ -999,6 +1218,16 @@ export default function DirectionalScorer() {
           <Plus className="w-3.5 h-3.5" />
           Log {IDX_LABEL[activeIdx]} {mode === "INTRADAY" ? "intraday" : "pre/post"}
         </button>
+        {suggestedByIndex && (
+          <button
+            type="button"
+            onClick={applyFromData}
+            className="flex items-center gap-1.5 rounded border border-sky-500/50 bg-sky-500/10 text-sky-400 font-mono text-[12px] font-semibold px-4 py-2 hover:bg-sky-500/20 transition-colors"
+          >
+            <Database className="w-3.5 h-3.5" />
+            Apply from data
+          </button>
+        )}
         <button
           type="button"
           onClick={resetActive}
