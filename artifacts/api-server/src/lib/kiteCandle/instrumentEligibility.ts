@@ -98,13 +98,23 @@ export type InstrumentEligibilityClass =
 /**
  * All categories that are EXCLUDED from warehouse population (scanner symbolList).
  *
- * ORDINARY_MAIN_BOARD_EQUITY — NOT excluded (only authoritative eligible class).
- * KITE_NSE_EQ_LIKE_PROVISIONAL — NOT excluded from symbolList (prices shown for
- *   informational purposes), but excluded from signals/breadth/trade actions by
- *   the Phase A gate and PROVISIONAL check in signal generators.
+ * ORDINARY_MAIN_BOARD_EQUITY — NOT excluded: the ONLY class that is warehouse-eligible.
+ *   Requires NSE authoritative reference join (nseRef=Map, series=EQ confirmed).
+ *
+ * KITE_NSE_EQ_LIKE_PROVISIONAL — EXCLUDED: NSE reference unavailable → fail closed.
+ *   Instruments cannot drive breadth, rankings, signals, market mood, or trade actions
+ *   until the authoritative reference confirms their security type.
+ *
+ * ORDINARY_EQUITY_ELIGIBLE — EXCLUDED: deprecated class from pre-reference-gate era.
+ *   Old disk cache entries carrying this class are treated as fail-closed.
+ *   The classifier never emits this class; any entry carrying it is stale.
+ *
  * All others — excluded from symbolList entirely.
  */
 export const WAREHOUSE_EXCLUDED_CLASSES = new Set<InstrumentEligibilityClass>([
+  // Authoritative exclusions (confirmed by NSE reference or Kite master)
+  "KITE_NSE_EQ_LIKE_PROVISIONAL",    // NSE reference required but unavailable — fail closed
+  "ORDINARY_EQUITY_ELIGIBLE",         // deprecated pre-gate class — treat as fail-closed
   "TRADE_TO_TRADE_EQUITY_POLICY_EXCLUDED",
   "SME_EQUITY_POLICY_EXCLUDED",
   "DEBT_GOVERNMENT_SECURITY",
@@ -114,9 +124,7 @@ export const WAREHOUSE_EXCLUDED_CLASSES = new Set<InstrumentEligibilityClass>([
   "INACTIVE_OR_DELISTED",
   "UNRESOLVED_SECURITY_TYPE",
   "OTHER_UNSUPPORTED",
-  // Note: ORDINARY_MAIN_BOARD_EQUITY is NOT here (it's eligible).
-  // Note: KITE_NSE_EQ_LIKE_PROVISIONAL is NOT here (prices shown; signals blocked by other guards).
-  // Note: ORDINARY_EQUITY_ELIGIBLE is NOT here (backward compat — old entries treated as provisional).
+  // ORDINARY_MAIN_BOARD_EQUITY is NOT here — it is the only warehouse-eligible class.
 ]);
 
 export interface InstrumentEligibilityResult {
@@ -233,6 +241,16 @@ function detectBzSeries(suffix: string | null, symbol: string): string[] | null 
  * Pass `inCurrentMaster: false` for any instrument not found in the master
  * (e.g. delisted, symbol not in cache). It will be classified UNRESOLVED_SECURITY_TYPE.
  */
+/**
+ * NSE authoritative equity reference map type.
+ * Keyed by NSE tradingsymbol (uppercase). Sourced from EQUITY_L.csv.
+ *
+ * Passing null is the ONLY way to express "reference unavailable" — it always
+ * results in KITE_NSE_EQ_LIKE_PROVISIONAL (fail-closed). Omitting nseRef is a
+ * TypeScript compile error (the field is required, non-optional).
+ */
+export type NseSecurityReference = Map<string, { series: string; isin: string; dateOfListing: string }>;
+
 export function classifyInstrument(opts: {
   symbol: string;
   name: string;
@@ -243,13 +261,24 @@ export function classifyInstrument(opts: {
   isin?: string | null;
   /**
    * NSE authoritative equity reference (EQUITY_L.csv parsed, keyed by symbol).
-   *   null/undefined → no reference loaded → KITE_NSE_EQ_LIKE_PROVISIONAL for EQ/NSE instruments
-   *   Map provided    → join performed; not-found → UNRESOLVED_SECURITY_TYPE; found → classified by series
+   *
+   * REQUIRED — non-optional by design. Omitting this field is a TypeScript compile error.
+   * This ensures every caller explicitly acknowledges the reference-gate contract.
+   *
+   *   nseRef=null → NSE reference unavailable → KITE_NSE_EQ_LIKE_PROVISIONAL (fail-closed).
+   *                 Instruments CANNOT drive breadth, rankings, signals, or trade actions.
+   *   nseRef=Map  → Reference loaded → join performed by symbol:
+   *                   found + series=EQ → ORDINARY_MAIN_BOARD_EQUITY (warehouse-eligible)
+   *                   found + series=BE/BT → TRADE_TO_TRADE_EQUITY_POLICY_EXCLUDED
+   *                   found + series=SM/ST → SME_EQUITY_POLICY_EXCLUDED
+   *                   found + other series → OTHER_UNSUPPORTED
+   *                   not found → UNRESOLVED_SECURITY_TYPE
+   *
+   * The deprecated ORDINARY_EQUITY_ELIGIBLE class is NEVER emitted. Old disk cache entries
+   * carrying that class are excluded from warehouse (WAREHOUSE_EXCLUDED_CLASSES includes it).
    */
-  nseRef?: Map<string, { series: string; isin: string; dateOfListing: string }> | null;
+  nseRef: NseSecurityReference | null;
 }): InstrumentEligibilityResult {
-  // nseRef is intentionally NOT defaulted: undefined = feature not active (backward compat);
-  // null = feature active but reference unavailable; Map = authoritative reference available.
   const { symbol, name, instrumentType, segment, exchange, inCurrentMaster, isin = null, nseRef } = opts;
   const su = symbol.toUpperCase();
   const suffix = extractSuffixCode(su);
@@ -415,29 +444,15 @@ export function classifyInstrument(opts: {
   // ── 10. NSE reference-confirmed equity classification ─────────────────────
   // Reaches here only when: inCurrentMaster=true + exchange=NSE + no exclusion
   // pattern (no -SG/-GB/-ST/-SM/-BZ suffix, not ETF, not INDEX, not INACTIVE).
-  // Now join against the authoritative NSE EQUITY_L.csv reference.
+  // Join against the authoritative NSE EQUITY_L.csv reference.
+  //
+  // nseRef is REQUIRED (non-optional, enforced by TypeScript).
+  // nseRef=null → fail closed: KITE_NSE_EQ_LIKE_PROVISIONAL (reference unavailable).
+  // nseRef=Map  → authoritative join (series determines class).
   if (instrumentType === "EQ" && segment === "NSE") {
-    // 10a. nseRef=undefined means the NSE reference feature is not active.
-    //      Return ORDINARY_EQUITY_ELIGIBLE for backward compatibility so existing
-    //      tests and callers that do not pass nseRef continue to work unchanged.
-    //      This is distinct from nseRef=null (feature active, reference unavailable).
-    if (nseRef === undefined) {
-      return {
-        ...base,
-        eligibilityClass: "ORDINARY_EQUITY_ELIGIBLE",
-        reason:
-          `Standard NSE main-board equity confirmed by Kite master record (NSE reference not active): ` +
-          `inCurrentMaster=true, exchange=NSE, segment=NSE, instrument_type=EQ, ` +
-          `suffix=${suffix ?? "(none)"}; no exclusion pattern detected`,
-        policyExclusionReason: null,
-        warehouseEligible: true,
-        precedenceVector: [...attrVec, "nseRef=NOT_ACTIVE", "decision=ORDINARY_EQUITY_ELIGIBLE"],
-      };
-    }
-
-    // 10b. nseRef=null: NSE reference integration is active but the reference was
-    //      not loaded (network failure, first-cycle, etc.). Fail closed — all EQ/NSE
-    //      instruments become KITE_NSE_EQ_LIKE_PROVISIONAL until the reference loads.
+    // 10a. nseRef=null: NSE reference unavailable — fail closed.
+    //      KITE_NSE_EQ_LIKE_PROVISIONAL cannot drive breadth, rankings, signals,
+    //      market mood, or trade actions. Excluded from WAREHOUSE_EXCLUDED_CLASSES.
     if (!nseRef) {
       return {
         ...base,
@@ -571,6 +586,8 @@ export function classifyInstrumentBatch(
     exchange: string;
     inCurrentMaster: boolean;
     isin?: string | null;
+    /** Required — pass null if NSE reference unavailable (fail-closed → KITE_NSE_EQ_LIKE_PROVISIONAL). */
+    nseRef: NseSecurityReference | null;
   }>,
 ): Map<string, InstrumentEligibilityResult> {
   const result = new Map<string, InstrumentEligibilityResult>();

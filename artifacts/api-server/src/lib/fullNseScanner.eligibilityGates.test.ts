@@ -216,8 +216,8 @@ describe("G5 — Market-closed state cannot produce live data labels", () => {
 // ── G6 — Non-ordinary-equity instruments cannot enter ordinary-equity counts ───
 
 describe("G6 — Debt/SDL/SGB/SME/BZ/unresolved instruments are excluded from ORDINARY_EQUITY_ELIGIBLE", () => {
-  const MASTER_EQ = { instrumentType: "EQ", segment: "NSE", exchange: "NSE", inCurrentMaster: true };
-  const NOT_IN_MASTER = { instrumentType: "EQ", segment: "NSE", exchange: "NSE", inCurrentMaster: false };
+  const MASTER_EQ = { instrumentType: "EQ", segment: "NSE", exchange: "NSE", inCurrentMaster: true, nseRef: null as import("./kiteCandle/instrumentEligibility").NseSecurityReference | null };
+  const NOT_IN_MASTER = { instrumentType: "EQ", segment: "NSE", exchange: "NSE", inCurrentMaster: false, nseRef: null as import("./kiteCandle/instrumentEligibility").NseSecurityReference | null };
 
   const excluded = [
     // SDL bonds (in master) — these were appearing in the production screenshot
@@ -236,19 +236,22 @@ describe("G6 — Debt/SDL/SGB/SME/BZ/unresolved instruments are excluded from OR
   ];
 
   for (const { sym, name, master } of excluded) {
-    it(`${sym} is NOT ORDINARY_EQUITY_ELIGIBLE (in WAREHOUSE_EXCLUDED_CLASSES)`, () => {
-      const r = classifyInstrument({ ...master, symbol: sym, name });
-      expect(r.eligibilityClass).not.toBe("ORDINARY_EQUITY_ELIGIBLE");
+    it(`${sym} is NOT ORDINARY_MAIN_BOARD_EQUITY (in WAREHOUSE_EXCLUDED_CLASSES)`, () => {
+      const r = classifyInstrument({ ...master, symbol: sym, name, nseRef: null });
+      expect(r.eligibilityClass).not.toBe("ORDINARY_MAIN_BOARD_EQUITY");
       expect(r.warehouseEligible).toBe(false);
       expect(WAREHOUSE_EXCLUDED_CLASSES.has(r.eligibilityClass)).toBe(true);
     });
   }
 
-  it("ordinary NSE EQ instruments in master ARE eligible", () => {
+  it("ordinary NSE EQ instruments in master with authoritative nseRef ARE eligible (ORDINARY_MAIN_BOARD_EQUITY)", () => {
     const equities = ["RELIANCE", "INFY", "HDFCBANK", "TCS", "WIPRO"];
+    const nseRef: import("./kiteCandle/instrumentEligibility").NseSecurityReference = new Map(
+      equities.map((sym, i) => [sym, { series: "EQ", isin: `INE${String(i).padStart(9, "0")}A`, dateOfListing: "01-JAN-2000" }])
+    );
     for (const sym of equities) {
-      const r = classifyInstrument({ ...MASTER_EQ, symbol: sym, name: `${sym} LIMITED` });
-      expect(r.eligibilityClass).toBe("ORDINARY_EQUITY_ELIGIBLE");
+      const r = classifyInstrument({ ...MASTER_EQ, symbol: sym, name: `${sym} LIMITED`, nseRef });
+      expect(r.eligibilityClass).toBe("ORDINARY_MAIN_BOARD_EQUITY");
       expect(r.warehouseEligible).toBe(true);
     }
   });
@@ -515,9 +518,9 @@ describe("G14 — Count consistency: universeSize = liveQuoteCount + failures", 
     ];
     for (const inst of excluded) {
       const r = classifyInstrument({
-        ...inst, instrumentType: "EQ", segment: "NSE", exchange: "NSE", inCurrentMaster: true,
+        ...inst, instrumentType: "EQ", segment: "NSE", exchange: "NSE", inCurrentMaster: true, nseRef: null,
       });
-      expect(r.eligibilityClass).not.toBe("ORDINARY_EQUITY_ELIGIBLE");
+      expect(r.eligibilityClass).not.toBe("ORDINARY_MAIN_BOARD_EQUITY");
     }
   });
 });

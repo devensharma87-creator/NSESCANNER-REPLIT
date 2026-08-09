@@ -87,6 +87,7 @@ import {
   FULL_NSE_WAREHOUSE_POPULATION_AUTHORIZED,
   getWarehousePopulationLockStatus,
 } from "../candleEvaluationControl";
+import { getNseSecurityMasterMap } from "../nseSecurityMaster";
 
 // ─── Config ──────────────────────────────────────────────────────────────────
 
@@ -298,6 +299,10 @@ export async function getEligibleNseSymbols(): Promise<EligibleSymbolResult> {
       segment: instData.segment ?? "NSE",
       exchange: instData.exchange ?? "NSE",
       inCurrentMaster: true,
+      // Pass the synchronous NSE reference map (null if not yet loaded).
+      // Fails closed: warehouse callers without an authoritative reference see
+      // KITE_NSE_EQ_LIKE_PROVISIONAL → excluded from symbolList.
+      nseRef: getNseSecurityMasterMap(),
     });
 
     if (WAREHOUSE_EXCLUDED_CLASSES.has(classification.eligibilityClass)) {

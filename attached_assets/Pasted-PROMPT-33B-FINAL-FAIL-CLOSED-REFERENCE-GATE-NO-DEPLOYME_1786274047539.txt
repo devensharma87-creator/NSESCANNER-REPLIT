@@ -1,0 +1,189 @@
+PROMPT_33B_FINAL_FAIL_CLOSED_REFERENCE_GATE — NO_DEPLOYMENT
+
+Continue the current Prompt 33B task. Do not create follow-up tasks and do not deploy commit 282e245.
+
+Preserve the accepted work. Correct only the following items.
+
+1. Remove the nseRef=undefined backward-compatibility authorization path
+
+The eligibility function must require nseRef explicitly.
+
+Allowed input:
+
+nseRef: NseSecurityReference | null
+
+No default.
+No optional field.
+No undefined feature-off state.
+
+Rules:
+
+nseRef contains authoritative matching record:
+- classify using official NSE fields.
+
+nseRef=null:
+- classification=KITE_NSE_EQ_LIKE_PROVISIONAL or UNRESOLVED_SECURITY_TYPE;
+- eligibleForOrdinaryEquityStatistics=false;
+- eligibleForRanking=false;
+- eligibleForSignals=false;
+- eligibleForPaperAdmission=false.
+
+Omitting nseRef must be a TypeScript compile error.
+
+Update all production callers and tests to pass an explicit value.
+
+Do not preserve unsafe backward compatibility merely to keep old tests passing. Update the old tests to the new fail-closed contract.
+
+Add tests proving:
+- omitted nseRef fails TypeScript contract;
+- null never becomes ordinary-equity eligible;
+- unavailable NSE reference cannot authorize breadth, ranking, signals or admission;
+- no route can disable the authoritative-reference requirement;
+- no environment or query-parameter bypass exists.
+
+2. Produce live authoritative-reference evidence
+
+Run the NSE security-master loader in development and report:
+
+- exact source URL
+- HTTP status
+- content type
+- retrieval timestamp IST/UTC
+- effective/reference date
+- byte size
+- SHA-256
+- CSV headers
+- total rows
+- unique symbols
+- unique ISINs
+- duplicate symbols
+- duplicate ISINs
+- missing ISIN count
+- official series breakdown
+- parse-rejection count
+- unmatched Kite-symbol count
+- matched Kite-symbol count
+- authoritative ordinary-main-board count
+- T2T count
+- SME count
+- ETF/fund count
+- unresolved count
+- inactive/suspended count where the source supports it
+
+Then run one actual development scanner generation and report exact reconciliation:
+
+raw Kite NSE instruments
+→ Kite EQ-like instruments
+→ authoritative NSE matches
+→ ordinary main-board equities
+→ exclusions by class
+→ unresolved
+→ quote-success count
+→ API rows
+→ displayed rows
+
+No approximate counts.
+
+If the live reference fetch fails, return:
+
+BLOCKED_AUTHORITATIVE_NSE_REFERENCE_UNAVAILABLE
+
+Do not substitute the old Kite-only classification.
+
+3. Implement last-good NSE reference safety
+
+The NSE reference must not depend solely on one in-memory six-hour cache.
+
+Persist a versioned last-good snapshot containing:
+
+- source URL
+- retrievedAt
+- effectiveDate
+- SHA-256
+- headers/schema version
+- parsed records
+- row count
+- validation result
+
+On refresh failure:
+
+- use last-good only with STALE status and original effectiveDate/asOf;
+- never represent it as current;
+- if no last-good exists, fail closed;
+- do not replace last-good with malformed/empty data;
+- preserve it across process restart and replicas;
+- use an advisory lock or equivalent single-writer protection.
+
+Add malformed CSV, empty CSV, timeout, stale snapshot and restart tests.
+
+4. Prove debug route is absent from production
+
+After scanner production build, scan all JS/CSS/HTML chunks and prove zero occurrences of:
+
+- /debug/home-states
+- HomeDebugPage
+- STATE-A
+- STATE-B
+- STATE-C
+- fixture-only F&O symbols
+- fixture-only Home-state descriptions
+
+Also prove the production route registry has no debug route.
+
+The test harness may exist only under test/development compilation.
+
+5. Prove F&O admission fail-closed
+
+Inventory every production consumer of the F&O-ban response.
+
+Prove executable admission logic requires:
+
+status === "CURRENT"
+&& canAuthorizeAdmission === true
+
+LAST_KNOWN_STALE:
+- display permitted with asOf;
+- admission decision blocked.
+
+UNAVAILABLE:
+- display unavailable;
+- admission decision blocked.
+
+CURRENT + empty authoritative list:
+- ALL CLEAR permitted;
+- admission may continue through other independent gates.
+
+Add runtime tests through the actual F&O admission function, not UI/source inspection only.
+
+6. Final predeploy battery
+
+Run:
+
+- targeted reference tests
+- live reference reconciliation
+- F&O admission tests
+- full api-server suite
+- full scanner suite
+- api-server/scanner/api-zod/api-client-react TSC
+- api-server production build
+- scanner production build
+- production debug-route scan
+- production test-hook scan
+- built lock scan
+- secret sentinel
+- provider guard
+- git diff --check
+
+Reconfirm all four locks false and broker execution disabled.
+
+Do not:
+- deploy,
+- retry canary,
+- enable evaluation,
+- enable warehouse population,
+- activate V2,
+- modify strategies.
+
+Return only if all pass:
+
+PROMPT_33B_AUTHORITATIVE_REFERENCE_FAIL_CLOSED_AND_PREDEPLOY_VERIFIED — OWNER_DEPLOYMENT_AUTHORIZATION_REQUIRED

@@ -533,6 +533,68 @@ export function _resetTestHooks(): void {
   progress.startedAt = null;
 }
 
+/**
+ * Build a BLOCKED scan result when the NSE authoritative reference is unavailable.
+ * Returns a Cache with 0 rows so the scanFullNse() commit guard (rows.length > 0)
+ * preserves the last-good cache on disk rather than overwriting it with empty data.
+ */
+function buildBlockedScanResult(
+  generationId: string,
+  start: number,
+  rawKiteNseInstrumentCount: number,
+): Cache {
+  const emptyReconciliation: ScanCountReconciliation = {
+    rawKiteNseInstrumentCount,
+    kiteInstrumentTypeEqCount: rawKiteNseInstrumentCount,
+    rawKiteMaster: 0,
+    debtGovernmentSecurities: 0,
+    sovereignGoldBonds: 0,
+    etfOrFund: 0,
+    smePolicyExclusions: 0,
+    t2tPolicyExclusions: 0,
+    inactiveOrDelisted: 0,
+    otherUnsupported: 0,
+    unresolvedSecurityType: 0,
+    indexInstruments: 0,
+    unknownClass: 0,
+    eligibleOrdinaryEquities: 0,
+    provisionallyClassifiedCount: 0,
+    authoritativelyVerifiedOrdinaryEquityCount: 0,
+    unresolvedSecurityCount: 0,
+    excludedSecurityCount: 0,
+    kiteQuoteRows: 0,
+    yahooChartRows: 0,
+    yahooBatchRows: 0,
+    liveQuoteRows: 0,
+    noQuoteRows: 0,
+    evaluatedRows: 0,
+    notEvaluatedRows: 0,
+    apiRowCount: 0,
+    timingMs: { instrumentMaster: 0, eligibilityFilter: 0, kiteQuoteFetch: 0, yahooBatchFetch: 0, deliveryMapFetch: 0, enrichmentPhase: 0, rowAssembly: 0, heatmapOverlay: 0, total: Date.now() - start },
+    step1Valid: false,
+    step2Valid: false,
+    step3Valid: true,
+    allValid: false,
+  };
+  return {
+    rows: [],
+    lastUpdated: Date.now(),
+    sourceDate: "BLOCKED_AUTHORITATIVE_NSE_REFERENCE_UNAVAILABLE",
+    total: 0,
+    scanMs: Date.now() - start,
+    failures: 0,
+    liveQuoteCount: 0,
+    rested: 0,
+    enriched: 0,
+    degraded: true,
+    kiteOffline: false,
+    eligibilityBreakdown: {},
+    phaseA: !SCANNER_KITE_CANDLE_EVALUATION_AUTHORIZED,
+    generationId,
+    countReconciliation: emptyReconciliation,
+  };
+}
+
 function round2(n: number): number { return Math.round(n * 100) / 100; }
 function lastVal(arr: (number | null)[]): number | null {
   for (let i = arr.length - 1; i >= 0; i--) if (arr[i] != null) return arr[i] as number;
@@ -931,23 +993,60 @@ async function performFullScan(): Promise<Cache> {
   timing.instrumentMaster = Date.now() - phaseStart;
   phaseStart = Date.now();
 
-  // ── 1b. BUILD SYMBOL LIST (provisional classification — nseRef=null) ─
-  // The eligibility classifier runs once here with nseRef=null, producing
-  // KITE_NSE_EQ_LIKE_PROVISIONAL for all EQ instruments. After the factory
-  // check (below), real scans load the NSE master and re-classify authoritative.
+  // ── 1b. RAW INSTRUMENT COUNTS (lightweight — reconciliation only) ─────
+  // Record raw Kite EQ instrument count for reconciliation.
+  // The authoritative classify loop (after factory check + NSE reference load) builds symbolList.
+  const rawKiteNseInstrumentCountPre = kiteInst?.list.length ?? 0;
+
+  // ── 1c. PROGRESS + GENERATION TRACKING ────────────────────────────────
+  // Set inProgressGenerationId BEFORE the factory check so test spin-waits
+  // (200ms window) can observe the generationId immediately.
+  progress.scanned = 0;
+  progress.total = 0;   // updated after authoritative classify loop
+  progress.startedAt = start;
+  progress.running = true;
+  progress.inProgressGenerationId = generationId;
+
+  // TEST-ONLY: fast-return with the test-injected result. The full lifecycle in
+  // scanFullNse() (generationId tracking, pause-before-commit, cache assignment,
+  // reconciliation guard) still runs against this result — only real I/O is skipped.
+  // NSE master is NOT loaded in the test path (avoids 15-second HTTP timeout for EQUITY_L.csv).
+  if (_testScanResultFactory) {
+    return _testScanResultFactory(generationId);
+  }
+
+  // ── 1d. NSE AUTHORITATIVE REFERENCE (real scans only) ─────────────────
+  // Loaded AFTER the factory check so test scans do not trigger a 15-second
+  // HTTP timeout trying to fetch NSE EQUITY_L.csv.
+  //
+  // FAIL-CLOSED: if the reference is unavailable (no fresh data AND no last-good
+  // snapshot), the scan returns BLOCKED_AUTHORITATIVE_NSE_REFERENCE_UNAVAILABLE.
+  // We do NOT fall back to provisional classification — instruments without
+  // authoritative NSE confirmation cannot drive breadth, signals, or trade actions.
+  // getNseSecurityMaster() automatically tries last-good disk cache before returning null.
+  await getNseSecurityMaster().catch(err => {
+    logger.warn({ err: (err as Error).message }, "NSE security master fetch failed — trying last-good");
+    return null;
+  });
+  const nseRefMap = getNseSecurityMasterMap();   // synchronous — reads from in-memory cache (or last-good)
+  const nseRefMeta = getNseSecurityMasterMeta(); // synchronous — reads from in-memory cache
+
+  if (!nseRefMap) {
+    // NSE reference unavailable AND no last-good snapshot → BLOCKED.
+    logger.warn(
+      { generationId, rawKiteNseInstrumentCount: rawKiteNseInstrumentCountPre },
+      "Full NSE scanner: BLOCKED_AUTHORITATIVE_NSE_REFERENCE_UNAVAILABLE — no last-good fallback",
+    );
+    return buildBlockedScanResult(generationId, start, rawKiteNseInstrumentCountPre);
+  }
+
+  // ── 1e. AUTHORITATIVE SYMBOL LIST (single-pass, nseRef confirmed) ─────
+  // One classify pass with the authoritative NSE reference. All EQ/NSE instruments
+  // with confirmed series=EQ → ORDINARY_MAIN_BOARD_EQUITY → eligible.
+  // Others (T2T/SME/absent from reference) → excluded. No provisional path.
   if (kiteInst && kiteInst.list.length > 0) {
-    // Apply the canonical eligibility classifier to every instrument from the
-    // Kite master BEFORE building symbolList. This excludes SDL bonds (-SG),
-    // Sovereign Gold Bonds (-GB), SME equities (-SM/-ST), BZ-series, and any
-    // other non-ordinary-equity instruments that slipped through the
-    // kiteScanner.ts heuristic filter.
-    //
-    // inCurrentMaster=true: all items in kiteInst.list passed the raw Kite
-    // getInstruments() call and are present in today's master.
-    //
-    // nseRef=null: provisional — KITE_NSE_EQ_LIKE_PROVISIONAL until NSE reference loads.
     const rawSymbols = kiteInst.list.map(i => i.tradingsymbol);
-    const eligibleSymbols: string[] = [];
+    const authEligible: string[] = [];
     for (const sym of rawSymbols) {
       const inst = kiteInst.bySymbol.get(sym);
       const cls = classifyInstrument({
@@ -957,24 +1056,25 @@ async function performFullScan(): Promise<Cache> {
         segment: "NSE",
         exchange: "NSE",
         inCurrentMaster: true,
-        nseRef: null,   // provisional — refined after NSE master loads (post factory-check)
+        nseRef: nseRefMap,   // authoritative — required, never null in a real scan
       }).eligibilityClass;
       eligibilityBreakdown[cls] = (eligibilityBreakdown[cls] ?? 0) + 1;
-      if (!WAREHOUSE_EXCLUDED_CLASSES.has(cls)) {
-        eligibleSymbols.push(sym);
-      }
+      if (!WAREHOUSE_EXCLUDED_CLASSES.has(cls)) authEligible.push(sym);
     }
-    symbolList = eligibleSymbols;
+    symbolList = authEligible;
     sourceDate = `kite:${new Date(kiteInst.fetchedAt).toISOString().slice(0, 10)}`;
     logger.info(
       {
         generationId,
         rawTotal: rawSymbols.length,
-        eligible: eligibleSymbols.length,
+        eligible: authEligible.length,
         breakdown: eligibilityBreakdown,
-        nseRefLoaded: false,   // provisional — authoritative classification follows factory check
+        nseRefLoaded: nseRefMeta.loaded,
+        nseRefRecords: nseRefMeta.totalRecords,
+        snapshotDate: nseRefMeta.snapshotDate,
+        isLastGood: (nseRefMeta as { isLastGood?: boolean }).isLastGood ?? false,
       },
-      "Full NSE scanner: provisional universe built (NSE reference loads after factory check)",
+      "Full NSE scanner: universe built with authoritative NSE reference",
     );
   } else {
     const bhav = await getAllSymbols();
@@ -1002,81 +1102,7 @@ async function performFullScan(): Promise<Cache> {
     return true;
   });
 
-  progress.scanned = 0;
   progress.total = symbolList.length;
-  progress.startedAt = start;
-  progress.running = true;
-  progress.inProgressGenerationId = generationId;
-
-  // TEST-ONLY: fast-return with the test-injected result. The full lifecycle in
-  // scanFullNse() (generationId tracking, pause-before-commit, cache assignment,
-  // reconciliation guard) still runs against this result — only real I/O is skipped.
-  // NSE master is NOT loaded in the test path (avoids 15-second HTTP timeout for EQUITY_L.csv).
-  if (_testScanResultFactory) {
-    return _testScanResultFactory(generationId);
-  }
-
-  // ── 1c. NSE AUTHORITATIVE REFERENCE (real scans only) ──────────────
-  // Loaded AFTER the factory check so test scans do not trigger a 15-second
-  // HTTP timeout trying to fetch NSE EQUITY_L.csv. On success the symbol list
-  // is re-classified with authoritative series data (EQ → ORDINARY_MAIN_BOARD_EQUITY).
-  await getNseSecurityMaster().catch(err => {
-    logger.warn({ err: (err as Error).message }, "NSE security master fetch failed — using provisional classification");
-    return null;
-  });
-  const nseRefMap = getNseSecurityMasterMap();   // synchronous — reads from in-memory cache
-  const nseRefMeta = getNseSecurityMasterMeta(); // synchronous — reads from in-memory cache
-
-  // If the NSE reference loaded successfully, re-classify the Kite instruments
-  // with authoritative series data. The provisional pass above used nseRef=null
-  // (all EQ → KITE_NSE_EQ_LIKE_PROVISIONAL). Now re-classify each instrument
-  // with the authoritative reference: EQ → ORDINARY_MAIN_BOARD_EQUITY, etc.
-  if (kiteInst && nseRefMap) {
-    const rawSymbols = kiteInst.list.map(i => i.tradingsymbol);
-    const authEligible: string[] = [];
-    // Reset the breakdown (was provisional) for authoritative recount.
-    for (const k of Object.keys(eligibilityBreakdown)) delete eligibilityBreakdown[k];
-    for (const sym of rawSymbols) {
-      const inst = kiteInst.bySymbol.get(sym);
-      const cls = classifyInstrument({
-        symbol: sym,
-        name: inst?.name ?? sym,
-        instrumentType: "EQ",
-        segment: "NSE",
-        exchange: "NSE",
-        inCurrentMaster: true,
-        nseRef: nseRefMap,
-      }).eligibilityClass;
-      eligibilityBreakdown[cls] = (eligibilityBreakdown[cls] ?? 0) + 1;
-      if (!WAREHOUSE_EXCLUDED_CLASSES.has(cls)) authEligible.push(sym);
-    }
-    // De-dupe (same guard as the provisional pass).
-    const seenAuth = new Set<string>();
-    symbolList = authEligible.filter(s => {
-      if (!s || INACTIVE_SYMBOLS.has(s.toUpperCase())) return false;
-      if (seenAuth.has(s)) return false;
-      seenAuth.add(s);
-      return true;
-    });
-    progress.total = symbolList.length;
-    logger.info(
-      {
-        generationId,
-        rawTotal: rawSymbols.length,
-        eligible: symbolList.length,
-        breakdown: eligibilityBreakdown,
-        nseRefLoaded: nseRefMeta.loaded,
-        nseRefRecords: nseRefMeta.totalRecords,
-        snapshotDate: nseRefMeta.snapshotDate,
-      },
-      "Full NSE scanner: universe re-classified with authoritative NSE reference",
-    );
-  } else {
-    logger.info(
-      { generationId, symbolListLength: symbolList.length, breakdown: eligibilityBreakdown },
-      "Full NSE scanner: NSE reference unavailable — using provisional classification for this cycle",
-    );
-  }
 
   // ── 2. KITE QUOTES (primary price source) ──────────────────────────
   const kiteQuotes = await centralBatchEquityQuotes(symbolList);

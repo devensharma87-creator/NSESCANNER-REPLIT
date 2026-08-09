@@ -218,8 +218,11 @@ describe("NSE-05: classifyInstrument — KITE_NSE_EQ_LIKE_PROVISIONAL (nseRef=nu
     expect(result.policyExclusionReason).toContain("reference");
   });
 
-  it("NSE-05d: KITE_NSE_EQ_LIKE_PROVISIONAL is NOT in WAREHOUSE_EXCLUDED_CLASSES (prices still shown)", () => {
-    expect(WAREHOUSE_EXCLUDED_CLASSES.has("KITE_NSE_EQ_LIKE_PROVISIONAL")).toBe(false);
+  it("NSE-05d: KITE_NSE_EQ_LIKE_PROVISIONAL IS in WAREHOUSE_EXCLUDED_CLASSES (fail-closed: reference required for any warehouse eligibility)", () => {
+    // Instruments with no authoritative NSE reference CANNOT enter the warehouse,
+    // drive breadth, rankings, signals, market mood, or trade actions.
+    // Provisional classification = reference gate failed = excluded.
+    expect(WAREHOUSE_EXCLUDED_CLASSES.has("KITE_NSE_EQ_LIKE_PROVISIONAL")).toBe(true);
   });
 });
 
@@ -270,12 +273,16 @@ describe("NSE-08: WAREHOUSE_EXCLUDED_CLASSES contract", () => {
     expect(WAREHOUSE_EXCLUDED_CLASSES.has("ORDINARY_MAIN_BOARD_EQUITY")).toBe(false);
   });
 
-  it("NSE-08b: KITE_NSE_EQ_LIKE_PROVISIONAL is NOT excluded (prices shown; signals blocked separately)", () => {
-    expect(WAREHOUSE_EXCLUDED_CLASSES.has("KITE_NSE_EQ_LIKE_PROVISIONAL")).toBe(false);
+  it("NSE-08b: KITE_NSE_EQ_LIKE_PROVISIONAL IS excluded (fail-closed: no authoritative reference = no warehouse entry)", () => {
+    // The reference gate is now required (nseRef non-optional). Without an authoritative
+    // NSE join, instruments cannot drive any scanner functionality.
+    expect(WAREHOUSE_EXCLUDED_CLASSES.has("KITE_NSE_EQ_LIKE_PROVISIONAL")).toBe(true);
   });
 
-  it("NSE-08c: ORDINARY_EQUITY_ELIGIBLE is NOT excluded (backward compat; treated as provisional)", () => {
-    expect(WAREHOUSE_EXCLUDED_CLASSES.has("ORDINARY_EQUITY_ELIGIBLE")).toBe(false);
+  it("NSE-08c: ORDINARY_EQUITY_ELIGIBLE IS excluded (deprecated pre-gate class; stale cache entries must not enter warehouse)", () => {
+    // The classifier never emits ORDINARY_EQUITY_ELIGIBLE any more.
+    // Any disk-cached entries carrying this class are treated as fail-closed.
+    expect(WAREHOUSE_EXCLUDED_CLASSES.has("ORDINARY_EQUITY_ELIGIBLE")).toBe(true);
   });
 
   it("NSE-08d: all non-eligible classes ARE excluded", () => {

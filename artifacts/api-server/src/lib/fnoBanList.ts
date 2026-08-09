@@ -292,6 +292,15 @@ export async function isFnoBanned(symbol: string): Promise<boolean | null> {
   return cache?.set.has(symbol.toUpperCase()) ?? false;
 }
 
+/** TEST ONLY: reset in-memory cache and inflight state. */
+export function _resetFnoBanListForTest(): void {
+  if (process.env.NODE_ENV !== "test") {
+    throw new Error("_resetFnoBanListForTest is not available outside NODE_ENV=test");
+  }
+  cache = null;
+  inflight = null;
+}
+
 /**
  * Legacy convenience wrapper — TEST/COMPAT-ISOLATED ONLY.
  * Converts null→false with an explicit warning.

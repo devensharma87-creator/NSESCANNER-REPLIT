@@ -42,11 +42,24 @@
  *
  * CACHE
  * ─────
- * In-memory, 6 hours TTL. Retry each scan cycle if not loaded.
+ * In-memory, 6 hours TTL. On refresh failure, falls back to last-good disk
+ * snapshot (via loadBlob/saveBlob from diskCache.ts). If both fail → null.
+ *
+ * LAST-GOOD DISK SAFETY
+ * ─────────────────────
+ * On every successful refresh, the parsed result is atomically written to disk
+ * via saveBlob (write-temp + rename). On refresh failure, the disk snapshot is
+ * loaded and served with isLastGood=true. The cache is never replaced by
+ * malformed or empty data (< 100 records triggers parse rejection).
+ *
+ * This ensures classifier never silently degrades after a transient NSE
+ * network failure: it either serves authoritative data or last-good (labeled
+ * as stale), never provisional data masquerading as authoritative.
  */
 
 import { logger } from "./logger";
 import { createHash } from "crypto";
+import { loadBlob, saveBlob, clearBlob } from "./diskCache";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -103,6 +116,30 @@ export function classifyNseSeries(series: string): NseSeriesClass {
   return "OTHER_NSE_SERIES";
 }
 
+// ── Disk-persistence constants ────────────────────────────────────────────────
+
+/** Blob name for last-good NSE security master disk snapshot. */
+const LAST_GOOD_BLOB_NAME = "nse-security-master-last-good";
+/**
+ * Version for the last-good blob. Increment when NseEquityRecord shape changes
+ * or when the serialization format changes. Old blobs are silently discarded.
+ */
+const LAST_GOOD_BLOB_VERSION = 1;
+
+/** Serializable payload stored in the last-good disk blob. */
+interface LastGoodPayload {
+  /** All records as a plain array (Maps are not JSON-serializable). */
+  records: NseEquityRecord[];
+  totalRecords: number;
+  seriesCounts: Record<string, number>;
+  fetchedAt: string;
+  sourceUrl: string;
+  sourceHash: string;
+  snapshotDate: string;
+  /** ISO timestamp when this snapshot was saved to disk. */
+  savedAt: string;
+}
+
 // ── Internal cache ────────────────────────────────────────────────────────────
 
 interface MasterCache {
@@ -122,6 +159,16 @@ interface MasterCache {
   sourceHash: string;
   /** ISO date of the snapshot (YYYY-MM-DD). */
   snapshotDate: string;
+  /**
+   * true = this cache entry was loaded from the last-good disk snapshot,
+   *        NOT from a fresh HTTP fetch. The reference data may be stale.
+   */
+  isLastGood: boolean;
+  /**
+   * Human-readable reason why the last-good fallback was used.
+   * null when isLastGood=false.
+   */
+  staleReason: string | null;
 }
 
 const TTL_MS = 6 * 60 * 60 * 1000; // 6 hours
@@ -242,6 +289,67 @@ function parseCsv(
   return { bySymbol, byIsin, seriesCounts, totalRecords };
 }
 
+// ── Last-good disk helpers ────────────────────────────────────────────────────
+
+/** Reconstruct MasterCache Maps from a serialized LastGoodPayload. */
+function buildCacheFromLastGood(payload: LastGoodPayload, staleReason: string): MasterCache {
+  const bySymbol = new Map<string, NseEquityRecord>();
+  const byIsin = new Map<string, NseEquityRecord>();
+  for (const rec of payload.records) {
+    bySymbol.set(rec.symbol, rec);
+    byIsin.set(rec.isin, rec);
+  }
+  return {
+    bySymbol,
+    byIsin,
+    totalRecords: payload.totalRecords,
+    seriesCounts: payload.seriesCounts,
+    fetchedAt: payload.fetchedAt,
+    sourceUrl: payload.sourceUrl,
+    sourceHash: payload.sourceHash,
+    snapshotDate: payload.snapshotDate,
+    isLastGood: true,
+    staleReason,
+  };
+}
+
+/** Attempt to load the last-good snapshot from disk. Returns null if unavailable or malformed. */
+function tryLoadLastGoodFromDisk(reason: string): MasterCache | null {
+  const blob = loadBlob<LastGoodPayload>(LAST_GOOD_BLOB_NAME, LAST_GOOD_BLOB_VERSION);
+  if (!blob || !blob.payload) return null;
+  const p = blob.payload;
+  if (!p.records || p.records.length < 100) {
+    logger.warn({ recordCount: p.records?.length ?? 0 }, "NSE equity master: last-good disk blob too small, ignoring");
+    return null;
+  }
+  const entry = buildCacheFromLastGood(p, reason);
+  logger.info(
+    { totalRecords: entry.totalRecords, snapshotDate: entry.snapshotDate, reason },
+    "NSE equity master: loaded last-good from disk (STALE fallback)",
+  );
+  return entry;
+}
+
+/** Persist current fresh MasterCache to last-good disk blob. */
+function saveLastGoodToDisk(entry: MasterCache): void {
+  const records = Array.from(entry.bySymbol.values());
+  const payload: LastGoodPayload = {
+    records,
+    totalRecords: entry.totalRecords,
+    seriesCounts: entry.seriesCounts,
+    fetchedAt: entry.fetchedAt,
+    sourceUrl: entry.sourceUrl,
+    sourceHash: entry.sourceHash,
+    snapshotDate: entry.snapshotDate,
+    savedAt: new Date().toISOString(),
+  };
+  saveBlob(LAST_GOOD_BLOB_NAME, LAST_GOOD_BLOB_VERSION, payload);
+  logger.info(
+    { totalRecords: entry.totalRecords, snapshotDate: entry.snapshotDate },
+    "NSE equity master: saved last-good to disk",
+  );
+}
+
 // ── Refresh ───────────────────────────────────────────────────────────────────
 
 async function refresh(): Promise<MasterCache | null> {
@@ -268,7 +376,13 @@ async function refresh(): Promise<MasterCache | null> {
       sourceUrl: url,
       sourceHash,
       snapshotDate,
+      isLastGood: false,
+      staleReason: null,
     };
+
+    // Persist to disk IMMEDIATELY after a successful fresh fetch.
+    // Atomically written (write-temp + rename) so a kill mid-write can't corrupt.
+    saveLastGoodToDisk(entry);
 
     logger.info(
       { totalRecords, seriesCounts, sourceHash, url },
@@ -286,20 +400,41 @@ async function refresh(): Promise<MasterCache | null> {
 /**
  * Load (or return cached) NSE equity security master.
  *
- * Returns null if the NSE archive is unreachable — callers MUST treat null as
- * "reference unavailable" and classify instruments as KITE_NSE_EQ_LIKE_PROVISIONAL
- * rather than guessing security type.
+ * Returns null ONLY if both HTTP fetch and last-good disk snapshot fail.
+ * On HTTP failure with a valid last-good: returns the last-good (isLastGood=true).
+ *
+ * Callers MUST treat null as "reference unavailable" and return
+ * BLOCKED_AUTHORITATIVE_NSE_REFERENCE_UNAVAILABLE rather than classifying
+ * instruments as provisional.
  */
 export async function getNseSecurityMaster(): Promise<MasterCache | null> {
-  if (cache && Date.now() - new Date(cache.fetchedAt).getTime() < TTL_MS) {
+  // Return from in-memory cache if still fresh.
+  if (cache && !cache.isLastGood && Date.now() - new Date(cache.fetchedAt).getTime() < TTL_MS) {
     return cache;
+  }
+  // If we're serving a last-good in-memory, still attempt a background refresh
+  // but return the in-memory last-good for the current caller to avoid blocking.
+  if (cache && cache.isLastGood) {
+    // Fall through to refresh (will update cache if HTTP succeeds).
   }
   if (inflight) return inflight;
 
   const p = refresh().then((r) => {
-    if (r) cache = r;
+    if (r) {
+      // Fresh HTTP fetch succeeded — replace cache (clears isLastGood).
+      cache = r;
+    } else {
+      // HTTP failed. Try last-good from disk if we don't have in-memory.
+      if (!cache) {
+        const lastGood = tryLoadLastGoodFromDisk("HTTP_FETCH_FAILED");
+        cache = lastGood; // may still be null
+      } else {
+        // We already have a last-good in memory — keep it; no reason to downgrade.
+        logger.warn("NSE equity master: HTTP refresh failed, continuing with in-memory last-good");
+      }
+    }
     inflight = null;
-    return r;
+    return cache;
   });
   inflight = p;
   return p;
@@ -328,9 +463,14 @@ export function getNseSecurityMasterMeta(): {
   sourceHash: string | null;
   sourceUrl: string | null;
   fetchedAt: string | null;
+  isLastGood: boolean;
+  staleReason: string | null;
 } {
   if (!cache) {
-    return { loaded: false, totalRecords: null, seriesCounts: null, snapshotDate: null, sourceHash: null, sourceUrl: null, fetchedAt: null };
+    return {
+      loaded: false, totalRecords: null, seriesCounts: null, snapshotDate: null,
+      sourceHash: null, sourceUrl: null, fetchedAt: null, isLastGood: false, staleReason: null,
+    };
   }
   return {
     loaded: true,
@@ -340,12 +480,22 @@ export function getNseSecurityMasterMeta(): {
     sourceHash: cache.sourceHash,
     sourceUrl: cache.sourceUrl,
     fetchedAt: cache.fetchedAt,
+    isLastGood: cache.isLastGood,
+    staleReason: cache.staleReason,
   };
 }
 
 /** Expose the bySymbol map directly for batch usage (classifyInstrumentBatch). */
 export function getNseSecurityMasterMap(): Map<string, NseEquityRecord> | null {
   return cache ? cache.bySymbol : null;
+}
+
+/** TEST ONLY: expose clearBlob for last-good disk cleanup between tests. */
+export function _clearLastGoodDiskBlobForTest(): void {
+  if (process.env.NODE_ENV !== "test") {
+    throw new Error("_clearLastGoodDiskBlobForTest is not available outside NODE_ENV=test");
+  }
+  clearBlob(LAST_GOOD_BLOB_NAME);
 }
 
 /** Reset cache for testing. Internal use only. */
