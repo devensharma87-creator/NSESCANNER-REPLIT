@@ -294,12 +294,6 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                     { href: "/news", label: "Market Info", desc: "News, earnings, holidays & events", isActive: l => l === "/news", tab: "NEWS" },
                     { href: "/flows", label: "FII / DII", desc: "Foreign & domestic institutional cash flows", isActive: l => l.startsWith("/flows"), tab: "FLOWS" },
                     { href: "/kite", label: "Live Feed", desc: "Zerodha Kite live data feed", isActive: l => l.startsWith("/kite"), ownerOnly: true },
-                  ],
-                },
-                {
-                  kind: "group",
-                  label: "Market Plus",
-                  items: [
                     { href: "/directional-scorer", label: "Directional Scorer", desc: "Dual-model directional bias scorer — NIFTY / BANKNIFTY / SENSEX", isActive: l => l.startsWith("/directional-scorer"), tab: "DIRECTIONAL_SCORER" },
                   ],
                 },
