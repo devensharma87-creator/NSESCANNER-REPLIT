@@ -77,6 +77,7 @@ import {
   _loadLatestSnapshotFromDb,
   _injectCacheForTest,
   NSE_REFERENCE_MAX_AGE_HOURS,
+  MIN_SNAPSHOT_ROW_COUNT_FOR_COMMIT,
 } from "./nseSecurityMaster";
 
 // ── CSV helpers ────────────────────────────────────────────────────────────────
@@ -426,5 +427,95 @@ describe("Stale governance: canAuthorizeUniverse", () => {
     expect(NSE_REFERENCE_MAX_AGE_HOURS).toBe(48);
     const meta = getNseSecurityMasterMeta();
     expect(meta.maxAgeHours).toBe(48);
+  });
+});
+
+// ── MP-10: pre-insert validation gate ─────────────────────────────────────────
+// Verifies that _saveSnapshotToDb rejects snapshots with totalRecords below
+// MIN_SNAPSHOT_ROW_COUNT_FOR_COMMIT BEFORE any database round-trip.
+// Regression guard for snapshot id=61 (row_count=0, incorrectly inserted as ACCEPTED).
+
+describe("MP-10: pre-insert validation gate — zero-row snapshot blocked before INSERT", () => {
+  beforeEach(() => { _resetNseSecurityMasterForTest(); });
+  afterEach(() => { _resetNseSecurityMasterForTest(); });
+
+  it("MIN_SNAPSHOT_ROW_COUNT_FOR_COMMIT is 1000", () => {
+    expect(MIN_SNAPSHOT_ROW_COUNT_FOR_COMMIT).toBe(1000);
+  });
+
+  it("zero-row snapshot → ok=false, INVALID_SNAPSHOT_ROW_COUNT, durablyCommitted=false, no DB call", async () => {
+    const zeroEntry: any = {
+      bySymbol: new Map(),
+      byIsin: new Map(),
+      totalRecords: 0,
+      fetchedAt: new Date().toISOString(),
+      sourceUrl: "https://archives.nseindia.com/content/equities/EQUITY_L.csv",
+      sourceHash: "test-zero-row",
+      snapshotDate: new Date().toISOString().slice(0, 10),
+      isLastGood: false,
+      staleReason: null,
+      canAuthorizeUniverse: false,
+      seriesCounts: {},
+    };
+    // dbTransactionMock must NOT be called — gate fires before any DB round-trip
+    dbTransactionMock.mockClear();
+    const result = await _saveSnapshotToDb(zeroEntry);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reasonCode).toBe("INVALID_SNAPSHOT_ROW_COUNT");
+      expect(result.errorClass).toBe("ValidationError");
+      expect(result.durablyCommitted).toBe(false);
+    }
+    expect(dbTransactionMock).not.toHaveBeenCalled();
+  });
+
+  it("999-row snapshot (below MIN) → ok=false, no DB call", async () => {
+    const belowMinEntry: any = {
+      bySymbol: new Map(Array.from({ length: 999 }, (_, i) => [`SYM${i}`, { symbol: `SYM${i}` }])),
+      byIsin: new Map(),
+      totalRecords: 999,
+      fetchedAt: new Date().toISOString(),
+      sourceUrl: "https://archives.nseindia.com/content/equities/EQUITY_L.csv",
+      sourceHash: "test-below-min",
+      snapshotDate: new Date().toISOString().slice(0, 10),
+      isLastGood: false,
+      staleReason: null,
+      canAuthorizeUniverse: false,
+      seriesCounts: { EQ: 999 },
+    };
+    dbTransactionMock.mockClear();
+    const result = await _saveSnapshotToDb(belowMinEntry);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reasonCode).toBe("INVALID_SNAPSHOT_ROW_COUNT");
+      expect(result.durablyCommitted).toBe(false);
+    }
+    expect(dbTransactionMock).not.toHaveBeenCalled();
+  });
+
+  it("1000-row snapshot (at MIN boundary) → proceeds to DB (transaction called)", async () => {
+    const atMinEntry: any = {
+      bySymbol: new Map(Array.from({ length: 1000 }, (_, i) => [`SYM${i}`, { symbol: `SYM${i}`, series: "EQ", isin: `INE${i}`, name: `Company ${i}`, listingDate: "2020-01-01" }])),
+      byIsin: new Map(),
+      totalRecords: 1000,
+      fetchedAt: new Date().toISOString(),
+      sourceUrl: "https://archives.nseindia.com/content/equities/EQUITY_L.csv",
+      sourceHash: "test-at-min",
+      snapshotDate: new Date().toISOString().slice(0, 10),
+      isLastGood: false,
+      staleReason: null,
+      canAuthorizeUniverse: false,
+      seriesCounts: { EQ: 1000 },
+    };
+    dbTransactionMock.mockClear();
+    const result = await _saveSnapshotToDb(atMinEntry);
+    // Gate does NOT fire — transaction is called (normal DB path)
+    expect(dbTransactionMock).toHaveBeenCalled();
+    // With the mock returning a valid row, ok=true
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.durablyCommitted).toBe(true);
+      expect(result.durableStore).toBe("POSTGRESQL");
+    }
   });
 });

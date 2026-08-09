@@ -51,8 +51,8 @@
  *      VERIFIED (2026-08-09 live): ETF symbols (342 in NSE eq_etfseclist.csv) cross-checked
  *        against EQUITY_L — 0 ETF symbols appear in EQUITY_L.csv EQ series. ETFs are
  *        listed in the separate eq_etfseclist.csv file, not EQUITY_L.csv.
- *      VERIFIED (2026-08-09 live): 0 REIT/InvIT company names in EQUITY_L.csv EQ series.
- *        REITs/InvITs are listed in separate NSE segments (not the equity segment).
+ *      REITs/InvITs may appear in EQUITY_L.csv with EQ series during NSE listing transitions.
+ *        Exclusion is applied via Kite instrument-name heuristic before the NSE reference join.
  *      LIMITATION: Does NOT distinguish preference shares from ordinary EQ (both appear as EQ).
  *      Result: Symbols present with series=EQ in EQUITY_L.csv and confirmed in Kite master
  *              receive authority=AUTHORITATIVE_NSE_REFERENCE and finalClass=ORDINARY_COMPANY_EQUITY_ELIGIBLE.
@@ -376,7 +376,9 @@ function detectBzSeries(suffix: string | null, symbol: string): string[] | null 
  * Detect Real Estate Investment Trusts (REITs) and Infrastructure Investment Trusts (InvITs).
  *
  * AUTHORITY: HEURISTIC_DIAGNOSTIC_ONLY
- * REITs/InvITs are listed in separate NSE segments, not in EQUITY_L.csv equity segment.
+ * REITs/InvITs are primarily listed in separate NSE segments but may appear in EQUITY_L.csv
+ * with EQ series during listing transitions or NSE data updates. The name-based heuristic
+ * is applied before the NSE reference join so the series check alone is not relied upon.
  * No official NSE CSV provides a programmatic REIT/InvIT registry.
  * Detection uses name patterns (trust names containing "REIT" or "INVIT") conservatively
  * for exclusion only. Cannot produce eligibleForOrdinaryEquityScanner=true.

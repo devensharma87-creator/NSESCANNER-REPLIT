@@ -1,0 +1,140 @@
+PROMPT_33B — FINAL FOUR-BLOCKER CORRECTION — NO DEPLOYMENT
+
+Continue from commit `db0333e`.
+
+Do not create new packs, architecture, evidence frameworks or unrelated tests. Do not deploy.
+
+Fix only these four blockers.
+
+## 1. Block invalid snapshots before database insertion
+
+The system incorrectly inserted a zero-row snapshot as `snapshotId=61`.
+
+Implement a pre-insert validation gate:
+
+```text
+rowCount below validated minimum
+→ do not INSERT
+→ ok=false
+→ durablyCommitted=false
+→ reasonCode=INVALID_SNAPSHOT_ROW_COUNT
+→ no snapshotId
+→ previous durable snapshot preserved
+```
+
+Identify whether snapshot `61` exists in development or production.
+
+Do not delete production data without authorization. Mark it rejected/ineligible if required and prove snapshot selection cannot load it.
+
+Add only the minimum regression test required.
+
+## 2. Prove a real PostgreSQL transaction failure
+
+A circular JSON error is not a database failure.
+
+Force an actual insert/transaction failure and prove:
+
+```text
+transaction rolled back
+no new snapshot committed
+previous PostgreSQL snapshot unchanged
+durablyCommitted=false
+canAuthorizeUniverse=false
+persistence failure metric incremented
+caller does not authorize the failed snapshot
+```
+
+Do not use source inspection as proof. Provide before/after database query results.
+
+## 3. Produce actual generation and restart evidence
+
+Run the real scanner lifecycle:
+
+1. Create/load one valid displayed generation.
+2. Record generation ID and row count.
+3. Force NSE refresh failure.
+4. Force PostgreSQL persistence failure.
+5. Confirm after each failure:
+
+   * Same displayed generation ID
+   * Same row count
+   * State becomes `STALE` or `DEGRADED`
+   * No empty generation
+   * No false score, signal, neutral value or action
+6. Restart the API process.
+7. Confirm hydration from PostgreSQL.
+8. Confirm an older local disk snapshot does not override the PostgreSQL snapshot.
+
+Provide the exact runtime trace—not code-line references or test-hook factories.
+
+## 4. Reconcile the unexplained live record
+
+The current figures contain one unexplained matched instrument:
+
+```text
+Kite→EQUITY_L matches: 2077
+Ordinary eligible:       2065
+Trade-to-trade:            11
+Explained total:          2076
+Difference:                  1
+```
+
+Identify the exact:
+
+* Symbol
+* ISIN
+* NSE series
+* Final classification
+* Eligibility decision
+* Authority source
+
+Then rerun the real reconciliation and prove accounting difference equals zero.
+
+Also record URL, retrieval time, effective date and SHA-256 for:
+
+* `EQUITY_L.csv`
+* `eq_etfseclist.csv`
+* Any REIT/InvIT reference used
+
+If REIT/InvIT type cannot be authoritatively established, classify it as unresolved and exclude it.
+
+## Minimal closing verification
+
+Run once:
+
+* Targeted corrected tests
+* Full API-server tests
+* Full scanner tests
+* All relevant TSC checks
+* API-server production build
+* Scanner production build
+* `git diff --check`
+* All four safety locks remain false
+* Broker execution remains disabled
+* `artifacts/global` unchanged
+
+Return only:
+
+1. Four blocker results
+2. Exact runtime/database evidence
+3. Exact reconciliation
+4. Test/build results
+5. Changed files
+6. Commit hash
+7. Remaining blocker, if any
+
+Maximum response: two pages.
+
+Allowed verdicts:
+
+```text
+PROMPT_33B_PREDEPLOY_VERIFIED — OWNER_DEPLOYMENT_AUTHORIZATION_REQUIRED
+```
+
+or:
+
+```text
+BLOCKED_PROMPT_33B — <EXACT_REASON>
+```
+
+No deployment and no new tasks.

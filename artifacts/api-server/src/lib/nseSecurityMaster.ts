@@ -503,6 +503,18 @@ async function ensureNseMasterSnapshotSchema(): Promise<void> {
  */
 export let persistenceFailureCount = 0;
 
+/**
+ * Minimum row count that a snapshot must have before it may be committed to PostgreSQL.
+ * NSE EQUITY_L normally carries ~2,300–2,400 rows. Below 1,000 indicates a parse error,
+ * empty-body response, or a zero-row test artifact.
+ *
+ * Snapshot id=61 (row_count=0, validation_result='ACCEPTED') would have been blocked by
+ * this gate had it been in place at insertion time. It has been retroactively marked
+ * REJECTED_INVALID_ROW_COUNT in the database and cannot be selected by _loadLatestSnapshotFromDb
+ * (which already requires row_count >= 100 AND validation_result = 'ACCEPTED').
+ */
+export const MIN_SNAPSHOT_ROW_COUNT_FOR_COMMIT = 1000;
+
 export type SnapshotPersistenceResult =
   | {
       ok: true;
@@ -543,6 +555,32 @@ export type SnapshotPersistenceResult =
  * EXPORTED for test mocking via vi.spyOn.
  */
 export async function _saveSnapshotToDb(entry: MasterCache): Promise<SnapshotPersistenceResult> {
+  // ── Pre-insert validation gate ────────────────────────────────────────────────
+  // Block obviously-invalid snapshots before any database round-trip.
+  // A zero-row or near-zero snapshot is either a parse error, an empty HTTP body,
+  // or a test artifact — never a valid NSE equity master.
+  if (entry.totalRecords < MIN_SNAPSHOT_ROW_COUNT_FOR_COMMIT) {
+    persistenceFailureCount++;
+    logger.warn(
+      {
+        totalRecords: entry.totalRecords,
+        minimumRequired: MIN_SNAPSHOT_ROW_COUNT_FOR_COMMIT,
+        diagnosticEvent: "NSE_MASTER_PERSISTENCE_FAILURE",
+        reasonCode: "INVALID_SNAPSHOT_ROW_COUNT",
+        persistenceFailureCount,
+        impact: "Invalid snapshot blocked before INSERT; previous durable PostgreSQL snapshot preserved",
+        canAuthorizeUniverse: false,
+      },
+      "NSE equity master: _saveSnapshotToDb blocked — row count below minimum — DIAGNOSTIC_EVENT=NSE_MASTER_PERSISTENCE_FAILURE",
+    );
+    return {
+      ok: false,
+      reasonCode: "INVALID_SNAPSHOT_ROW_COUNT",
+      errorClass: "ValidationError",
+      durablyCommitted: false,
+    };
+  }
+
   try {
     await ensureNseMasterSnapshotSchema();
     const records = Array.from(entry.bySymbol.values());
