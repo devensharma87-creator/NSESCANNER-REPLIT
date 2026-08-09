@@ -139,9 +139,9 @@ describe("CF-05: REIT precedes NSE reference join — fires even when nseRef has
       name: "Embassy Office Parks REIT",
       nseRef: refWithReit,
     });
-    // REIT detection fires before the NSE ref EQ check; must not be ORDINARY_MAIN_BOARD_EQUITY
+    // REIT detection fires before the NSE ref EQ check; must not be ORDINARY_COMPANY_EQUITY_ELIGIBLE
     expect(result.eligibilityClass).toBe("REIT_OR_INVIT");
-    expect(result.eligibilityClass).not.toBe("ORDINARY_MAIN_BOARD_EQUITY");
+    expect(result.eligibilityClass).not.toBe("ORDINARY_COMPANY_EQUITY_ELIGIBLE");
   });
 });
 
@@ -151,10 +151,10 @@ describe("CF-06: REIT_OR_INVIT is in WAREHOUSE_EXCLUDED_CLASSES", () => {
   });
 });
 
-describe("CF-07: ordinary company name (no REIT/INVIT) → ORDINARY_MAIN_BOARD_EQUITY", () => {
+describe("CF-07: ordinary company name (no REIT/INVIT) → ORDINARY_COMPANY_EQUITY_ELIGIBLE", () => {
   it("ordinary company name does not trigger REIT detection", () => {
     const result = classifyInstrument({ ...BASE_OPTS });
-    expect(result.eligibilityClass).toBe("ORDINARY_MAIN_BOARD_EQUITY");
+    expect(result.eligibilityClass).toBe("ORDINARY_COMPANY_EQUITY_ELIGIBLE");
   });
 });
 
@@ -201,7 +201,7 @@ describe("CF-10: REIT precedenceVector records detection signal", () => {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 describe("CF-11: -PP suffix → PARTLY_PAID_EQUITY (authoritative, replaces deprecated PARTLY_PAID_OR_PREFERENCE)", () => {
-  it("symbol with -PP suffix is classified as PARTLY_PAID_EQUITY (AUTHORITATIVE)", () => {
+  it("symbol with -PP suffix is classified as PARTLY_PAID_EQUITY (HEURISTIC_DIAGNOSTIC_ONLY)", () => {
     const result = classifyInstrument({
       ...BASE_OPTS,
       symbol: "TATAPOWER-PP",
@@ -210,12 +210,12 @@ describe("CF-11: -PP suffix → PARTLY_PAID_EQUITY (authoritative, replaces depr
     });
     expect(result.eligibilityClass).toBe("PARTLY_PAID_EQUITY");
     expect(result.warehouseEligible).toBe(false);
-    expect(result.authorityLevel).toBe("AUTHORITATIVE");
+    expect(result.authorityLevel).toBe("HEURISTIC_DIAGNOSTIC_ONLY");
   });
 });
 
-describe("CF-12: 'PARTLY PAID' in name → PARTLY_PAID_EQUITY (authoritative NSE name)", () => {
-  it("name containing PARTLY PAID triggers PARTLY_PAID_EQUITY detection", () => {
+describe("CF-12: 'PARTLY PAID' in name → PARTLY_PAID_EQUITY (HEURISTIC_DIAGNOSTIC_ONLY — name pattern, not official NSE series code)", () => {
+  it("name containing PARTLY PAID triggers PARTLY_PAID_EQUITY detection (HEURISTIC_DIAGNOSTIC_ONLY)", () => {
     const result = classifyInstrument({
       ...BASE_OPTS,
       symbol: "TATAPOWERPP",
@@ -224,12 +224,12 @@ describe("CF-12: 'PARTLY PAID' in name → PARTLY_PAID_EQUITY (authoritative NSE
     });
     expect(result.eligibilityClass).toBe("PARTLY_PAID_EQUITY");
     expect(result.warehouseEligible).toBe(false);
-    expect(result.authorityLevel).toBe("AUTHORITATIVE");
+    expect(result.authorityLevel).toBe("HEURISTIC_DIAGNOSTIC_ONLY");
   });
 });
 
 describe("CF-13: PREFERENCE in name → PREFERENCE_SHARE (heuristic-fail-closed, replaces deprecated PARTLY_PAID_OR_PREFERENCE)", () => {
-  it("name containing PREFERENCE triggers PREFERENCE_SHARE detection (HEURISTIC_FAIL_CLOSED)", () => {
+  it("name containing PREFERENCE triggers PREFERENCE_SHARE detection (HEURISTIC_DIAGNOSTIC_ONLY)", () => {
     const result = classifyInstrument({
       ...BASE_OPTS,
       symbol: "SOMESTOCK",
@@ -238,7 +238,7 @@ describe("CF-13: PREFERENCE in name → PREFERENCE_SHARE (heuristic-fail-closed,
     });
     expect(result.eligibilityClass).toBe("PREFERENCE_SHARE");
     expect(result.warehouseEligible).toBe(false);
-    expect(result.authorityLevel).toBe("HEURISTIC_FAIL_CLOSED");
+    expect(result.authorityLevel).toBe("HEURISTIC_DIAGNOSTIC_ONLY");
   });
 });
 
@@ -257,7 +257,7 @@ describe("CF-14: PARTLY_PAID_OR_PREFERENCE + PARTLY_PAID_EQUITY + PREFERENCE_SHA
 describe("CF-15: ordinary company with no partly-paid signal → ORDINARY (not misclassified)", () => {
   it("ordinary equity not misclassified as partly-paid or preference", () => {
     const result = classifyInstrument({ ...BASE_OPTS });
-    expect(result.eligibilityClass).toBe("ORDINARY_MAIN_BOARD_EQUITY");
+    expect(result.eligibilityClass).toBe("ORDINARY_COMPANY_EQUITY_ELIGIBLE");
     expect(result.eligibilityClass).not.toBe("PARTLY_PAID_OR_PREFERENCE");
     expect(result.eligibilityClass).not.toBe("PARTLY_PAID_EQUITY");
     expect(result.eligibilityClass).not.toBe("PREFERENCE_SHARE");
@@ -276,7 +276,7 @@ describe("CF-16: partly-paid detection precedes NSE reference join", () => {
       nseRef: refWithPp,
     });
     expect(result.eligibilityClass).toBe("PARTLY_PAID_EQUITY");
-    expect(result.eligibilityClass).not.toBe("ORDINARY_MAIN_BOARD_EQUITY");
+    expect(result.eligibilityClass).not.toBe("ORDINARY_COMPANY_EQUITY_ELIGIBLE");
     expect(result.eligibilityClass).not.toBe("PARTLY_PAID_OR_PREFERENCE");
   });
 });

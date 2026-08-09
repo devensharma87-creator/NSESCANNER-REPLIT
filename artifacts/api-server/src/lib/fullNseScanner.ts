@@ -175,13 +175,13 @@ const DISK_CACHE_NAME = "full-nse-scan";
 // that eligibility classifier is provisional (no authoritative NSE reference).
 // v19 (2026-08-09): NSE authoritative security reference (EQUITY_L.csv) integrated.
 // classifyInstrument now joins against the NSE reference for EQ/NSE instruments.
-// Eligible class changes from ORDINARY_EQUITY_ELIGIBLE → ORDINARY_MAIN_BOARD_EQUITY
+// Eligible class changes from ORDINARY_EQUITY_ELIGIBLE → ORDINARY_COMPANY_EQUITY_ELIGIBLE
 // (NSE series=EQ confirmed) or KITE_NSE_EQ_LIKE_PROVISIONAL (reference unavailable).
 // ScanCountReconciliation adds: rawKiteNseInstrumentCount, kiteInstrumentTypeEqCount,
 // provisionallyClassifiedCount, authoritativelyVerifiedOrdinaryEquityCount,
 // unresolvedSecurityCount, excludedSecurityCount.
 // Old v18 blobs carry ORDINARY_EQUITY_ELIGIBLE counts — invalidate.
-const DISK_CACHE_VERSION = 19;
+const DISK_CACHE_VERSION = 20;
 const DISK_CACHE_MAX_AGE_MS = 60 * 60_000;
 
 /**
@@ -245,7 +245,7 @@ export interface ScanCountReconciliation {
    */
   provisionallyClassifiedCount: number;
   /**
-   * Instruments authoritatively verified as ORDINARY_MAIN_BOARD_EQUITY by
+   * Instruments authoritatively verified as ORDINARY_COMPANY_EQUITY_ELIGIBLE by
    * joining Kite EQ master against NSE EQUITY_L.csv (symbol=EQ series confirmed).
    * This is the ONLY count that can drive breadth, rankings, signals, and trade actions.
    * Must NOT equal 8,891 or any provisional estimate — requires NSE reference join.
@@ -322,7 +322,7 @@ export interface ClassifierProvenance {
   /**
    * Current classifier type.
    * - "PROVISIONAL_KITE_MASTER_PLUS_SUFFIX": NSE reference not loaded; suffix heuristics only.
-   * - "NSE_EQUITY_L_REFERENCE_JOINED": EQUITY_L.csv joined; series=EQ → ORDINARY_MAIN_BOARD_EQUITY.
+   * - "NSE_EQUITY_L_REFERENCE_JOINED": EQUITY_L.csv joined; series=EQ → ORDINARY_COMPANY_EQUITY_ELIGIBLE.
    */
   type: "PROVISIONAL_KITE_MASTER_PLUS_SUFFIX" | "NSE_EQUITY_L_REFERENCE_JOINED";
   /** Machine-readable status that must appear in any automation/logging checks. */
@@ -406,7 +406,7 @@ export function buildClassifierProvenance(nseRefMeta: NseRefMeta): ClassifierPro
     reason:
       `NSE EQUITY_L.csv reference joined (snapshot: ${nseRefMeta.snapshotDate}, ` +
       `hash: ${nseRefMeta.sourceHash}, records: ${nseRefMeta.totalRecords}). ` +
-      `Instruments with series=EQ → ORDINARY_MAIN_BOARD_EQUITY (eligible for signals). ` +
+      `Instruments with series=EQ → ORDINARY_COMPANY_EQUITY_ELIGIBLE (eligible for signals). ` +
       `Instruments absent from reference → UNRESOLVED_SECURITY_TYPE (excluded). ` +
       `Canary still blocked: CANARY_BLOCKED_AUTHORITATIVE_NSE_SECURITY_REFERENCE_REQUIRED ` +
       `(warehouse population gates not yet authorized).`,
@@ -1062,7 +1062,7 @@ async function performFullScan(): Promise<Cache> {
 
   // ── 1e. AUTHORITATIVE SYMBOL LIST (single-pass, nseRef confirmed) ─────
   // One classify pass with the authoritative NSE reference. All EQ/NSE instruments
-  // with confirmed series=EQ → ORDINARY_MAIN_BOARD_EQUITY → eligible.
+  // with confirmed series=EQ → ORDINARY_COMPANY_EQUITY_ELIGIBLE → eligible.
   // Others (T2T/SME/absent from reference) → excluded. No provisional path.
   if (kiteInst && kiteInst.list.length > 0) {
     const rawSymbols = kiteInst.list.map(i => i.tradingsymbol);
@@ -1443,7 +1443,7 @@ async function performFullScan(): Promise<Cache> {
   const unresolvedSecurityType     = eb["UNRESOLVED_SECURITY_TYPE"]               ?? 0;
   const indexInstruments           = eb["INDEX"]                                  ?? 0;
   // v19: these are the authoritative classification counts (from NSE EQUITY_L.csv join)
-  const authoritativelyVerifiedOrdinaryEquityCount = eb["ORDINARY_MAIN_BOARD_EQUITY"]     ?? 0;
+  const authoritativelyVerifiedOrdinaryEquityCount = eb["ORDINARY_COMPANY_EQUITY_ELIGIBLE"]     ?? 0;
   const provisionallyClassifiedCount               = eb["KITE_NSE_EQ_LIKE_PROVISIONAL"]   ?? 0;
   const unresolvedSecurityCount                    = unresolvedSecurityType;
   // Legacy v18 class — should be 0 in v19+
@@ -1480,7 +1480,7 @@ async function performFullScan(): Promise<Cache> {
   const apiRowCount = rows.length;
 
   const step1Valid = rawKiteMaster === 0 || (Math.abs(rawKiteMaster - knownClassSum - unknownClass) === 0);
-  // step2Valid: symbolList = ORDINARY_MAIN_BOARD_EQUITY + KITE_NSE_EQ_LIKE_PROVISIONAL (both in symbolList)
+  // step2Valid: symbolList = ORDINARY_COMPANY_EQUITY_ELIGIBLE + KITE_NSE_EQ_LIKE_PROVISIONAL (both in symbolList)
   const eligibleInSymbolList = authoritativelyVerifiedOrdinaryEquityCount + provisionallyClassifiedCount + legacyOrdinaryEquityEligible;
   const step2Valid = eligibleInSymbolList === 0 || (liveQuoteRows + noQuoteRows === symbolList.length);
   const step3Valid = apiRowCount === evaluatedRows + notEvaluatedRows;

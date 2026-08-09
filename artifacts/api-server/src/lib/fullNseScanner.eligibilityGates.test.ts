@@ -236,22 +236,22 @@ describe("G6 — Debt/SDL/SGB/SME/BZ/unresolved instruments are excluded from OR
   ];
 
   for (const { sym, name, master } of excluded) {
-    it(`${sym} is NOT ORDINARY_MAIN_BOARD_EQUITY (in WAREHOUSE_EXCLUDED_CLASSES)`, () => {
+    it(`${sym} is NOT ORDINARY_COMPANY_EQUITY_ELIGIBLE (in WAREHOUSE_EXCLUDED_CLASSES)`, () => {
       const r = classifyInstrument({ ...master, symbol: sym, name, nseRef: null });
-      expect(r.eligibilityClass).not.toBe("ORDINARY_MAIN_BOARD_EQUITY");
+      expect(r.eligibilityClass).not.toBe("ORDINARY_COMPANY_EQUITY_ELIGIBLE");
       expect(r.warehouseEligible).toBe(false);
       expect(WAREHOUSE_EXCLUDED_CLASSES.has(r.eligibilityClass)).toBe(true);
     });
   }
 
-  it("ordinary NSE EQ instruments in master with authoritative nseRef ARE eligible (ORDINARY_MAIN_BOARD_EQUITY)", () => {
+  it("ordinary NSE EQ instruments in master with authoritative nseRef ARE eligible (ORDINARY_COMPANY_EQUITY_ELIGIBLE)", () => {
     const equities = ["RELIANCE", "INFY", "HDFCBANK", "TCS", "WIPRO"];
     const nseRef: import("./kiteCandle/instrumentEligibility").NseSecurityReference = new Map(
       equities.map((sym, i) => [sym, { series: "EQ", isin: `INE${String(i).padStart(9, "0")}A`, dateOfListing: "01-JAN-2000" }])
     );
     for (const sym of equities) {
       const r = classifyInstrument({ ...MASTER_EQ, symbol: sym, name: `${sym} LIMITED`, nseRef });
-      expect(r.eligibilityClass).toBe("ORDINARY_MAIN_BOARD_EQUITY");
+      expect(r.eligibilityClass).toBe("ORDINARY_COMPANY_EQUITY_ELIGIBLE");
       expect(r.warehouseEligible).toBe(true);
     }
   });
@@ -520,7 +520,7 @@ describe("G14 — Count consistency: universeSize = liveQuoteCount + failures", 
       const r = classifyInstrument({
         ...inst, instrumentType: "EQ", segment: "NSE", exchange: "NSE", inCurrentMaster: true, nseRef: null,
       });
-      expect(r.eligibilityClass).not.toBe("ORDINARY_MAIN_BOARD_EQUITY");
+      expect(r.eligibilityClass).not.toBe("ORDINARY_COMPANY_EQUITY_ELIGIBLE");
     }
   });
 });

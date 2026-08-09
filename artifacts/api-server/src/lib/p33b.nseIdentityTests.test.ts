@@ -3,15 +3,15 @@
  *
  * Tests the NSE EQUITY_L.csv reference join logic:
  *   - classifyNseSeries helper maps series codes → canonical classes
- *   - classifyInstrument with nseRef → ORDINARY_MAIN_BOARD_EQUITY for EQ
+ *   - classifyInstrument with nseRef → ORDINARY_COMPANY_EQUITY_ELIGIBLE for EQ
  *   - classifyInstrument with nseRef → TRADE_TO_TRADE_EQUITY_POLICY_EXCLUDED for BE
  *   - classifyInstrument with nseRef → SME_EQUITY_POLICY_EXCLUDED for SM/ST
  *   - classifyInstrument with nseRef=null → KITE_NSE_EQ_LIKE_PROVISIONAL
  *   - classifyInstrument with nseRef but symbol absent → UNRESOLVED_SECURITY_TYPE
  *   - parseCsv round-trips correctly for EQUITY_L.csv format
  *   - Reconciliation counts follow the authoritative vocabulary
- *   - WAREHOUSE_EXCLUDED_CLASSES does not include ORDINARY_MAIN_BOARD_EQUITY
- *   - WAREHOUSE_EXCLUDED_CLASSES does not include KITE_NSE_EQ_LIKE_PROVISIONAL
+ *   - WAREHOUSE_EXCLUDED_CLASSES does not include ORDINARY_COMPANY_EQUITY_ELIGIBLE
+ *   - WAREHOUSE_EXCLUDED_CLASSES DOES include KITE_NSE_EQ_LIKE_PROVISIONAL (fail-closed)
  *
  * Suite: api-server vitest (non-DB, --pool=threads)
  */
@@ -49,10 +49,10 @@ function classify(symbol: string, nseRef: Map<string, { series: string; isin: st
 // ── classifyNseSeries helper ──────────────────────────────────────────────────
 
 describe("NSE-01: classifyNseSeries — series code → security class", () => {
-  it("NSE-01a: EQ → ORDINARY_MAIN_BOARD_EQUITY", () => {
-    expect(classifyNseSeries("EQ")).toBe("ORDINARY_MAIN_BOARD_EQUITY");
-    expect(classifyNseSeries("eq")).toBe("ORDINARY_MAIN_BOARD_EQUITY");
-    expect(classifyNseSeries(" EQ ")).toBe("ORDINARY_MAIN_BOARD_EQUITY");
+  it("NSE-01a: EQ → ORDINARY_COMPANY_EQUITY_ELIGIBLE", () => {
+    expect(classifyNseSeries("EQ")).toBe("ORDINARY_COMPANY_EQUITY_ELIGIBLE");
+    expect(classifyNseSeries("eq")).toBe("ORDINARY_COMPANY_EQUITY_ELIGIBLE");
+    expect(classifyNseSeries(" EQ ")).toBe("ORDINARY_COMPANY_EQUITY_ELIGIBLE");
   });
 
   it("NSE-01b: BE → TRADE_TO_TRADE_EQUITY", () => {
@@ -88,30 +88,30 @@ describe("NSE-01: classifyNseSeries — series code → security class", () => {
 
 // ── classifyInstrument with NSE reference ─────────────────────────────────────
 
-describe("NSE-02: classifyInstrument — ORDINARY_MAIN_BOARD_EQUITY (series=EQ confirmed)", () => {
+describe("NSE-02: classifyInstrument — ORDINARY_COMPANY_EQUITY_ELIGIBLE (series=EQ confirmed)", () => {
   const nseRef = makeNseRef([
     { symbol: "RELIANCE", series: "EQ", isin: "INE002A01018", dateOfListing: "01-JAN-1995" },
     { symbol: "INFY", series: "EQ", isin: "INE009A01021", dateOfListing: "08-FEB-1993" },
     { symbol: "HDFCBANK", series: "EQ", isin: "INE040A01034", dateOfListing: "01-JAN-1995" },
   ]);
 
-  it("NSE-02a: RELIANCE → ORDINARY_MAIN_BOARD_EQUITY", () => {
-    expect(classify("RELIANCE", nseRef)).toBe("ORDINARY_MAIN_BOARD_EQUITY");
+  it("NSE-02a: RELIANCE → ORDINARY_COMPANY_EQUITY_ELIGIBLE", () => {
+    expect(classify("RELIANCE", nseRef)).toBe("ORDINARY_COMPANY_EQUITY_ELIGIBLE");
   });
 
-  it("NSE-02b: INFY → ORDINARY_MAIN_BOARD_EQUITY", () => {
-    expect(classify("INFY", nseRef)).toBe("ORDINARY_MAIN_BOARD_EQUITY");
+  it("NSE-02b: INFY → ORDINARY_COMPANY_EQUITY_ELIGIBLE", () => {
+    expect(classify("INFY", nseRef)).toBe("ORDINARY_COMPANY_EQUITY_ELIGIBLE");
   });
 
-  it("NSE-02c: HDFCBANK → ORDINARY_MAIN_BOARD_EQUITY", () => {
-    expect(classify("HDFCBANK", nseRef)).toBe("ORDINARY_MAIN_BOARD_EQUITY");
+  it("NSE-02c: HDFCBANK → ORDINARY_COMPANY_EQUITY_ELIGIBLE", () => {
+    expect(classify("HDFCBANK", nseRef)).toBe("ORDINARY_COMPANY_EQUITY_ELIGIBLE");
   });
 
-  it("NSE-02d: case-insensitive symbol lookup — reliance → ORDINARY_MAIN_BOARD_EQUITY", () => {
-    expect(classify("reliance", nseRef)).toBe("ORDINARY_MAIN_BOARD_EQUITY");
+  it("NSE-02d: case-insensitive symbol lookup — reliance → ORDINARY_COMPANY_EQUITY_ELIGIBLE", () => {
+    expect(classify("reliance", nseRef)).toBe("ORDINARY_COMPANY_EQUITY_ELIGIBLE");
   });
 
-  it("NSE-02e: warehouseEligible=true for ORDINARY_MAIN_BOARD_EQUITY", () => {
+  it("NSE-02e: warehouseEligible=true for ORDINARY_COMPANY_EQUITY_ELIGIBLE", () => {
     const result = classifyInstrument({
       symbol: "RELIANCE",
       name: "RELIANCE INDUSTRIES LIMITED",
@@ -121,7 +121,7 @@ describe("NSE-02: classifyInstrument — ORDINARY_MAIN_BOARD_EQUITY (series=EQ c
       inCurrentMaster: true,
       nseRef,
     });
-    expect(result.eligibilityClass).toBe("ORDINARY_MAIN_BOARD_EQUITY");
+    expect(result.eligibilityClass).toBe("ORDINARY_COMPANY_EQUITY_ELIGIBLE");
     expect(result.warehouseEligible).toBe(true);
     expect(result.policyExclusionReason).toBeNull();
     expect(result.reason).toContain("authoritatively confirms");
@@ -269,8 +269,8 @@ describe("NSE-07: classifyInstrument — OTHER_UNSUPPORTED for unknown NSE serie
 // ── WAREHOUSE_EXCLUDED_CLASSES contract ────────────────────────────────────────
 
 describe("NSE-08: WAREHOUSE_EXCLUDED_CLASSES contract", () => {
-  it("NSE-08a: ORDINARY_MAIN_BOARD_EQUITY is NOT excluded (it is warehouse-eligible)", () => {
-    expect(WAREHOUSE_EXCLUDED_CLASSES.has("ORDINARY_MAIN_BOARD_EQUITY")).toBe(false);
+  it("NSE-08a: ORDINARY_COMPANY_EQUITY_ELIGIBLE is NOT excluded (it is warehouse-eligible)", () => {
+    expect(WAREHOUSE_EXCLUDED_CLASSES.has("ORDINARY_COMPANY_EQUITY_ELIGIBLE")).toBe(false);
   });
 
   it("NSE-08b: KITE_NSE_EQ_LIKE_PROVISIONAL IS excluded (fail-closed: no authoritative reference = no warehouse entry)", () => {
@@ -309,7 +309,7 @@ describe("NSE-09: Reconciliation — authoritative vocabulary is distinct from p
   it("NSE-09a: authoritativelyVerifiedOrdinaryEquityCount ≠ eligibleOrdinaryEquities (provisional sum)", () => {
     // The key owner requirement: authoritativelyVerifiedOrdinaryEquityCount (from NSE reference join)
     // must be different from the provisional count (8,891 Kite heuristic result).
-    // Simulated: when NSE reference is loaded, symbols are classified as ORDINARY_MAIN_BOARD_EQUITY.
+    // Simulated: when NSE reference is loaded, symbols are classified as ORDINARY_COMPANY_EQUITY_ELIGIBLE.
     // When reference is NOT loaded, they are classified as KITE_NSE_EQ_LIKE_PROVISIONAL.
     // The test proves these are different classes and thus produce different counts.
     const nseRef = makeNseRef([
@@ -318,11 +318,11 @@ describe("NSE-09: Reconciliation — authoritative vocabulary is distinct from p
     const authClass = classify("RELIANCE", nseRef);
     const provClass = classify("RELIANCE", null);
     expect(authClass).not.toBe(provClass);
-    expect(authClass).toBe("ORDINARY_MAIN_BOARD_EQUITY");
+    expect(authClass).toBe("ORDINARY_COMPANY_EQUITY_ELIGIBLE");
     expect(provClass).toBe("KITE_NSE_EQ_LIKE_PROVISIONAL");
   });
 
-  it("NSE-09b: ORDINARY_MAIN_BOARD_EQUITY has warehouseEligible=true; KITE_NSE_EQ_LIKE_PROVISIONAL has warehouseEligible=false", () => {
+  it("NSE-09b: ORDINARY_COMPANY_EQUITY_ELIGIBLE has warehouseEligible=true; KITE_NSE_EQ_LIKE_PROVISIONAL has warehouseEligible=false", () => {
     const nseRef = makeNseRef([{ symbol: "INFY", series: "EQ", isin: "INE009A01021", dateOfListing: "08-FEB-1993" }]);
     const auth = classifyInstrument({ symbol: "INFY", name: "INFOSYS", instrumentType: "EQ", segment: "NSE", exchange: "NSE", inCurrentMaster: true, nseRef });
     const prov = classifyInstrument({ symbol: "INFY", name: "INFOSYS", instrumentType: "EQ", segment: "NSE", exchange: "NSE", inCurrentMaster: true, nseRef: null });

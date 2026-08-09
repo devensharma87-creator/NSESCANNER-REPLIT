@@ -17,7 +17,7 @@ import {
 // ── Full class registry (matched against actual InstrumentEligibilityClass union) ──
 
 const ALL_CLASSES: InstrumentEligibilityClass[] = [
-  "ORDINARY_MAIN_BOARD_EQUITY",          // only warehouse-eligible class
+  "ORDINARY_COMPANY_EQUITY_ELIGIBLE",          // only warehouse-eligible class
   "KITE_NSE_EQ_LIKE_PROVISIONAL",        // NSE ref unavailable — fail-closed
   "ORDINARY_EQUITY_ELIGIBLE",            // deprecated — never emitted by classifier
   "TRADE_TO_TRADE_EQUITY_POLICY_EXCLUDED",
@@ -51,10 +51,10 @@ const B: Inst = { // base: ordinary NSE EQ instrument in current master
 // ── Synthetic universe — covers every active class ────────────────────────────
 
 const universe: Array<{ inst: Inst; expectedClass: InstrumentEligibilityClass; desc: string }> = [
-  // ORDINARY_MAIN_BOARD_EQUITY — NSE EQ + NSE ref with series=EQ
-  { inst: { ...B, symbol: "RELIANCE",  name: "Reliance Industries Limited" },        expectedClass: "ORDINARY_MAIN_BOARD_EQUITY", desc: "ordinary NSE equity (Reliance)" },
-  { inst: { ...B, symbol: "TCS",       name: "Tata Consultancy Services Ltd" },      expectedClass: "ORDINARY_MAIN_BOARD_EQUITY", desc: "ordinary NSE equity (TCS)" },
-  { inst: { ...B, symbol: "HDFCBANK",  name: "HDFC Bank Limited" },                  expectedClass: "ORDINARY_MAIN_BOARD_EQUITY", desc: "ordinary NSE equity (HDFC Bank)" },
+  // ORDINARY_COMPANY_EQUITY_ELIGIBLE — NSE EQ + NSE ref with series=EQ
+  { inst: { ...B, symbol: "RELIANCE",  name: "Reliance Industries Limited" },        expectedClass: "ORDINARY_COMPANY_EQUITY_ELIGIBLE", desc: "ordinary NSE equity (Reliance)" },
+  { inst: { ...B, symbol: "TCS",       name: "Tata Consultancy Services Ltd" },      expectedClass: "ORDINARY_COMPANY_EQUITY_ELIGIBLE", desc: "ordinary NSE equity (TCS)" },
+  { inst: { ...B, symbol: "HDFCBANK",  name: "HDFC Bank Limited" },                  expectedClass: "ORDINARY_COMPANY_EQUITY_ELIGIBLE", desc: "ordinary NSE equity (HDFC Bank)" },
 
   // KITE_NSE_EQ_LIKE_PROVISIONAL — NSE EQ + nseRef=null (ref unavailable)
   { inst: { ...B, symbol: "NEWSTK",    name: "Newly Listed Co Ltd", nseRef: null },  expectedClass: "KITE_NSE_EQ_LIKE_PROVISIONAL", desc: "EQ but NSE ref unavailable → provisional" },
@@ -136,7 +136,7 @@ for (const cls of ALL_CLASSES) {
 }
 
 LN(`╠${SEP}╣`);
-LN(`║  Warehouse-eligible (ORDINARY_MAIN_BOARD_EQUITY only): ${wEligible.toString().padEnd(14)}║`);
+LN(`║  Warehouse-eligible (ORDINARY_COMPANY_EQUITY_ELIGIBLE only): ${wEligible.toString().padEnd(14)}║`);
 LN(`║  Warehouse-excluded (all other classes):               ${wExcluded.toString().padEnd(14)}║`);
 LN(`╠${SEP}╣`);
 

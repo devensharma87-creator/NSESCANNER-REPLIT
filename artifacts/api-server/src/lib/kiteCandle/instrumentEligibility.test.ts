@@ -53,7 +53,7 @@ function makeCustomNseRef(entries: Array<{ symbol: string; series: string; isin?
 /**
  * Base attributes for a standard NSE EQ instrument present in the Kite master.
  * nseRef=null is the fail-closed default — callers must provide an authoritative
- * NseSecurityReference to get ORDINARY_MAIN_BOARD_EQUITY.
+ * NseSecurityReference to get ORDINARY_COMPANY_EQUITY_ELIGIBLE.
  */
 const MASTER_EQ = { instrumentType: "EQ", segment: "NSE", exchange: "NSE", inCurrentMaster: true, nseRef: null as NseSecurityReference | null };
 /** Base attributes for an instrument NOT in the Kite master. */
@@ -130,10 +130,10 @@ describe("NSE reference gate — nseRef is required (non-optional, compile-error
     }
   });
 
-  it("nseRef=Map with symbol+series=EQ → ORDINARY_MAIN_BOARD_EQUITY (warehouse-eligible)", () => {
+  it("nseRef=Map with symbol+series=EQ → ORDINARY_COMPANY_EQUITY_ELIGIBLE (warehouse-eligible)", () => {
     const nseRef = makeEqNseRef(["RELIANCE"]);
     const r = classifyInstrument({ ...MASTER_EQ, symbol: "RELIANCE", name: "RELIANCE INDUSTRIES", nseRef });
-    expect(r.eligibilityClass).toBe("ORDINARY_MAIN_BOARD_EQUITY");
+    expect(r.eligibilityClass).toBe("ORDINARY_COMPANY_EQUITY_ELIGIBLE");
     expect(r.warehouseEligible).toBe(true);
     expect(r.policyExclusionReason).toBeNull();
     expect(r.seriesCode).toBeNull();
@@ -168,8 +168,8 @@ describe("NSE reference gate — nseRef is required (non-optional, compile-error
     expect(WAREHOUSE_EXCLUDED_CLASSES.has("ORDINARY_EQUITY_ELIGIBLE")).toBe(true);
   });
 
-  it("ORDINARY_MAIN_BOARD_EQUITY is NOT in WAREHOUSE_EXCLUDED_CLASSES (it is the only eligible class)", () => {
-    expect(WAREHOUSE_EXCLUDED_CLASSES.has("ORDINARY_MAIN_BOARD_EQUITY")).toBe(false);
+  it("ORDINARY_COMPANY_EQUITY_ELIGIBLE is NOT in WAREHOUSE_EXCLUDED_CLASSES (it is the only eligible class)", () => {
+    expect(WAREHOUSE_EXCLUDED_CLASSES.has("ORDINARY_COMPANY_EQUITY_ELIGIBLE")).toBe(false);
   });
 
   it("in master but instrument_type=FUT → OTHER_UNSUPPORTED (not EQ)", () => {
@@ -208,7 +208,8 @@ describe("Suffix signals — supporting evidence only, not independent authority
     expect(r.eligibilityClass).toBe("DEBT_GOVERNMENT_SECURITY");
     expect(r.seriesCode).toBe("SG");
     expect(r.reason).toContain("suffix=SG");
-    expect(r.reason).toContain("Kite master tradingsymbol");
+    expect(r.reason).toContain("HEURISTIC");
+    expect(r.authorityLevel).toBe("HEURISTIC_DIAGNOSTIC_ONLY");
   });
 
   it("suffix=GB on in-master instrument → SOVEREIGN_GOLD_BOND", () => {
@@ -216,7 +217,8 @@ describe("Suffix signals — supporting evidence only, not independent authority
     expect(r.eligibilityClass).toBe("SOVEREIGN_GOLD_BOND");
     expect(r.seriesCode).toBe("GB");
     expect(r.reason).toContain("suffix=GB");
-    expect(r.reason).toContain("Kite master tradingsymbol");
+    expect(r.reason).toContain("HEURISTIC");
+    expect(r.authorityLevel).toBe("HEURISTIC_DIAGNOSTIC_ONLY");
   });
 
   it("suffix=ST on in-master instrument → SME_EQUITY_POLICY_EXCLUDED", () => {
@@ -225,7 +227,8 @@ describe("Suffix signals — supporting evidence only, not independent authority
     expect(r.eligibilityClass).toBe("SME_EQUITY_POLICY_EXCLUDED");
     expect(r.seriesCode).toBe("ST");
     expect(r.reason).toContain("suffix=ST");
-    expect(r.reason).toContain("Kite master tradingsymbol");
+    expect(r.reason).toContain("HEURISTIC");
+    expect(r.authorityLevel).toBe("HEURISTIC_DIAGNOSTIC_ONLY");
   });
 
   it("suffix=SM on in-master instrument → SME_EQUITY_POLICY_EXCLUDED", () => {
@@ -394,13 +397,13 @@ describe("Canary 50 exact eligibility breakdown — inCurrentMaster based on Kit
     }
   });
 
-  it("14 in-master EQ symbols with authoritative nseRef (series=EQ) → ORDINARY_MAIN_BOARD_EQUITY", () => {
+  it("14 in-master EQ symbols with authoritative nseRef (series=EQ) → ORDINARY_COMPANY_EQUITY_ELIGIBLE", () => {
     expect(IN_MASTER_EQUITIES.length).toBe(14);
     // Build authoritative NseSecurityReference with all 14 symbols mapped to EQ series.
     const nseRef = makeEqNseRef(IN_MASTER_EQUITIES.map(i => i.symbol));
     for (const { symbol, name } of IN_MASTER_EQUITIES) {
       const r = classifyInstrument({ ...MASTER_EQ, symbol, name, nseRef });
-      expect(r.eligibilityClass).toBe("ORDINARY_MAIN_BOARD_EQUITY");
+      expect(r.eligibilityClass).toBe("ORDINARY_COMPANY_EQUITY_ELIGIBLE");
       expect(r.warehouseEligible).toBe(true);
       expect(r.inCurrentMaster).toBe(true);
       expect(r.policyExclusionReason).toBeNull();
@@ -440,11 +443,11 @@ describe("Canary 50 exact eligibility breakdown — inCurrentMaster based on Kit
     expect(r.seriesCode).toBe("BZ");
   });
 
-  it("summarizeEligibility on canary 50 with authoritative nseRef → 14 eligible (all ORDINARY_MAIN_BOARD_EQUITY)", () => {
+  it("summarizeEligibility on canary 50 with authoritative nseRef → 14 eligible (all ORDINARY_COMPANY_EQUITY_ELIGIBLE)", () => {
     // Build authoritative NseSecurityReference with all 14 EQ symbols mapped to series=EQ.
     const nseRef = makeEqNseRef(IN_MASTER_EQUITIES.map(i => i.symbol));
     const allResults = [
-      // 14 authoritative-eligible EQ instruments (nseRef provided → ORDINARY_MAIN_BOARD_EQUITY)
+      // 14 authoritative-eligible EQ instruments (nseRef provided → ORDINARY_COMPANY_EQUITY_ELIGIBLE)
       ...IN_MASTER_EQUITIES.map(i => classifyInstrument({ ...MASTER_EQ, ...i, nseRef })),
       // 33 SDL in master (suffix-classified before NSE ref step)
       ...IN_MASTER_SDL.map(s => classifyInstrument({ ...MASTER_EQ, symbol: s, name: "SDL" })),
@@ -457,14 +460,14 @@ describe("Canary 50 exact eligibility breakdown — inCurrentMaster based on Kit
     ];
     expect(allResults.length).toBe(50);
     const summary = summarizeEligibility(allResults);
-    expect(summary.eligible).toBe(14);          // 14 ORDINARY_MAIN_BOARD_EQUITY
+    expect(summary.eligible).toBe(14);          // 14 ORDINARY_COMPANY_EQUITY_ELIGIBLE
     expect(summary.excluded).toBe(36);
     expect(summary.byClass.DEBT_GOVERNMENT_SECURITY).toBe(33);
     expect(summary.byClass.SOVEREIGN_GOLD_BOND).toBe(1);
     // OMFURN-ST is UNRESOLVED (not SME) — both UNRESOLVED sources sum to 2
     expect(summary.byClass.UNRESOLVED_SECURITY_TYPE).toBe(2); // BZ + OMFURN-ST
     expect(summary.byClass.SME_EQUITY_POLICY_EXCLUDED).toBeUndefined(); // zero
-    expect(summary.byClass.ORDINARY_MAIN_BOARD_EQUITY).toBe(14);
+    expect(summary.byClass.ORDINARY_COMPANY_EQUITY_ELIGIBLE).toBe(14);
   });
 
   it("summarizeEligibility on canary 50 with nseRef=null → 0 eligible (all KITE_NSE_EQ_LIKE_PROVISIONAL)", () => {
@@ -500,14 +503,14 @@ describe("classifyInstrumentBatch", () => {
     expect(batch.get("656KA30-SG")?.eligibilityClass).toBe("DEBT_GOVERNMENT_SECURITY");
   });
 
-  it("nseRef=Map with EQ series → ORDINARY_MAIN_BOARD_EQUITY for EQ instruments", () => {
+  it("nseRef=Map with EQ series → ORDINARY_COMPANY_EQUITY_ELIGIBLE for EQ instruments", () => {
     const nseRef = makeEqNseRef(["RELIANCE"]);
     const batch = classifyInstrumentBatch([
       { ...MASTER_EQ, symbol: "RELIANCE", name: "RELIANCE INDUSTRIES", nseRef },
       { ...NOT_IN_MASTER, symbol: "OMFURN-ST", name: "OM FURNITURE", nseRef: null },
       { ...MASTER_EQ, symbol: "656KA30-SG", name: "SDL KA 6.56% 2030", nseRef: null },
     ]);
-    expect(batch.get("RELIANCE")?.eligibilityClass).toBe("ORDINARY_MAIN_BOARD_EQUITY");
+    expect(batch.get("RELIANCE")?.eligibilityClass).toBe("ORDINARY_COMPANY_EQUITY_ELIGIBLE");
     expect(batch.get("RELIANCE")?.warehouseEligible).toBe(true);
     expect(batch.get("OMFURN-ST")?.eligibilityClass).toBe("UNRESOLVED_SECURITY_TYPE");
     expect(batch.get("656KA30-SG")?.eligibilityClass).toBe("DEBT_GOVERNMENT_SECURITY");
@@ -518,14 +521,20 @@ describe("classifyInstrumentBatch", () => {
 
 describe("WAREHOUSE_EXCLUDED_CLASSES completeness", () => {
   const EXCLUDED: InstrumentEligibilityClass[] = [
+    // Deprecated former eligibility classes (fail-closed on old cache entries)
+    "ORDINARY_MAIN_BOARD_EQUITY",           // deprecated name — in WAREHOUSE_EXCLUDED_CLASSES for old cache compat
+    "ORDINARY_EQUITY_ELIGIBLE",             // deprecated pre-gate class → stale cache guard
     // Fail-closed classes — reference gate or explicit policy exclusion
     "KITE_NSE_EQ_LIKE_PROVISIONAL",         // NSE reference unavailable → fail closed
-    "ORDINARY_EQUITY_ELIGIBLE",             // deprecated pre-gate class → stale cache guard
     // Policy exclusions (confirmed by NSE reference or Kite master)
     "TRADE_TO_TRADE_EQUITY_POLICY_EXCLUDED",
     "SME_EQUITY_POLICY_EXCLUDED",
     "DEBT_GOVERNMENT_SECURITY",
     "SOVEREIGN_GOLD_BOND",
+    "REIT_OR_INVIT",
+    "PARTLY_PAID_EQUITY",
+    "PREFERENCE_SHARE",
+    "PARTLY_PAID_OR_PREFERENCE",            // deprecated — kept for cache compat
     "ETF_OR_FUND",
     "INDEX",
     "INACTIVE_OR_DELISTED",
@@ -537,7 +546,7 @@ describe("WAREHOUSE_EXCLUDED_CLASSES completeness", () => {
       expect(WAREHOUSE_EXCLUDED_CLASSES.has(cls)).toBe(true);
     });
   }
-  it("ORDINARY_MAIN_BOARD_EQUITY is NOT in WAREHOUSE_EXCLUDED_CLASSES (it is the only eligible class)", () => {
-    expect(WAREHOUSE_EXCLUDED_CLASSES.has("ORDINARY_MAIN_BOARD_EQUITY")).toBe(false);
+  it("ORDINARY_COMPANY_EQUITY_ELIGIBLE is NOT in WAREHOUSE_EXCLUDED_CLASSES (it is the only eligible class)", () => {
+    expect(WAREHOUSE_EXCLUDED_CLASSES.has("ORDINARY_COMPANY_EQUITY_ELIGIBLE")).toBe(false);
   });
 });

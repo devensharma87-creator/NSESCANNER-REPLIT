@@ -1,0 +1,578 @@
+PROMPT_33B_REJECTED-EVIDENCE_REMEDIATION — CONTINUE SAME TASK — NO DEPLOYMENT
+
+Continue the existing Prompt 33B task from commit `eaec2a3`.
+
+Do not create a new pack, roadmap task, phase or unrelated workstream.
+
+The previous verdict:
+
+```text
+PACK_33B_FINAL_EVIDENCE_REMEDIATION_COMPLETE
+```
+
+is rejected because the evidence did not prove the required live reconciliation, authoritative classification, durable persistence, immutable generation behaviour, safety locks or complete predeployment battery.
+
+Do not:
+
+* Deploy or publish
+* Retry or reset any canary
+* Enable Full-NSE warehouse population
+* Enable scanner evaluation
+* Activate FNO_PAPER_V2 or SWING_PAPER_V2
+* Run V2 migrations
+* Enable live broker execution
+* Modify trading strategies
+* Change scores, weights, thresholds, entries, exits, stops or targets
+* Modify `artifacts/global`
+* Add new UI features
+* Substitute additional synthetic tests for missing runtime evidence
+
+Preserve all valid work already completed. Fix only the remaining failures below.
+
+---
+
+# Gate 0 — Mandatory preflight and change-boundary proof
+
+Before editing, report:
+
+* Repository identity
+* Stock Scanner Pro repository path
+* Branch
+* HEAD
+* Working-tree status
+* Previous commit `eaec2a3` present
+* Current production deployment commit
+* Exact files changed since the last accepted baseline
+* All four safety-lock values
+* Broker-execution status
+* `artifacts/global` status
+
+Classify every existing uncommitted change before editing.
+
+Do not touch unrelated files.
+
+---
+
+# Gate 1 — Correct authoritative security classification
+
+The current classification is not accepted.
+
+The following are not authoritative security-type evidence:
+
+* Kite symbol suffixes
+* Security-name patterns
+* Kite `instrument_type=EQ`
+* NSE `SERIES=EQ` by itself
+* Regex-based REIT, InvIT, ETF, partly paid or preference-share detection
+
+A symbol suffix or name pattern may create a diagnostic warning, but it must never produce an authoritative eligible classification.
+
+## Required authority contract
+
+Every result must contain:
+
+```ts
+type ClassificationAuthority =
+  | "AUTHORITATIVE_NSE_REFERENCE"
+  | "HEURISTIC_DIAGNOSTIC_ONLY"
+  | "UNRESOLVED";
+
+type InstrumentClassification = {
+  finalClass:
+    | "ORDINARY_COMPANY_EQUITY_ELIGIBLE"
+    | "TRADE_TO_TRADE_EQUITY"
+    | "SME_EQUITY"
+    | "ETF_OR_MUTUAL_FUND_UNIT"
+    | "REIT_OR_INVIT"
+    | "PARTLY_PAID_EQUITY"
+    | "PREFERENCE_SHARE"
+    | "DEBT_OR_HYBRID"
+    | "SOVEREIGN_GOLD_BOND"
+    | "INACTIVE_SECURITY"
+    | "UNRESOLVED_SECURITY_TYPE";
+  authority: ClassificationAuthority;
+  eligibleForOrdinaryEquityScanner: boolean;
+  sourceDataset: string | null;
+  sourceEffectiveDate: string | null;
+  reasonCode: string;
+  diagnosticWarnings: string[];
+};
+```
+
+Rules:
+
+1. Only `ORDINARY_COMPANY_EQUITY_ELIGIBLE` with `authority="AUTHORITATIVE_NSE_REFERENCE"` may enter the ordinary-equity scanner.
+2. A heuristic match must not authorize eligibility.
+3. If the official references cannot distinguish an instrument reliably, return:
+
+   * `finalClass="UNRESOLVED_SECURITY_TYPE"`
+   * `authority="UNRESOLVED"`
+   * `eligibleForOrdinaryEquityScanner=false`
+4. Do not call suffix or name evidence “authoritative.”
+5. The deprecated combined class must remain excluded and must not be accepted from an old cache without reclassification.
+6. Version and invalidate every cache affected by the classification contract change.
+
+## Official source requirement
+
+Identify the official NSE datasets required to distinguish:
+
+* Ordinary company equity
+* BE/T2T equity
+* SME securities
+* ETFs/mutual-fund units
+* REITs/InvITs
+* Partly paid equity
+* Preference shares
+* Debt/hybrid securities
+* SGBs
+* Inactive securities
+
+For each source report:
+
+* Official URL
+* HTTP status
+* Content type
+* Effective date
+* Retrieval timestamp
+* File size
+* SHA-256
+* Headers/schema
+* Parsed rows
+* Rejected rows
+* Duplicate symbols
+* Duplicate ISINs
+* Missing symbols
+* Missing ISINs
+
+If official sources are unavailable or insufficient, fail closed and return:
+
+```text
+BLOCKED_AUTHORITATIVE_NSE_SECURITY_TYPE_REFERENCE_INSUFFICIENT
+```
+
+Do not convert incomplete official data into a fabricated authoritative classification.
+
+---
+
+# Gate 2 — Genuine live Kite-to-NSE reconciliation
+
+The previous result:
+
+```text
+ELIGIBLE(3) + EXCLUDED(11) = 14
+```
+
+was a synthetic classification fixture. It is not live reconciliation.
+
+Run the reconciliation against:
+
+* The same live Kite NSE instrument master consumed by production code
+* The same official NSE reference datasets consumed by production code
+* The same classifier used by Full Scanner
+* The same current repository HEAD
+
+Report exact:
+
+* Kite raw NSE instrument count
+* Kite EQ-like candidate count
+* Official NSE rows per source
+* Matches by ISIN
+* Matches by symbol
+* ISIN/symbol conflicts
+* Kite-only unmatched
+* NSE-only unmatched
+* Duplicate symbols
+* Duplicate ISINs
+* Missing ISINs
+* Parse rejects
+* Count for every final classification
+* Eligible ordinary-company equities
+* Total excluded
+* Total unresolved
+* Final Full Scanner universe
+
+Prove:
+
+```text
+candidateCount
+=
+ordinaryEligible
++ tradeToTrade
++ SME
++ ETFOrFund
++ REITOrInvIT
++ partlyPaid
++ preferenceShares
++ debtOrHybrid
++ SGB
++ inactive
++ unresolved
++ explicitlyDocumentedUnmatched
+```
+
+Requirements:
+
+* Every candidate belongs to exactly one final class.
+* No silent exclusions.
+* No double counting.
+* No estimated counts.
+* No synthetic instruments in the live report.
+* Fixture-test results must be reported separately.
+
+## Real Full Scanner run
+
+Run the actual development Full Scanner production function and record:
+
+* `generationId`
+* `generatedAt`
+* `universeSize`
+* `displayedRows`
+* `liveQuoteCount`
+* `noFeedCount`
+* `failures`
+* `eligibilityBreakdown`
+* `countReconciliation`
+* `reconciliationValid`
+* Reference snapshot IDs
+* Reference hashes
+* Reference effective dates
+* Data state
+* Evaluation state
+* Actionability state
+* Scan duration
+
+Prove the API response, scanner header counts, row count and generation metadata reconcile exactly.
+
+---
+
+# Gate 3 — Prove actual F&O admission behaviour
+
+Retain the improved primary fields:
+
+```ts
+status
+banned
+canAuthorizeAdmission
+reasonCode
+asOf
+```
+
+Do not reintroduce ambiguous `allowed`, `rawBanResult` or equivalent bypass fields.
+
+Inventory every production path capable of:
+
+* Emitting an actionable F&O signal
+* Admitting an F&O candidate
+* Staging an F&O trade
+* Opening an F&O paper trade
+* Sending an actionable F&O alert
+* Forwarding an F&O order toward execution
+
+For each actual production function, runtime-test:
+
+1. `CURRENT + banned=false + canAuthorizeAdmission=true` → this gate passes.
+2. `CURRENT + banned=true` → blocked.
+3. `LAST_KNOWN_STALE` → blocked regardless of cached membership.
+4. `UNAVAILABLE` → blocked.
+5. Malformed/unknown state → blocked.
+6. `null` is never treated as `false`.
+7. An index-derivative exemption is explicit and cannot exempt a stock derivative.
+8. No diagnostic compatibility field can bypass the primary gate.
+
+Return a caller inventory showing the exact line/function and result.
+
+Testing only `checkFnoBanAdmission()` is insufficient.
+
+---
+
+# Gate 4 — Prove Swing Cash separation at runtime
+
+F&O-ban status must remain informational for CNC/cash Swing orders.
+
+Runtime-test the real `stageSwingOrder()` production function:
+
+1. Current F&O ban + otherwise valid CNC swing setup:
+
+   * Must not be rejected solely because of F&O ban.
+   * F&O-ban metadata must remain visible.
+2. Stale/unavailable F&O-ban source:
+
+   * Must not falsely authorize derivatives.
+   * Must not independently reject a cash order.
+3. Existing Swing Cash provenance, liquidity, price, market-status, kill-switch and risk gates remain unchanged.
+4. No cash order can be misclassified as a derivative order.
+5. No derivative order can enter the cash-only exemption.
+
+Return the exact runtime results, not source-regex tests.
+
+---
+
+# Gate 5 — Make persistence failure impossible to hide
+
+Awaiting `_saveSnapshotToDb()` is insufficient if the function catches and suppresses failure.
+
+Required contract:
+
+```ts
+type SnapshotPersistenceResult =
+  | {
+      ok: true;
+      snapshotId: string;
+      committedAt: string;
+      sha256: string;
+      durableStore: "POSTGRESQL";
+    }
+  | {
+      ok: false;
+      reasonCode: string;
+      errorClass: string;
+      durableStore: "POSTGRESQL";
+    };
+```
+
+Required behaviour:
+
+1. PostgreSQL is the authoritative durable store.
+2. Local disk is non-authoritative cache only.
+3. A snapshot is not reported as durable before transaction commit.
+4. A failed PostgreSQL write must:
+
+   * Return or throw an explicit failure
+   * Preserve the previous durable snapshot
+   * Increment a persistence-failure metric
+   * Emit a structured diagnostic event
+   * Keep `canAuthorizeUniverse=false` for the uncommitted snapshot
+5. No caller may ignore `ok:false`.
+6. No in-memory or disk snapshot created before failed persistence may become authoritative.
+7. Database schema creation/migration remains additive and idempotent.
+8. Normalized records, source metadata, effective date, retrieval time, validation result, row count, rejected count, schema version and SHA-256 must be persisted.
+
+Inventory every caller of `_saveSnapshotToDb()` and prove it handles both result branches.
+
+---
+
+# Gate 6 — Protect the entire refresh critical section
+
+Prove exactly where `pg_advisory_xact_lock` is acquired.
+
+If the lock exists only inside `_saveSnapshotToDb()`, both replicas may still fetch and validate the same official sources concurrently before serializing only the inserts.
+
+The refresh lock must protect the intended critical section:
+
+```text
+lock
+→ recheck latest durable snapshot
+→ decide whether refresh is necessary
+→ fetch
+→ validate
+→ persist
+→ commit
+→ release
+```
+
+Alternatively, provide a bounded and documented design proving duplicate fetches are harmless, rate-safe and cannot cause conflicting durable snapshots.
+
+Tests must prove:
+
+* Two simultaneous replicas
+* Exactly one refresh winner where required
+* Losing replica reloads the winner’s durable snapshot
+* Lock release after success
+* Lock release after validation failure
+* Lock release after database failure
+* Lock release after timeout
+* No session-lock leakage
+* No connection-pool cross-session unlock
+* No duplicate conflicting snapshot commit
+
+Use the same transaction/connection for transaction-scoped lock semantics.
+
+---
+
+# Gate 7 — Correct snapshot-selection precedence
+
+Selecting only by `fetchedAt` is insufficient.
+
+Selection must validate:
+
+* Validation status
+* Effective date
+* Schema version
+* SHA-256
+* Retrieval timestamp
+* PostgreSQL commit status
+* Reference expiry
+* `canAuthorizeUniverse`
+
+Rules:
+
+1. An invalid snapshot never wins because it is newer.
+2. An uncommitted disk snapshot never overrides a committed PostgreSQL snapshot.
+3. Local disk cannot be authoritative by itself.
+4. If PostgreSQL is unavailable and only disk remains:
+
+   * The data may be displayed as last-known if validated.
+   * `canAuthorizeUniverse` must remain false.
+   * No scoring, ranking, signals or paper admission may be authorized.
+5. Conflicting snapshots must produce a machine-readable diagnostic result.
+
+Test:
+
+* Newer valid PostgreSQL vs older disk
+* Older valid PostgreSQL vs newer uncommitted disk
+* Newer malformed disk
+* Schema-version conflict
+* Effective-date conflict
+* Hash conflict
+* Expired PostgreSQL snapshot
+* PostgreSQL unavailable with validated disk only
+* No usable snapshot
+
+---
+
+# Gate 8 — Prove immutable last-good scanner generation
+
+Do not respond “already correct.”
+
+Run the actual scanner lifecycle:
+
+1. Establish a valid displayed generation.
+2. Record:
+
+   * Generation ID
+   * Generated timestamp
+   * Row count
+   * Universe count
+   * Reference snapshot ID
+3. Force official NSE refresh failure.
+4. Force PostgreSQL persistence failure separately.
+5. Confirm:
+
+   * Displayed generation ID remains unchanged
+   * Row count remains unchanged
+   * Existing values remain unchanged
+   * State changes to stale/degraded
+   * Failure reason is explicit
+   * No empty generation replaces last-good
+   * No false zero, neutral, score, confidence, signal or action is created
+6. Restart the process using only the durable PostgreSQL snapshot.
+7. Prove restart hydration and fail-closed authorization behaviour.
+
+Provide the actual runtime trace.
+
+---
+
+# Gate 9 — Complete production-artifact and route cleanup
+
+Run clean Stock Scanner Pro production builds.
+
+Recursively scan every emitted file for:
+
+* `/debug/home-states`
+* `HomeDebugPage`
+* `STATE-A`
+* `STATE-B`
+* `STATE-C`
+* `home-debug`
+* `fixture-only`
+* Preview-bypass code
+* Test-hook export names
+* Fixture payload markers
+* Public source-map references
+* `project-codebase-summary.md`
+
+Also inspect the production route registry and prove zero debug/fixture routes are registered.
+
+Requirements:
+
+* `project-codebase-summary.md` absent from public output.
+* Public production source maps absent.
+* Private monitoring source-map handling, if used, must not expose maps through the website.
+* Legitimate production symbols must not be treated as fixture leakage solely because their names occur in bundles.
+
+Return every emitted file scanned, match count and match disposition.
+
+---
+
+# Gate 10 — Exact safety-lock and closing-battery proof
+
+Prove from source and runtime import:
+
+```text
+FULL_NSE_WAREHOUSE_POPULATION_AUTHORIZED=false as boolean
+SCANNER_KITE_CANDLE_EVALUATION_AUTHORIZED=false as boolean
+FNO_PAPER_V2_RUNTIME_AUTHORIZED=false as boolean
+SWING_PAPER_V2_RUNTIME_AUTHORIZED=false as boolean
+```
+
+Do not substitute migration variables, canary variables or grep patterns unrelated to these constants.
+
+Also prove:
+
+* F&O automatic opening hard-blocked
+* Equity/Swing automatic opening remains under existing controls
+* No reachable real broker `placeOrder`
+* Dry-run execution remains simulation-only
+* No deployment occurred
+* No canary retry occurred
+* No warehouse population occurred
+* No scanner evaluation activation occurred
+* No V2 activation or migration occurred
+* `artifacts/global` unchanged
+
+Run and report exact commands and exit codes for:
+
+* Complete API-server tests
+* Complete scanner tests
+* All relevant package typechecks
+* Stock Scanner Pro API production build
+* Stock Scanner Pro scanner production build
+* Recursive artifact scan
+* Production route-registry scan
+* `git diff --check`
+* `.skip`/`.only` audit
+* Secret sentinel
+* Provider-import guard
+* Broker-execution sentinel
+* Working-tree status
+
+Return:
+
+* Branch
+* HEAD
+* Commit hash
+* Changed-file inventory
+* Exact test counts
+* Build outputs
+* Exit codes
+* Evidence paths
+* Live reconciliation artifact
+* Runtime generation trace
+* Persistence/locking evidence
+* Remaining blockers
+
+Do not use test totals as a substitute for live runtime evidence.
+
+Do not rename or replace the required gates.
+
+Do not self-authorize deployment.
+
+---
+
+# Required verdict
+
+If and only if every gate passes:
+
+```text
+PROMPT_33B_FINAL_CORRECTNESS_AND_PREDEPLOY_EVIDENCE_VERIFIED —
+OWNER_DEPLOYMENT_AUTHORIZATION_REQUIRED
+```
+
+If anything is incomplete:
+
+```text
+BLOCKED_PROMPT_33B_FINAL_CORRECTNESS —
+<EXACT_FAILED_GATE_AND_REASON>
+```
+
+No deployment, partial acceptance or new pack.

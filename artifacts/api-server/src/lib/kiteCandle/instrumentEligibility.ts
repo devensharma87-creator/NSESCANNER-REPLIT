@@ -1,61 +1,70 @@
 /**
- * Canonical NSE Instrument Eligibility Resolver — Pack 33 Corrective.
- *
- * Classifies NSE EQ instruments using ALL available identity metadata from the
- * Kite instrument master, in strict precedence order.
+ * Canonical NSE Instrument Eligibility Resolver — Pack 33B Rejected-Evidence Remediation.
  *
  * ═══════════════════════════════════════════════════════════════════════════════
- * FUNDAMENTAL DESIGN CONTRACT
+ * CLASSIFICATION AUTHORITY CONTRACT (Gate 1)
  * ═══════════════════════════════════════════════════════════════════════════════
  *
- * 1. AUTHORITATIVE SOURCE REQUIREMENT
- *    An instrument must be present in the current Kite NSE EQ instrument master
- *    to receive any affirmative classification. Instruments not present in the
- *    master are classified UNRESOLVED_SECURITY_TYPE regardless of their symbol.
- *    The caller MUST pass `inCurrentMaster: true` only for instruments that
- *    appear in the master fetched from Kite today.
+ * ClassificationAuthority values:
  *
- * 2. ORDINARY_EQUITY_ELIGIBLE REQUIRES AFFIRMATIVE EVIDENCE
- *    A positive eligibility verdict requires ALL of:
- *      a. inCurrentMaster = true
- *      b. exchange = NSE
- *      c. instrument_type = EQ (from the master record)
- *      d. segment = NSE (main-board, not INDICES/SME/IFSC)
- *      e. No exclusion pattern detected (see below)
- *    Missing or conflicting metadata MUST fail closed as UNRESOLVED_SECURITY_TYPE.
+ *   AUTHORITATIVE_NSE_REFERENCE
+ *     Classification is confirmed exclusively by an official NSE-published dataset
+ *     (NSE EQUITY_L.csv series code, joined by symbol/ISIN). This is the ONLY
+ *     source that can produce eligibleForOrdinaryEquityScanner=true.
+ *     Sources: NSE EQUITY_L.csv (EQ, BE, BT, SM, ST, BL, …).
  *
- * 3. SYMBOL-SUFFIX IS SUPPORTING EVIDENCE, NOT AUTHORITY
- *    The tradingsymbol suffix (e.g. -SG, -GB, -ST, -BZ) appears in Kite's
- *    instrument master as part of the tradingsymbol field. It is extracted and
- *    used as a SUPPORTING SIGNAL for classification of instruments that ARE in
- *    the master — it is NOT independently authoritative and CANNOT classify an
- *    instrument absent from the master.
- *    Example: "OMFURN-ST" absent from the master → UNRESOLVED (not SME), because
- *    the master record is required to confirm the series/security type.
+ *   HEURISTIC_DIAGNOSTIC_ONLY
+ *     Classification uses Kite tradingsymbol suffix evidence OR name-pattern evidence.
+ *     These are NOT official NSE publications. They are supporting signals used only
+ *     for conservative fail-closed EXCLUSION. A heuristic signal MUST NEVER produce
+ *     eligibleForOrdinaryEquityScanner=true.
+ *     Applies to: -GB/-SG/-ST/-SM/-PP/-BZ suffix, REIT/ETF/SGB/SDL name patterns.
  *
- * 4. AUTHORITATIVE CLASSIFICATION PRECEDENCE (for instruments in master)
- *    evaluated in this order; stop at first match:
- *      1. inCurrentMaster = false          → UNRESOLVED_SECURITY_TYPE
- *      2. exchange ≠ NSE                   → OTHER_UNSUPPORTED
- *      3. instrument_type = INDEX OR segment = INDICES  → INDEX
- *      4. In INACTIVE_SYMBOLS set          → INACTIVE_OR_DELISTED
- *      5. tradingsymbol suffix = -GB (Sovereign Gold Bonds) → SOVEREIGN_GOLD_BOND
- *      6. tradingsymbol suffix = -SG (State Dev Loans)     → DEBT_GOVERNMENT_SECURITY
- *         OR name contains SDL coupon-rate pattern
- *      7. tradingsymbol suffix = -ST or -SM (SME segment)  → SME_EQUITY_POLICY_EXCLUDED
- *      8. tradingsymbol suffix = -BZ (cross-listed BSZ)    → UNRESOLVED_SECURITY_TYPE
- *      9. ETF/fund name/symbol pattern (centralLooksLikeEtf) → ETF_OR_FUND
- *     10. exchange=NSE + segment=NSE + instrument_type=EQ + no pattern → ORDINARY_EQUITY_ELIGIBLE
- *     11. All others                       → OTHER_UNSUPPORTED (fail closed)
+ *   UNRESOLVED
+ *     Authoritative classification cannot be established because:
+ *       a) NSE reference (EQUITY_L.csv) is unavailable (nseRef=null), or
+ *       b) Symbol is absent from NSE reference (cannot confirm series), or
+ *       c) Instrument is absent from the Kite master (inCurrentMaster=false).
+ *     Result: eligibleForOrdinaryEquityScanner=false, warehouseEligible=false.
  *
- * 5. T2T LIMITATION
- *    Trade-to-Trade (BE-series) stocks appear in the master with instrument_type=EQ
- *    and no distinguishing suffix. Detection requires the external NSE T2T
- *    surveillance list (not yet integrated). These currently fall through to step 10
- *    and are classified ORDINARY_EQUITY_ELIGIBLE pending T2T integration.
- *    A future authoritative NSE security-master integration (joining via instrument_token,
- *    ISIN, exchange, segment, series/security type, and tradingsymbol) is required
- *    before the canary can be retried.
+ * RULES (non-negotiable):
+ *   1. Only ORDINARY_COMPANY_EQUITY_ELIGIBLE with authority=AUTHORITATIVE_NSE_REFERENCE
+ *      may enter the ordinary-equity scanner universe.
+ *   2. A heuristic match MUST NEVER authorize eligibility (may only exclude).
+ *   3. Symbol suffix or name pattern MUST NOT be called "authoritative."
+ *   4. If official references cannot distinguish an instrument → UNRESOLVED_SECURITY_TYPE
+ *      + authority=UNRESOLVED + eligibleForOrdinaryEquityScanner=false.
+ *   5. The deprecated ORDINARY_MAIN_BOARD_EQUITY and ORDINARY_EQUITY_ELIGIBLE classes
+ *      are in WAREHOUSE_EXCLUDED_CLASSES — old cache entries carrying them are
+ *      fail-closed until reclassified with the current classifier.
+ *   6. LAST_GOOD_BLOB_VERSION and DISK_CACHE_VERSION incremented to invalidate
+ *      all caches carrying ORDINARY_MAIN_BOARD_EQUITY or HEURISTIC_FAIL_CLOSED entries.
+ *
+ * OFFICIAL NSE SOURCE DATASETS
+ * ─────────────────────────────
+ *   1. NSE EQUITY_L.csv
+ *      URL:    https://archives.nseindia.com/content/equities/EQUITY_L.csv
+ *      Backup: https://nsearchives.nseindia.com/content/equities/EQUITY_L.csv
+ *      Format: CSV — SYMBOL,NAME OF COMPANY,SERIES,DATE OF LISTING,PAID UP VALUE,MARKET LOT,ISIN NUMBER,FACE VALUE
+ *      Updated: Daily by NSE.
+ *      Classifies: EQ (ordinary), BE/BT (T2T), SM/ST (SME), BL (block deal)
+ *      LIMITATION: Does NOT distinguish REIT/InvIT from ordinary EQ (both appear as EQ).
+ *      LIMITATION: Does NOT distinguish preference shares from ordinary EQ (both appear as EQ).
+ *      LIMITATION: Does NOT have a distinct ETF series code (ETFs appear as EQ in some cases).
+ *      Result: Symbols present with series=EQ in EQUITY_L.csv and confirmed in Kite master
+ *              receive authority=AUTHORITATIVE_NSE_REFERENCE and finalClass=ORDINARY_COMPANY_EQUITY_ELIGIBLE.
+ *
+ *   MISSING AUTHORITATIVE SOURCES:
+ *   - REIT/InvIT: No official NSE CSV provides a programmatic REIT/InvIT registry.
+ *     Detection uses HEURISTIC_DIAGNOSTIC_ONLY (name pattern). If insufficient:
+ *     BLOCKED_AUTHORITATIVE_NSE_SECURITY_TYPE_REFERENCE_INSUFFICIENT applies.
+ *   - Preference shares: EQUITY_L.csv does not have a preference-share series code.
+ *     Detection uses HEURISTIC_DIAGNOSTIC_ONLY (name pattern).
+ *   - ETF/Mutual Fund: Some ETFs appear in EQUITY_L.csv as EQ. Detection uses
+ *     HEURISTIC_DIAGNOSTIC_ONLY (symbol/name pattern).
+ *   - SGBs, SDL bonds: Kite tradingsymbol suffix (-GB, -SG) is HEURISTIC_DIAGNOSTIC_ONLY
+ *     evidence. No official NSE CSV programmatically distinguishes these.
+ *   - Inactive/delisted: Based on a curated INACTIVE_SYMBOLS set (maintained internally).
  *
  * ═══════════════════════════════════════════════════════════════════════════════
  */
@@ -66,108 +75,128 @@ import { centralLooksLikeEtf } from "../marketData/compat";
 // ─── Public types ─────────────────────────────────────────────────────────────
 
 /**
- * CLASSIFICATION AUTHORITY LEVELS
- * ─────────────────────────────────
- * AUTHORITATIVE:        Classification confirmed by an official published source
- *                       (NSE EQUITY_L.csv series code, Kite master tradingsymbol suffix,
- *                       or definitional exclusion). Safe to exclude instruments.
+ * Classification authority for a single instrument classification decision.
  *
- * HEURISTIC_FAIL_CLOSED: Classification uses name-pattern evidence only (non-authoritative).
- *                        May be retained only for EXCLUSION (fail-closed/conservative).
- *                        MUST NEVER be used to set warehouseEligible=true.
+ * AUTHORITATIVE_NSE_REFERENCE  — from NSE EQUITY_L.csv series code (joined by symbol).
+ * HEURISTIC_DIAGNOSTIC_ONLY   — from Kite suffix or name-pattern evidence (exclusion only).
+ * UNRESOLVED                  — reference unavailable, symbol absent, or not in master.
+ */
+export type ClassificationAuthority =
+  | "AUTHORITATIVE_NSE_REFERENCE"
+  | "HEURISTIC_DIAGNOSTIC_ONLY"
+  | "UNRESOLVED";
+
+/**
+ * Canonical public classification result. This is the primary type that callers
+ * should use for decision-making. InstrumentEligibilityResult extends this with
+ * additional diagnostic fields.
  *
- * Rule 1: Only ORDINARY_MAIN_BOARD_EQUITY may enter the ordinary-equity scanner.
- * Rule 2: All other classes must remain excluded from breadth, signals, paper admission.
- * Rule 3: If authoritative classification cannot be established → UNRESOLVED_SECURITY_TYPE.
- * Rule 4: Do NOT authorize using: SERIES=EQ alone, instrument_type=EQ alone, name patterns, suffix heuristics.
- * Rule 5: Heuristics may be retained only for non-authoritative diagnostic warnings (exclusions).
- *         They MUST NEVER set warehouseEligible=true or authorize scanner inclusion.
+ * Rules:
+ *   1. eligibleForOrdinaryEquityScanner=true ONLY when:
+ *        finalClass="ORDINARY_COMPANY_EQUITY_ELIGIBLE"
+ *        AND authority="AUTHORITATIVE_NSE_REFERENCE"
+ *   2. All other combinations → eligibleForOrdinaryEquityScanner=false.
+ *   3. authority="HEURISTIC_DIAGNOSTIC_ONLY" may only produce exclusions.
+ *   4. sourceDataset is non-null only for AUTHORITATIVE_NSE_REFERENCE results.
+ *   5. diagnosticWarnings lists heuristic signals that did NOT drive the decision
+ *      (they are recorded for audit only, never for gate logic).
+ */
+export type InstrumentClassification = {
+  finalClass:
+    | "ORDINARY_COMPANY_EQUITY_ELIGIBLE"
+    | "TRADE_TO_TRADE_EQUITY"
+    | "SME_EQUITY"
+    | "ETF_OR_MUTUAL_FUND_UNIT"
+    | "REIT_OR_INVIT"
+    | "PARTLY_PAID_EQUITY"
+    | "PREFERENCE_SHARE"
+    | "DEBT_OR_HYBRID"
+    | "SOVEREIGN_GOLD_BOND"
+    | "INACTIVE_SECURITY"
+    | "UNRESOLVED_SECURITY_TYPE";
+  authority: ClassificationAuthority;
+  eligibleForOrdinaryEquityScanner: boolean;
+  /**
+   * Official NSE dataset that produced this classification.
+   * Non-null ONLY for authority=AUTHORITATIVE_NSE_REFERENCE.
+   * Example: "NSE:EQUITY_L.csv"
+   */
+  sourceDataset: string | null;
+  /**
+   * Effective date of the official NSE dataset (YYYY-MM-DD).
+   * Non-null ONLY for authority=AUTHORITATIVE_NSE_REFERENCE.
+   */
+  sourceEffectiveDate: string | null;
+  /**
+   * Short machine-readable reason for the classification decision.
+   * Examples: "NSE_EQ_SERIES_CONFIRMED", "HEURISTIC_REIT_NAME", "NSE_REF_UNAVAILABLE".
+   */
+  reasonCode: string;
+  /**
+   * Ordered list of heuristic signals observed during classification.
+   * These were collected for diagnostic purposes but did NOT drive the final class.
+   * Empty when authority=AUTHORITATIVE_NSE_REFERENCE and no heuristic conflicts exist.
+   */
+  diagnosticWarnings: string[];
+};
+
+/**
+ * Internal class union. Includes deprecated classes for backward cache compat.
  *
- * SOURCES (in classification authority order):
- *   1. Kite NSE EQ instrument master — required for any affirmative classification.
- *      Source: Kite Connect API — GET /instruments (NSE EQ segment)
- *      Fields: tradingsymbol, name, instrument_type, segment, exchange, isin
- *      Authority: AUTHORITATIVE for master membership (inCurrentMaster).
- *      Tradingsymbol suffixes (e.g. -SG, -GB, -ST, -SM, -PP) are AUTHORITATIVE for the
- *      specific security type they encode: they appear in Kite's official master and reflect
- *      the instrument's NSE designation. NOT independently authoritative without master record.
+ * ┌─────────────────────────────────────────────────────────────┐
+ * │  ONLY ORDINARY_COMPANY_EQUITY_ELIGIBLE is warehouse-eligible │
+ * └─────────────────────────────────────────────────────────────┘
  *
- *   2. NSE EQUITY_L.csv — authoritative series classification.
- *      Source: https://archives.nseindia.com/content/equities/EQUITY_L.csv
- *      Backup: https://nsearchives.nseindia.com/content/equities/EQUITY_L.csv
- *      Fields: SYMBOL, NAME OF COMPANY, SERIES, DATE OF LISTING, PAID UP VALUE,
- *              MARKET LOT, ISIN NUMBER, FACE VALUE
- *      Effective date: publication date (snapshotDate). Updated by NSE daily.
- *      Authority: AUTHORITATIVE for series classification (EQ, BE, BT, SM, ST, BL, etc.)
- *                 EQ = ordinary main-board. BE/BT = trade-to-trade. SM/ST = SME.
- *                 Does NOT distinguish REITs/InvITs from ordinary EQ (both appear as EQ series).
- *
- *   3. REIT/InvIT classification — no authoritative NSE CSV is publicly available that
- *      separately lists REITs/InvITs. NSE EQUITY_L.csv shows REITs as series=EQ.
- *      Current implementation uses name patterns (REIT, INVIT in trust names) as
- *      HEURISTIC_FAIL_CLOSED exclusion. This is conservative: if a name contains
- *      "REIT"/"INVIT", the instrument is excluded. This can never produce a false
- *      inclusion (heuristics may only exclude, never include).
- *      BLOCKED_AUTHORITATIVE_NSE_SECURITY_TYPE_REFERENCE_INSUFFICIENT: would apply if
- *      name-pattern based REIT detection is deemed insufficient. This is the current
- *      documented limitation awaiting an official NSE REIT/InvIT registry endpoint.
+ * Deprecated classes in WAREHOUSE_EXCLUDED_CLASSES (fail-closed):
+ *   ORDINARY_MAIN_BOARD_EQUITY — renamed; any old cache entry fails-closed.
+ *   ORDINARY_EQUITY_ELIGIBLE   — pre-reference-gate era; old blobs carry this.
+ *   PARTLY_PAID_OR_PREFERENCE  — split into two specific classes.
  */
 export type InstrumentEligibilityClass =
   /**
-   * NSE EQUITY_L.csv reference confirms ordinary main-board equity (series=EQ).
-   * This is the ONLY class that can drive breadth, signals, and trade actions.
-   * Requires NSE authoritative reference join (see nseSecurityMaster.ts).
-   * Authority: AUTHORITATIVE (NSE EQUITY_L.csv series=EQ + Kite master EQ/NSE).
+   * THE ONLY warehouse-eligible class.
+   * Requires: authority=AUTHORITATIVE_NSE_REFERENCE (NSE EQUITY_L.csv series=EQ).
+   * Replaces: ORDINARY_MAIN_BOARD_EQUITY (deprecated, excluded).
+   */
+  | "ORDINARY_COMPANY_EQUITY_ELIGIBLE"
+  /**
+   * @deprecated — classifyInstrument no longer emits this class.
+   * Old disk cache entries may carry it. Added to WAREHOUSE_EXCLUDED_CLASSES
+   * so old entries are fail-closed until reclassified. Must not be used by
+   * any new code path.
    */
   | "ORDINARY_MAIN_BOARD_EQUITY"
   /**
-   * Kite master says EQ/NSE, suffix checks pass, but the NSE authoritative
-   * reference (EQUITY_L.csv) was unavailable OR the symbol was not found in it.
-   * CANNOT drive breadth, rankings, signals, market mood, or trade actions.
-   * Displayed in scanner for price/quote purposes only (INFO_ONLY).
-   * Will be reclassified once NSE reference becomes available.
-   */
-  | "KITE_NSE_EQ_LIKE_PROVISIONAL"
-  /**
-   * @deprecated — kept for backward compatibility. classifyInstrument no longer
-   * emits this class. Old cache entries may carry it; treat as KITE_NSE_EQ_LIKE_PROVISIONAL.
+   * @deprecated — kept for backward compatibility. Pre-reference-gate era class.
+   * classifyInstrument never emits this. Old cache entries carrying it are excluded.
    */
   | "ORDINARY_EQUITY_ELIGIBLE"
+  /**
+   * Kite EQ + NSE segment confirmed, but NSE reference (EQUITY_L.csv) unavailable.
+   * Cannot confirm security type without reference join.
+   * Excluded from warehouse — cannot drive breadth, signals, or trade actions.
+   */
+  | "KITE_NSE_EQ_LIKE_PROVISIONAL"
   | "TRADE_TO_TRADE_EQUITY_POLICY_EXCLUDED"
   | "SME_EQUITY_POLICY_EXCLUDED"
   | "DEBT_GOVERNMENT_SECURITY"
   | "SOVEREIGN_GOLD_BOND"
-  /**
-   * Real Estate Investment Trust (REIT) or Infrastructure Investment Trust (InvIT).
-   * These are listed on NSE but are structured as trusts, not ordinary corporate equity.
-   * They appear in the Kite EQ master with instrument_type=EQ; the trust structure is
-   * identified via name-pattern evidence ("REIT", "INVIT", etc.).
-   * Authority: HEURISTIC_FAIL_CLOSED — NSE EQUITY_L.csv does NOT distinguish REIT from
-   * ordinary EQ (both appear as series=EQ). Name-pattern detection is used conservatively
-   * (exclusion only). May never authorize inclusion.
-   */
   | "REIT_OR_INVIT"
   /**
    * Partly-paid equity shares.
-   * Partly-paid shares appear in the Kite master with a "-PP" tradingsymbol suffix.
-   * They may also be identified by "PARTLY PAID" in the NSE-published instrument name.
-   * Authority: AUTHORITATIVE — "-PP" Kite tradingsymbol suffix is a definitive Kite master
-   * designation. "PARTLY PAID" in the NSE-published name is highly authoritative.
-   * CANNOT drive breadth, rankings, signals, or trade actions — different rights from fully paid shares.
+   * Authority: HEURISTIC_DIAGNOSTIC_ONLY — Kite tradingsymbol suffix "-PP" or
+   * "PARTLY PAID" in name. Neither is an official NSE series code.
    */
   | "PARTLY_PAID_EQUITY"
   /**
    * Preference shares.
-   * Identified by "PREFERENCE" in the instrument name.
-   * Authority: HEURISTIC_FAIL_CLOSED — name-pattern only. No authoritative NSE series code
-   * distinguishes preference shares from ordinary equity in EQUITY_L.csv.
-   * CANNOT drive breadth, rankings, signals, or trade actions.
+   * Authority: HEURISTIC_DIAGNOSTIC_ONLY — "PREFERENCE" in name only.
+   * NSE EQUITY_L.csv does not have a preference-share series code.
    */
   | "PREFERENCE_SHARE"
   /**
-   * @deprecated — kept for backward compatibility. classifyInstrument no longer
-   * emits this class. Previously covered both partly-paid and preference shares.
-   * New code emits PARTLY_PAID_EQUITY or PREFERENCE_SHARE instead.
+   * @deprecated — classifyInstrument no longer emits this class.
+   * Old cache entries may carry it. Replaced by PARTLY_PAID_EQUITY / PREFERENCE_SHARE.
    */
   | "PARTLY_PAID_OR_PREFERENCE"
   | "ETF_OR_FUND"
@@ -177,43 +206,43 @@ export type InstrumentEligibilityClass =
   | "OTHER_UNSUPPORTED";
 
 /**
- * All categories that are EXCLUDED from warehouse population (scanner symbolList).
+ * All InstrumentEligibilityClass values excluded from warehouse population.
  *
- * ORDINARY_MAIN_BOARD_EQUITY — NOT excluded: the ONLY class that is warehouse-eligible.
- *   Requires NSE authoritative reference join (nseRef=Map, series=EQ confirmed).
+ * ORDINARY_COMPANY_EQUITY_ELIGIBLE is NOT in this set — it is the only eligible class.
  *
- * KITE_NSE_EQ_LIKE_PROVISIONAL — EXCLUDED: NSE reference unavailable → fail closed.
- *   Instruments cannot drive breadth, rankings, signals, market mood, or trade actions
- *   until the authoritative reference confirms their security type.
- *
- * ORDINARY_EQUITY_ELIGIBLE — EXCLUDED: deprecated class from pre-reference-gate era.
- *   Old disk cache entries carrying this class are treated as fail-closed.
- *   The classifier never emits this class; any entry carrying it is stale.
- *
- * All others — excluded from symbolList entirely.
+ * ORDINARY_MAIN_BOARD_EQUITY and ORDINARY_EQUITY_ELIGIBLE are IN this set (deprecated).
+ * Any old cache blob carrying these classes is fail-closed until reclassified.
  */
 export const WAREHOUSE_EXCLUDED_CLASSES = new Set<InstrumentEligibilityClass>([
-  // Authoritative exclusions (confirmed by NSE reference or Kite master)
-  "KITE_NSE_EQ_LIKE_PROVISIONAL",              // NSE reference required but unavailable — fail closed
-  "ORDINARY_EQUITY_ELIGIBLE",                  // deprecated pre-gate class — treat as fail-closed
+  // Deprecated former eligibility classes (fail-closed on old cache entries)
+  "ORDINARY_MAIN_BOARD_EQUITY",                // deprecated name — never emitted by current code
+  "ORDINARY_EQUITY_ELIGIBLE",                  // deprecated pre-gate class
+  // NSE reference unavailable — cannot confirm security type
+  "KITE_NSE_EQ_LIKE_PROVISIONAL",
+  // Authoritative exclusions (from NSE EQUITY_L.csv series code)
   "TRADE_TO_TRADE_EQUITY_POLICY_EXCLUDED",
   "SME_EQUITY_POLICY_EXCLUDED",
+  // Heuristic fail-closed exclusions (diagnostic only — never authoritative)
   "DEBT_GOVERNMENT_SECURITY",
   "SOVEREIGN_GOLD_BOND",
-  // Heuristic fail-closed exclusions (conservative — cannot produce false inclusions)
-  "REIT_OR_INVIT",                             // trust-structured; name-pattern exclusion (HEURISTIC_FAIL_CLOSED)
-  // Authoritative exclusions (new specific classes — replaces PARTLY_PAID_OR_PREFERENCE)
-  "PARTLY_PAID_EQUITY",                        // Kite -PP suffix or "PARTLY PAID" name (AUTHORITATIVE)
-  "PREFERENCE_SHARE",                          // "PREFERENCE" name pattern (HEURISTIC_FAIL_CLOSED)
-  "PARTLY_PAID_OR_PREFERENCE",                 // deprecated — kept for cache compat; never emitted
+  "REIT_OR_INVIT",
+  "PARTLY_PAID_EQUITY",
+  "PREFERENCE_SHARE",
+  "PARTLY_PAID_OR_PREFERENCE",                 // deprecated — never emitted; kept for cache compat
   "ETF_OR_FUND",
   "INDEX",
   "INACTIVE_OR_DELISTED",
   "UNRESOLVED_SECURITY_TYPE",
   "OTHER_UNSUPPORTED",
-  // ORDINARY_MAIN_BOARD_EQUITY is NOT here — it is the only warehouse-eligible class.
+  // ORDINARY_COMPANY_EQUITY_ELIGIBLE is NOT here — it is the only eligible class.
 ]);
 
+/**
+ * Result of classifying a single NSE instrument.
+ *
+ * The `classification` field provides the canonical public-facing summary.
+ * The remaining fields are diagnostic/audit fields.
+ */
 export interface InstrumentEligibilityResult {
   symbol: string;
   name: string;
@@ -221,61 +250,68 @@ export interface InstrumentEligibilityResult {
   segment: string;
   exchange: string;
   /**
-   * NSE tradingsymbol suffix extracted as a supporting signal.
-   * Examples: "SG" = SDL bond, "GB" = Gold Bond, "ST" = SME-ITP, "SM" = SME, "BZ" = BSZ.
+   * Kite tradingsymbol suffix extracted as DIAGNOSTIC EVIDENCE.
+   * Examples: "SG"=SDL bond, "GB"=Gold Bond, "ST"=SME-ITP, "SM"=SME, "PP"=partly paid.
    * null for standard equity (no suffix).
    *
-   * IMPORTANT: This is supporting evidence from the master record's tradingsymbol field,
-   * NOT an independent authority. An instrument absent from the master is UNRESOLVED
-   * regardless of what its suffix implies.
+   * IMPORTANT: This is HEURISTIC_DIAGNOSTIC_ONLY evidence. Suffix alone is not
+   * authoritative per the classification contract. It is recorded here for audit.
    */
   seriesCode: string | null;
-  /**
-   * Whether this instrument appears in the current Kite NSE EQ instrument master.
-   * false → UNRESOLVED_SECURITY_TYPE; no further classification is performed.
-   */
   inCurrentMaster: boolean;
-  /** ISIN where provided (Kite master does not always include it). */
   isin: string | null;
+  /** Internal class (includes deprecated classes for cache compat). */
   eligibilityClass: InstrumentEligibilityClass;
   /** Detailed rationale including which signals were applied. */
   reason: string;
-  /** Policy reason for exclusion (null for ORDINARY_EQUITY_ELIGIBLE). */
+  /** Policy reason for exclusion (null for ORDINARY_COMPANY_EQUITY_ELIGIBLE). */
   policyExclusionReason: string | null;
   /** Whether this instrument is eligible for full-NSE warehouse population. */
   warehouseEligible: boolean;
   /**
-   * Classification authority level for this decision.
+   * Classification authority level.
    *
-   * AUTHORITATIVE: Classification is confirmed by an official published source:
-   *   - NSE EQUITY_L.csv series code (EQ, BE, BT, SM, ST, BL, SG, GB)
-   *   - Kite master tradingsymbol suffix (-PP, -ST, -SM, -SG, -GB, -BZ)
-   *   - Definitional exclusion (INDEX instrument_type, not in master)
-   *
-   * HEURISTIC_FAIL_CLOSED: Classification uses name-pattern evidence only.
-   *   Conservative (exclusion only); may never authorize scanner inclusion.
-   *   Applies to: REIT_OR_INVIT, PREFERENCE_SHARE (name-pattern detection).
-   *   Rule: Heuristics may be retained only as non-authoritative exclusion signals.
-   *   They MUST NEVER set warehouseEligible=true.
+   * AUTHORITATIVE_NSE_REFERENCE: From NSE EQUITY_L.csv series code join (only source
+   *   that can produce eligibleForOrdinaryEquityScanner=true).
+   * HEURISTIC_DIAGNOSTIC_ONLY: Suffix or name-pattern evidence (exclusion only).
+   * UNRESOLVED: Reference unavailable, symbol absent, or not in master.
    */
-  authorityLevel: "AUTHORITATIVE" | "HEURISTIC_FAIL_CLOSED";
+  authorityLevel: ClassificationAuthority;
+  /**
+   * Official NSE dataset that produced this classification.
+   * Non-null only for authority=AUTHORITATIVE_NSE_REFERENCE.
+   */
+  sourceDataset: string | null;
+  /**
+   * Effective date of the NSE dataset (YYYY-MM-DD).
+   * Non-null only for authority=AUTHORITATIVE_NSE_REFERENCE.
+   */
+  sourceEffectiveDate: string | null;
+  /**
+   * Heuristic signals observed during classification, for audit.
+   * These were NOT used to drive the final classification — they are diagnostic only.
+   */
+  diagnosticWarnings: string[];
   /**
    * Ordered attribute signals that contributed to this decision, for audit.
-   * Format: "attribute=value". Example: ["inCurrentMaster=true", "exchange=NSE",
-   * "segment=NSE", "instrument_type=EQ", "suffix=SG", "name_pattern=SDL_COUPON"]
    */
   precedenceVector: string[];
+  /**
+   * Canonical public classification summary.
+   * Use this type for all gate logic (not eligibilityClass directly).
+   */
+  classification: InstrumentClassification;
 }
 
-// ─── Suffix extraction (supporting evidence) ──────────────────────────────────
+// ─── Suffix extraction (diagnostic evidence) ──────────────────────────────────
 
 /**
  * Extract the trailing hyphenated segment from a Kite tradingsymbol.
  *
- * In Kite's NSE EQ master, some security types are encoded into the tradingsymbol
- * as a hyphenated suffix (e.g. "656KA30-SG", "SGBSEP28VI-GB", "OMFURN-ST").
- * This extraction is a SUPPORTING SIGNAL — the extracted code is only meaningful
- * when the instrument is confirmed to be in the current Kite master.
+ * This is HEURISTIC_DIAGNOSTIC_ONLY evidence. The extracted suffix is meaningful
+ * only when the instrument is confirmed in the current Kite master, and even then
+ * it is not an official NSE series code — it is Kite's internal tradingsymbol
+ * naming convention.
  *
  * Returns null for standard equities (no hyphen suffix).
  */
@@ -283,18 +319,20 @@ function extractSuffixCode(tradingsymbol: string): string | null {
   return tradingsymbol.match(/-([A-Z]+)$/)?.[1] ?? null;
 }
 
-// ─── Classification helpers (all require inCurrentMaster=true) ────────────────
+// ─── Heuristic detection helpers (DIAGNOSTIC ONLY — may only exclude) ─────────
+// All of the following are HEURISTIC_DIAGNOSTIC_ONLY. They may produce fail-closed
+// exclusion results but MUST NEVER produce eligibleForOrdinaryEquityScanner=true.
 
 function detectSovereignGoldBond(suffix: string | null, symbol: string, name: string): string[] | null {
   const s = symbol.toUpperCase(), n = name.toUpperCase();
   if (suffix === "GB") {
-    const signals = ["suffix=GB (Gold Bond series, Kite master tradingsymbol)"];
+    const signals = ["suffix=GB (HEURISTIC: Kite tradingsymbol suffix — not an official NSE series code)"];
     if (s.startsWith("SGB")) signals.push("tradingsymbol_prefix=SGB");
-    if (/GOLD\s*BOND/.test(n)) signals.push(`name_pattern=GOLD_BOND`);
+    if (/GOLD\s*BOND/.test(n)) signals.push("name_pattern=GOLD_BOND");
     return signals;
   }
   if (s.startsWith("SGB") && /GOLD\s*BOND/.test(n)) {
-    return ["tradingsymbol_prefix=SGB", "name_pattern=GOLD_BOND"];
+    return ["tradingsymbol_prefix=SGB (HEURISTIC)", "name_pattern=GOLD_BOND (HEURISTIC)"];
   }
   return null;
 }
@@ -302,31 +340,30 @@ function detectSovereignGoldBond(suffix: string | null, symbol: string, name: st
 function detectDebtGovSecurity(suffix: string | null, symbol: string, name: string): string[] | null {
   const n = name.toUpperCase(), s = symbol.toUpperCase();
   if (suffix === "SG") {
-    const signals = ["suffix=SG (State Development Loan series, Kite master tradingsymbol)"];
+    const signals = ["suffix=SG (HEURISTIC: Kite tradingsymbol suffix — not an official NSE series code)"];
     if (/\bSDL\b/.test(n)) signals.push("name_contains=SDL");
     if (/\d+\.\d+%/.test(n)) signals.push("name_contains=coupon_rate_pattern");
     return signals;
   }
-  // Name-pattern corroboration for bare SDL symbols without suffix (rare)
   if (/\bSDL\b/.test(n) && /\d+\.\d+%.*\d{4}/.test(n)) {
-    return ["name_pattern=SDL_coupon_rate_year"];
+    return ["name_pattern=SDL_coupon_rate_year (HEURISTIC)"];
   }
   if (/^[67]\d{2}[A-Z]{2}\d{2}$/.test(s) && /\bSDL\b/.test(n)) {
-    return [`symbol_pattern=coupon_rate_encoding`, "name_contains=SDL"];
+    return ["symbol_pattern=coupon_rate_encoding (HEURISTIC)", "name_contains=SDL (HEURISTIC)"];
   }
   return null;
 }
 
 function detectSmeEquity(suffix: string | null): string[] | null {
-  if (suffix === "ST") return ["suffix=ST (NSE SME-ITP/Trading platform, Kite master tradingsymbol)"];
-  if (suffix === "SM") return ["suffix=SM (NSE SME segment, Kite master tradingsymbol)"];
+  if (suffix === "ST") return ["suffix=ST (HEURISTIC: Kite tradingsymbol suffix — not an official NSE series code)"];
+  if (suffix === "SM") return ["suffix=SM (HEURISTIC: Kite tradingsymbol suffix — not an official NSE series code)"];
   return null;
 }
 
 function detectBzSeries(suffix: string | null, symbol: string): string[] | null {
   if (suffix === "BZ") {
     return [
-      `suffix=BZ (NSE listing with BSZ/BSE cross-settlement, Kite master tradingsymbol="${symbol}")`,
+      `suffix=BZ (HEURISTIC: Kite tradingsymbol="${symbol}" — not an official NSE series code)`,
       "OHLCV_coverage_via_Kite_equity_endpoint=UNRELIABLE",
     ];
   }
@@ -336,98 +373,131 @@ function detectBzSeries(suffix: string | null, symbol: string): string[] | null 
 /**
  * Detect Real Estate Investment Trusts (REITs) and Infrastructure Investment Trusts (InvITs).
  *
- * These instruments appear in the Kite NSE EQ master with instrument_type=EQ, but are
- * structured as trusts, not ordinary corporate equity. Detection uses name-pattern evidence
- * (authoritative: NSE publishes the trust name containing "REIT" or "INVIT") plus a small
- * curated symbol set for high-confidence cases.
+ * AUTHORITY: HEURISTIC_DIAGNOSTIC_ONLY
+ * NSE EQUITY_L.csv does NOT distinguish REITs/InvITs from ordinary EQ (both appear as EQ).
+ * No official NSE CSV provides a programmatic REIT/InvIT registry.
+ * Detection uses name patterns (trust names containing "REIT" or "INVIT") conservatively
+ * for exclusion only. Cannot produce eligibleForOrdinaryEquityScanner=true.
  *
- * Note: REITs/InvITs appear in EQUITY_L.csv with series=EQ in some cases, making the
- * NSE reference join alone insufficient to exclude them. Name-pattern detection is required
- * and is applied BEFORE the NSE reference join step.
+ * If name-pattern detection is deemed insufficient →
+ *   BLOCKED_AUTHORITATIVE_NSE_SECURITY_TYPE_REFERENCE_INSUFFICIENT applies.
  */
 function detectReitOrInvit(symbol: string, name: string): string[] | null {
   const nu = name.toUpperCase();
-
-  // REIT name patterns — authoritative from NSE trust name
-  if (/\bREIT\b/.test(nu)) return [`name_contains=REIT (Real Estate Investment Trust)`];
-  if (/REAL ESTATE INVESTMENT TRUST/.test(nu)) return [`name_pattern=REAL_ESTATE_INVESTMENT_TRUST`];
-
-  // InvIT name patterns — authoritative from NSE trust name
-  if (/\bINVIT\b/.test(nu)) return [`name_contains=INVIT (Infrastructure Investment Trust)`];
-  if (/INFRASTRUCTURE INVESTMENT TRUST/.test(nu)) return [`name_pattern=INFRASTRUCTURE_INVESTMENT_TRUST`];
-
-  // Trust name corroboration: "INVESTMENT TRUST" in context of infrastructure/real-estate
+  if (/\bREIT\b/.test(nu)) return ["name_contains=REIT (HEURISTIC_DIAGNOSTIC_ONLY: no official NSE REIT registry CSV)"];
+  if (/REAL ESTATE INVESTMENT TRUST/.test(nu)) return ["name_pattern=REAL_ESTATE_INVESTMENT_TRUST (HEURISTIC_DIAGNOSTIC_ONLY)"];
+  if (/\bINVIT\b/.test(nu)) return ["name_contains=INVIT (HEURISTIC_DIAGNOSTIC_ONLY: no official NSE InvIT registry CSV)"];
+  if (/INFRASTRUCTURE INVESTMENT TRUST/.test(nu)) return ["name_pattern=INFRASTRUCTURE_INVESTMENT_TRUST (HEURISTIC_DIAGNOSTIC_ONLY)"];
   if (/INVESTMENT TRUST/.test(nu) && /(?:INFRASTRUCTURE|REAL ESTATE|ROADS|HIGHWAYS|POWER GRID)/.test(nu)) {
-    return [`name_pattern=INVESTMENT_TRUST_WITH_INFRASTRUCTURE_OR_REALESTATE`];
+    return ["name_pattern=INVESTMENT_TRUST_WITH_INFRASTRUCTURE_OR_REALESTATE (HEURISTIC_DIAGNOSTIC_ONLY)"];
   }
-
   return null;
 }
 
 /**
  * Detect partly-paid equity shares.
  *
- * Partly-paid shares appear in the Kite master with a "-PP" tradingsymbol suffix —
- * this is AUTHORITATIVE (from the Kite official instrument master).
- * They may also be identified by "PARTLY PAID" in the NSE-published name,
- * which is also considered authoritative (NSE-published).
+ * AUTHORITY: HEURISTIC_DIAGNOSTIC_ONLY
+ * The Kite tradingsymbol suffix "-PP" is Kite's internal naming convention — it is
+ * NOT an official NSE series code from EQUITY_L.csv. "PARTLY PAID" in the instrument
+ * name is a human-readable label, also not an official NSE programmatic identifier.
  *
- * Authority: AUTHORITATIVE — suffix from Kite master + NSE-published name.
- * Class: PARTLY_PAID_EQUITY
+ * May only be used for fail-closed EXCLUSION. Cannot authorize eligibility.
  */
 function detectPartlyPaidEquity(suffix: string | null, symbol: string, name: string): string[] | null {
   const nu = name.toUpperCase();
-  // Authoritative: Kite master tradingsymbol suffix "-PP"
   if (suffix === "PP") {
-    return [`suffix=PP (partly-paid equity — authoritative from Kite master tradingsymbol="${symbol}")`];
+    return [`suffix=PP (HEURISTIC_DIAGNOSTIC_ONLY: Kite tradingsymbol suffix="${symbol}" — not official NSE series code)`];
   }
-  // Authoritative: NSE-published instrument name contains "PARTLY PAID"
-  if (/PARTLY[\s-]PAID/.test(nu)) return [`name_pattern=PARTLY_PAID (NSE-published instrument name — authoritative)`];
+  if (/PARTLY[\s-]PAID/.test(nu)) {
+    return ["name_pattern=PARTLY_PAID (HEURISTIC_DIAGNOSTIC_ONLY: instrument name — not an official NSE series code)"];
+  }
   return null;
 }
 
 /**
  * Detect preference shares.
  *
- * Preference shares are identified by "PREFERENCE" in the instrument name.
- * No authoritative NSE series code distinguishes preference shares from ordinary
- * equity in EQUITY_L.csv (both appear as series=EQ). This detection is therefore
- * HEURISTIC_FAIL_CLOSED — conservative exclusion only.
+ * AUTHORITY: HEURISTIC_DIAGNOSTIC_ONLY
+ * NSE EQUITY_L.csv has no preference-share series code (both ordinary and preference
+ * shares appear as EQ). Detection uses name-pattern evidence only.
  *
- * Per Rule 5: this heuristic may only be used for exclusion (fail-closed).
- * It must NEVER authorize eligibility.
- *
- * Authority: HEURISTIC_FAIL_CLOSED
- * Class: PREFERENCE_SHARE
+ * May only be used for fail-closed EXCLUSION. Cannot authorize eligibility.
  */
 function detectPreferenceShare(name: string): string[] | null {
   const nu = name.toUpperCase();
   if (/\bPREFERENCE\b/.test(nu)) {
-    return [`name_pattern=PREFERENCE_SHARES (heuristic-fail-closed: "PREFERENCE" in NSE name; no authoritative series code available)`];
+    return ["name_pattern=PREFERENCE_SHARES (HEURISTIC_DIAGNOSTIC_ONLY: NSE EQUITY_L.csv has no preference-share series code)"];
   }
   return null;
 }
 
+// ─── Canonical classification mapping ─────────────────────────────────────────
+
+/**
+ * Map an internal InstrumentEligibilityClass to the canonical InstrumentClassification.finalClass.
+ */
+function toFinalClass(cls: InstrumentEligibilityClass): InstrumentClassification["finalClass"] {
+  switch (cls) {
+    case "ORDINARY_COMPANY_EQUITY_ELIGIBLE": return "ORDINARY_COMPANY_EQUITY_ELIGIBLE";
+    case "TRADE_TO_TRADE_EQUITY_POLICY_EXCLUDED": return "TRADE_TO_TRADE_EQUITY";
+    case "SME_EQUITY_POLICY_EXCLUDED": return "SME_EQUITY";
+    case "ETF_OR_FUND": return "ETF_OR_MUTUAL_FUND_UNIT";
+    case "REIT_OR_INVIT": return "REIT_OR_INVIT";
+    case "PARTLY_PAID_EQUITY": return "PARTLY_PAID_EQUITY";
+    case "PREFERENCE_SHARE": return "PREFERENCE_SHARE";
+    case "DEBT_GOVERNMENT_SECURITY": return "DEBT_OR_HYBRID";
+    case "SOVEREIGN_GOLD_BOND": return "SOVEREIGN_GOLD_BOND";
+    case "INACTIVE_OR_DELISTED": return "INACTIVE_SECURITY";
+    // All others → UNRESOLVED_SECURITY_TYPE (includes deprecated classes and INDEX)
+    default: return "UNRESOLVED_SECURITY_TYPE";
+  }
+}
+
 // ─── Main classifier ──────────────────────────────────────────────────────────
+
+/**
+ * NSE authoritative equity reference map type.
+ * Keyed by NSE tradingsymbol (uppercase). Sourced from EQUITY_L.csv.
+ *
+ * null = reference unavailable → all instruments fail-closed as KITE_NSE_EQ_LIKE_PROVISIONAL.
+ */
+export type NseSecurityReference = Map<string, {
+  series: string;
+  isin: string;
+  dateOfListing: string;
+  /** Snapshot date (YYYY-MM-DD) when this reference was fetched. */
+  snapshotDate?: string;
+}>;
 
 /**
  * Classify a single NSE instrument.
  *
  * The caller MUST set `inCurrentMaster: true` only for instruments confirmed
  * present in the Kite NSE EQ instrument master fetched today.
- * Pass `inCurrentMaster: false` for any instrument not found in the master
- * (e.g. delisted, symbol not in cache). It will be classified UNRESOLVED_SECURITY_TYPE.
- */
-/**
- * NSE authoritative equity reference map type.
- * Keyed by NSE tradingsymbol (uppercase). Sourced from EQUITY_L.csv.
  *
- * Passing null is the ONLY way to express "reference unavailable" — it always
- * results in KITE_NSE_EQ_LIKE_PROVISIONAL (fail-closed). Omitting nseRef is a
- * TypeScript compile error (the field is required, non-optional).
+ * Classification path:
+ *   1. Not in master                 → UNRESOLVED_SECURITY_TYPE   (UNRESOLVED)
+ *   2. Not NSE exchange              → OTHER_UNSUPPORTED           (UNRESOLVED)
+ *   3. INDEX instrument              → INDEX                       (UNRESOLVED)
+ *   4. In INACTIVE_SYMBOLS           → INACTIVE_OR_DELISTED        (HEURISTIC_DIAGNOSTIC_ONLY)
+ *   5. -GB suffix / SGB name         → SOVEREIGN_GOLD_BOND         (HEURISTIC_DIAGNOSTIC_ONLY)
+ *   6. -SG suffix / SDL name         → DEBT_GOVERNMENT_SECURITY    (HEURISTIC_DIAGNOSTIC_ONLY)
+ *   7. -ST/-SM suffix                → SME_EQUITY_POLICY_EXCLUDED  (HEURISTIC_DIAGNOSTIC_ONLY)
+ *      NOTE: When nseRef available, the reference join may override this with
+ *            SM/ST series → SME_EQUITY_POLICY_EXCLUDED (AUTHORITATIVE_NSE_REFERENCE).
+ *   8. -BZ suffix                    → UNRESOLVED_SECURITY_TYPE    (HEURISTIC_DIAGNOSTIC_ONLY)
+ *   9. REIT/InvIT name pattern       → REIT_OR_INVIT               (HEURISTIC_DIAGNOSTIC_ONLY)
+ *  10. Partly-paid suffix/name       → PARTLY_PAID_EQUITY          (HEURISTIC_DIAGNOSTIC_ONLY)
+ *  11. Preference name               → PREFERENCE_SHARE            (HEURISTIC_DIAGNOSTIC_ONLY)
+ *  12. ETF name/symbol               → ETF_OR_FUND                 (HEURISTIC_DIAGNOSTIC_ONLY)
+ *  13. EQ + NSE segment, nseRef=null → KITE_NSE_EQ_LIKE_PROVISIONAL (UNRESOLVED)
+ *  14. EQ + NSE, nseRef + series=EQ  → ORDINARY_COMPANY_EQUITY_ELIGIBLE (AUTHORITATIVE_NSE_REFERENCE)
+ *  15. EQ + NSE, nseRef + series=BE  → TRADE_TO_TRADE_EQUITY        (AUTHORITATIVE_NSE_REFERENCE)
+ *  16. EQ + NSE, nseRef + series=SM  → SME_EQUITY_POLICY_EXCLUDED  (AUTHORITATIVE_NSE_REFERENCE)
+ *  17. EQ + NSE, nseRef + not found  → UNRESOLVED_SECURITY_TYPE    (UNRESOLVED)
+ *  18. All others                    → OTHER_UNSUPPORTED            (UNRESOLVED)
  */
-export type NseSecurityReference = Map<string, { series: string; isin: string; dateOfListing: string }>;
-
 export function classifyInstrument(opts: {
   symbol: string;
   name: string;
@@ -436,32 +506,23 @@ export function classifyInstrument(opts: {
   exchange: string;
   inCurrentMaster: boolean;
   isin?: string | null;
-  /**
-   * NSE authoritative equity reference (EQUITY_L.csv parsed, keyed by symbol).
-   *
-   * REQUIRED — non-optional by design. Omitting this field is a TypeScript compile error.
-   * This ensures every caller explicitly acknowledges the reference-gate contract.
-   *
-   *   nseRef=null → NSE reference unavailable → KITE_NSE_EQ_LIKE_PROVISIONAL (fail-closed).
-   *                 Instruments CANNOT drive breadth, rankings, signals, or trade actions.
-   *   nseRef=Map  → Reference loaded → join performed by symbol:
-   *                   found + series=EQ → ORDINARY_MAIN_BOARD_EQUITY (warehouse-eligible)
-   *                   found + series=BE/BT → TRADE_TO_TRADE_EQUITY_POLICY_EXCLUDED
-   *                   found + series=SM/ST → SME_EQUITY_POLICY_EXCLUDED
-   *                   found + other series → OTHER_UNSUPPORTED
-   *                   not found → UNRESOLVED_SECURITY_TYPE
-   *
-   * The deprecated ORDINARY_EQUITY_ELIGIBLE class is NEVER emitted. Old disk cache entries
-   * carrying that class are excluded from warehouse (WAREHOUSE_EXCLUDED_CLASSES includes it).
-   */
+  /** Required — pass null if NSE reference unavailable → fail-closed KITE_NSE_EQ_LIKE_PROVISIONAL. */
   nseRef: NseSecurityReference | null;
 }): InstrumentEligibilityResult {
   const { symbol, name, instrumentType, segment, exchange, inCurrentMaster, isin = null, nseRef } = opts;
   const su = symbol.toUpperCase();
   const suffix = extractSuffixCode(su);
 
-  // Default authority level is AUTHORITATIVE; overridden for heuristic-only detections.
-  const base = { symbol, name, instrumentType, segment, exchange, seriesCode: suffix, inCurrentMaster, isin, authorityLevel: "AUTHORITATIVE" as const };
+  const base = {
+    symbol,
+    name,
+    instrumentType,
+    segment,
+    exchange,
+    seriesCode: suffix,
+    inCurrentMaster,
+    isin,
+  };
 
   const attrVec: string[] = [
     `inCurrentMaster=${inCurrentMaster}`,
@@ -472,377 +533,366 @@ export function classifyInstrument(opts: {
   ];
   if (isin) attrVec.push(`isin=${isin}`);
 
-  // ── 1. Authoritative source requirement ───────────────────────────────────
-  // An instrument not present in the current Kite master cannot be classified.
-  // The symbol suffix alone is NOT sufficient authority — the master record must
-  // confirm the security type.
-  if (!inCurrentMaster) {
+  function makeResult(
+    eligibilityClass: InstrumentEligibilityClass,
+    authority: ClassificationAuthority,
+    reason: string,
+    policyExclusionReason: string | null,
+    precedenceVector: string[],
+    overrides: {
+      sourceDataset?: string | null;
+      sourceEffectiveDate?: string | null;
+      diagnosticWarnings?: string[];
+    } = {},
+  ): InstrumentEligibilityResult {
+    const warehouseEligible = !WAREHOUSE_EXCLUDED_CLASSES.has(eligibilityClass);
+    const sourceDataset = overrides.sourceDataset ?? null;
+    const sourceEffectiveDate = overrides.sourceEffectiveDate ?? null;
+    const diagnosticWarnings = overrides.diagnosticWarnings ?? [];
+
+    // Derive a short reasonCode from the precedence vector
+    const decisionTag = precedenceVector.find(v => v.startsWith("decision="))?.replace("decision=", "") ?? eligibilityClass;
+
+    const classification: InstrumentClassification = {
+      finalClass: toFinalClass(eligibilityClass),
+      authority,
+      eligibleForOrdinaryEquityScanner: warehouseEligible && authority === "AUTHORITATIVE_NSE_REFERENCE",
+      sourceDataset,
+      sourceEffectiveDate,
+      reasonCode: decisionTag,
+      diagnosticWarnings,
+    };
+
     return {
       ...base,
-      eligibilityClass: "UNRESOLVED_SECURITY_TYPE",
-      reason: `Instrument not present in current Kite NSE EQ instrument master (inCurrentMaster=false). ` +
-        `Symbol suffix "${suffix ?? "(none)"}" is supporting evidence only and cannot independently ` +
-        `authorize an eligibility class. Without an authoritative master record, ` +
-        `the instrument fails closed as UNRESOLVED_SECURITY_TYPE.`,
-      policyExclusionReason:
-        "Not present in the current Kite NSE EQ instrument master. A dated NSE security-master " +
+      eligibilityClass,
+      reason,
+      policyExclusionReason,
+      warehouseEligible,
+      authorityLevel: authority,
+      sourceDataset,
+      sourceEffectiveDate,
+      diagnosticWarnings,
+      precedenceVector,
+      classification,
+    };
+  }
+
+  // ── 1. Authoritative source requirement ───────────────────────────────────
+  if (!inCurrentMaster) {
+    return makeResult(
+      "UNRESOLVED_SECURITY_TYPE",
+      "UNRESOLVED",
+      `Instrument not present in current Kite NSE EQ instrument master (inCurrentMaster=false). ` +
+        `Symbol suffix "${suffix ?? "(none)"}" is HEURISTIC_DIAGNOSTIC_ONLY and cannot independently ` +
+        `authorize a classification. Without an authoritative master record, the instrument fails ` +
+        `closed as UNRESOLVED_SECURITY_TYPE.`,
+      "Not present in the current Kite NSE EQ instrument master. A dated NSE security-master " +
         "record joined via instrument_token, ISIN, exchange, segment, and series/security type " +
         "is required before this instrument can receive an affirmative eligibility verdict.",
-      warehouseEligible: false,
-      precedenceVector: [...attrVec, "decision=UNRESOLVED_BY_ABSENT_FROM_MASTER"],
-    };
+      [...attrVec, "decision=UNRESOLVED_BY_ABSENT_FROM_MASTER"],
+    );
   }
 
   // ── 2. Exchange check ──────────────────────────────────────────────────────
   if (exchange !== "NSE") {
-    return {
-      ...base,
-      eligibilityClass: "OTHER_UNSUPPORTED",
-      reason: `Non-NSE exchange "${exchange}"; only NSE main-board instruments are supported`,
-      policyExclusionReason: "Exchange is not NSE; excluded from NSE warehouse population.",
-      warehouseEligible: false,
-      precedenceVector: [...attrVec, "decision=OTHER_UNSUPPORTED_BY_EXCHANGE"],
-    };
+    return makeResult(
+      "OTHER_UNSUPPORTED",
+      "UNRESOLVED",
+      `Non-NSE exchange "${exchange}"; only NSE main-board instruments are supported`,
+      "Exchange is not NSE; excluded from NSE warehouse population.",
+      [...attrVec, "decision=OTHER_UNSUPPORTED_BY_EXCHANGE"],
+    );
   }
 
   // ── 3. Index instruments ───────────────────────────────────────────────────
   if (instrumentType === "INDEX" || segment === "INDICES") {
-    return {
-      ...base,
-      eligibilityClass: "INDEX",
-      reason: `Index instrument: ${attrVec.join(", ")}`,
-      policyExclusionReason: "Index instruments are not tradeable equities; no individual equity candle series exists.",
-      warehouseEligible: false,
-      precedenceVector: [...attrVec, "decision=INDEX_BY_INSTRUMENT_TYPE_OR_SEGMENT"],
-    };
+    return makeResult(
+      "INDEX",
+      "UNRESOLVED",
+      `Index instrument: ${attrVec.join(", ")}`,
+      "Index instruments are not tradeable equities; no individual equity candle series exists.",
+      [...attrVec, "decision=INDEX_BY_INSTRUMENT_TYPE_OR_SEGMENT"],
+    );
   }
 
   // ── 4. Inactive / delisted ────────────────────────────────────────────────
   if (INACTIVE_SYMBOLS.has(su)) {
-    return {
-      ...base,
-      eligibilityClass: "INACTIVE_OR_DELISTED",
-      reason: `In INACTIVE_SYMBOLS curated-exclude set: ${su}`,
-      policyExclusionReason: "Delisted or suspended instruments produce stale or empty candle series.",
-      warehouseEligible: false,
-      precedenceVector: [...attrVec, "decision=INACTIVE_OR_DELISTED_BY_INACTIVE_SYMBOLS"],
-    };
+    return makeResult(
+      "INACTIVE_OR_DELISTED",
+      "HEURISTIC_DIAGNOSTIC_ONLY",
+      `In INACTIVE_SYMBOLS curated-exclude set: ${su}`,
+      "Delisted or suspended instruments produce stale or empty candle series.",
+      [...attrVec, "decision=INACTIVE_OR_DELISTED_BY_INACTIVE_SYMBOLS"],
+      { diagnosticWarnings: ["INACTIVE_SYMBOLS curated set (HEURISTIC_DIAGNOSTIC_ONLY: maintained internally, not an official NSE publication)"] },
+    );
   }
 
-  // ── 5. Sovereign Gold Bonds (suffix=GB) ────────────────────────────────────
+  // ── 5. Sovereign Gold Bonds (suffix=GB, SGB prefix) ───────────────────────
+  // AUTHORITY: HEURISTIC_DIAGNOSTIC_ONLY (suffix is Kite convention, not official NSE series code)
   const sgb = detectSovereignGoldBond(suffix, symbol, name);
   if (sgb) {
-    return {
-      ...base,
-      eligibilityClass: "SOVEREIGN_GOLD_BOND",
-      reason: `Sovereign Gold Bond confirmed by master record: ${sgb.join("; ")}`,
-      policyExclusionReason:
-        "RBI Sovereign Gold Bonds are debt instruments; the Kite Historical Data API " +
-        "equity endpoint returns no OHLCV data for them.",
-      warehouseEligible: false,
-      precedenceVector: [...attrVec, ...sgb, "decision=SOVEREIGN_GOLD_BOND"],
-    };
+    return makeResult(
+      "SOVEREIGN_GOLD_BOND",
+      "HEURISTIC_DIAGNOSTIC_ONLY",
+      `Sovereign Gold Bond — heuristic-diagnostic-only exclusion: ${sgb.join("; ")}. ` +
+        `Authority: HEURISTIC_DIAGNOSTIC_ONLY — Kite tradingsymbol suffix "-GB" is not an ` +
+        `official NSE series code. Used for conservative fail-closed exclusion only.`,
+      "RBI Sovereign Gold Bonds are debt instruments; the Kite Historical Data API equity " +
+        "endpoint returns no OHLCV data for them. Excluded as heuristic diagnostic.",
+      [...attrVec, ...sgb, "authority=HEURISTIC_DIAGNOSTIC_ONLY", "decision=SOVEREIGN_GOLD_BOND"],
+      { diagnosticWarnings: sgb },
+    );
   }
 
   // ── 6. SDL bonds / Government Securities (suffix=SG) ─────────────────────
-  // Note: Kite master artifact — these have instrument_type=EQ, segment=NSE.
-  // The master's tradingsymbol suffix (SG) and name pattern are used together.
+  // AUTHORITY: HEURISTIC_DIAGNOSTIC_ONLY (suffix is Kite convention)
   const debt = detectDebtGovSecurity(suffix, symbol, name);
   if (debt) {
-    return {
-      ...base,
-      eligibilityClass: "DEBT_GOVERNMENT_SECURITY",
-      reason:
-        `Government/SDL debt security (Kite master-data artifact: instrument_type=EQ despite being debt): ` +
-        debt.join("; "),
-      policyExclusionReason:
-        "State Development Loans and G-Secs are debt instruments. The Kite Historical Data API " +
-        "(equity endpoint) returns empty OHLCV series for SDL/G-Sec symbols — no candle data exists.",
-      warehouseEligible: false,
-      precedenceVector: [...attrVec, ...debt, "decision=DEBT_GOVERNMENT_SECURITY"],
-    };
+    return makeResult(
+      "DEBT_GOVERNMENT_SECURITY",
+      "HEURISTIC_DIAGNOSTIC_ONLY",
+      `Government/SDL debt security — heuristic-diagnostic-only exclusion: ${debt.join("; ")}. ` +
+        `Authority: HEURISTIC_DIAGNOSTIC_ONLY — Kite tradingsymbol suffix "-SG" is not an ` +
+        `official NSE series code.`,
+      "State Development Loans and G-Secs are debt instruments. The Kite Historical Data API " +
+        "equity endpoint returns empty OHLCV series for SDL/G-Sec symbols — no OHLCV data exists. " +
+        "Excluded as HEURISTIC_DIAGNOSTIC_ONLY.",
+      [...attrVec, ...debt, "authority=HEURISTIC_DIAGNOSTIC_ONLY", "decision=DEBT_GOVERNMENT_SECURITY"],
+      { diagnosticWarnings: debt },
+    );
   }
 
-  // ── 7. SME segment (suffix=ST / suffix=SM) ────────────────────────────────
+  // ── 7. SME segment heuristic (suffix=ST / suffix=SM) ──────────────────────
+  // AUTHORITY: HEURISTIC_DIAGNOSTIC_ONLY (suffix is Kite convention)
+  // NOTE: The NSE reference join (step 14+) may override this with an authoritative
+  // SME classification if the symbol appears in EQUITY_L.csv with series=SM/ST.
+  // This step fires only when nseRef is unavailable for the heuristic-first path.
   const sme = detectSmeEquity(suffix);
-  if (sme) {
-    return {
-      ...base,
-      eligibilityClass: "SME_EQUITY_POLICY_EXCLUDED",
-      reason: `SME-segment instrument confirmed by master record: ${sme.join("; ")}`,
-      policyExclusionReason:
-        "SME-platform stocks operate under different trading rules, thinner liquidity, " +
-        "and non-standard circuit limits. Historical OHLCV coverage via Kite equity endpoint " +
-        "is incomplete for many SME listings.",
-      warehouseEligible: false,
-      precedenceVector: [...attrVec, ...sme, "decision=SME_EQUITY_POLICY_EXCLUDED"],
-    };
+  if (sme && !nseRef) {
+    // Only use heuristic when no authoritative reference is available
+    return makeResult(
+      "SME_EQUITY_POLICY_EXCLUDED",
+      "HEURISTIC_DIAGNOSTIC_ONLY",
+      `SME-segment instrument — heuristic-diagnostic-only exclusion (no NSE ref available): ${sme.join("; ")}. ` +
+        `Authority: HEURISTIC_DIAGNOSTIC_ONLY — Kite suffix is not an official NSE series code. ` +
+        `When NSE reference is available, the authoritative series code takes precedence.`,
+      "SME-platform stocks under different trading rules. Excluded as heuristic diagnostic.",
+      [...attrVec, ...sme, "authority=HEURISTIC_DIAGNOSTIC_ONLY", "decision=SME_EQUITY_POLICY_EXCLUDED_HEURISTIC"],
+      { diagnosticWarnings: sme },
+    );
   }
 
   // ── 8. BZ series (suffix=BZ) ──────────────────────────────────────────────
+  // AUTHORITY: HEURISTIC_DIAGNOSTIC_ONLY
   const bz = detectBzSeries(suffix, symbol);
   if (bz) {
-    return {
-      ...base,
-      eligibilityClass: "UNRESOLVED_SECURITY_TYPE",
-      reason:
-        `Cross-listed BSZ-settlement instrument confirmed by master record (instrument is NSE-listed ` +
-        `but settled via BSZ/BSE clearing): ${bz.join("; ")}. ` +
+    return makeResult(
+      "UNRESOLVED_SECURITY_TYPE",
+      "HEURISTIC_DIAGNOSTIC_ONLY",
+      `Cross-listed BSZ-settlement instrument — heuristic-diagnostic-only exclusion: ${bz.join("; ")}. ` +
         `OHLCV coverage via the Kite Historical Data API equity endpoint is unreliable.`,
-      policyExclusionReason:
-        "BZ-series instruments return empty or inconsistent OHLCV series from the Kite " +
-        "Historical Data API equity endpoint. Excluded until a separate Kite bond/hybrid data " +
-        "integration provides authoritative OHLCV history.",
-      warehouseEligible: false,
-      precedenceVector: [...attrVec, ...bz, "decision=UNRESOLVED_SECURITY_TYPE_BY_BZ_SERIES"],
-    };
+      "BZ-series instruments return empty or inconsistent OHLCV series from Kite equity endpoint. " +
+        "Excluded until a separate Kite bond/hybrid data integration provides authoritative coverage.",
+      [...attrVec, ...bz, "authority=HEURISTIC_DIAGNOSTIC_ONLY", "decision=UNRESOLVED_SECURITY_TYPE_BY_BZ_SERIES"],
+      { diagnosticWarnings: bz },
+    );
   }
 
-  // ── 9a. REIT / InvIT ──────────────────────────────────────────────────────
-  // Must be checked before the NSE reference join: REITs/InvITs appear in
-  // EQUITY_L.csv with series=EQ, making the series check alone insufficient to
-  // exclude them.
-  //
-  // AUTHORITY: HEURISTIC_FAIL_CLOSED
-  // NSE EQUITY_L.csv does NOT distinguish REITs/InvITs from ordinary equity (both
-  // appear as series=EQ). No official NSE CSV file provides a separate REIT/InvIT
-  // registry for programmatic consumption. Detection uses name patterns (trust names
-  // containing "REIT", "INVIT") conservatively — exclusion only, never inclusion.
-  // If name-pattern detection is deemed insufficient, the correct verdict is:
-  // BLOCKED_AUTHORITATIVE_NSE_SECURITY_TYPE_REFERENCE_INSUFFICIENT.
+  // ── 9. REIT / InvIT ───────────────────────────────────────────────────────
+  // AUTHORITY: HEURISTIC_DIAGNOSTIC_ONLY
+  // Applied before NSE reference join: REITs appear in EQUITY_L.csv with series=EQ,
+  // so the series check alone is insufficient to exclude them.
   const reit = detectReitOrInvit(symbol, name);
   if (reit) {
-    return {
-      ...base,
-      eligibilityClass: "REIT_OR_INVIT",
-      authorityLevel: "HEURISTIC_FAIL_CLOSED",
-      reason:
-        `REIT or InvIT (trust-structured instrument) — heuristic-fail-closed exclusion via name pattern: ${reit.join("; ")}. ` +
-        `Authority: HEURISTIC_FAIL_CLOSED — NSE EQUITY_L.csv does not distinguish REIT from ordinary EQ. ` +
-        `Name-pattern used conservatively for exclusion only.`,
-      policyExclusionReason:
-        "Real Estate Investment Trusts (REITs) and Infrastructure Investment Trusts (InvITs) " +
-        "are structured as trusts, not ordinary corporate equity. They operate under SEBI REIT/InvIT " +
-        "regulations, have distribution-based returns, and do not qualify for equity breadth, " +
-        "rankings, signals, or trade actions under current policy. " +
-        "Classification authority: HEURISTIC_FAIL_CLOSED (name-pattern; no official NSE REIT registry CSV available).",
-      warehouseEligible: false,
-      precedenceVector: [...attrVec, ...reit, "authority=HEURISTIC_FAIL_CLOSED", "decision=REIT_OR_INVIT"],
-    };
+    return makeResult(
+      "REIT_OR_INVIT",
+      "HEURISTIC_DIAGNOSTIC_ONLY",
+      `REIT or InvIT (trust-structured) — heuristic-diagnostic-only exclusion: ${reit.join("; ")}. ` +
+        `Authority: HEURISTIC_DIAGNOSTIC_ONLY — NSE EQUITY_L.csv does NOT distinguish REIT from ` +
+        `ordinary EQ (both appear as EQ). No official NSE CSV REIT registry is available.`,
+      "Real Estate Investment Trusts (REITs) and Infrastructure Investment Trusts (InvITs) are " +
+        "trust-structured, not ordinary corporate equity. Excluded as HEURISTIC_DIAGNOSTIC_ONLY.",
+      [...attrVec, ...reit, "authority=HEURISTIC_DIAGNOSTIC_ONLY", "decision=REIT_OR_INVIT"],
+      { diagnosticWarnings: reit },
+    );
   }
 
-  // ── 9b. Partly-paid equity shares ─────────────────────────────────────────
-  // Partly-paid shares have a Kite master "-PP" tradingsymbol suffix (AUTHORITATIVE)
-  // or "PARTLY PAID" in the NSE-published instrument name (AUTHORITATIVE).
-  // Applied before the NSE reference join: partly-paid shares may appear with series=EQ in EQUITY_L.
-  // AUTHORITY: AUTHORITATIVE (Kite master suffix + NSE-published name).
+  // ── 10. Partly-paid equity shares ─────────────────────────────────────────
+  // AUTHORITY: HEURISTIC_DIAGNOSTIC_ONLY (suffix and name are not official NSE series codes)
   const pp = detectPartlyPaidEquity(suffix, symbol, name);
   if (pp) {
-    return {
-      ...base,
-      eligibilityClass: "PARTLY_PAID_EQUITY",
-      authorityLevel: "AUTHORITATIVE",
-      reason:
-        `Partly-paid equity share confirmed: ${pp.join("; ")}. ` +
-        `Authority: AUTHORITATIVE — Kite master tradingsymbol suffix "-PP" is a definitive ` +
-        `Kite instrument master designation; "PARTLY PAID" in NSE-published name is NSE-authoritative.`,
-      policyExclusionReason:
-        "Partly-paid shares (where only part of face value has been called up) have " +
-        "different trading rights, liquidity profiles, and price behaviour from fully paid ordinary shares. " +
-        "Excluded from warehouse population and scanner evaluation under current policy.",
-      warehouseEligible: false,
-      precedenceVector: [...attrVec, ...pp, "authority=AUTHORITATIVE", "decision=PARTLY_PAID_EQUITY"],
-    };
+    return makeResult(
+      "PARTLY_PAID_EQUITY",
+      "HEURISTIC_DIAGNOSTIC_ONLY",
+      `Partly-paid equity share — heuristic-diagnostic-only exclusion: ${pp.join("; ")}. ` +
+        `Authority: HEURISTIC_DIAGNOSTIC_ONLY — Kite tradingsymbol suffix "-PP" is Kite's ` +
+        `internal naming convention, not an official NSE series code. "PARTLY PAID" in name ` +
+        `is a human-readable label, also not an official NSE programmatic identifier.`,
+      "Partly-paid shares have different trading rights and price behaviour from fully paid shares. " +
+        "Excluded as HEURISTIC_DIAGNOSTIC_ONLY.",
+      [...attrVec, ...pp, "authority=HEURISTIC_DIAGNOSTIC_ONLY", "decision=PARTLY_PAID_EQUITY"],
+      { diagnosticWarnings: pp },
+    );
   }
 
-  // ── 9c. Preference shares ─────────────────────────────────────────────────
-  // Preference shares identified by "PREFERENCE" in the instrument name.
-  // AUTHORITY: HEURISTIC_FAIL_CLOSED — no authoritative NSE series code distinguishes
-  // preference shares from ordinary equity in EQUITY_L.csv. Name-pattern only.
-  // Used conservatively for exclusion only; may never authorize inclusion.
+  // ── 11. Preference shares ─────────────────────────────────────────────────
+  // AUTHORITY: HEURISTIC_DIAGNOSTIC_ONLY (name pattern — no official NSE series code)
   const pref = detectPreferenceShare(name);
   if (pref) {
-    return {
-      ...base,
-      eligibilityClass: "PREFERENCE_SHARE",
-      authorityLevel: "HEURISTIC_FAIL_CLOSED",
-      reason:
-        `Preference share — heuristic-fail-closed exclusion: ${pref.join("; ")}. ` +
-        `Authority: HEURISTIC_FAIL_CLOSED — no authoritative NSE series code distinguishes ` +
-        `preference shares from ordinary equity in EQUITY_L.csv.`,
-      policyExclusionReason:
-        "Preference shares have different dividend treatment, priority in liquidation, " +
-        "and limited voting rights compared to ordinary equity. " +
-        "Excluded from warehouse population and scanner evaluation under current policy. " +
-        "Classification authority: HEURISTIC_FAIL_CLOSED (name-pattern; NSE EQUITY_L.csv does not provide preference-share series code).",
-      warehouseEligible: false,
-      precedenceVector: [...attrVec, ...pref, "authority=HEURISTIC_FAIL_CLOSED", "decision=PREFERENCE_SHARE"],
-    };
+    return makeResult(
+      "PREFERENCE_SHARE",
+      "HEURISTIC_DIAGNOSTIC_ONLY",
+      `Preference share — heuristic-diagnostic-only exclusion: ${pref.join("; ")}. ` +
+        `Authority: HEURISTIC_DIAGNOSTIC_ONLY — NSE EQUITY_L.csv has no preference-share series code.`,
+      "Preference shares have different dividend priority and voting rights. " +
+        "Excluded as HEURISTIC_DIAGNOSTIC_ONLY.",
+      [...attrVec, ...pref, "authority=HEURISTIC_DIAGNOSTIC_ONLY", "decision=PREFERENCE_SHARE"],
+      { diagnosticWarnings: pref },
+    );
   }
 
-  // ── 9d. ETF / Fund ────────────────────────────────────────────────────────
-  // AUTHORITY: HEURISTIC_FAIL_CLOSED — ETF/fund detection uses name/symbol patterns.
-  // NSE EQUITY_L.csv does not have a separate series code for ETFs (they appear as EQ).
-  // Kite master lists ETFs with instrument_type=EQ in some cases.
-  // Pattern matching on BEES suffix, "ETF" in tradingsymbol/name, "EXCHANGE TRADED" in name.
-  // Conservative exclusion only.
+  // ── 12. ETF / Fund ────────────────────────────────────────────────────────
+  // AUTHORITY: HEURISTIC_DIAGNOSTIC_ONLY (name/symbol patterns)
   if (centralLooksLikeEtf(symbol, name)) {
     const etfSignals: string[] = [];
     const nu = name.toUpperCase();
-    if (/BEES$/.test(su)) etfSignals.push("tradingsymbol_suffix=BEES");
-    if (/ETF/.test(su)) etfSignals.push("tradingsymbol_contains=ETF");
-    if (/\bETF\b/.test(nu)) etfSignals.push("name_contains=ETF");
-    if (/EXCHANGE\s+TRADED/.test(nu)) etfSignals.push("name_pattern=EXCHANGE_TRADED");
-    if (etfSignals.length === 0) etfSignals.push("centralLooksLikeEtf=true");
-    return {
-      ...base,
-      eligibilityClass: "ETF_OR_FUND",
-      authorityLevel: "HEURISTIC_FAIL_CLOSED",
-      reason: `Exchange-traded fund or index fund (heuristic-fail-closed): ${etfSignals.join("; ")}`,
-      policyExclusionReason:
-        "ETFs track indices/baskets and have no single-stock candle history for " +
-        "momentum/technical indicators; excluded from warehouse. " +
-        "Classification authority: HEURISTIC_FAIL_CLOSED (name/symbol patterns; NSE EQUITY_L.csv does not have a distinct ETF series code).",
-      warehouseEligible: false,
-      precedenceVector: [...attrVec, ...etfSignals, "authority=HEURISTIC_FAIL_CLOSED", "decision=ETF_OR_FUND"],
-    };
+    if (/BEES$/.test(su)) etfSignals.push("tradingsymbol_suffix=BEES (HEURISTIC_DIAGNOSTIC_ONLY)");
+    if (/ETF/.test(su)) etfSignals.push("tradingsymbol_contains=ETF (HEURISTIC_DIAGNOSTIC_ONLY)");
+    if (/\bETF\b/.test(nu)) etfSignals.push("name_contains=ETF (HEURISTIC_DIAGNOSTIC_ONLY)");
+    if (/EXCHANGE\s+TRADED/.test(nu)) etfSignals.push("name_pattern=EXCHANGE_TRADED (HEURISTIC_DIAGNOSTIC_ONLY)");
+    if (etfSignals.length === 0) etfSignals.push("centralLooksLikeEtf=true (HEURISTIC_DIAGNOSTIC_ONLY)");
+    return makeResult(
+      "ETF_OR_FUND",
+      "HEURISTIC_DIAGNOSTIC_ONLY",
+      `Exchange-traded fund or index fund — heuristic-diagnostic-only exclusion: ${etfSignals.join("; ")}`,
+      "ETFs track indices/baskets and have no single-stock candle history. " +
+        "Excluded as HEURISTIC_DIAGNOSTIC_ONLY.",
+      [...attrVec, ...etfSignals, "authority=HEURISTIC_DIAGNOSTIC_ONLY", "decision=ETF_OR_FUND"],
+      { diagnosticWarnings: etfSignals },
+    );
   }
 
-  // ── 10. NSE reference-confirmed equity classification ─────────────────────
-  // Reaches here only when: inCurrentMaster=true + exchange=NSE + no exclusion
-  // pattern (no -SG/-GB/-ST/-SM/-BZ suffix, not ETF, not INDEX, not INACTIVE).
-  // Join against the authoritative NSE EQUITY_L.csv reference.
-  //
-  // nseRef is REQUIRED (non-optional, enforced by TypeScript).
-  // nseRef=null → fail closed: KITE_NSE_EQ_LIKE_PROVISIONAL (reference unavailable).
-  // nseRef=Map  → authoritative join (series determines class).
+  // ── 13–18. NSE reference-confirmed classification ─────────────────────────
+  // Reaches here for: inCurrentMaster=true + exchange=NSE + no heuristic exclusion.
+  // The NSE reference join is the ONLY source of AUTHORITATIVE_NSE_REFERENCE.
   if (instrumentType === "EQ" && segment === "NSE") {
-    // 10a. nseRef=null: NSE reference unavailable — fail closed.
-    //      KITE_NSE_EQ_LIKE_PROVISIONAL cannot drive breadth, rankings, signals,
-    //      market mood, or trade actions. Excluded from WAREHOUSE_EXCLUDED_CLASSES.
+
+    // 13. nseRef=null: NSE reference unavailable → fail closed.
     if (!nseRef) {
-      return {
-        ...base,
-        eligibilityClass: "KITE_NSE_EQ_LIKE_PROVISIONAL",
-        reason:
-          `Kite master confirms instrument_type=EQ, segment=NSE, exchange=NSE for ${su}, ` +
+      return makeResult(
+        "KITE_NSE_EQ_LIKE_PROVISIONAL",
+        "UNRESOLVED",
+        `Kite master confirms instrument_type=EQ, segment=NSE, exchange=NSE for ${su}, ` +
           `but NSE authoritative reference (EQUITY_L.csv) was not loaded. ` +
           `Cannot confirm ordinary main-board equity without reference join. ` +
-          `Classified as KITE_NSE_EQ_LIKE_PROVISIONAL — ` +
-          `prices displayed for informational purposes; ` +
+          `Classified as KITE_NSE_EQ_LIKE_PROVISIONAL — prices displayed for informational purposes; ` +
           `CANNOT drive breadth, rankings, signals, market mood or trade actions.`,
-        policyExclusionReason:
-          "NSE authoritative reference (EQUITY_L.csv) unavailable. " +
+        "NSE authoritative reference (EQUITY_L.csv) unavailable. " +
           "Cannot confirm security type without reference join. Re-classified once reference loads.",
-        warehouseEligible: false,
-        precedenceVector: [...attrVec, "nseRef=UNAVAILABLE", "decision=KITE_NSE_EQ_LIKE_PROVISIONAL"],
-      };
+        [...attrVec, "nseRef=UNAVAILABLE", "authority=UNRESOLVED", "decision=KITE_NSE_EQ_LIKE_PROVISIONAL"],
+      );
     }
 
-    // 10b. NSE reference loaded → join by symbol.
+    // 14. NSE reference loaded → join by symbol.
     const nseRecord = nseRef.get(su);
     if (!nseRecord) {
-      return {
-        ...base,
-        eligibilityClass: "UNRESOLVED_SECURITY_TYPE",
-        reason:
-          `Symbol ${su} is in the Kite EQ master (instrument_type=EQ, segment=NSE) but ` +
+      return makeResult(
+        "UNRESOLVED_SECURITY_TYPE",
+        "UNRESOLVED",
+        `Symbol ${su} is in the Kite EQ master (instrument_type=EQ, segment=NSE) but ` +
           `NOT found in the NSE EQUITY_L.csv reference. ` +
           `Cannot authoritatively confirm security type. Fails closed as UNRESOLVED_SECURITY_TYPE.`,
-        policyExclusionReason:
-          "Symbol absent from NSE EQUITY_L.csv — cannot authoritatively classify. " +
+        "Symbol absent from NSE EQUITY_L.csv — cannot authoritatively classify. " +
           "May be a recently-listed security, a corporate action artefact, or a Kite master discrepancy.",
-        warehouseEligible: false,
-        precedenceVector: [...attrVec, "nseRef=NOT_FOUND", "decision=UNRESOLVED_SECURITY_TYPE"],
-      };
+        [...attrVec, "nseRef=NOT_FOUND", "authority=UNRESOLVED", "decision=UNRESOLVED_SECURITY_TYPE"],
+      );
     }
 
-    // 10c. Symbol found in NSE reference — classify by the official NSE series code.
+    // Symbol found in NSE reference — classify by the official NSE series code.
+    // THIS IS THE ONLY PATH TO AUTHORITATIVE_NSE_REFERENCE CLASSIFICATION.
     const nseSeriesU = nseRecord.series.toUpperCase().trim();
     const isinTag = nseRecord.isin ? `isin=${nseRecord.isin}` : "isin=N/A";
     const listingTag = nseRecord.dateOfListing ? `dateOfListing=${nseRecord.dateOfListing}` : "";
+    const nseSnapshotDate = (nseRecord as { snapshotDate?: string }).snapshotDate ?? null;
     const nseAttr = [`nseRef.series=${nseSeriesU}`, isinTag, listingTag].filter(Boolean);
 
+    // Collect any heuristic signals that would have fired but are overridden by the authoritative join
+    const heuristicWarnings: string[] = [];
+    if (sme) heuristicWarnings.push(...sme); // SME suffix but reference says EQ? Flag it.
+
     if (nseSeriesU === "EQ") {
-      return {
-        ...base,
-        eligibilityClass: "ORDINARY_MAIN_BOARD_EQUITY",
-        reason:
-          `NSE EQUITY_L.csv authoritatively confirms ordinary main-board equity: ` +
+      // Only ORDINARY_COMPANY_EQUITY_ELIGIBLE can produce eligibleForOrdinaryEquityScanner=true.
+      return makeResult(
+        "ORDINARY_COMPANY_EQUITY_ELIGIBLE",
+        "AUTHORITATIVE_NSE_REFERENCE",
+        `NSE EQUITY_L.csv authoritatively confirms ordinary main-board equity: ` +
           `symbol=${su}, ${nseAttr.join(", ")}. ` +
+          `Authority: AUTHORITATIVE_NSE_REFERENCE — from official NSE EQUITY_L.csv series=EQ join. ` +
           `Eligible for breadth, rankings, signals, and trade actions.`,
-        policyExclusionReason: null,
-        warehouseEligible: true,
-        precedenceVector: [...attrVec, ...nseAttr, "decision=ORDINARY_MAIN_BOARD_EQUITY"],
-      };
+        null,
+        [...attrVec, ...nseAttr, "authority=AUTHORITATIVE_NSE_REFERENCE", "decision=ORDINARY_COMPANY_EQUITY_ELIGIBLE"],
+        {
+          sourceDataset: "NSE:EQUITY_L.csv",
+          sourceEffectiveDate: nseSnapshotDate,
+          diagnosticWarnings: heuristicWarnings,
+        },
+      );
     }
 
     if (nseSeriesU === "BE" || nseSeriesU === "BT") {
-      return {
-        ...base,
-        eligibilityClass: "TRADE_TO_TRADE_EQUITY_POLICY_EXCLUDED",
-        reason:
-          `NSE EQUITY_L.csv confirms Trade-to-Trade equity: ${nseAttr.join(", ")}. ` +
-          `Policy: T2T excluded — no intraday squaring allowed, circuit-to-circuit trading only.`,
-        policyExclusionReason:
-          "Trade-to-Trade (T2T) stocks must be delivered — no intraday squaring. " +
+      return makeResult(
+        "TRADE_TO_TRADE_EQUITY_POLICY_EXCLUDED",
+        "AUTHORITATIVE_NSE_REFERENCE",
+        `NSE EQUITY_L.csv confirms Trade-to-Trade equity: ${nseAttr.join(", ")}. ` +
+          `Authority: AUTHORITATIVE_NSE_REFERENCE — official NSE EQUITY_L.csv series=${nseSeriesU}.`,
+        "Trade-to-Trade (T2T) stocks must be delivered — no intraday squaring. " +
           "Excluded from warehouse and scanner until explicit T2T policy defined.",
-        warehouseEligible: false,
-        precedenceVector: [...attrVec, ...nseAttr, "decision=TRADE_TO_TRADE_EQUITY_POLICY_EXCLUDED"],
-      };
+        [...attrVec, ...nseAttr, "authority=AUTHORITATIVE_NSE_REFERENCE", "decision=TRADE_TO_TRADE_EQUITY_POLICY_EXCLUDED"],
+        { sourceDataset: "NSE:EQUITY_L.csv", sourceEffectiveDate: nseSnapshotDate },
+      );
     }
 
     if (nseSeriesU === "SM" || nseSeriesU === "ST") {
-      return {
-        ...base,
-        eligibilityClass: "SME_EQUITY_POLICY_EXCLUDED",
-        reason:
-          `NSE EQUITY_L.csv confirms SME equity: ${nseAttr.join(", ")}. ` +
-          `Policy: SME platform excluded — different trading rules and thinner liquidity.`,
-        policyExclusionReason:
-          "SME-platform stocks (NSE Emerge) have different trading rules and thinner liquidity; excluded from warehouse.",
-        warehouseEligible: false,
-        precedenceVector: [...attrVec, ...nseAttr, "decision=SME_EQUITY_POLICY_EXCLUDED"],
-      };
+      return makeResult(
+        "SME_EQUITY_POLICY_EXCLUDED",
+        "AUTHORITATIVE_NSE_REFERENCE",
+        `NSE EQUITY_L.csv confirms SME equity: ${nseAttr.join(", ")}. ` +
+          `Authority: AUTHORITATIVE_NSE_REFERENCE — official NSE EQUITY_L.csv series=${nseSeriesU}.`,
+        "SME-platform stocks (NSE Emerge) have different trading rules and thinner liquidity; excluded from warehouse.",
+        [...attrVec, ...nseAttr, "authority=AUTHORITATIVE_NSE_REFERENCE", "decision=SME_EQUITY_POLICY_EXCLUDED"],
+        { sourceDataset: "NSE:EQUITY_L.csv", sourceEffectiveDate: nseSnapshotDate },
+      );
     }
 
-    // Other NSE series (BL, N1-N9, etc.) — not ordinary main-board equity.
-    return {
-      ...base,
-      eligibilityClass: "OTHER_UNSUPPORTED",
-      reason:
-        `NSE EQUITY_L.csv shows series=${nseSeriesU} for ${su}, ` +
+    // Other NSE series (BL, N1-N9, etc.) — authoritative but not ordinary main-board equity.
+    return makeResult(
+      "OTHER_UNSUPPORTED",
+      "AUTHORITATIVE_NSE_REFERENCE",
+      `NSE EQUITY_L.csv shows series=${nseSeriesU} for ${su}, ` +
         `which is not an ordinary main-board equity series (EQ). ` +
         `${nseAttr.join(", ")}. Excluded as OTHER_UNSUPPORTED.`,
-      policyExclusionReason:
-        `NSE EQUITY_L.csv series=${nseSeriesU} is not ordinary main-board equity (EQ). ` +
+      `NSE EQUITY_L.csv series=${nseSeriesU} is not ordinary main-board equity (EQ). ` +
         `Not eligible for warehouse population.`,
-      warehouseEligible: false,
-      precedenceVector: [...attrVec, ...nseAttr, "decision=OTHER_UNSUPPORTED_BY_NSE_SERIES"],
-    };
+      [...attrVec, ...nseAttr, "authority=AUTHORITATIVE_NSE_REFERENCE", "decision=OTHER_UNSUPPORTED_BY_NSE_SERIES"],
+      { sourceDataset: "NSE:EQUITY_L.csv", sourceEffectiveDate: nseSnapshotDate },
+    );
   }
 
-  // ── 11. All other combinations → fail closed ────────────────────────────
-  return {
-    ...base,
-    eligibilityClass: "OTHER_UNSUPPORTED",
-    reason:
-      `Instrument does not match any affirmatively defined category: ` +
+  // ── 19. All other combinations → fail closed ────────────────────────────
+  return makeResult(
+    "OTHER_UNSUPPORTED",
+    "UNRESOLVED",
+    `Instrument does not match any affirmatively defined category: ` +
       `${attrVec.join(", ")}. Missing or conflicting metadata fails closed.`,
-    policyExclusionReason:
-      "Cannot be classified as ORDINARY_EQUITY_ELIGIBLE — one or more required attributes " +
+    "Cannot be classified as ORDINARY_COMPANY_EQUITY_ELIGIBLE — one or more required attributes " +
       "(exchange=NSE, segment=NSE, instrument_type=EQ) are missing or unexpected.",
-    warehouseEligible: false,
-    precedenceVector: [...attrVec, "decision=OTHER_UNSUPPORTED_FAIL_CLOSED"],
-  };
+    [...attrVec, "authority=UNRESOLVED", "decision=OTHER_UNSUPPORTED_FAIL_CLOSED"],
+  );
 }
 
 /**
  * Classify a batch of instruments.
- * Returns a Map from symbol to result for O(1) lookup.
- *
- * Every input must include `inCurrentMaster` — the caller is responsible for
- * comparing the input list against the live Kite master and setting this flag.
  */
 export function classifyInstrumentBatch(
   instruments: Array<{
@@ -853,7 +903,6 @@ export function classifyInstrumentBatch(
     exchange: string;
     inCurrentMaster: boolean;
     isin?: string | null;
-    /** Required — pass null if NSE reference unavailable (fail-closed → KITE_NSE_EQ_LIKE_PROVISIONAL). */
     nseRef: NseSecurityReference | null;
   }>,
 ): Map<string, InstrumentEligibilityResult> {
