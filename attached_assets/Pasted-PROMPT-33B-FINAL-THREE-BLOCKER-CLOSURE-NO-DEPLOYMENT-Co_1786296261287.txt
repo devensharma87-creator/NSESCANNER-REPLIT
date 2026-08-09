@@ -1,0 +1,133 @@
+PROMPT_33B — FINAL THREE-BLOCKER CLOSURE — NO DEPLOYMENT
+
+Continue from commit `75f2a56`.
+
+Do not create new packs, architecture, evidence frameworks or test files. Do not deploy.
+
+All fault injection and database mutations must run only against the isolated development/test database. Production databases are read-only.
+
+Fix only these three blockers.
+
+## 1. Unify snapshot validation threshold
+
+Current contradiction:
+
+```text
+insert minimum: 1000 rows
+selection minimum: 100 rows
+```
+
+Use one exported constant everywhere:
+
+```ts
+MIN_SNAPSHOT_ROW_COUNT_FOR_COMMIT = 1000;
+```
+
+Apply it to:
+
+* Pre-insert validation
+* PostgreSQL snapshot selection
+* Disk snapshot selection
+* Last-good hydration
+* Diagnostics
+* Existing tests
+
+Prove snapshots containing 0, 100 or 999 rows are rejected and 1000 rows pass.
+
+Do not add a new test file; update the existing persistence test only.
+
+## 2. Prove PostgreSQL restart hydration
+
+Use the actual development API-server startup path:
+
+1. Confirm a valid PostgreSQL snapshot exists.
+2. Remove/disable the development local NSE-reference cache.
+3. Force official NSE HTTP fetch to fail.
+4. Restart the development API server.
+5. Prove:
+
+   * Existing PostgreSQL snapshot loaded
+   * No new snapshot inserted
+   * Snapshot ID/hash match the existing DB row
+   * `isLastGood=true`
+   * `canAuthorizeUniverse=false`
+   * Scanner remains fail-closed
+   * No older disk snapshot overrides PostgreSQL
+
+Provide exact before/after DB counts and startup logs.
+
+Do not use direct helper invocation as the only proof.
+
+## 3. Prove generation preservation during real DB failure
+
+Use the actual scanner refresh/generation path:
+
+1. Establish a valid displayed generation.
+2. Record:
+
+   * `generationId`
+   * row count
+   * reference snapshot ID
+3. Trigger a real PostgreSQL transaction failure during persistence.
+4. Prove afterwards:
+
+   * Same displayed `generationId`
+   * Same row count
+   * No new snapshot committed
+   * State becomes `STALE` or `DEGRADED`
+   * `canAuthorizeUniverse=false`
+   * No score, confidence, signal or action created
+
+Do not use `totalRecords=0`; that fails before PostgreSQL.
+
+## Historical reconciliation statement
+
+Identify the previously unexplained matched instrument with exact symbol, ISIN, series and final class.
+
+If retained evidence cannot identify it, state:
+
+```text
+HISTORICAL_RECORD_NOT_REPRODUCIBLE
+```
+
+Do not claim it was a REIT/InvIT without exact evidence.
+
+Also confirm snapshot `61` was modified only in development and production was untouched.
+
+## Minimal closing battery
+
+Run once:
+
+* Targeted existing persistence tests
+* Full API-server tests
+* Full scanner tests
+* Relevant TSC checks
+* API and scanner production builds
+* `git diff --check`
+* All four safety locks remain false
+* Broker execution disabled
+* `artifacts/global` unchanged
+
+Return only:
+
+* Three blocker results
+* Runtime/DB evidence
+* Test/build results
+* Changed files
+* Commit hash
+
+Maximum response: one page.
+
+Allowed verdicts:
+
+```text
+PROMPT_33B_PREDEPLOY_VERIFIED — OWNER_DEPLOYMENT_AUTHORIZATION_REQUIRED
+```
+
+or:
+
+```text
+BLOCKED_PROMPT_33B — <EXACT_REASON>
+```
+
+No deployment and no new tasks.

@@ -50,7 +50,7 @@
  * On every successful refresh, the parsed result is atomically written to disk
  * via saveBlob (write-temp + rename). On refresh failure, the disk snapshot is
  * loaded and served with isLastGood=true. The cache is never replaced by
- * malformed or empty data (< 100 records triggers parse rejection).
+ * malformed or empty data (< MIN_SNAPSHOT_ROW_COUNT_FOR_COMMIT (1000) records triggers parse rejection).
  *
  * This ensures classifier never silently degrades after a transient NSE
  * network failure: it either serves authoritative data or last-good (labeled
@@ -342,7 +342,7 @@ function computeCanAuthorize(fetchedAt: string, isLastGood: boolean): boolean {
  * multiple validation fields — not just fetchedAt.
  *
  * Selection rules (in order):
- *   1. A snapshot with < 100 records is invalid — always prefer the other.
+ *   1. A snapshot with < MIN_SNAPSHOT_ROW_COUNT_FOR_COMMIT (1000) records is invalid — always prefer the other.
  *   2. PostgreSQL (DB) snapshot is preferred when the disk snapshot would
  *      override a committed DB snapshot with an uncommitted/stale disk copy.
  *   3. Both valid: prefer the newer by fetchedAt (newer source data).
@@ -356,8 +356,8 @@ function _selectBetterSnapshot(
   dbSnap: MasterCache,
 ): "disk" | "db" {
   // Step 1: Validate record counts (minimum authoritative threshold)
-  const diskValid = diskSnap.totalRecords >= 100;
-  const dbValid = dbSnap.totalRecords >= 100;
+  const diskValid = diskSnap.totalRecords >= MIN_SNAPSHOT_ROW_COUNT_FOR_COMMIT;
+  const dbValid = dbSnap.totalRecords >= MIN_SNAPSHOT_ROW_COUNT_FOR_COMMIT;
 
   if (!diskValid && dbValid) return "db";
   if (diskValid && !dbValid) return "disk";
@@ -410,8 +410,8 @@ function tryLoadLastGoodFromDisk(reason: string): MasterCache | null {
   const blob = loadBlob<LastGoodPayload>(LAST_GOOD_BLOB_NAME, LAST_GOOD_BLOB_VERSION);
   if (!blob || !blob.payload) return null;
   const p = blob.payload;
-  if (!p.records || p.records.length < 100) {
-    logger.warn({ recordCount: p.records?.length ?? 0 }, "NSE equity master: last-good disk blob too small, ignoring");
+  if (!p.records || p.records.length < MIN_SNAPSHOT_ROW_COUNT_FOR_COMMIT) {
+    logger.warn({ recordCount: p.records?.length ?? 0, minimumRequired: MIN_SNAPSHOT_ROW_COUNT_FOR_COMMIT }, "NSE equity master: last-good disk blob too small, ignoring");
     return null;
   }
   const entry = buildCacheFromLastGood(p, reason);
@@ -511,7 +511,7 @@ export let persistenceFailureCount = 0;
  * Snapshot id=61 (row_count=0, validation_result='ACCEPTED') would have been blocked by
  * this gate had it been in place at insertion time. It has been retroactively marked
  * REJECTED_INVALID_ROW_COUNT in the database and cannot be selected by _loadLatestSnapshotFromDb
- * (which already requires row_count >= 100 AND validation_result = 'ACCEPTED').
+ * (which already requires row_count >= 1000 (MIN_SNAPSHOT_ROW_COUNT_FOR_COMMIT) AND validation_result = 'ACCEPTED').
  */
 export const MIN_SNAPSHOT_ROW_COUNT_FOR_COMMIT = 1000;
 
@@ -681,7 +681,7 @@ export async function _loadLatestSnapshotFromDb(reason: string): Promise<MasterC
       FROM nse_security_master_snapshots
       WHERE schema_version = ${DB_SCHEMA_VERSION}
         AND validation_result = 'ACCEPTED'
-        AND row_count >= 100
+        AND row_count >= ${MIN_SNAPSHOT_ROW_COUNT_FOR_COMMIT}
       ORDER BY retrieved_at DESC
       LIMIT 1
     `);
@@ -689,7 +689,7 @@ export async function _loadLatestSnapshotFromDb(reason: string): Promise<MasterC
     if (!rows.length) return null;
     const row = rows[0]!;
     const records: NseEquityRecord[] = Array.isArray(row.records) ? row.records : [];
-    if (records.length < 100) return null;
+    if (records.length < MIN_SNAPSHOT_ROW_COUNT_FOR_COMMIT) return null;
 
     const payload: LastGoodPayload = {
       records,
@@ -776,8 +776,8 @@ async function refresh(): Promise<MasterCache | null> {
     const sourceHash = createHash("sha256").update(body).digest("hex").slice(0, 8);
     const { bySymbol, byIsin, seriesCounts, totalRecords } = parseCsv(body, snapshotDate, url, sourceHash);
 
-    // Sanity: NSE lists ~5,000–8,000 securities in EQUITY_L. If we get <100 it's probably a parse error.
-    if (totalRecords < 100) {
+    // Sanity: NSE lists ~5,000–8,000 securities in EQUITY_L. If we get < MIN_SNAPSHOT_ROW_COUNT_FOR_COMMIT it's probably a parse error.
+    if (totalRecords < MIN_SNAPSHOT_ROW_COUNT_FOR_COMMIT) {
       logger.warn({ url, totalRecords }, "NSE equity master: suspiciously low record count, ignoring");
       continue;
     }

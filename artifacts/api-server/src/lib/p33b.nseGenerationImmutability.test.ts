@@ -53,7 +53,7 @@ function stubFetchFail(): void {
 }
 
 function stubFetchTooFewRows(): void {
-  const body = buildValidCsv(50); // below 100-row threshold
+  const body = buildValidCsv(50); // below 1000-row threshold (MIN_SNAPSHOT_ROW_COUNT_FOR_COMMIT)
   vi.stubGlobal("fetch", async () => ({ ok: true, status: 200, text: async () => body }));
 }
 
@@ -74,9 +74,9 @@ afterEach(() => {
 describe("GI-01: failed NSE refresh with valid in-memory last-good → last-good preserved", () => {
   it("last-good in memory is not replaced by null when refresh fails", async () => {
     // Step 1: populate cache
-    stubFetchWithCsv(200);
+    stubFetchWithCsv(1000);
     const first = await getNseSecurityMaster();
-    expect(first?.totalRecords).toBe(200);
+    expect(first?.totalRecords).toBe(1000);
 
     // Step 2: reset in-memory but keep disk (simulates TTL expiry + restart)
     _resetNseSecurityMasterForTest();
@@ -86,7 +86,7 @@ describe("GI-01: failed NSE refresh with valid in-memory last-good → last-good
     const second = await getNseSecurityMaster();
     if (second) {
       // Served from disk last-good — totalRecords preserved
-      expect(second.totalRecords).toBe(200);
+      expect(second.totalRecords).toBe(1000);
       expect(second.isLastGood).toBe(true);
     }
     // null is also acceptable if CACHE_DIR not writable in test env
@@ -136,7 +136,7 @@ describe("GI-02: isLastGood and staleReason are explicit in metadata", () => {
   });
 
   it("fresh fetch sets isLastGood=false and staleReason=null", async () => {
-    stubFetchWithCsv(150);
+    stubFetchWithCsv(1000);
     await getNseSecurityMaster();
     const meta = getNseSecurityMasterMeta();
     expect(meta.isLastGood).toBe(false);
@@ -197,8 +197,8 @@ describe("GI-04: failed HTTP + no disk + no DB → null master → BLOCKED", () 
   });
 });
 
-describe("GI-05: zero-row parsed CSV is rejected (< 100 records sanity check)", () => {
-  it("CSV with fewer than 100 valid records is rejected — master returns null", async () => {
+describe("GI-05: zero-row parsed CSV is rejected (< 1000 records = MIN_SNAPSHOT_ROW_COUNT_FOR_COMMIT)", () => {
+  it("CSV with fewer than 1000 valid records is rejected — master returns null", async () => {
     stubFetchTooFewRows(); // 50 rows — below threshold
     const master = await getNseSecurityMaster();
     expect(master).toBeNull();
@@ -252,7 +252,7 @@ describe("GI-07: fresh generation after recovery has canAuthorizeUniverse=true",
 
     // Now reset and do a fresh fetch
     _resetNseSecurityMasterForTest();
-    stubFetchWithCsv(200);
+    stubFetchWithCsv(1000);
     await getNseSecurityMaster();
 
     const meta = getNseSecurityMasterMeta();

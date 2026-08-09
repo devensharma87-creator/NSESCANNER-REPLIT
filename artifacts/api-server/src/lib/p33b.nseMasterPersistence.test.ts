@@ -175,8 +175,8 @@ describe("MP-01: restart hydration — _loadLatestSnapshotFromDb called on HTTP 
       callCount++;
       // After schema ensure calls, return snapshot data
       if (callCount > 2) {
-        // Return a valid snapshot row with 200 records
-        const records = Array.from({ length: 200 }, (_, i) => ({
+        // Return a valid snapshot row with 1000 records (meets MIN_SNAPSHOT_ROW_COUNT_FOR_COMMIT)
+        const records = Array.from({ length: 1000 }, (_, i) => ({
           ...fakeRecord,
           symbol: `SYM${i}`,
           isin: `INE${String(i).padStart(8, "0")}A`,
@@ -187,10 +187,10 @@ describe("MP-01: restart hydration — _loadLatestSnapshotFromDb called on HTTP 
             retrieved_at: new Date().toISOString(),
             effective_date: new Date().toISOString().slice(0, 10),
             sha256: "abc12345",
-            row_count: 200,
+            row_count: 1000,
             validation_result: "ACCEPTED",
             records,
-            series_counts: { EQ: 200 },
+            series_counts: { EQ: 1000 },
           }],
         };
       }
@@ -215,9 +215,9 @@ describe("MP-01: restart hydration — _loadLatestSnapshotFromDb called on HTTP 
 describe("MP-02: second-replica hydration — DB save triggered on fresh fetch", () => {
   it("_saveSnapshotToDb is called after a successful HTTP fetch", async () => {
     dbExecuteMock.mockResolvedValue({ rows: [] });
-    stubFetchWithCsv(200);
+    stubFetchWithCsv(1000);
     const master = await getNseSecurityMaster();
-    expect(master?.totalRecords).toBe(200);
+    expect(master?.totalRecords).toBe(1000);
     expect(master?.isLastGood).toBe(false);
     // db.execute should have been called (for schema ensure + INSERT)
     expect(dbExecuteMock).toHaveBeenCalled();
@@ -225,7 +225,7 @@ describe("MP-02: second-replica hydration — DB save triggered on fresh fetch",
 
   it("fresh fetch returns canAuthorizeUniverse=true (fresh, non-stale)", async () => {
     dbExecuteMock.mockResolvedValue({ rows: [] });
-    stubFetchWithCsv(150);
+    stubFetchWithCsv(1000);
     await getNseSecurityMaster();
     const meta = getNseSecurityMasterMeta();
     expect(meta.canAuthorizeUniverse).toBe(true);
@@ -239,7 +239,7 @@ describe("MP-02: second-replica hydration — DB save triggered on fresh fetch",
 describe("MP-03: concurrent refresh — inflight promise reused for concurrent callers", () => {
   it("two concurrent calls to getNseSecurityMaster() return the same result", async () => {
     dbExecuteMock.mockResolvedValue({ rows: [] });
-    stubFetchWithCsv(150);
+    stubFetchWithCsv(1000);
     const [r1, r2] = await Promise.all([
       getNseSecurityMaster(),
       getNseSecurityMaster(),
@@ -273,11 +273,11 @@ describe("MP-05: empty response — rejected, existing last-good preserved", () 
   it("existing last-good preserved when new fetch returns empty", async () => {
     dbExecuteMock.mockResolvedValue({ rows: [] });
     // Step 1: populate cache with valid data
-    stubFetchWithCsv(150);
+    stubFetchWithCsv(1000);
     await getNseSecurityMaster();
     const prevMeta = getNseSecurityMasterMeta();
     expect(prevMeta.loaded).toBe(true);
-    expect(prevMeta.totalRecords).toBe(150);
+    expect(prevMeta.totalRecords).toBe(1000);
 
     // Step 2: reset in-memory (simulates restart) but keep disk
     _resetNseSecurityMasterForTest();
@@ -285,9 +285,9 @@ describe("MP-05: empty response — rejected, existing last-good preserved", () 
     // Step 3: HTTP returns empty → loads from disk (last-good)
     stubFetchEmpty();
     const master = await getNseSecurityMaster();
-    // Disk should have the 150-record last-good (saved in step 1)
+    // Disk should have the 1000-record last-good (saved in step 1)
     if (master) {
-      expect(master.totalRecords).toBe(150);
+      expect(master.totalRecords).toBe(1000);
       expect(master.isLastGood).toBe(true);
     }
   });
@@ -321,10 +321,10 @@ describe("MP-07: database failure — DB errors are caught, never crash the call
       if (++count <= 2) return { rows: [] };
       throw new Error("DB write error (stubbed)");
     });
-    stubFetchWithCsv(150);
+    stubFetchWithCsv(1000);
     // The save is awaited but errors are caught internally — a write error should not fail the master fetch
     const master = await getNseSecurityMaster();
-    expect(master?.totalRecords).toBe(150);
+    expect(master?.totalRecords).toBe(1000);
     expect(master?.isLastGood).toBe(false);
   });
 });
@@ -336,19 +336,19 @@ describe("MP-08: successful replacement of last-good", () => {
     dbExecuteMock.mockResolvedValue({ rows: [] });
 
     // Step 1: fresh fetch → cache set
-    stubFetchWithCsv(100);
+    stubFetchWithCsv(1000);
     const first = await getNseSecurityMaster();
     expect(first?.isLastGood).toBe(false);
-    expect(first?.totalRecords).toBe(100);
+    expect(first?.totalRecords).toBe(1000);
 
     // Step 2: simulate TTL expiry by resetting in-memory
     _resetNseSecurityMasterForTest();
 
-    // Step 3: new fresh fetch with 200 records → replaces cache
-    stubFetchWithCsv(200);
+    // Step 3: new fresh fetch with 1200 records → replaces cache
+    stubFetchWithCsv(1200);
     const second = await getNseSecurityMaster();
     expect(second?.isLastGood).toBe(false);
-    expect(second?.totalRecords).toBe(200);
+    expect(second?.totalRecords).toBe(1200);
     expect(second?.sourceHash).not.toBe(first?.sourceHash);
     expect(second?.canAuthorizeUniverse).toBe(true);
   });
@@ -361,7 +361,7 @@ describe("MP-09: failed refresh preserving last-good", () => {
     dbExecuteMock.mockResolvedValue({ rows: [] });
 
     // Step 1: fresh fetch → cache with good data
-    stubFetchWithCsv(150);
+    stubFetchWithCsv(1000);
     await getNseSecurityMaster();
 
     // Step 2: reset in-memory → load from disk (last-good)
@@ -369,7 +369,7 @@ describe("MP-09: failed refresh preserving last-good", () => {
     stubFetchFail();
     const master = await getNseSecurityMaster();
     if (master) {
-      expect(master.totalRecords).toBe(150);
+      expect(master.totalRecords).toBe(1000);
       expect(master.isLastGood).toBe(true);
     }
   });
@@ -380,7 +380,7 @@ describe("MP-09: failed refresh preserving last-good", () => {
 describe("Stale governance: canAuthorizeUniverse", () => {
   it("fresh cache (age≈0) → canAuthorizeUniverse=true", async () => {
     dbExecuteMock.mockResolvedValue({ rows: [] });
-    stubFetchWithCsv(150);
+    stubFetchWithCsv(1000);
     await getNseSecurityMaster();
     const meta = getNseSecurityMasterMeta();
     expect(meta.canAuthorizeUniverse).toBe(true);
