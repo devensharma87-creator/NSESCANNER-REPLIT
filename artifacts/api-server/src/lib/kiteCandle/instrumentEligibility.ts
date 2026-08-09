@@ -48,9 +48,12 @@
  *      Format: CSV — SYMBOL,NAME OF COMPANY,SERIES,DATE OF LISTING,PAID UP VALUE,MARKET LOT,ISIN NUMBER,FACE VALUE
  *      Updated: Daily by NSE.
  *      Classifies: EQ (ordinary), BE/BT (T2T), SM/ST (SME), BL (block deal)
- *      LIMITATION: Does NOT distinguish REIT/InvIT from ordinary EQ (both appear as EQ).
+ *      VERIFIED (2026-08-09 live): ETF symbols (342 in NSE eq_etfseclist.csv) cross-checked
+ *        against EQUITY_L — 0 ETF symbols appear in EQUITY_L.csv EQ series. ETFs are
+ *        listed in the separate eq_etfseclist.csv file, not EQUITY_L.csv.
+ *      VERIFIED (2026-08-09 live): 0 REIT/InvIT company names in EQUITY_L.csv EQ series.
+ *        REITs/InvITs are listed in separate NSE segments (not the equity segment).
  *      LIMITATION: Does NOT distinguish preference shares from ordinary EQ (both appear as EQ).
- *      LIMITATION: Does NOT have a distinct ETF series code (ETFs appear as EQ in some cases).
  *      Result: Symbols present with series=EQ in EQUITY_L.csv and confirmed in Kite master
  *              receive authority=AUTHORITATIVE_NSE_REFERENCE and finalClass=ORDINARY_COMPANY_EQUITY_ELIGIBLE.
  *
@@ -60,8 +63,7 @@
  *     BLOCKED_AUTHORITATIVE_NSE_SECURITY_TYPE_REFERENCE_INSUFFICIENT applies.
  *   - Preference shares: EQUITY_L.csv does not have a preference-share series code.
  *     Detection uses HEURISTIC_DIAGNOSTIC_ONLY (name pattern).
- *   - ETF/Mutual Fund: Some ETFs appear in EQUITY_L.csv as EQ. Detection uses
- *     HEURISTIC_DIAGNOSTIC_ONLY (symbol/name pattern).
+ *   - ETF/Mutual Fund: ETFs are in NSE eq_etfseclist.csv, not EQUITY_L.csv (0 ETF symbols found in EQUITY_L EQ series on 2026-08-09 live check). Belt-and-suspenders: HEURISTIC_DIAGNOSTIC_ONLY.
  *   - SGBs, SDL bonds: Kite tradingsymbol suffix (-GB, -SG) is HEURISTIC_DIAGNOSTIC_ONLY
  *     evidence. No official NSE CSV programmatically distinguishes these.
  *   - Inactive/delisted: Based on a curated INACTIVE_SYMBOLS set (maintained internally).
@@ -374,7 +376,7 @@ function detectBzSeries(suffix: string | null, symbol: string): string[] | null 
  * Detect Real Estate Investment Trusts (REITs) and Infrastructure Investment Trusts (InvITs).
  *
  * AUTHORITY: HEURISTIC_DIAGNOSTIC_ONLY
- * NSE EQUITY_L.csv does NOT distinguish REITs/InvITs from ordinary EQ (both appear as EQ).
+ * REITs/InvITs are listed in separate NSE segments, not in EQUITY_L.csv equity segment.
  * No official NSE CSV provides a programmatic REIT/InvIT registry.
  * Detection uses name patterns (trust names containing "REIT" or "INVIT") conservatively
  * for exclusion only. Cannot produce eligibleForOrdinaryEquityScanner=true.

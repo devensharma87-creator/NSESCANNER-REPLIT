@@ -512,8 +512,10 @@ export type SnapshotPersistenceResult =
       committedAt: string;
       /** SHA-256 prefix (8 hex chars) of the raw CSV body. */
       sha256: string;
-      /** Authoritative durable store — always PostgreSQL. */
+      /** Authoritative durable store — always PostgreSQL when ok=true. */
       durableStore: "POSTGRESQL";
+      /** True: the snapshot was committed to PostgreSQL. */
+      durablyCommitted: true;
     }
   | {
       ok: false;
@@ -521,8 +523,11 @@ export type SnapshotPersistenceResult =
       reasonCode: string;
       /** JavaScript error class name (e.g. "Error", "PostgresError"). */
       errorClass: string;
-      /** Authoritative durable store — always PostgreSQL. */
-      durableStore: "POSTGRESQL";
+      /**
+       * Explicitly false: the write did NOT commit to PostgreSQL.
+       * Do not infer durability from this branch.
+       */
+      durablyCommitted: false;
     };
 
 /**
@@ -586,7 +591,7 @@ export async function _saveSnapshotToDb(entry: MasterCache): Promise<SnapshotPer
           impact: "Previous durable PostgreSQL snapshot preserved", canAuthorizeUniverse: false },
         "NSE equity master: INSERT RETURNING produced no row — DIAGNOSTIC_EVENT=NSE_MASTER_PERSISTENCE_FAILURE",
       );
-      return { ok: false, reasonCode: "INSERT_RETURNING_EMPTY", errorClass: "Error", durableStore: "POSTGRESQL" };
+      return { ok: false, reasonCode: "INSERT_RETURNING_EMPTY", errorClass: "Error", durablyCommitted: false };
     }
 
     const committedAt =
@@ -596,7 +601,7 @@ export async function _saveSnapshotToDb(entry: MasterCache): Promise<SnapshotPer
       { totalRecords: entry.totalRecords, sourceHash: entry.sourceHash, snapshotId: row.id, committedAt },
       "NSE equity master: snapshot committed to PostgreSQL (L2) — transaction committed",
     );
-    return { ok: true, snapshotId: row.id, committedAt, sha256: entry.sourceHash, durableStore: "POSTGRESQL" };
+    return { ok: true, snapshotId: row.id, committedAt, sha256: entry.sourceHash, durableStore: "POSTGRESQL", durablyCommitted: true };
   } catch (err) {
     const errorClass = err instanceof Error ? err.constructor.name : "Error";
     const reasonCode =
@@ -611,7 +616,7 @@ export async function _saveSnapshotToDb(entry: MasterCache): Promise<SnapshotPer
       },
       "NSE equity master: _saveSnapshotToDb failed (non-fatal) — DIAGNOSTIC_EVENT=NSE_MASTER_PERSISTENCE_FAILURE",
     );
-    return { ok: false, reasonCode, errorClass, durableStore: "POSTGRESQL" };
+    return { ok: false, reasonCode, errorClass, durablyCommitted: false };
   }
 }
 

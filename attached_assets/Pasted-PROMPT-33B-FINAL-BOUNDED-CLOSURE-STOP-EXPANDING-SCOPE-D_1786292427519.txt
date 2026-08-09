@@ -1,0 +1,190 @@
+PROMPT_33B — FINAL BOUNDED CLOSURE — STOP EXPANDING SCOPE
+
+Do not create new packs, new test files, new evidence frameworks or additional refactors.
+
+Do not deploy.
+
+Work from current HEAD `437e389`.
+
+Your previous PASS verdict is rejected. Close only these three blockers.
+
+## Cost-control rules
+
+1. Inspect first; edit only when a real defect is proven.
+2. Do not add synthetic test matrices.
+3. Do not add more source-inspection tests.
+4. Use one temporary evidence script if necessary; delete it before commit.
+5. Run targeted tests once after edits.
+6. Run the complete battery only once at the end.
+7. Do not rewrite working modules.
+8. Do not touch strategies, thresholds, UI, V2 cohorts, broker execution, Daily Analysis, Directional Scorer or `artifacts/global`.
+
+## Blocker 1 — Authoritative ordinary-equity universe
+
+`EQUITY_L.csv + SERIES=EQ` is not sufficient to prove ordinary company equity because the NSE equity segment can include ETFs, REITs, InvITs and other securities.
+
+Do not use symbol/name heuristics to authorize eligibility.
+
+Required rule:
+
+```text
+Authoritatively confirmed ordinary company equity
+→ eligible
+
+ETF/REIT/InvIT/SME/T2T/debt/SGB/partly-paid/preference/inactive
+→ excluded
+
+Insufficient authoritative security type
+→ UNRESOLVED_SECURITY_TYPE
+→ excluded
+```
+
+First inspect the available official NSE references.
+
+If the official references cannot distinguish ordinary company equity from other EQ-series securities, stop and return:
+
+```text
+BLOCKED_AUTHORITATIVE_NSE_SECURITY_TYPE_REFERENCE_INSUFFICIENT
+```
+
+Do not add more heuristics and do not claim PASS.
+
+If the source is sufficient, run the actual live reconciliation and provide exact:
+
+```text
+Kite raw NSE count
+Kite EQ-like candidates
+NSE reference rows
+ISIN matches
+symbol matches
+conflicts
+Kite-only unmatched
+NSE-only unmatched
+ordinary eligible
+each excluded class
+unresolved
+final scanner universe
+accounting difference
+```
+
+Accounting difference must equal zero.
+
+Also run one real Full Scanner generation and provide:
+
+```text
+generationId
+universeSize
+displayedRows
+liveQuoteCount
+noFeedCount
+failures
+eligibilityBreakdown
+countReconciliation
+scan duration
+```
+
+Do not provide a synthetic 14-record matrix.
+
+## Blocker 2 — Persistence and immutable generation
+
+Verify using actual runtime functions:
+
+1. Successful NSE fetch and PostgreSQL commit.
+2. PostgreSQL write failure.
+3. NSE refresh failure.
+4. Process restart using PostgreSQL last-good data.
+
+Required outcomes:
+
+```text
+DB success:
+durablyCommitted=true
+
+DB failure:
+durablyCommitted=false
+canAuthorizeUniverse=false
+previous durable snapshot preserved
+
+Refresh failure:
+existing displayed generation preserved
+same generationId
+same row count
+state=STALE or DEGRADED
+
+Restart:
+loads validated PostgreSQL snapshot
+does not silently prefer older local disk
+```
+
+A failed persistence result must not say `durableStore=POSTGRESQL` as if it succeeded.
+
+Prove every caller checks the persistence result.
+
+Prove the advisory lock protects the complete refresh decision and is released automatically.
+
+Do not submit design comments as runtime evidence.
+
+## Blocker 3 — Minimal final safety verification
+
+Prove the actual production functions:
+
+```text
+F&O CURRENT + clear → this gate passes
+F&O CURRENT + banned → blocked
+F&O LAST_KNOWN_STALE → blocked
+F&O UNAVAILABLE → blocked
+Swing Cash → not blocked solely by F&O ban
+```
+
+Reconfirm exactly:
+
+```text
+FULL_NSE_WAREHOUSE_POPULATION_AUTHORIZED=false
+SCANNER_KITE_CANDLE_EVALUATION_AUTHORIZED=false
+FNO_PAPER_V2_RUNTIME_AUTHORIZED=false
+SWING_PAPER_V2_RUNTIME_AUTHORIZED=false
+broker live execution disabled
+```
+
+Run one clean final battery:
+
+```text
+api-server tests
+scanner tests
+all relevant TSC checks
+api-server production build
+scanner production build
+git diff --check
+debug-route/artifact scan
+secret sentinel
+provider-import guard
+broker-execution sentinel
+artifacts/global unchanged
+```
+
+Return:
+
+* Exact live reconciliation output
+* Exact runtime failure trace
+* Exact commands and exit codes
+* Changed files
+* Commit hash
+* Remaining blocker, if any
+
+Do not give a long narrative or repeat test descriptions.
+
+Maximum final response: two pages.
+
+Allowed verdicts only:
+
+```text
+PROMPT_33B_PREDEPLOY_VERIFIED — OWNER_DEPLOYMENT_AUTHORIZATION_REQUIRED
+```
+
+or:
+
+```text
+BLOCKED_PROMPT_33B — <EXACT_REASON>
+```
+
+No deployment and no self-created follow-up tasks.
