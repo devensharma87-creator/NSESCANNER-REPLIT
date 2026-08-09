@@ -291,10 +291,10 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                   label: "Market Pulse",
                   items: [
                     { href: "/premarket", label: "Pre / Post", desc: "Pre-market & post-market analysis", isActive: l => l.startsWith("/premarket"), tab: "PREMARKET" },
+                    { href: "/directional-scorer", label: "Directional Scorer", desc: "Dual-model directional bias scorer — NIFTY / BANKNIFTY / SENSEX", isActive: l => l.startsWith("/directional-scorer"), tab: "DIRECTIONAL_SCORER" },
                     { href: "/news", label: "Market Info", desc: "News, earnings, holidays & events", isActive: l => l === "/news", tab: "NEWS" },
                     { href: "/flows", label: "FII / DII", desc: "Foreign & domestic institutional cash flows", isActive: l => l.startsWith("/flows"), tab: "FLOWS" },
                     { href: "/kite", label: "Live Feed", desc: "Zerodha Kite live data feed", isActive: l => l.startsWith("/kite"), ownerOnly: true },
-                    { href: "/directional-scorer", label: "Directional Scorer", desc: "Dual-model directional bias scorer — NIFTY / BANKNIFTY / SENSEX", isActive: l => l.startsWith("/directional-scorer"), tab: "DIRECTIONAL_SCORER" },
                   ],
                 },
                 { kind: "link", href: "/charting", label: "Charting", desc: "Interactive charting workspace", isActive: l => l.startsWith("/charting"), tab: "CHARTING" },
