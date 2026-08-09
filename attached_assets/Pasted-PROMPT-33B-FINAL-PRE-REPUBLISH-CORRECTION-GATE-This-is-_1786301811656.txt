@@ -1,0 +1,292 @@
+PROMPT 33B — FINAL PRE-REPUBLISH CORRECTION GATE
+
+This is a bounded correction gate. Do not expand scope.
+
+CURRENT PRODUCTION:
+
+* Deployed commit: c8fd8897
+* All four safety locks: false
+* Evaluation: Phase A / NOT_ACTIONABLE
+* Broker execution: disabled
+* Confirmed production defect: closed-market data incorrectly becomes READY_STALE
+* Proposed fix commit: 5342352
+* Republish is NOT yet authorized
+
+RULES
+
+1. Do not activate any evaluation, warehouse, V2, paper-trading, or broker-execution lock.
+2. Do not deploy until every gate below passes.
+3. Do not create evidence-only production modules.
+4. Do not run the entire suite repeatedly. Use targeted tests first; run the closing battery once.
+5. Do not call unresolved operational defects “INFO.”
+6. Report actual evidence—not conclusions inferred only from source code.
+
+GATE 1 — EXACT REPUBLISH DIFF
+
+Run:
+
+git diff --name-status c8fd8897..5342352 -- 
+artifacts/api-server 
+artifacts/scanner 
+lib
+
+git diff --stat c8fd8897..5342352
+
+git log --oneline c8fd8897..5342352
+
+Expected runtime scope:
+
+* scannerDataContract.ts
+* its directly related test file
+* no unrelated runtime changes
+
+If any unrelated runtime file changed, stop with:
+
+BLOCKED_UNEXPECTED_REPUBLISH_DIFF
+
+Return the actual diff for the READY_CLOSED/READY_STALE condition.
+
+GATE 2 — CLOSED-MARKET STATE-MACHINE PROOF
+
+Test the production function—not a copied implementation—against this matrix:
+
+| Market state |                        Cache age | Expected dataState                  |
+| ------------ | -------------------------------: | ----------------------------------- |
+| OPEN         |          within refresh interval | READY_LIVE                          |
+| OPEN         | above refresh, below hard expiry | READY_STALE                         |
+| CLOSED       |          within refresh interval | READY_CLOSED                        |
+| CLOSED       | above refresh, below hard expiry | READY_CLOSED                        |
+| CLOSED       |                above hard expiry | ERROR                               |
+| UNKNOWN      |                          any age | fail-closed state, never READY_LIVE |
+
+Also test:
+
+* missing market status;
+* future timestamp;
+* negative cache age;
+* invalid timestamp;
+* exactly refreshMs boundary;
+* exactly maxAgeMs boundary.
+
+Do not deploy if closed-market data can still become READY_STALE solely because no ticks arrive after market close.
+
+GATE 3 — NSE REFERENCE PROVENANCE CONTRACT
+
+Production reports:
+
+* eligible universe: 2,065;
+* NSE reference loaded;
+* canAuthorizeUniverse=true;
+* classifierProvenance.authoritativeNseReferenceIntegrated=false.
+
+Reconcile this before deployment.
+
+Candle evaluation authorization and security-universe classification are separate controls.
+
+SCANNER_KITE_CANDLE_EVALUATION_AUTHORIZED=false must prevent:
+
+* scoring;
+* confidence;
+* signals;
+* actions.
+
+It must not falsely report that the authoritative NSE security reference was not integrated if that reference was actually used to produce the 2,065-symbol universe.
+
+Prove from the actual generation:
+
+* NSE reference source hash;
+* reference row count;
+* reference effective date;
+* reference joined into classifier: true/false;
+* number of authoritative ordinary equities;
+* number of provisional classifications;
+* number of unresolved classifications;
+* whether any provisional/unresolved instrument entered the eligible universe.
+
+Required invariant:
+
+If the 2,065-symbol universe was authorized using the NSE reference, then:
+
+authoritativeNseReferenceIntegrated=true
+
+If it was not integrated, the universe must fail closed and must not claim authoritative eligibility.
+
+Fix only the provenance contract if incorrect. Do not enable candle evaluation.
+
+GATE 4 — DATABASE LATENCY P1 INVESTIGATION
+
+Production recorded DB latency values including approximately:
+
+* 28 ms;
+* 901 ms;
+* 10,000 ms.
+
+This changed systemMode from NORMAL to DEGRADED and disabled automated functions.
+
+Classify this as:
+
+P1 OPERATIONAL RELIABILITY BLOCKER
+
+Run at least 10 production read-only latency samples over five minutes and return:
+
+* timestamp;
+* endpoint/query measured;
+* latency;
+* timeout status;
+* database connection status;
+* systemMode;
+* autoscale instance/process identifier, if available.
+
+Calculate:
+
+* minimum;
+* median;
+* p95;
+* maximum;
+* timeout count.
+
+Verify whether the 10,000 ms result is caused by:
+
+* database cold start;
+* exhausted connection pool;
+* connection creation;
+* slow SQL;
+* autoscale wake-up;
+* network latency;
+* health-check implementation;
+* stale cached system mode.
+
+Do not modify database data.
+
+Acceptance:
+
+* no unexplained 10-second timeouts;
+* systemMode source is consistent across Home, F&O and Swing;
+* DEGRADED accurately reflects current health;
+* current and cached health states are labelled separately;
+* operational recovery does not silently authorize trading.
+
+If unresolved, report:
+
+BLOCKED_DB_LATENCY_P1
+
+GATE 5 — PRODUCTION UI PROOF PLAN
+
+Authenticated API output does not prove UI rendering.
+
+Do not reuse development screenshots.
+
+After an authorized republish, production verification must use:
+
+https://marketscannerbydev.in
+
+Authenticate through the normal UI flow without printing or exposing credentials.
+
+Capture production evidence for:
+
+* Home;
+* Full Scanner;
+* Deep Scan;
+* Daily Analysis;
+* Directional Scorer;
+* F&O;
+* Swing.
+
+Each proof must include:
+
+* visible production hostname;
+* deployed commit;
+* IST timestamp;
+* rendered data-state label;
+* evaluation label;
+* actionability label;
+* source/provenance;
+* visible row or instrument counts.
+
+For Full Scanner specifically prove:
+
+* universe = 2,065;
+* returned rows = 2,065;
+* All filter displays rows;
+* no 8,891 universe label;
+* no “NO MATCHING STOCKS FOUND” when rows exist;
+* no ETF, SDL, SGB, SME or unresolved instrument admitted;
+* score and confidence remain blank/null during Phase A.
+
+If authenticated browser evidence cannot be produced, report:
+
+PRODUCTION_UI_VERIFICATION_PENDING
+
+Do not declare the UI verified from curl alone.
+
+GATE 6 — MARKET-HOURS DATE CORRECTION
+
+The prior report incorrectly stated that the next session after 00:16 IST on August 10 was August 11.
+
+Correct rule:
+
+* If verification occurs before 15:30 IST on August 10, use August 10, 09:15–15:30 IST.
+* If that session has already ended, use August 11, 09:15–15:30 IST.
+* Confirm the NSE trading calendar before claiming the window.
+
+Do not fabricate live-market evidence.
+
+GATE 7 — SAFETY RECONFIRMATION
+
+Before requesting deployment authorization, return the source values:
+
+FULL_NSE_WAREHOUSE_POPULATION_AUTHORIZED=false
+SCANNER_KITE_CANDLE_EVALUATION_AUTHORIZED=false
+FNO_PAPER_V2_RUNTIME_AUTHORIZED=false
+SWING_PAPER_V2_RUNTIME_AUTHORIZED=false
+
+Also confirm:
+
+* no live broker order path;
+* no paper position opened;
+* no warehouse scheduler registered;
+* no scanner score produced;
+* no confidence produced;
+* no actionable recommendation produced;
+* no owner mutation endpoint invoked.
+
+GATE 8 — CLOSING BATTERY
+
+Only after the code and contract corrections are complete, run:
+
+* targeted scanner state-contract tests;
+* targeted NSE provenance tests;
+* API-server TypeScript check;
+* scanner TypeScript check;
+* API-server production build;
+* scanner production build;
+* git diff --check;
+* debug-route/fixture scan;
+* safety-lock scan.
+
+Run the full test suites only if runtime code beyond scannerDataContract.ts or provenance mapping was changed.
+
+FINAL RESPONSE FORMAT
+
+Return only:
+
+1. exact commit diff;
+2. closed-market state matrix results;
+3. NSE provenance reconciliation;
+4. DB latency evidence;
+5. production UI proof status;
+6. corrected market-hours window;
+7. four lock values;
+8. tests/builds executed;
+9. confirmed remaining blockers;
+10. final verdict.
+
+Allowed verdicts:
+
+PRE_REPUBLISH_VERIFIED — OWNER_DEPLOYMENT_AUTHORIZATION_REQUIRED
+
+or
+
+PRE_REPUBLISH_BLOCKED — <exact blockers>
+
+Do not report DEPLOYED_LOCKED — PRODUCTION_BASELINE_RECONCILED until commit 5342352 or its reviewed successor is actually deployed and authenticated production UI evidence has passed.
