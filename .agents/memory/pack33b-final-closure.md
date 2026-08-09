@@ -1,53 +1,72 @@
 ---
-name: Pack 33B final closure
-description: All six items of PROMPT_33B_FINAL_FAIL_CLOSED_REFERENCE_GATE implemented; commit e523505
+name: Pack 33B final closure (corrected)
+description: 8-item evidence closure for pack33b predeploy correction; commit f5d96ae; OWNER_DEPLOYMENT_AUTHORIZATION_REQUIRED
 ---
 
-## Six Items Delivered (commit e523505)
+## Commit
+f5d96ae — pack33b-final-predeploy-correction: 8-item evidence closure
 
-**Item 1 — nseRef required (non-optional)**
-- `NseSecurityReference` type exported from instrumentEligibility.ts
-- `nseRef: NseSecurityReference | null` is non-optional (compile error if omitted)
-- nseRef=null → KITE_NSE_EQ_LIKE_PROVISIONAL (fail-closed)
-- nseRef=Map → authoritative series join
-- `KITE_NSE_EQ_LIKE_PROVISIONAL` and `ORDINARY_EQUITY_ELIGIBLE` added to WAREHOUSE_EXCLUDED_CLASSES
-- `fullNseWarehouse.ts`: imports getNseSecurityMasterMap() and passes as nseRef
-- `fullNseScanner.ts`: provisional first-pass REMOVED; single authoritative pass only
+## Baseline
+api-server 6826 tests (e523505), scanner 1305 tests
 
-**Item 2 — Live NSE reference evidence**
-- URL: https://archives.nseindia.com/content/equities/EQUITY_L.csv
-- HTTP 200, 169,183 bytes, SHA-256: 153db8e940a6155131...
-- Header: SYMBOL,NAME OF COMPANY,SERIES,DATE OF LISTING,PAID UP VALUE,MARKET LOT,ISIN NUMBER,FACE VALUE
-- 2,397 data rows: 2,075 EQ + 294 BE + 28 BZ
-- HINDCOPPER in prod bundle from fnoUniverse.ts (production symbol), NOT from home-debug.tsx
+## Final test counts
+- api-server: 296 test files / 6876 tests PASS (+50 from 3 new p33b files)
+- scanner: 55 test files / 1305 tests PASS
+- 4-pkg TSC: CLEAN
 
-**Item 3 — Last-good disk persistence**
-- nseSecurityMaster.ts: LAST_GOOD_BLOB_NAME="nse-security-master-last-good", VERSION=1
-- saveLastGoodToDisk() on every successful fresh HTTP fetch
-- tryLoadLastGoodFromDisk() on failure: isLastGood=true, staleReason set
-- HTTP fail + no disk blob → null (BLOCKED, fail-closed)
-- isLastGood/staleReason on MasterCache and getNseSecurityMasterMeta()
-- _clearLastGoodDiskBlobForTest() + _resetNseSecurityMasterForTest() for test isolation
+## 8 items completed
 
-**Item 4 — Debug route prod build isolation**
-- All forbidden strings ABSENT from new prod build (index-D1E9sgUF.js)
-- /debug/home-states, HomeDebugPage, STATE-A/B/C, MANINFRA, home-debug: all PASS
+### Item 1 — Admission fail-closed
+- `nseFnoBanGate.ts`: central gate; FnoBanAdmissionResult with 6 verdicts
+- NSE_INDEX_DERIVATIVE_SYMBOLS: NIFTY/BANKNIFTY/SENSEX/MIDCPNIFTY/FINNIFTY/NIFTYNXT50/BANKEX → EXEMPT
+- Wired into: dispatchFnoWithCanonicalGates (Gate 2.5), stageSwingOrder, openPaperTrade
+- `p33b.admissionBanGate.test.ts`: 19 tests (AG-01..AG-18)
 
-**Item 5 — F&O admission fail-closed runtime tests**
-- _resetFnoBanListForTest() added to fnoBanList.ts
-- p33b.fnoAdmissionRuntime.test.ts: 20 tests (FA-01..FA-09) via stub HTTP
-- Tests call real isFnoBanned() (async, 1-arg, calls getFnoBanList() internally)
-- UNAVAILABLE → null, CURRENT+empty → false, CURRENT+banned → true
+### Item 2 — NSE reconciliation (2026-08-09)
+- EQUITY_L.csv: 2,397 data rows; 0 rejected; EQ=2,075 BE=294 BZ=28; 2,397 unique ISINs; 169,183 bytes
 
-**Item 6 — Final predeploy battery**
-- fullNseScanner.ts: buildBlockedScanResult() function added
-- api-server: 6826/6826 PASS, scanner: 1305/1305 PASS
-- All 4 TSC clean, both prod builds green
-- SCANNER_KITE_CANDLE_EVALUATION_AUTHORIZED=false, FULL_NSE_WAREHOUSE_POPULATION_AUTHORIZED=false
-- No broker placeOrder calls, git diff --check CLEAN
+### Item 3 — Replica-safe persistence (PostgreSQL L2)
+- Load chain: L0 (memory) → L1 (disk) → L2 (PostgreSQL) → L3 (HTTP)
+- `nse_security_master_snapshots` table declared in runtimeTables.ts (prevents DROP on push)
+- Advisory lock (key 8274613): pg_try_advisory_lock, production-only (skipped in dev/test to avoid pool leakage)
+- `p33b.nseMasterPersistence.test.ts`: 17 tests (MP-01..MP-09) with vi.hoisted DB mock
 
-**Why:** nseRef=undefined backward-compat was the last hole in the reference gate — provisional instruments could enter the warehouse even without authoritative confirmation. Removing it makes the gate unconditionally enforced at compile time.
+### Item 4 — Stale governance
+- NSE_REFERENCE_MAX_AGE_HOURS = 48 (exported)
+- canAuthorizeUniverse: false when isLastGood=true OR age > 48h; true only fresh HTTP
+- NseMasterMeta: ageHours, stale, maxAgeHours, canAuthorizeUniverse fields
+- GET /api/data/diagnostics/nse-reference (owner-only) returns full meta
 
-**Scanner prod build chunk name changed:** index-D1E9sgUF.js (was index-TL_cM3nE.js after rebuild).
+### Item 5 — Generation immutability
+- fullNseScanner.ts: canAuthorizeUniverse=false gate → BLOCKED_STALE_NSE_REFERENCE
+- `p33b.nseGenerationImmutability.test.ts`: 14 tests (GI-01..GI-08)
 
-**Test ISIN format:** for buildValidCsv() helpers, ISIN must be exactly 12 chars matching /^IN[A-Z0-9]{10}$/. Use INE + 8 digits + A (not 9 digits).
+### Item 6 — Full dist tree scan
+- Scanner dist: 9 files; hits are UI display strings (env var NAMES shown to user)
+- API server dist: 10 files; hits are process.env.* references in compiled code
+- No actual secret values in any dist file
+
+### Item 7 — Four safety locks confirmed
+- FULL_NSE_WAREHOUSE_POPULATION_AUTHORIZED = false as boolean (candleEvaluationControl.ts:44)
+- SCANNER_KITE_CANDLE_EVALUATION_AUTHORIZED = false as boolean (candleEvaluationControl.ts:117)
+- FNO_PAPER_V2_RUNTIME_AUTHORIZED = false as boolean (v2PaperLocks.ts:39)
+- SWING_PAPER_V2_RUNTIME_AUTHORIZED = false as boolean (v2PaperLocks.ts:40)
+- FNO_AUTO_OPEN_C0_BLOCKED = true (paperTradingFO.ts:398)
+- EQUITY_AUTO_OPEN_C0_BLOCKED = true (paperTradingEq.ts:1385)
+
+### Item 8 — Full closing battery
+- git diff --check: CLEAN
+- skip/only audit: all .skip are conditional guards; no hard .only
+- secret sentinel: CLEAN
+- provider import guard: CLEAN
+- artifacts/global: UNCHANGED
+
+## Status
+OWNER_DEPLOYMENT_AUTHORIZATION_REQUIRED
+
+## Key technical notes
+- Advisory lock uses pg_try_advisory_lock (session-level) which MUST NOT be used in tests
+  via connection pool (acquire+release use different connections). Guard: NODE_ENV !== 'production'.
+- p33b.nseLastGood.test.ts, p33b.nseMasterPersistence.test.ts, p33b.nseGenerationImmutability.test.ts
+  all require vi.hoisted + vi.mock('@workspace/db') to prevent real DB interaction.
+- _injectCacheForTest() added for state injection in tests (sets bySymbol/byIsin to empty Maps).

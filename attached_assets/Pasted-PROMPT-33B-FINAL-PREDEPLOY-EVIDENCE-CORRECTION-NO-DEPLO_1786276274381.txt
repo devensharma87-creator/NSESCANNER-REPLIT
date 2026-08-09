@@ -1,0 +1,164 @@
+PROMPT_33B_FINAL_PREDEPLOY_EVIDENCE_CORRECTION — NO DEPLOYMENT
+
+Do not deploy, retry a canary, enable evaluation, enable warehouse population, activate V2 cohorts, or change strategy/broker behaviour.
+
+The latest commit e523505 is promising but is NOT accepted yet. Close only the following evidence and safety gaps.
+
+1. Prove actual F&O and swing admission fail-closed
+
+Locate every production admission function that can stage, admit, recommend, paper-enter, or forward an F&O/swing candidate.
+
+Runtime-test the actual admission functions, not only isFnoBanned():
+
+- CURRENT + canAuthorizeAdmission=true + empty list: may proceed past this gate.
+- CURRENT + symbol banned: blocked.
+- LAST_KNOWN_STALE: blocked, even when the symbol is absent.
+- UNAVAILABLE: blocked.
+- malformed/unknown state: blocked.
+- null must never be treated as false.
+- no stale/current state may authorize paper trading, staging, alerts or broker execution accidentally.
+
+Provide an inventory of every production caller and its test result.
+
+2. Produce complete authoritative NSE reconciliation
+
+From the live EQUITY_L.csv response report:
+
+- source URL
+- HTTP status and content type
+- retrievedAt
+- effective date
+- bytes and SHA-256
+- exact headers
+- parsed rows
+- unique symbols
+- unique ISINs
+- duplicate symbols
+- duplicate ISINs
+- missing symbols/ISINs
+- rejected/malformed rows
+- exact series breakdown
+
+Join it to the current Kite NSE instrument master and report:
+
+- Kite raw count
+- NSE-reference raw count
+- matched symbols
+- Kite-only unmatched
+- NSE-only unmatched
+- ordinary EQ eligible
+- BE/T2T
+- BZ
+- ETF/fund
+- SME
+- debt/SGB
+- inactive
+- unresolved
+- final scanner universe
+- accounting equations proving every instrument belongs to exactly one category
+
+Run a real development Full Scanner generation with this authoritative join and include its exact countReconciliation object. No estimates and no sample-only proof.
+
+3. Make last-good persistence deployment- and replica-safe
+
+Do not rely on Replit instance-local disk as the authoritative last-good store.
+
+Persist the validated, versioned NSE reference in PostgreSQL or durable object storage with:
+
+- source URL
+- retrievedAt
+- effectiveDate
+- SHA-256
+- schema version
+- row count
+- validation result
+- normalized records
+
+Use a PostgreSQL advisory lock for refresh single-flight across replicas. Local disk may remain only as a non-authoritative L1 cache.
+
+Test:
+
+- restart hydration
+- second-replica hydration
+- concurrent concurrent refresh
+- malformed response
+- empty response
+- timeout
+- database failure
+- successful replacement of last-good
+- failed refresh preserving last-good
+
+4. Define stale-reference governance
+
+Specify maximum accepted age.
+
+Expose through diagnostics/API:
+
+- retrievedAt
+- effectiveDate
+- age
+- SHA-256
+- isLastGood
+- stale
+- staleReason
+- canAuthorizeUniverse
+
+When reference age exceeds policy, fail closed for new evaluation/admission. Never silently treat indefinitely stale reference data as current authority.
+
+5. Prove immutable scanner generation behaviour
+
+Runtime-test:
+
+- failed NSE refresh with an existing valid generation preserves that generation
+- generationId and generatedAt remain unchanged
+- state becomes explicitly stale/degraded
+- failed/empty reconciliation cannot publish a zero-row generation over last-good
+- no false zero, neutral, score or action is created
+
+6. Scan the entire production artifact tree
+
+After a clean scanner production build, recursively scan every file under dist for:
+
+- /debug/home-states
+- HomeDebugPage
+- STATE-A
+- STATE-B
+- STATE-C
+- home-debug
+- fixture-only
+- fixture payload markers
+
+Also inspect the production route registry and prove zero debug routes are registered.
+
+Do not treat legitimate production symbols such as HINDCOPPER as fixture leakage.
+
+7. Reconfirm all safety locks
+
+Prove from source and runtime import:
+
+FULL_NSE_WAREHOUSE_POPULATION_AUTHORIZED=false as boolean
+SCANNER_KITE_CANDLE_EVALUATION_AUTHORIZED=false as boolean
+FNO_PAPER_V2_RUNTIME_AUTHORIZED=false as boolean
+SWING_PAPER_V2_RUNTIME_AUTHORIZED=false as boolean
+
+Also prove broker execution remains disabled.
+
+8. Run the closing battery
+
+- complete api-server tests
+- complete scanner tests
+- all package typechecks
+- both relevant Stock Scanner Pro production builds
+- git diff --check
+- skip/only audit
+- secret sentinel
+- provider import guard
+- artifacts/global unchanged
+
+Return exact counts, command exit codes, changed files, commit hash and evidence paths.
+
+Do not claim acceptance if any requirement is missing.
+
+Only acceptable verdict:
+
+PROMPT_33B_FINAL_PREDEPLOY_EVIDENCE_VERIFIED — OWNER_DEPLOYMENT_AUTHORIZATION_REQUIRED
