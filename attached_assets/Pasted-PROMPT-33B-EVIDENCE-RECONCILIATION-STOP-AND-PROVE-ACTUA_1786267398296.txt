@@ -1,0 +1,139 @@
+PROMPT_33B_EVIDENCE_RECONCILIATION — STOP AND PROVE ACTUAL NEW WORK
+
+Do not deploy. Do not write additional broad changes yet.
+
+Your latest response repeated the previous five-blocker summary and did not answer the final two-blocker prompt.
+
+First establish whether any new work was actually performed after the previous response.
+
+1. Git evidence
+
+Return:
+
+- previous response commit/HEAD
+- current HEAD
+- git diff --stat between them
+- exact changed-file list
+- exact new test-file list
+- exact new test names
+
+If there is no meaningful diff, state clearly:
+
+NO_NEW_IMPLEMENTATION_PERFORMED_AFTER_PREVIOUS_RESPONSE
+
+Do not reuse previous evidence as new evidence.
+
+2. Generation blocker
+
+Your reported trace is still invalid:
+
+displayedGenerationId:
+before=null
+during=gen-new
+after=gen-new
+
+Produce the required actual runtime trace with both fields:
+
+First cold scan:
+
+Before:
+displayedGenerationId=null
+inProgressGenerationId=null
+
+During:
+displayedGenerationId=null
+inProgressGenerationId=gen-new
+
+After:
+displayedGenerationId=gen-new
+inProgressGenerationId=null
+
+Warm refresh:
+
+Before:
+displayedGenerationId=gen-old
+inProgressGenerationId=null
+
+During:
+displayedGenerationId=gen-old
+inProgressGenerationId=gen-new
+
+After success:
+displayedGenerationId=gen-new
+inProgressGenerationId=null
+
+After forced failure:
+displayedGenerationId=gen-old
+inProgressGenerationId=null
+lastError=<reason>
+
+Requirements:
+
+- Use actual production scan/status functions.
+- Add a deterministic test pause inside the real scan lifecycle.
+- Do not use regex/source proof as the primary evidence.
+- Do not use a standalone simulation.
+- Prove old rows, counts, CSV and JSON remain on gen-old during gen-new construction.
+- Prove reconciliation failure and provider failure preserve gen-old.
+- Prove atomic publication.
+
+If the current implementation publishes displayedGenerationId during the scan, fix it.
+
+3. Home component blocker
+
+Helper-function tests are insufficient.
+
+Use the actual registered Home page and real production components.
+
+Add rendered component/runtime tests proving:
+
+- missing index quote renders “—”, not 0;
+- missing index change renders “—”, not 0%;
+- missing index direction renders UNAVAILABLE, not STRONG_BEAR/STRONG_BULL;
+- missing breadth denominator renders A/D “—”, not 1.00;
+- missing mandatory mood inputs render score “—”, not 50/51;
+- missing trend inputs render UNAVAILABLE, not NEUTRAL;
+- global outage hides current-looking VIX/DXY/crude values;
+- stale global values include source, sessionDate and asOf;
+- F&O-ban outage renders UNAVAILABLE, not ALL CLEAR;
+- breadth available + indices unavailable renders READY_PARTIAL;
+- valid previous-close data renders READY_CLOSED with sessionDate;
+- gainers/losers availability does not make setup panels look available.
+
+Capture the three requested development screenshots:
+
+- all unavailable
+- ready partial
+- ready closed
+
+These are predeploy component evidence only.
+
+4. Reconfirm safety controls
+
+Report exact source lines and built-artifact results for:
+
+FULL_NSE_WAREHOUSE_POPULATION_AUTHORIZED=false
+SCANNER_KITE_CANDLE_EVALUATION_AUTHORIZED=false
+FNO_PAPER_V2_RUNTIME_AUTHORIZED=false
+SWING_PAPER_V2_RUNTIME_AUTHORIZED=false
+broker execution=false
+eligibility canary=BLOCKED
+
+5. Final response format
+
+Return:
+
+A. Git delta since previous response
+B. Actual generation traces
+C. Home rendered test results
+D. Screenshot paths
+E. Safety lock proof
+F. Full battery
+
+Only if all pass return:
+
+PROMPT_33B_IMPLEMENTED_IN_DEVELOPMENT — PREDEPLOY_BLOCKERS_CLOSED — OWNER_DEPLOYMENT_AUTHORIZATION_REQUIRED
+
+Do not repeat the earlier five-blocker summary.
+Do not deploy.
+Do not create follow-up tasks.

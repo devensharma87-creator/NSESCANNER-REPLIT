@@ -358,6 +358,51 @@ let cache: Cache | null = null;
 let scanInFlight: Promise<Cache> | null = null;
 let timer: NodeJS.Timeout | null = null;
 
+// ── TEST-ONLY LIFECYCLE HOOKS ──────────────────────────────────────────────
+// These hooks exist exclusively for `p33b.generationTrace.test.ts`.
+// They are never called in production — guarded only by test setup/teardown.
+//
+//   _testScanResultFactory — when set, `performFullScan` skips real I/O and
+//     returns the provided Cache immediately, AFTER setting all progress markers
+//     (including inProgressGenerationId) so lifecycle state is real.
+//
+//   _testPauseBeforeCommit — when set, `scanFullNse` awaits this function
+//     AFTER performFullScan returns but BEFORE the atomic commit is executed.
+//     Tests use this window to call `getFullNseStatus()` and observe the
+//     in-progress state (displayedGenerationId=old, inProgressGenerationId=new).
+//
+//   _resetTestHooks — call in afterEach to restore the module to clean state.
+let _testScanResultFactory: ((generationId: string) => Promise<Cache>) | null = null;
+let _testPauseBeforeCommit: (() => Promise<void>) | null = null;
+
+/** TEST ONLY: inject a fast, controlled scan result for lifecycle tests. */
+export function _setTestScanResultFactory(fn: ((generationId: string) => Promise<Cache>) | null): void {
+  _testScanResultFactory = fn;
+}
+/** TEST ONLY: inject a pause executed between scan complete and cache commit. */
+export function _setTestPauseBeforeCommit(fn: (() => Promise<void>) | null): void {
+  _testPauseBeforeCommit = fn;
+}
+/** TEST ONLY: clear just the hook factories — does NOT touch cache or progress.
+ *  Use within a test when you want to arm fresh hooks for the next scan while
+ *  keeping the previously seeded cache as the "last-good generation". */
+export function _clearTestFactories(): void {
+  _testScanResultFactory = null;
+  _testPauseBeforeCommit = null;
+}
+/** TEST ONLY: full module-state reset between test cases (use in afterEach). */
+export function _resetTestHooks(): void {
+  _testScanResultFactory = null;
+  _testPauseBeforeCommit = null;
+  cache = null;
+  scanInFlight = null;
+  progress.inProgressGenerationId = null;
+  progress.running = false;
+  progress.scanned = 0;
+  progress.total = 0;
+  progress.startedAt = null;
+}
+
 function round2(n: number): number { return Math.round(n * 100) / 100; }
 function lastVal(arr: (number | null)[]): number | null {
   for (let i = arr.length - 1; i >= 0; i--) if (arr[i] != null) return arr[i] as number;
@@ -820,6 +865,14 @@ async function performFullScan(): Promise<Cache> {
   progress.running = true;
   progress.inProgressGenerationId = generationId;
 
+  // TEST-ONLY: after setting all progress markers (including inProgressGenerationId),
+  // fast-return with the test-injected result. The full lifecycle in scanFullNse()
+  // (generationId tracking, pause-before-commit, cache assignment, reconciliation
+  // guard) still runs against this result — only the real I/O is skipped.
+  if (_testScanResultFactory) {
+    return _testScanResultFactory(generationId);
+  }
+
   // ── 2. KITE QUOTES (primary price source) ──────────────────────────
   const kiteQuotes = await centralBatchEquityQuotes(symbolList);
   timing.kiteQuoteFetch = Date.now() - phaseStart;
@@ -1101,7 +1154,10 @@ async function performFullScan(): Promise<Cache> {
 
   rows.sort((a, b) => a.symbol.localeCompare(b.symbol));
   progress.running = false;
-  progress.inProgressGenerationId = null;
+  // NOTE: progress.inProgressGenerationId is intentionally NOT cleared here.
+  // It is cleared in scanFullNse()'s finally block, AFTER the pause-before-commit
+  // and cache-assignment phase. This ensures getFullNseStatus() correctly reflects
+  // "scan complete but not yet published" during the commit window.
 
   try {
     const heatmap = getLatestHeatmapCache();
@@ -1245,6 +1301,15 @@ export async function scanFullNse(opts?: { force?: boolean }): Promise<Cache> {
     scanInFlight = (async () => {
       try {
         const next = await performFullScan();
+        // TEST HOOK: pause here so tests can observe in-progress state.
+        // Placed BEFORE the rows.length > 0 guard so T-PROV-FAIL (0 rows) can
+        // also be observed.  Production path: _testPauseBeforeCommit is null
+        // → no overhead whatsoever.
+        // At this point:
+        //   displayedGenerationId = old cache (not yet swapped)
+        //   inProgressGenerationId = next.generationId (set in performFullScan)
+        if (_testPauseBeforeCommit) await _testPauseBeforeCommit();
+
         if (next.rows.length > 0) {
           const prev = cache;
           const downgrading = !prev?.degraded && next.degraded && (prev?.rows.length ?? 0) > next.rows.length;
@@ -1288,6 +1353,9 @@ export async function scanFullNse(opts?: { force?: boolean }): Promise<Cache> {
         return cache ?? next;
       } finally {
         scanInFlight = null;
+        // Clear inProgressGenerationId here (not in performFullScan) so it
+        // spans the full commit window (pause + commit phase).
+        progress.inProgressGenerationId = null;
       }
     })();
     // Detach a swallow-catch so the background promise can never raise
