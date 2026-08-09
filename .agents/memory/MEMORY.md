@@ -1,3 +1,4 @@
+- [Pack 33B three-blocker closure](pack33b-three-blocker-closure.md) — NSE EQUITY_L.csv join; debug-route tree-shaking; F&O ban 6-field contract; 3-state nseRef (undefined=compat/null=provisional/Map=auth); DISK_CACHE_V19; 6779+1304 PASS; commit 282e245.
 - [Pack 33B continuation closure](pack33b-continuation-closure.md) — 10 sections; Phase A skip 1294s→4s; 3-dim data contract; generationId+reconciliation; fnoBanList tri-state; trust badge overhaul; 38+40 tests; DISK_CACHE_V18; 6667+1250 tests PASS; DEPLOYMENT_AUTH_REQUIRED.
 - [Pack 33 closure](pack33-closure.md) — all corrections complete (fe12160); 280/6515 tests; MIN_BARS_FOR_EVALUATION=252 (52W binding); RSI_14=15; runtime proof 16 tests; AUTHORIZE_PROMPT_33_PHASE_A_STORE_POPULATION_DEPLOYMENT pending.
 - [Pack 9A canary closure](pack9a-canary-closure.md) — canary PENDING: dev verified NOT_EVALUATED; prod must be published then canary re-run (3/3, 252 rows, 30 min).
