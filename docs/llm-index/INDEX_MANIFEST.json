@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-09T11:01:06.066Z",
+  "generatedAt": "2026-08-09T15:32:34.116Z",
   "generatorVersion": "1.0.0",
   "files": {
     "artifacts/api-server/src/routes/admin.ts": {
@@ -43,9 +43,9 @@
       "mtime": "2026-07-18T09:30:59.871Z"
     },
     "artifacts/api-server/src/routes/data.ts": {
-      "hash": "906d7ada18d473ee",
-      "lines": 387,
-      "mtime": "2026-08-04T11:07:31.865Z"
+      "hash": "d2f9ebcfd6b2f360",
+      "lines": 423,
+      "mtime": "2026-08-09T12:03:05.844Z"
     },
     "artifacts/api-server/src/routes/dataHealth.ts": {
       "hash": "3424f3ef3424df56",
@@ -438,9 +438,9 @@
       "mtime": "2026-06-17T03:43:06.642Z"
     },
     "artifacts/api-server/src/lib/fnoBanList.ts": {
-      "hash": "03476669c9329e31",
-      "lines": 317,
-      "mtime": "2026-08-09T10:26:12.937Z"
+      "hash": "5d280717a99edc4f",
+      "lines": 326,
+      "mtime": "2026-08-09T11:33:16.641Z"
     },
     "artifacts/api-server/src/lib/fnoCanonicalTaxonomy.ts": {
       "hash": "598e136abb5b7b8c",
@@ -513,9 +513,9 @@
       "mtime": "2026-05-18T10:37:29.852Z"
     },
     "artifacts/api-server/src/lib/fnoSignalAlerts.ts": {
-      "hash": "b5a0ab33e61504d5",
-      "lines": 964,
-      "mtime": "2026-07-18T09:30:59.863Z"
+      "hash": "1b0db23b6c9c4606",
+      "lines": 980,
+      "mtime": "2026-08-09T15:10:29.796Z"
     },
     "artifacts/api-server/src/lib/fnoSignalReasoningLogger.ts": {
       "hash": "f31dc2d8aea861de",
@@ -538,9 +538,9 @@
       "mtime": "2026-07-01T05:38:36.904Z"
     },
     "artifacts/api-server/src/lib/fullNseScanner.ts": {
-      "hash": "068d95f2bce9c0d3",
-      "lines": 1696,
-      "mtime": "2026-08-09T10:52:39.997Z"
+      "hash": "93f478e44a5c7780",
+      "lines": 1742,
+      "mtime": "2026-08-09T12:02:59.309Z"
     },
     "artifacts/api-server/src/lib/gex.ts": {
       "hash": "5741d68fff3289eb",
@@ -658,14 +658,14 @@
       "mtime": "2026-07-18T09:30:59.864Z"
     },
     "artifacts/api-server/src/lib/kiteCandle/fullNseWarehouse.ts": {
-      "hash": "f632d9d8cd98bb01",
-      "lines": 1211,
-      "mtime": "2026-08-08T10:22:56.567Z"
+      "hash": "7c629ed4ecdf8c81",
+      "lines": 1216,
+      "mtime": "2026-08-09T11:24:49.781Z"
     },
     "artifacts/api-server/src/lib/kiteCandle/instrumentEligibility.ts": {
-      "hash": "659ef224d4f030f1",
-      "lines": 601,
-      "mtime": "2026-08-09T10:57:43.450Z"
+      "hash": "da3946ee41354643",
+      "lines": 885,
+      "mtime": "2026-08-09T15:19:02.951Z"
     },
     "artifacts/api-server/src/lib/kiteCandle/kiteCandleStore.ts": {
       "hash": "86071590f0790345",
@@ -972,10 +972,15 @@
       "lines": 186,
       "mtime": "2026-04-25T16:35:14.797Z"
     },
+    "artifacts/api-server/src/lib/nseFnoBanGate.ts": {
+      "hash": "12397d4a5b42c725",
+      "lines": 290,
+      "mtime": "2026-08-09T15:10:19.688Z"
+    },
     "artifacts/api-server/src/lib/nseSecurityMaster.ts": {
-      "hash": "fad99ef98eea2f4b",
-      "lines": 359,
-      "mtime": "2026-08-09T10:24:37.665Z"
+      "hash": "8bc254c37add89b4",
+      "lines": 878,
+      "mtime": "2026-08-09T15:22:55.168Z"
     },
     "artifacts/api-server/src/lib/oiBuildup.ts": {
       "hash": "aa648e7f02816403",
@@ -1052,6 +1057,11 @@
       "lines": 1832,
       "mtime": "2026-05-13T13:46:44.018Z"
     },
+    "artifacts/api-server/src/lib/p33b.reconciliationReport.ts": {
+      "hash": "ca07416d3ba09ea8",
+      "lines": 181,
+      "mtime": "2026-08-09T14:53:13.632Z"
+    },
     "artifacts/api-server/src/lib/paperAccount.ts": {
       "hash": "77e467a191dbf1a5",
       "lines": 1112,
@@ -1123,9 +1133,9 @@
       "mtime": "2026-08-07T10:22:17.494Z"
     },
     "artifacts/api-server/src/lib/paperTradingFO.ts": {
-      "hash": "3fb7b6bb2a487f3f",
-      "lines": 3681,
-      "mtime": "2026-07-23T10:04:36.689Z"
+      "hash": "4beff61a847119f3",
+      "lines": 3699,
+      "mtime": "2026-08-09T15:10:36.684Z"
     },
     "artifacts/api-server/src/lib/preMarket.ts": {
       "hash": "87177e65ad82caeb",
@@ -1278,9 +1288,9 @@
       "mtime": "2026-06-29T14:46:55.000Z"
     },
     "artifacts/api-server/src/lib/swingOrderStaging.ts": {
-      "hash": "8bb8974acb2fbc84",
-      "lines": 938,
-      "mtime": "2026-08-03T07:29:25.751Z"
+      "hash": "e53b70dd2e35fa3a",
+      "lines": 979,
+      "mtime": "2026-08-09T15:10:49.564Z"
     },
     "artifacts/api-server/src/lib/swingRegressionGate.ts": {
       "hash": "d94f1375a1d0872f",
@@ -1543,9 +1553,9 @@
       "mtime": "2026-06-10T11:14:00.946Z"
     },
     "lib/db/src/schema/runtimeTables.ts": {
-      "hash": "ab62f9de578c14d6",
-      "lines": 204,
-      "mtime": "2026-08-08T10:20:14.952Z"
+      "hash": "d617cf47aa28b2cd",
+      "lines": 237,
+      "mtime": "2026-08-09T11:57:19.137Z"
     },
     "lib/db/src/schema/strategyControl.ts": {
       "hash": "05aa3b89fd1ac8d7",
@@ -1568,9 +1578,9 @@
       "mtime": "2026-04-23T11:48:00.769Z"
     },
     "lib/db/src/schema/users.ts": {
-      "hash": "81409daefc940b49",
-      "lines": 122,
-      "mtime": "2026-06-05T12:55:17.075Z"
+      "hash": "e055cffaaeb62923",
+      "lines": 123,
+      "mtime": "2026-08-09T13:46:50.832Z"
     },
     "lib/api-spec/openapi.yaml": {
       "hash": "cdfc1bb6e9d04add",
@@ -1578,9 +1588,9 @@
       "mtime": "2026-08-04T11:07:08.024Z"
     },
     "artifacts/scanner/src/pages/admin.tsx": {
-      "hash": "4a6ea1da8bb56b02",
-      "lines": 411,
-      "mtime": "2026-06-05T13:03:22.297Z"
+      "hash": "006ea13675ee154d",
+      "lines": 412,
+      "mtime": "2026-08-09T13:47:20.238Z"
     },
     "artifacts/scanner/src/pages/audit.tsx": {
       "hash": "f1321f6ae982c697",
@@ -1611,6 +1621,11 @@
       "hash": "d56dc297ad4ffd74",
       "lines": 811,
       "mtime": "2026-08-07T08:18:20.103Z"
+    },
+    "artifacts/scanner/src/pages/directional-scorer.tsx": {
+      "hash": "75df8e8df3102a5c",
+      "lines": 1326,
+      "mtime": "2026-08-09T14:18:46.442Z"
     },
     "artifacts/scanner/src/pages/flows.tsx": {
       "hash": "b72dbbd456757a04",
@@ -1778,9 +1793,9 @@
       "mtime": "2026-08-05T06:04:21.223Z"
     },
     "artifacts/scanner/src/lib/auth-api.ts": {
-      "hash": "3842281fb9583141",
-      "lines": 201,
-      "mtime": "2026-06-05T13:02:50.967Z"
+      "hash": "8ac9ad401431011c",
+      "lines": 203,
+      "mtime": "2026-08-09T13:46:26.216Z"
     },
     "artifacts/scanner/src/lib/backtest/useReplayDiagnostics.ts": {
       "hash": "61dd66f2c553fb08",

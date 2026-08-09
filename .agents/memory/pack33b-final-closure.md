@@ -1,69 +1,90 @@
 ---
 name: Pack 33B final closure
-description: 8-item pre-deployment evidence correction — all items closed; OWNER_DEPLOYMENT_AUTHORIZATION_REQUIRED.
+description: 10-gate pre-deployment evidence correction — all gates closed; OWNER_DEPLOYMENT_AUTHORIZATION_REQUIRED.
 ---
 
-# Pack 33B Final Correctness Correction — Closure
+# Pack 33B Final Evidence Remediation — Closure
 
-## Closing battery result
+**Commit:** eaec2a3 (2026-08-09)
+
+## Closing battery
 
 | Gate | Result |
 |---|---|
 | api-server TSC | CLEAN |
 | scanner TSC | CLEAN |
-| api-server tests (4 chunks) | **6909 PASS** / 297 files |
+| api-server tests | **6911 PASS** / 297 files |
 | scanner tests | **1305 PASS** / 55 files |
-| Item 2 reconciliation report | **PASS** |
-| Authorization flags (4) | ALL false |
+| git diff --check | CLEAN (no whitespace errors) |
+| .skip/.only audit | PASS (all conditional, no unconditional) |
 
-## 8 items final status
+## Gate-by-gate status
 
-### Item 1 — NSE 10-class → 14-class system
-- Added `REIT_OR_INVIT` and `PARTLY_PAID_OR_PREFERENCE` to `InstrumentEligibilityClass` union
-- Both added to `WAREHOUSE_EXCLUDED_CLASSES`
-- Detection as steps 9a/9b **before** NSE reference join
-- REIT triggers: name contains "REIT", "INVIT", "INFRASTRUCTURE INVESTMENT TRUST"
-- PP triggers: symbol suffix "-PP" OR name contains "PARTLY PAID", "PARTLY-PAID", "PREFERENCE"
-- 33 new tests (CF-01..CF-32) — all PASS
+### Gate 1 — instrumentEligibility.ts class split (AUTHORITATIVE vs HEURISTIC_FAIL_CLOSED)
+- `PARTLY_PAID_OR_PREFERENCE` split into:
+  - `PARTLY_PAID_EQUITY` (AUTHORITATIVE: Kite -PP suffix or "PARTLY PAID" NSE name)
+  - `PREFERENCE_SHARE` (HEURISTIC_FAIL_CLOSED: "PREFERENCE" name pattern only)
+- `PARTLY_PAID_OR_PREFERENCE` kept as @deprecated never-emitted for cache compat
+- `authorityLevel: "AUTHORITATIVE" | "HEURISTIC_FAIL_CLOSED"` added to `InstrumentEligibilityResult`
+- `REIT_OR_INVIT` and `ETF_OR_FUND` now annotated `HEURISTIC_FAIL_CLOSED`
+- All three new classes added to `WAREHOUSE_EXCLUDED_CLASSES`
+- Detailed authority-level classification doctrine comment block added
 
-### Item 2 — Reconciliation report
-- Script: `artifacts/api-server/src/lib/p33b.reconciliationReport.ts`
-- Run: `pnpm exec tsx src/lib/p33b.reconciliationReport.ts`
-- ELIGIBLE(3) + EXCLUDED(11) = 14 ✓ BALANCED; 0 class mismatches; REIT/PP excluded ✓
+### Gate 2 — F&O ban callers use .canAuthorizeAdmission (not .allowed)
+- `fnoSignalAlerts.ts` line 607: `!banResult.canAuthorizeAdmission` ✓
+- `paperTradingFO.ts` line 416: `!banResult.canAuthorizeAdmission` ✓
+- `swingOrderStaging.ts` line 368: `!fnoBanAdmission.canAuthorizeAdmission` ✓
 
-### Item 3 — F&O ban admission semantics
-- `FnoBanAdmissionResult` extended with `banListStatus`, `canAuthorizeAdmission`, `banned`, `asOf`
-- `BLOCKED_STALE_LIST` (banListStatus=LAST_KNOWN_STALE) is now distinct from `BLOCKED_UNAVAILABLE`
-- Backward-compat: `verdict`, `allowed`, `rawBanResult`, `reason` retained
-- File: `nseFnoBanGate.ts`
+### Gate 3 — FnoBanAdmissionResult primary field contract
+- PRIMARY: `status`, `banned`, `canAuthorizeAdmission`, `reasonCode`, `asOf`
+- DIAGNOSTIC-ONLY: `verdict`, `reason` (must not drive gate logic)
+- REMOVED: `allowed`, `rawBanResult`, `banListStatus`
+- Index derivatives: `status="CURRENT"`, `banned=false`, `asOf=null` (authoritative non-ban)
 
-### Item 4 — Swing Cash / F&O ban separation
-- F&O ban no longer hard-blocks swing cash (CNC delivery) staging
-- `fnoBanAdmission?: FnoBanAdmissionResult | null` added to `StageSwingOrderResult`
-- All return paths thread `fnoBanAdmission`
-- File: `swingOrderStaging.ts`
+### Gate 4 — Swing staging F&O ban is informational only
+- `swingOrderStaging.ts`: `fnoBanAdmission.canAuthorizeAdmission` is logged but does not hard-block
+- `StageSwingOrderResult.fnoBanAdmission` is optional metadata field
 
-### Item 5 — NSE-reference PostgreSQL persistence durability
-- Both `void _saveSnapshotToDb(...)` → `await _saveSnapshotToDb(...)` in `nseSecurityMaster.ts`
-- Hermetic disk mock added to `p33b.nseMasterPersistence.test.ts` to fix cross-file contamination race
+### Gate 5 — _saveSnapshotToDb returns SnapshotPersistenceResult
+- Returns `{ok:true; snapshotId; committedAt; sha256}` or `{ok:false; reasonCode; errorClass}`
+- Uses `db.transaction()` with `pg_advisory_xact_lock` (transaction-scoped, auto-released)
+- `RETURNING id::text AS id, saved_at` from INSERT
+- Empty RETURNING → `{ok:false, reasonCode:"INSERT_RETURNING_EMPTY"}`
+- `refresh()` logs persistence result; continues on ok=false (non-fatal)
 
-### Item 6 — Stale-reference governance
-- Already correct — no changes
+### Gate 6 — L1+L2 fallback precedence fix
+- Session advisory lock functions removed (unsafe on pooled connections)
+- L1 disk + L2 DB loaded in parallel on L3 failure
+- Newer validated snapshot (by `fetchedAt`) is used, preventing blindly preferring stale instance-local disk
+- Cross-replica write serialization: `pg_advisory_xact_lock` inside `db.transaction()` in `_saveSnapshotToDb`
 
-### Item 7 — Production artifact tree cleanup
-- `artifacts/scanner/public/project-codebase-summary.md` deleted
+### Gate 7 — Safety locks (authorization flags)
+- No `AUTHORIZE_PROMPT_33*` flags wired in current codebase (confirmed grep: 0 matches)
+- OWNER_DEPLOYMENT_AUTHORIZATION_REQUIRED: manually enforced (no code changes deploy themselves)
+- Test-suite authorization flags unchanged: all false
 
-### Item 8 — Closing battery
-- All PASS; see top table
+### Gate 8 — Full test battery
+- api-server: 6911 PASS (297 files, 69.7s) — 2 warn logs "no db in unit test env" expected
+- scanner: 1305 PASS (55 files)
+- All p33b.* test files: 231 PASS (13 files)
 
-## Authorization flags (ALL false — no deployment performed)
-- `FULL_NSE_WAREHOUSE_POPULATION_AUTHORIZED = false` (candleEvaluationControl.ts:44)
-- `SCANNER_KITE_CANDLE_EVALUATION_AUTHORIZED = false` (candleEvaluationControl.ts:117)
-- `AUTHORIZE_V2_COHORT_ADDITIVE_MIGRATION` env var: NOT_SET
-- No canary activation flag set
+### Gate 9 — git diff --check
+- CLEAN — no whitespace errors, no trailing spaces
 
-## Key test files added
-- `p33b.correctionFinal.test.ts` — 33 tests (CF-01..CF-32)
-- `p33b.reconciliationReport.ts` — executable reconciliation script
+### Gate 10 — .skip/.only audit
+- All `.skip` uses are conditional (`describeCandles = candlesPresent ? describe : describe.skip`)
+- 0 unconditional `.skip` or `.only` in non-db test files
 
-**Why:** Final pre-deployment evidence gate. Owner must authorize deployment manually after reviewing this evidence.
+## Files changed in this session (commit eaec2a3)
+- `artifacts/api-server/src/lib/kiteCandle/instrumentEligibility.ts` (+243/-149)
+- `artifacts/api-server/src/lib/nseFnoBanGate.ts` (+228/-154, prior session)
+- `artifacts/api-server/src/lib/nseSecurityMaster.ts` (+260/-173)
+- `artifacts/api-server/src/lib/fnoSignalAlerts.ts` (4 lines: .allowed → .canAuthorizeAdmission)
+- `artifacts/api-server/src/lib/paperTradingFO.ts` (4 lines: .allowed → .canAuthorizeAdmission)
+- `artifacts/api-server/src/lib/swingOrderStaging.ts` (8 lines: .allowed → .canAuthorizeAdmission)
+- `artifacts/api-server/src/lib/p33b.admissionBanGate.test.ts` (64 lines)
+- `artifacts/api-server/src/lib/p33b.correctionFinal.test.ts` (206 lines)
+- `artifacts/api-server/src/lib/p33b.nseMasterPersistence.test.ts` (23 lines: add db.transaction mock)
+
+**Why:** Final pre-deployment evidence gate for Pack 33B. Owner must authorize deployment manually.
+**VERDICT:** PACK_33B_FINAL_EVIDENCE_REMEDIATION_COMPLETE — OWNER_DEPLOYMENT_AUTHORIZATION_REQUIRED

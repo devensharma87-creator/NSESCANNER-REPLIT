@@ -1713,17 +1713,18 @@
   {
     "path": "artifacts/api-server/src/lib/fnoBanList.ts",
     "purpose": "fno-engine",
-    "lines": 317,
+    "lines": 326,
     "exports": [
       "FnoBanStatus",
       "FnoBanList",
       "getFnoBanList",
       "isFnoBanned",
+      "_resetFnoBanListForTest",
       "isFnoBannedLegacy"
     ],
     "externalImports": [],
     "routes": [],
-    "hash": "03476669c9329e31"
+    "hash": "5d280717a99edc4f"
   },
   {
     "path": "artifacts/api-server/src/lib/fnoCanonicalTaxonomy.test.ts",
@@ -2267,7 +2268,7 @@
   {
     "path": "artifacts/api-server/src/lib/fnoSignalAlerts.ts",
     "purpose": "alerting",
-    "lines": 964,
+    "lines": 980,
     "exports": [
       "FNO_SIGNAL_ALERT_NEW_OPEN_MAX_MS",
       "FNO_SIGNAL_DEDUP_MS",
@@ -2294,7 +2295,7 @@
       "crypto"
     ],
     "routes": [],
-    "hash": "b5a0ab33e61504d5"
+    "hash": "1b0db23b6c9c4606"
   },
   {
     "path": "artifacts/api-server/src/lib/fnoSignalReasoningFingerprint.test.ts",
@@ -2432,18 +2433,18 @@
   {
     "path": "artifacts/api-server/src/lib/fullNseScanner.eligibilityGates.test.ts",
     "purpose": "test",
-    "lines": 524,
+    "lines": 527,
     "exports": [],
     "externalImports": [
       "vitest"
     ],
     "routes": [],
-    "hash": "ba721fb0773b4fd8"
+    "hash": "fa554d2114042939"
   },
   {
     "path": "artifacts/api-server/src/lib/fullNseScanner.ts",
     "purpose": "scanner",
-    "lines": 1696,
+    "lines": 1742,
     "exports": [
       "ScanCountReconciliation",
       "ClassifierProvenance",
@@ -2462,7 +2463,7 @@
       "@workspace/api-zod"
     ],
     "routes": [],
-    "hash": "068d95f2bce9c0d3"
+    "hash": "93f478e44a5c7780"
   },
   {
     "path": "artifacts/api-server/src/lib/gex.test.ts",
@@ -3075,7 +3076,7 @@
   {
     "path": "artifacts/api-server/src/lib/kiteCandle/fullNseWarehouse.ts",
     "purpose": "lib",
-    "lines": 1211,
+    "lines": 1216,
     "exports": [
       "FULL_NSE_WAREHOUSE_LOCK_KEY",
       "WAREHOUSE_CANARY_SIZE",
@@ -3103,34 +3104,35 @@
       "drizzle-orm"
     ],
     "routes": [],
-    "hash": "f632d9d8cd98bb01"
+    "hash": "7c629ed4ecdf8c81"
   },
   {
     "path": "artifacts/api-server/src/lib/kiteCandle/instrumentEligibility.test.ts",
     "purpose": "test",
-    "lines": 409,
+    "lines": 544,
     "exports": [],
     "externalImports": [
       "vitest"
     ],
     "routes": [],
-    "hash": "868004b5cb330fdd"
+    "hash": "d333037026e766a7"
   },
   {
     "path": "artifacts/api-server/src/lib/kiteCandle/instrumentEligibility.ts",
     "purpose": "lib",
-    "lines": 601,
+    "lines": 885,
     "exports": [
       "InstrumentEligibilityClass",
       "WAREHOUSE_EXCLUDED_CLASSES",
       "InstrumentEligibilityResult",
+      "NseSecurityReference",
       "classifyInstrument",
       "classifyInstrumentBatch",
       "summarizeEligibility"
     ],
     "externalImports": [],
     "routes": [],
-    "hash": "659ef224d4f030f1"
+    "hash": "da3946ee41354643"
   },
   {
     "path": "artifacts/api-server/src/lib/kiteCandle/kiteCandleStore.g6g7.test.ts",
@@ -4586,24 +4588,50 @@
     "hash": "713b0f5f7864bbd3"
   },
   {
+    "path": "artifacts/api-server/src/lib/nseFnoBanGate.ts",
+    "purpose": "fno-engine",
+    "lines": 290,
+    "exports": [
+      "NSE_INDEX_DERIVATIVE_SYMBOLS",
+      "isNseIndexDerivative",
+      "FnoBanAdmissionStatus",
+      "FnoBanAdmissionReasonCode",
+      "FnoBanAdmissionResult",
+      "checkFnoBanAdmission",
+      "FnoBanAdmissionVerdict"
+    ],
+    "externalImports": [],
+    "routes": [],
+    "hash": "12397d4a5b42c725"
+  },
+  {
     "path": "artifacts/api-server/src/lib/nseSecurityMaster.ts",
     "purpose": "lib",
-    "lines": 359,
+    "lines": 878,
     "exports": [
       "NseEquityRecord",
       "NseSeriesClass",
       "classifyNseSeries",
+      "NSE_REFERENCE_MAX_AGE_HOURS",
+      "SnapshotPersistenceResult",
+      "_saveSnapshotToDb",
+      "_loadLatestSnapshotFromDb",
       "getNseSecurityMaster",
       "lookupNseEquityRecord",
+      "NseMasterMeta",
       "getNseSecurityMasterMeta",
       "getNseSecurityMasterMap",
-      "_resetNseSecurityMasterForTest"
+      "_clearLastGoodDiskBlobForTest",
+      "_resetNseSecurityMasterForTest",
+      "_injectCacheForTest"
     ],
     "externalImports": [
-      "crypto"
+      "crypto",
+      "@workspace/db",
+      "drizzle-orm"
     ],
     "routes": [],
-    "hash": "fad99ef98eea2f4b"
+    "hash": "8bc254c37add89b4"
   },
   {
     "path": "artifacts/api-server/src/lib/oiBuildup.test.ts",
@@ -5866,6 +5894,17 @@
     "hash": "42fc864802136e8c"
   },
   {
+    "path": "artifacts/api-server/src/lib/p33b.admissionBanGate.test.ts",
+    "purpose": "test",
+    "lines": 248,
+    "exports": [],
+    "externalImports": [
+      "vitest"
+    ],
+    "routes": [],
+    "hash": "c2aa63cc2ea6288c"
+  },
+  {
     "path": "artifacts/api-server/src/lib/p33b.bundleScan.test.ts",
     "purpose": "test",
     "lines": 85,
@@ -5877,6 +5916,28 @@
     ],
     "routes": [],
     "hash": "96a969c9f9c51e70"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/p33b.correctionFinal.test.ts",
+    "purpose": "test",
+    "lines": 550,
+    "exports": [],
+    "externalImports": [
+      "vitest"
+    ],
+    "routes": [],
+    "hash": "a4a6ecfda13094eb"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/p33b.fnoAdmissionRuntime.test.ts",
+    "purpose": "test",
+    "lines": 267,
+    "exports": [],
+    "externalImports": [
+      "vitest"
+    ],
+    "routes": [],
+    "hash": "66def4508cc186dc"
   },
   {
     "path": "artifacts/api-server/src/lib/p33b.fnoBanAdmission.test.ts",
@@ -5940,15 +6001,57 @@
     "hash": "ddf5eeb03988db97"
   },
   {
-    "path": "artifacts/api-server/src/lib/p33b.nseIdentityTests.test.ts",
+    "path": "artifacts/api-server/src/lib/p33b.nseGenerationImmutability.test.ts",
     "purpose": "test",
-    "lines": 326,
+    "lines": 300,
     "exports": [],
     "externalImports": [
       "vitest"
     ],
     "routes": [],
-    "hash": "8d986a0e78aca7f5"
+    "hash": "c0fec1f25273792e"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/p33b.nseIdentityTests.test.ts",
+    "purpose": "test",
+    "lines": 333,
+    "exports": [],
+    "externalImports": [
+      "vitest"
+    ],
+    "routes": [],
+    "hash": "8deb4929bb9c7ede"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/p33b.nseLastGood.test.ts",
+    "purpose": "test",
+    "lines": 335,
+    "exports": [],
+    "externalImports": [
+      "vitest"
+    ],
+    "routes": [],
+    "hash": "33ab7deaff6308fc"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/p33b.nseMasterPersistence.test.ts",
+    "purpose": "test",
+    "lines": 431,
+    "exports": [],
+    "externalImports": [
+      "vitest"
+    ],
+    "routes": [],
+    "hash": "5cfb09bba15e0718"
+  },
+  {
+    "path": "artifacts/api-server/src/lib/p33b.reconciliationReport.ts",
+    "purpose": "lib",
+    "lines": 181,
+    "exports": [],
+    "externalImports": [],
+    "routes": [],
+    "hash": "ca07416d3ba09ea8"
   },
   {
     "path": "artifacts/api-server/src/lib/paperAccount.riskPct.test.ts",
@@ -6425,7 +6528,7 @@
   {
     "path": "artifacts/api-server/src/lib/paperTradingFO.ts",
     "purpose": "paper-trading",
-    "lines": 3681,
+    "lines": 3699,
     "exports": [
       "TradeTier",
       "LifecycleHookInput",
@@ -6454,7 +6557,7 @@
       "@workspace/api-zod"
     ],
     "routes": [],
-    "hash": "3fb7b6bb2a487f3f"
+    "hash": "4beff61a847119f3"
   },
   {
     "path": "artifacts/api-server/src/lib/paperTradingFoExitMonitorApi.db.test.ts",
@@ -7352,7 +7455,7 @@
   {
     "path": "artifacts/api-server/src/lib/swingOrderStaging.ts",
     "purpose": "swing-engine",
-    "lines": 938,
+    "lines": 979,
     "exports": [
       "SwingOrderStatus",
       "SwingApprovalStatus",
@@ -7380,7 +7483,7 @@
       "@workspace/db"
     ],
     "routes": [],
-    "hash": "8bb8974acb2fbc84"
+    "hash": "e53b70dd2e35fa3a"
   },
   {
     "path": "artifacts/api-server/src/lib/swingRegressionGate.test.ts",
@@ -8851,7 +8954,7 @@
   {
     "path": "artifacts/api-server/src/routes/data.ts",
     "purpose": "api-route",
-    "lines": 387,
+    "lines": 423,
     "exports": [],
     "externalImports": [
       "express",
@@ -8866,9 +8969,10 @@
       "POST /data/compare",
       "GET /data/indstocks/token/status",
       "POST /data/indstocks/token",
-      "DELETE /data/indstocks/token"
+      "DELETE /data/indstocks/token",
+      "GET /data/diagnostics/nse-reference"
     ],
-    "hash": "906d7ada18d473ee"
+    "hash": "d2f9ebcfd6b2f360"
   },
   {
     "path": "artifacts/api-server/src/routes/dataHealth.ts",
@@ -9488,7 +9592,7 @@
   {
     "path": "artifacts/scanner/src/lib/auth-api.ts",
     "purpose": "auth",
-    "lines": 201,
+    "lines": 203,
     "exports": [
       "ALLOWED_TAB_KEYS",
       "AllowedTabKey",
@@ -9513,7 +9617,7 @@
     ],
     "externalImports": [],
     "routes": [],
-    "hash": "3842281fb9583141"
+    "hash": "8ac9ad401431011c"
   },
   {
     "path": "artifacts/scanner/src/lib/backtest/useReplayDiagnostics.ts",
@@ -10893,7 +10997,7 @@
   {
     "path": "artifacts/scanner/src/pages/admin.tsx",
     "purpose": "ui-page",
-    "lines": 411,
+    "lines": 412,
     "exports": [],
     "externalImports": [
       "react",
@@ -10908,7 +11012,7 @@
       "lucide-react"
     ],
     "routes": [],
-    "hash": "4a6ea1da8bb56b02"
+    "hash": "006ea13675ee154d"
   },
   {
     "path": "artifacts/scanner/src/pages/audit.tsx",
@@ -11016,6 +11120,21 @@
     ],
     "routes": [],
     "hash": "d56dc297ad4ffd74"
+  },
+  {
+    "path": "artifacts/scanner/src/pages/directional-scorer.tsx",
+    "purpose": "ui-page",
+    "lines": 1326,
+    "exports": [],
+    "externalImports": [
+      "react",
+      "@/components/ui/card",
+      "@/components/ui/badge",
+      "@/components/ui/tabs",
+      "@workspace/api-client-react"
+    ],
+    "routes": [],
+    "hash": "75df8e8df3102a5c"
   },
   {
     "path": "artifacts/scanner/src/pages/flows.tsx",
@@ -11874,7 +11993,7 @@
   {
     "path": "lib/db/src/schema/runtimeTables.ts",
     "purpose": "db-schema",
-    "lines": 204,
+    "lines": 237,
     "exports": [
       "dailyReportRuns",
       "notificationDeliveryLog",
@@ -11882,13 +12001,14 @@
       "systemAlertState",
       "kiteCandleStore",
       "kiteWarehouseStopAudit",
+      "nseSecurityMasterSnapshots",
       "reconciliationReport"
     ],
     "externalImports": [
       "drizzle-orm"
     ],
     "routes": [],
-    "hash": "ab62f9de578c14d6"
+    "hash": "d617cf47aa28b2cd"
   },
   {
     "path": "lib/db/src/schema/strategyControl.ts",
@@ -11959,7 +12079,7 @@
   {
     "path": "lib/db/src/schema/users.ts",
     "purpose": "db-schema",
-    "lines": 122,
+    "lines": 123,
     "exports": [
       "ALLOWED_TAB_KEYS",
       "AllowedTabKey",
@@ -11973,7 +12093,7 @@
     ],
     "externalImports": [],
     "routes": [],
-    "hash": "81409daefc940b49"
+    "hash": "e055cffaaeb62923"
   },
   {
     "path": "scripts/src/checkLlmIndex.ts",
