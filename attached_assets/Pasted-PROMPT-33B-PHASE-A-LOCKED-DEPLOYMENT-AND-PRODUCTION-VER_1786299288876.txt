@@ -1,0 +1,217 @@
+PROMPT_33B — PHASE-A LOCKED DEPLOYMENT AND PRODUCTION VERIFICATION
+
+Authorization is granted only for a locked, analysis-only production deployment of Stock Scanner Pro.
+
+Do not activate evaluation, warehouse population, V2 cohorts, paper automation, canary execution or broker trading.
+
+## Gate 0 — Predeployment confirmation
+
+Before publishing, report:
+
+* Repository identity
+* Branch and HEAD
+* Working tree clean
+* Current production commit
+* Runtime diff between `b45df02` and current HEAD
+* Confirm any later commit contains documentation/prompt assets only
+* `artifacts/global` unchanged
+
+Confirm from source and production bundle:
+
+```text
+FULL_NSE_WAREHOUSE_POPULATION_AUTHORIZED=false
+SCANNER_KITE_CANDLE_EVALUATION_AUTHORIZED=false
+FNO_PAPER_V2_RUNTIME_AUTHORIZED=false
+SWING_PAPER_V2_RUNTIME_AUTHORIZED=false
+```
+
+Confirm:
+
+```text
+live broker execution disabled
+placeOrderDryRun only
+no canary enabled
+no V2 migration authorized
+no debug route in production bundle
+```
+
+If any condition fails, do not deploy.
+
+## Gate 1 — Deploy locked build
+
+Publish the current clean Stock Scanner Pro HEAD.
+
+Do not change environment variables or authorization constants during deployment.
+
+Record:
+
+* Deployment ID
+* Deployed commit
+* Start time
+* Completion time
+* Build result
+* Production URL
+* Startup PID/instance identifier
+
+If the deployed commit differs from approved HEAD, stop and report `BLOCKED_DEPLOYMENT_COMMIT_MISMATCH`.
+
+## Gate 2 — Immediate production safety verification
+
+Immediately after deployment, confirm:
+
+* API server healthy
+* Scanner frontend loads
+* Database connection healthy
+* NSE reference schema available
+* Existing valid PostgreSQL reference loads
+* Invalid/rejected snapshots are not selected
+* Minimum accepted snapshot row count is 1000
+* No Full-NSE warehouse population starts
+* No scanner evaluation starts
+* No F&O/Swing V2 activity starts
+* No paper trade opens
+* No live broker order occurs
+
+Use read-only production database checks. Do not delete, update or manually insert production records.
+
+## Gate 3 — Production data-state verification
+
+Using authenticated production endpoints, capture exact responses for:
+
+* Home
+* Full Scanner
+* Deep Scan
+* NSE-reference diagnostics
+* Provider diagnostics
+* F&O admission diagnostics
+* Paper-trading lock status
+
+For Full Scanner report:
+
+```text
+generationId
+generatedAt
+universeSize
+displayedRows
+liveQuoteCount
+noFeedCount
+failures
+eligibilityBreakdown
+countReconciliation
+reconciliationValid
+dataState
+evaluationState
+actionabilityState
+scan duration
+NSE reference snapshot ID/hash/effective date
+```
+
+Required behaviour:
+
+* Data freshness, evaluation and actionability displayed separately.
+* Phase A displays `NOT_EVALUATED`.
+* Scores and confidence remain null.
+* No actionable signal is produced.
+* Missing values display `—`, not false zero.
+* Stale data is labelled stale.
+* Yahoo data does not drive Indian scoring or trading.
+* Rejected snapshots are never selected.
+
+## Gate 4 — Generation stability
+
+Poll the production Full Scanner metadata at least three times across two refresh intervals.
+
+Prove:
+
+* Same generation remains displayed while a replacement is incomplete.
+* No zero-row generation replaces last-good.
+* Counts reconcile on every completed generation.
+* Generation timestamp changes only when a valid replacement commits.
+* No contradictory `LIVE`, `STALE`, `TRADE-GRADE` or `NOT_EVALUATED` labels appear together.
+
+Do not inject failures into production.
+
+## Gate 5 — Production UI evidence
+
+Capture authenticated desktop and mobile screenshots of:
+
+* Home
+* Full Scanner
+* Deep Scan
+* NSE/provider diagnostics
+* Paper Trading showing V2 locked
+
+Verify:
+
+* No empty page or crash.
+* No misleading Yahoo trade-grade label.
+* No false scores or neutral signals.
+* No contaminated SDL/SGB/SME/ETF rows in ordinary-equity scanner results.
+* Phase-A lock is visible.
+* Evaluation and actionability remain disabled.
+
+## Gate 6 — Market-hours status
+
+If the market is closed, do not fabricate live-market acceptance.
+
+Return:
+
+```text
+MARKET_HOURS_VERIFICATION_PENDING
+```
+
+Schedule the live verification for the next NSE trading session.
+
+During the next market session, verify Home, Scanner, Deep Scan, Daily Analysis, Directional Scorer, F&O and Swing consume the canonical pipeline with consistent prices, timestamps, source and generation.
+
+## Rollback rule
+
+Immediately roll back if any of these occurs:
+
+* Wrong commit deployed
+* Any safety lock becomes true
+* Warehouse population starts
+* Evaluation activates
+* V2 cohort activates
+* Broker action becomes reachable
+* Invalid snapshot selected
+* Scanner produces actionable scores during Phase A
+* Production crashes or repeatedly returns empty generations
+* Indian signals use Yahoo-derived inputs
+
+Record the rollback commit and exact reason.
+
+## Required response
+
+Return only:
+
+1. Deployment identity
+2. Four lock values
+3. Production health results
+4. Full Scanner production reconciliation
+5. Generation stability results
+6. Screenshot paths
+7. Market-hours status
+8. Defects found
+9. Rollback status
+
+Allowed verdicts:
+
+```text
+DEPLOYED_LOCKED — PRODUCTION_BASELINE_VERIFIED —
+MARKET_HOURS_VERIFICATION_PENDING
+```
+
+or:
+
+```text
+DEPLOYMENT_ROLLED_BACK — <EXACT_REASON>
+```
+
+or:
+
+```text
+BLOCKED_BEFORE_DEPLOYMENT — <EXACT_REASON>
+```
+
+Do not return “fully complete,” do not activate signalling and do not create new tasks.
