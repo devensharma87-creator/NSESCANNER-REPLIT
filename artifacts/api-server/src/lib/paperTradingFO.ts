@@ -404,6 +404,24 @@ export async function openPaperTrade(input: LifecycleHookInput): Promise<PaperTr
   // the read-only-mode invariant impossible to bypass via a future
   // caller that forgets the check.
   if (!isPaperAutoTradingEnabled()) return null;
+
+  // F&O Ban gate — fail-closed for UNAVAILABLE/LAST_KNOWN_STALE; blocked when banned.
+  // Currently all signals are for index derivatives (NIFTY, BANKNIFTY, SENSEX) which
+  // are EXEMPT from the individual stock F&O ban list (they're never in the stock ban).
+  // This gate is wired here for when C0 is lifted and individual stock F&O is added.
+  {
+    const fnoIndex = ((input.signal.index ?? "") as string).toUpperCase() || "UNKNOWN_FNO";
+    const { checkFnoBanAdmission } = await import("./nseFnoBanGate");
+    const banResult = await checkFnoBanAdmission(fnoIndex, "openPaperTrade");
+    if (!banResult.allowed) {
+      logger.info(
+        { symbol: fnoIndex, verdict: banResult.verdict, reason: banResult.reason },
+        "openPaperTrade: blocked — FNO_BAN_CHECK",
+      );
+      return null;
+    }
+  }
+
   // Ledger reconciliation gate — fail-closed. Sits AFTER C0 + isPaperAutoTradingEnabled
   // so it is unreachable while C0 is active. Behavioral tests in
   // ledgerReconciliationGate.behavioral.test.ts prove this gate independent of C0.

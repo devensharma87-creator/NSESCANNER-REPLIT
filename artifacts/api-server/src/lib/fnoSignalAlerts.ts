@@ -597,6 +597,22 @@ async function dispatchFnoWithCanonicalGates(
       return;
     }
 
+    // Gate 2.5: FNO_BAN_CHECK — fail-closed on UNAVAILABLE/STALE; blocked if banned.
+    // Index derivatives (NIFTY, BANKNIFTY, SENSEX, …) are EXEMPT: the individual
+    // stock F&O ban (MWPL breach) never covers index derivatives; checkFnoBanAdmission
+    // short-circuits to ALLOWED for these symbols.
+    {
+      const { checkFnoBanAdmission } = await import("./nseFnoBanGate");
+      const banResult = await checkFnoBanAdmission(input.indexSymbol, "dispatchFnoWithCanonicalGates");
+      if (!banResult.allowed) {
+        logger.info(
+          { symbol: input.indexSymbol, verdict: banResult.verdict, reason: banResult.reason },
+          "fnoSignalAlerts: ENTRY blocked — FNO_BAN_CHECK",
+        );
+        return;
+      }
+    }
+
     // Gate 3: DB dedup by paperTradeId (cross-restart idempotency)
     if (input.paperTradeId) {
       const isDuplicate = await hasAlreadyDelivered(

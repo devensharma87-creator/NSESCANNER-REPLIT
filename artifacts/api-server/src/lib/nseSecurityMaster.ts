@@ -60,6 +60,8 @@
 import { logger } from "./logger";
 import { createHash } from "crypto";
 import { loadBlob, saveBlob, clearBlob } from "./diskCache";
+import { db } from "@workspace/db";
+import { sql } from "drizzle-orm";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -116,6 +118,18 @@ export function classifyNseSeries(series: string): NseSeriesClass {
   return "OTHER_NSE_SERIES";
 }
 
+// ── Stale governance ──────────────────────────────────────────────────────────
+
+/**
+ * Maximum accepted age (hours) for the NSE reference to be considered
+ * authoritative enough to drive universe classification and admission decisions.
+ *
+ * If the cached reference is older than this threshold — even when loaded from
+ * a last-good source — canAuthorizeUniverse is set to false and new
+ * evaluation/admission is fail-closed for that reference.
+ */
+export const NSE_REFERENCE_MAX_AGE_HOURS = 48;
+
 // ── Disk-persistence constants ────────────────────────────────────────────────
 
 /** Blob name for last-good NSE security master disk snapshot. */
@@ -160,8 +174,9 @@ interface MasterCache {
   /** ISO date of the snapshot (YYYY-MM-DD). */
   snapshotDate: string;
   /**
-   * true = this cache entry was loaded from the last-good disk snapshot,
-   *        NOT from a fresh HTTP fetch. The reference data may be stale.
+   * true = this cache entry was loaded from the last-good disk snapshot
+   *        or the PostgreSQL last-good snapshot — NOT from a fresh HTTP fetch.
+   *        The reference data may be stale.
    */
   isLastGood: boolean;
   /**
@@ -169,6 +184,16 @@ interface MasterCache {
    * null when isLastGood=false.
    */
   staleReason: string | null;
+  /**
+   * true when this reference is fresh enough and authoritative enough to drive
+   * instrument universe classification, scanner generation, and admission.
+   *
+   * false when:
+   *   - isLastGood=true (not a fresh HTTP fetch)
+   *   - reference age exceeds NSE_REFERENCE_MAX_AGE_HOURS (48h)
+   *   - no reference loaded at all
+   */
+  canAuthorizeUniverse: boolean;
 }
 
 const TTL_MS = 6 * 60 * 60 * 1000; // 6 hours
@@ -291,6 +316,14 @@ function parseCsv(
 
 // ── Last-good disk helpers ────────────────────────────────────────────────────
 
+/** Compute canAuthorizeUniverse from a MasterCache entry. */
+function computeCanAuthorize(fetchedAt: string, isLastGood: boolean): boolean {
+  if (isLastGood) return false;
+  const ageMs = Date.now() - new Date(fetchedAt).getTime();
+  const ageHours = ageMs / (1000 * 60 * 60);
+  return ageHours < NSE_REFERENCE_MAX_AGE_HOURS;
+}
+
 /** Reconstruct MasterCache Maps from a serialized LastGoodPayload. */
 function buildCacheFromLastGood(payload: LastGoodPayload, staleReason: string): MasterCache {
   const bySymbol = new Map<string, NseEquityRecord>();
@@ -310,6 +343,7 @@ function buildCacheFromLastGood(payload: LastGoodPayload, staleReason: string): 
     snapshotDate: payload.snapshotDate,
     isLastGood: true,
     staleReason,
+    canAuthorizeUniverse: false, // last-good is never authoritative
   };
 }
 
@@ -350,6 +384,172 @@ function saveLastGoodToDisk(entry: MasterCache): void {
   );
 }
 
+// ── PostgreSQL persistence (L2 — durable, cross-replica) ─────────────────────
+
+/** PostgreSQL advisory lock key for NSE master refresh single-flight. */
+const DB_ADVISORY_LOCK_KEY = 8274613;
+/** DB schema version stored in nse_security_master_snapshots.schema_version. */
+const DB_SCHEMA_VERSION = 1;
+/** Rows to retain in nse_security_master_snapshots (keep last N). */
+const DB_MAX_SNAPSHOTS = 5;
+
+let schemaEnsured = false;
+
+/** Create nse_security_master_snapshots if it does not exist. Memoized. */
+async function ensureNseMasterSnapshotSchema(): Promise<void> {
+  if (schemaEnsured) return;
+  try {
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS nse_security_master_snapshots (
+        id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        source_url TEXT NOT NULL,
+        retrieved_at TIMESTAMPTZ NOT NULL,
+        effective_date DATE NOT NULL,
+        sha256 TEXT NOT NULL,
+        schema_version INTEGER NOT NULL DEFAULT 1,
+        row_count INTEGER NOT NULL,
+        validation_result TEXT NOT NULL,
+        records JSONB NOT NULL,
+        series_counts JSONB NOT NULL,
+        saved_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      )
+    `);
+    await db.execute(sql`
+      CREATE INDEX IF NOT EXISTS nse_security_master_snapshots_retrieved_at_idx
+        ON nse_security_master_snapshots (retrieved_at DESC)
+    `);
+    schemaEnsured = true;
+    logger.debug("NSE equity master: nse_security_master_snapshots schema ensured");
+  } catch (err) {
+    logger.warn({ err }, "NSE equity master: ensureNseMasterSnapshotSchema failed (non-fatal)");
+  }
+}
+
+/**
+ * Persist a fresh MasterCache snapshot to PostgreSQL. Non-blocking — errors are
+ * logged but do not interrupt the caller.
+ *
+ * EXPORTED for test mocking via vi.spyOn.
+ */
+export async function _saveSnapshotToDb(entry: MasterCache): Promise<void> {
+  try {
+    await ensureNseMasterSnapshotSchema();
+    const records = Array.from(entry.bySymbol.values());
+    await db.execute(sql`
+      INSERT INTO nse_security_master_snapshots
+        (source_url, retrieved_at, effective_date, sha256, schema_version, row_count, validation_result, records, series_counts)
+      VALUES (
+        ${entry.sourceUrl},
+        ${entry.fetchedAt}::timestamptz,
+        ${entry.snapshotDate}::date,
+        ${entry.sourceHash},
+        ${DB_SCHEMA_VERSION},
+        ${entry.totalRecords},
+        ${"ACCEPTED"},
+        ${JSON.stringify(records)}::jsonb,
+        ${JSON.stringify(entry.seriesCounts)}::jsonb
+      )
+    `);
+    // Prune old snapshots: keep DB_MAX_SNAPSHOTS most recent.
+    await db.execute(sql`
+      DELETE FROM nse_security_master_snapshots
+      WHERE id NOT IN (
+        SELECT id FROM nse_security_master_snapshots
+        ORDER BY retrieved_at DESC
+        LIMIT ${DB_MAX_SNAPSHOTS}
+      )
+    `);
+    logger.info(
+      { totalRecords: entry.totalRecords, sourceHash: entry.sourceHash },
+      "NSE equity master: saved snapshot to PostgreSQL (L2)",
+    );
+  } catch (err) {
+    logger.warn({ err }, "NSE equity master: _saveSnapshotToDb failed (non-fatal)");
+  }
+}
+
+/**
+ * Load the latest validated snapshot from PostgreSQL. Returns null if unavailable.
+ *
+ * EXPORTED for test mocking via vi.spyOn.
+ */
+export async function _loadLatestSnapshotFromDb(reason: string): Promise<MasterCache | null> {
+  try {
+    await ensureNseMasterSnapshotSchema();
+    type SnapshotRow = {
+      source_url: string;
+      retrieved_at: string;
+      effective_date: string;
+      sha256: string;
+      row_count: number;
+      validation_result: string;
+      records: NseEquityRecord[];
+      series_counts: Record<string, number>;
+    };
+    const result = await db.execute(sql`
+      SELECT source_url, retrieved_at, effective_date, sha256, row_count, validation_result, records, series_counts
+      FROM nse_security_master_snapshots
+      WHERE schema_version = ${DB_SCHEMA_VERSION}
+        AND validation_result = 'ACCEPTED'
+        AND row_count >= 100
+      ORDER BY retrieved_at DESC
+      LIMIT 1
+    `);
+    const rows = result.rows as SnapshotRow[];
+    if (!rows.length) return null;
+    const row = rows[0]!;
+    const records: NseEquityRecord[] = Array.isArray(row.records) ? row.records : [];
+    if (records.length < 100) return null;
+
+    const payload: LastGoodPayload = {
+      records,
+      totalRecords: Number(row.row_count),
+      seriesCounts: (row.series_counts as Record<string, number>) ?? {},
+      fetchedAt: typeof row.retrieved_at === "string" ? row.retrieved_at : new Date(row.retrieved_at).toISOString(),
+      sourceUrl: row.source_url,
+      sourceHash: row.sha256,
+      snapshotDate: typeof row.effective_date === "string" ? row.effective_date.slice(0, 10) : String(row.effective_date),
+      savedAt: new Date().toISOString(),
+    };
+    const entry = buildCacheFromLastGood(payload, reason);
+    logger.info(
+      { totalRecords: entry.totalRecords, sourceHash: entry.sourceHash, reason },
+      "NSE equity master: loaded last-good from PostgreSQL (L2 STALE fallback)",
+    );
+    return entry;
+  } catch (err) {
+    logger.warn({ err, reason }, "NSE equity master: _loadLatestSnapshotFromDb failed");
+    return null;
+  }
+}
+
+/** Try to acquire the PostgreSQL session advisory lock for refresh single-flight.
+ *  Only used in production (NODE_ENV=production). In dev/test, advisory locks
+ *  are skipped because Drizzle's connection pool uses different connections for
+ *  acquire and release, causing cross-test lock leakage with pg_advisory_lock.
+ */
+async function _tryAcquireAdvisoryLock(): Promise<boolean> {
+  if (process.env.NODE_ENV !== "production") return true; // single-process in dev/test
+  try {
+    const result = await db.execute(sql`SELECT pg_try_advisory_lock(${DB_ADVISORY_LOCK_KEY}) AS acquired`);
+    const rows = result.rows as Array<{ acquired: boolean }>;
+    return rows[0]?.acquired ?? false;
+  } catch {
+    // DB unavailable — proceed without lock (fail open for lock, fail closed for data).
+    return true;
+  }
+}
+
+/** Release the PostgreSQL session advisory lock. Only used in production. */
+async function _releaseAdvisoryLock(): Promise<void> {
+  if (process.env.NODE_ENV !== "production") return;
+  try {
+    await db.execute(sql`SELECT pg_advisory_unlock(${DB_ADVISORY_LOCK_KEY})`);
+  } catch {
+    // Ignore — connection reset or DB error; lock auto-releases on connection close.
+  }
+}
+
 // ── Refresh ───────────────────────────────────────────────────────────────────
 
 async function refresh(): Promise<MasterCache | null> {
@@ -367,22 +567,25 @@ async function refresh(): Promise<MasterCache | null> {
       continue;
     }
 
+    const fetchedAt = new Date().toISOString();
     const entry: MasterCache = {
       bySymbol,
       byIsin,
       totalRecords,
       seriesCounts,
-      fetchedAt: new Date().toISOString(),
+      fetchedAt,
       sourceUrl: url,
       sourceHash,
       snapshotDate,
       isLastGood: false,
       staleReason: null,
+      canAuthorizeUniverse: computeCanAuthorize(fetchedAt, false),
     };
 
-    // Persist to disk IMMEDIATELY after a successful fresh fetch.
-    // Atomically written (write-temp + rename) so a kill mid-write can't corrupt.
+    // Persist to disk (L1) and PostgreSQL (L2) immediately after a successful fetch.
+    // Disk write is synchronous + atomic (write-temp + rename); DB write is async + non-blocking.
     saveLastGoodToDisk(entry);
+    void _saveSnapshotToDb(entry);
 
     logger.info(
       { totalRecords, seriesCounts, sourceHash, url },
@@ -400,15 +603,24 @@ async function refresh(): Promise<MasterCache | null> {
 /**
  * Load (or return cached) NSE equity security master.
  *
- * Returns null ONLY if both HTTP fetch and last-good disk snapshot fail.
- * On HTTP failure with a valid last-good: returns the last-good (isLastGood=true).
+ * Load path (L0 → L1 → L2 → L3):
+ *   L0 — in-memory cache (TTL 6h, fresh)
+ *   L1 — local disk blob (diskCache.ts) — fast, instance-local
+ *   L2 — PostgreSQL nse_security_master_snapshots — durable, cross-replica
+ *   L3 — HTTP fetch from NSE (EQUITY_L.csv) — authoritative, rate-limited
+ *
+ * On HTTP failure: L1 (disk) then L2 (DB) are tried in order.
+ * Returns null ONLY if L1, L2, and L3 all fail.
  *
  * Callers MUST treat null as "reference unavailable" and return
  * BLOCKED_AUTHORITATIVE_NSE_REFERENCE_UNAVAILABLE rather than classifying
  * instruments as provisional.
+ *
+ * Refresh single-flight: a PostgreSQL session advisory lock (key 8274613)
+ * prevents concurrent replicas from all hitting NSE simultaneously.
  */
 export async function getNseSecurityMaster(): Promise<MasterCache | null> {
-  // Return from in-memory cache if still fresh.
+  // L0: Return from in-memory cache if still fresh.
   if (cache && !cache.isLastGood && Date.now() - new Date(cache.fetchedAt).getTime() < TTL_MS) {
     return cache;
   }
@@ -419,23 +631,60 @@ export async function getNseSecurityMaster(): Promise<MasterCache | null> {
   }
   if (inflight) return inflight;
 
-  const p = refresh().then((r) => {
-    if (r) {
-      // Fresh HTTP fetch succeeded — replace cache (clears isLastGood).
-      cache = r;
-    } else {
-      // HTTP failed. Try last-good from disk if we don't have in-memory.
-      if (!cache) {
-        const lastGood = tryLoadLastGoodFromDisk("HTTP_FETCH_FAILED");
-        cache = lastGood; // may still be null
-      } else {
-        // We already have a last-good in memory — keep it; no reason to downgrade.
-        logger.warn("NSE equity master: HTTP refresh failed, continuing with in-memory last-good");
+  const p = (async () => {
+    // Single-flight advisory lock — non-blocking attempt.
+    const lockAcquired = await _tryAcquireAdvisoryLock();
+    if (!lockAcquired) {
+      // Another replica is already refreshing. Load from DB (L2) while we wait.
+      logger.info("NSE equity master: advisory lock not acquired — loading from DB (another replica refreshing)");
+      const dbSnap = await _loadLatestSnapshotFromDb("CONCURRENT_REFRESH_DB_FALLBACK");
+      if (dbSnap) {
+        cache = dbSnap;
+        inflight = null;
+        return cache;
       }
+      // No DB snapshot either — return current in-memory (may be null).
+      inflight = null;
+      return cache;
     }
-    inflight = null;
-    return cache;
-  });
+
+    try {
+      // L3: HTTP fetch from NSE.
+      const r = await refresh();
+      if (r) {
+        cache = r;
+        inflight = null;
+        return cache;
+      }
+
+      // L3 failed. Try fallbacks if we have no in-memory cache.
+      if (!cache) {
+        // L1: Try local disk.
+        const diskSnap = tryLoadLastGoodFromDisk("HTTP_FETCH_FAILED");
+        if (diskSnap) {
+          cache = diskSnap;
+          // Also try to push disk data to DB so other replicas can benefit.
+          void _saveSnapshotToDb(diskSnap);
+          inflight = null;
+          return cache;
+        }
+        // L2: Try PostgreSQL.
+        const dbSnap = await _loadLatestSnapshotFromDb("HTTP_FETCH_FAILED_DISK_MISS");
+        cache = dbSnap; // may still be null
+        inflight = null;
+        return cache;
+      } else {
+        // We already have a last-good in memory — keep it.
+        logger.warn("NSE equity master: HTTP refresh failed, continuing with in-memory last-good");
+        inflight = null;
+        return cache;
+      }
+    } finally {
+      await _releaseAdvisoryLock();
+      inflight = null;
+    }
+  })();
+
   inflight = p;
   return p;
 }
@@ -452,26 +701,46 @@ export async function lookupNseEquityRecord(
   return master.bySymbol.get(symbol.toUpperCase()) ?? null;
 }
 
-/**
- * Snapshot metadata for the current cache — used in ClassifierProvenance reporting.
- */
-export function getNseSecurityMasterMeta(): {
+export interface NseMasterMeta {
   loaded: boolean;
   totalRecords: number | null;
   seriesCounts: Record<string, number> | null;
   snapshotDate: string | null;
+  /** SHA-256 (first 8 hex chars) of the EQUITY_L.csv body. */
   sourceHash: string | null;
   sourceUrl: string | null;
   fetchedAt: string | null;
+  /** Age of the reference in hours since fetchedAt. null if not loaded. */
+  ageHours: number | null;
   isLastGood: boolean;
+  /** Alias for isLastGood — convenience for diagnostics/display. */
+  stale: boolean;
   staleReason: string | null;
-} {
+  /**
+   * true when the reference is fresh, non-stale, and within NSE_REFERENCE_MAX_AGE_HOURS.
+   * false when loaded from last-good / disk / DB fallback OR when age > 48h.
+   * Use this to gate scanner universe generation and instrument admission.
+   */
+  canAuthorizeUniverse: boolean;
+  /** Policy value from NSE_REFERENCE_MAX_AGE_HOURS. */
+  maxAgeHours: number;
+}
+
+/**
+ * Snapshot metadata for the current cache — used in ClassifierProvenance reporting
+ * and the /api/data/diagnostics/nse-reference endpoint.
+ */
+export function getNseSecurityMasterMeta(): NseMasterMeta {
   if (!cache) {
     return {
       loaded: false, totalRecords: null, seriesCounts: null, snapshotDate: null,
-      sourceHash: null, sourceUrl: null, fetchedAt: null, isLastGood: false, staleReason: null,
+      sourceHash: null, sourceUrl: null, fetchedAt: null, ageHours: null,
+      isLastGood: false, stale: false, staleReason: null, canAuthorizeUniverse: false,
+      maxAgeHours: NSE_REFERENCE_MAX_AGE_HOURS,
     };
   }
+  const ageMs = Date.now() - new Date(cache.fetchedAt).getTime();
+  const ageHours = Math.round((ageMs / (1000 * 60 * 60)) * 10) / 10;
   return {
     loaded: true,
     totalRecords: cache.totalRecords,
@@ -480,8 +749,12 @@ export function getNseSecurityMasterMeta(): {
     sourceHash: cache.sourceHash,
     sourceUrl: cache.sourceUrl,
     fetchedAt: cache.fetchedAt,
+    ageHours,
     isLastGood: cache.isLastGood,
+    stale: cache.isLastGood,
     staleReason: cache.staleReason,
+    canAuthorizeUniverse: cache.canAuthorizeUniverse,
+    maxAgeHours: NSE_REFERENCE_MAX_AGE_HOURS,
   };
 }
 
@@ -504,5 +777,32 @@ export function _resetNseSecurityMasterForTest(): void {
     throw new Error("_resetNseSecurityMasterForTest is not available outside NODE_ENV=test");
   }
   cache = null;
+  inflight = null;
+  schemaEnsured = false;
+}
+
+/**
+ * TEST ONLY: Directly inject a cache entry (for testing canAuthorizeUniverse, ageHours, etc.).
+ * The entry is accepted as-is without TTL/validation checks.
+ */
+export function _injectCacheForTest(entry: {
+  totalRecords: number;
+  seriesCounts: Record<string, number>;
+  fetchedAt: string;
+  sourceUrl: string;
+  sourceHash: string;
+  snapshotDate: string;
+  isLastGood: boolean;
+  staleReason: string | null;
+  canAuthorizeUniverse: boolean;
+}): void {
+  if (process.env.NODE_ENV !== "test") {
+    throw new Error("_injectCacheForTest is not available outside NODE_ENV=test");
+  }
+  cache = {
+    bySymbol: new Map(),
+    byIsin: new Map(),
+    ...entry,
+  };
   inflight = null;
 }

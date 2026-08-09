@@ -380,6 +380,42 @@ router.delete("/data/indstocks/token", requireOwnerStrict, async (_req, res, nex
   }
 });
 
+// ── NSE Reference meta / stale governance ────────────────────────────────────
+
+/**
+ * GET /api/data/diagnostics/nse-reference
+ *
+ * Owner-only. Returns the current NSE security master reference metadata:
+ * retrievedAt, effectiveDate, age, SHA-256, isLastGood, stale, staleReason,
+ * canAuthorizeUniverse, rowCount, series breakdown.
+ *
+ * Used for stale-governance diagnostics and pre-deployment evidence.
+ */
+router.get("/data/diagnostics/nse-reference", async (_req, res, next) => {
+  try {
+    const { getNseSecurityMasterMeta } = await import("../lib/nseSecurityMaster");
+    const meta = getNseSecurityMasterMeta();
+    res.json({
+      ok: true,
+      loaded: meta.loaded,
+      sourceUrl: meta.sourceUrl,
+      sourceHash: meta.sourceHash,
+      retrievedAt: meta.fetchedAt,
+      effectiveDate: meta.snapshotDate,
+      ageHours: meta.ageHours,
+      maxAgeHours: meta.maxAgeHours,
+      rowCount: meta.totalRecords,
+      seriesCounts: meta.seriesCounts,
+      isLastGood: meta.isLastGood,
+      stale: meta.isLastGood,
+      staleReason: meta.staleReason,
+      canAuthorizeUniverse: meta.canAuthorizeUniverse,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // Gate E — canonical IndianAPI fundamentals (owner-only via parent requireOwner middleware)
 router.use(fundamentalsRouter);
 

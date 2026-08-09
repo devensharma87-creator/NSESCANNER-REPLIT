@@ -333,6 +333,25 @@ export async function stageSwingOrder(
   if (await isKillSwitchActive()) {
     return { staged: false, status: "REJECTED", reason: "KILL_SWITCH_ACTIVE", decision };
   }
+
+  // F&O ban check — fail-closed for UNAVAILABLE/LAST_KNOWN_STALE; blocked when banned.
+  // Swing candidates are equity delivery trades; the F&O ban (individual stock MWPL
+  // breach) does not legally restrict equity delivery, but positions in ban-period
+  // stocks carry elevated systemic risk and must be flagged / blocked.
+  // Index derivative symbols are exempt (they're never in the individual stock ban list).
+  {
+    const { checkFnoBanAdmission } = await import("./nseFnoBanGate");
+    const banResult = await checkFnoBanAdmission(candidate.symbol, "stageSwingOrder");
+    if (!banResult.allowed) {
+      return {
+        staged: false,
+        status: "REJECTED",
+        reason: `FNO_BAN_${banResult.verdict}`,
+        decision,
+      };
+    }
+  }
+
   if (!stageable) {
     return { staged: false, status, reason: "NOT_STAGEABLE_HARD_BLOCK", decision };
   }

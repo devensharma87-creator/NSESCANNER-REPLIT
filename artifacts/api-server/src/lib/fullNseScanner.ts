@@ -1040,6 +1040,26 @@ async function performFullScan(): Promise<Cache> {
     return buildBlockedScanResult(generationId, start, rawKiteNseInstrumentCountPre);
   }
 
+  // Stale-reference governance: if the reference exceeds NSE_REFERENCE_MAX_AGE_HOURS (48h),
+  // fail-closed for new universe generation. This prevents silently using a very stale
+  // reference that may no longer reflect current NSE listings.
+  if (!nseRefMeta.canAuthorizeUniverse) {
+    logger.warn(
+      {
+        generationId,
+        isLastGood: nseRefMeta.isLastGood,
+        ageHours: nseRefMeta.ageHours,
+        staleReason: nseRefMeta.staleReason,
+        maxAgeHours: nseRefMeta.maxAgeHours,
+      },
+      "Full NSE scanner: BLOCKED_STALE_NSE_REFERENCE — reference cannot authorize universe (age exceeded or last-good)",
+    );
+    return {
+      ...buildBlockedScanResult(generationId, start, rawKiteNseInstrumentCountPre),
+      sourceDate: "BLOCKED_STALE_NSE_REFERENCE",
+    };
+  }
+
   // ── 1e. AUTHORITATIVE SYMBOL LIST (single-pass, nseRef confirmed) ─────
   // One classify pass with the authoritative NSE reference. All EQ/NSE instruments
   // with confirmed series=EQ → ORDINARY_MAIN_BOARD_EQUITY → eligible.

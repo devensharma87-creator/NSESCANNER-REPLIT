@@ -191,6 +191,39 @@ export const kiteWarehouseStopAudit = pgTable(
   ],
 );
 
+/**
+ * Pack 33B Predeploy Evidence Correction (2026-08-09).
+ *
+ * `nse_security_master_snapshots` holds validated, versioned copies of the NSE
+ * EQUITY_L.csv reference file, persisted durably in PostgreSQL so all replicas
+ * can hydrate without hitting NSE on restart.
+ *
+ * Created at runtime via `ensureNseMasterSnapshotSchema()` in nseSecurityMaster.ts.
+ * Declared here so drizzle-kit push never offers to DROP it.
+ *
+ * Advisory lock key 8274613 is used for refresh single-flight across replicas.
+ */
+export const nseSecurityMasterSnapshots = pgTable(
+  "nse_security_master_snapshots",
+  {
+    id: bigint("id", { mode: "number" }).primaryKey().generatedAlwaysAsIdentity(),
+    sourceUrl: text("source_url").notNull(),
+    retrievedAt: timestamp("retrieved_at", { withTimezone: true }).notNull(),
+    effectiveDate: date("effective_date").notNull(),
+    sha256: text("sha256").notNull(),
+    schemaVersion: integer("schema_version").notNull().default(1),
+    rowCount: integer("row_count").notNull(),
+    validationResult: text("validation_result").notNull(),
+    records: jsonb("records").notNull(),
+    seriesCounts: jsonb("series_counts").notNull(),
+    savedAt: timestamp("saved_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("nse_security_master_snapshots_retrieved_at_idx").on(t.retrievedAt),
+    index("nse_security_master_snapshots_sha256_idx").on(t.sha256),
+  ],
+);
+
 export const reconciliationReport = pgTable("reconciliation_report", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   istDate: date("ist_date").notNull().unique(),

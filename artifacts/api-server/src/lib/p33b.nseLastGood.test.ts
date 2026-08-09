@@ -18,6 +18,17 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+
+// ── Mock @workspace/db so DB functions don't hit the real PostgreSQL DB ────────
+// LG tests are disk-only; DB is mocked to return empty (no snapshot).
+const { dbExecuteMockLG } = vi.hoisted(() => ({
+  dbExecuteMockLG: vi.fn().mockResolvedValue({ rows: [] }),
+}));
+vi.mock("@workspace/db", () => ({
+  db: { execute: dbExecuteMockLG },
+  INSTRUMENT_ASSET_CLASSES: [],
+}));
+
 import {
   getNseSecurityMaster,
   getNseSecurityMasterMeta,
