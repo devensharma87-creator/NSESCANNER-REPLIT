@@ -31,6 +31,7 @@ import OptionChain from "@/pages/option-chain";
 import OiLab from "@/pages/oi-lab";
 import Flows from "@/pages/flows";
 import PreMarket from "@/pages/premarket";
+import DirectionalScorer from "@/pages/directional-scorer";
 import Watchlist from "@/pages/watchlist";
 import KitePage from "@/pages/kite";
 import LearnPage from "@/pages/learn";
@@ -91,6 +92,7 @@ function Router() {
       <Route path="/oi-lab" component={guarded(OiLab, { tab: "OI_LAB" })} />
       <Route path="/watchlist" component={guarded(Watchlist, { tab: "WATCHLIST" })} />
       <Route path="/premarket" component={guarded(PreMarket, { tab: "PREMARKET" })} />
+      <Route path="/directional-scorer" component={guarded(DirectionalScorer, { tab: "DIRECTIONAL_SCORER" })} />
       <Route path="/flows" component={guarded(Flows, { tab: "FLOWS" })} />
       <Route path="/stocks-to-watch" component={guarded(StocksToWatch, { tab: "STOCKS_TO_WATCH" })} />
       <Route path="/charting" component={guarded(Charting, { tab: "CHARTING" })} />

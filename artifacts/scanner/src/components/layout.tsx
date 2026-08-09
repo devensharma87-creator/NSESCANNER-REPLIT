@@ -296,6 +296,13 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                     { href: "/kite", label: "Live Feed", desc: "Zerodha Kite live data feed", isActive: l => l.startsWith("/kite"), ownerOnly: true },
                   ],
                 },
+                {
+                  kind: "group",
+                  label: "Market Plus",
+                  items: [
+                    { href: "/directional-scorer", label: "Directional Scorer", desc: "Dual-model directional bias scorer — NIFTY / BANKNIFTY / SENSEX", isActive: l => l.startsWith("/directional-scorer"), tab: "DIRECTIONAL_SCORER" },
+                  ],
+                },
                 { kind: "link", href: "/charting", label: "Charting", desc: "Interactive charting workspace", isActive: l => l.startsWith("/charting"), tab: "CHARTING" },
                 { kind: "link", href: "/portfolio-analyser", label: "Portfolio", desc: "Portfolio health & risk analysis", isActive: l => l.startsWith("/portfolio-analyser"), tab: "PORTFOLIO_ANALYSER" },
                 { kind: "link", href: "/backtest-lab", label: "Backtest Lab", desc: "F&O backtesting — real replay & directional", isActive: l => l.startsWith("/backtest-lab"), tab: "BACKTEST_LAB" },

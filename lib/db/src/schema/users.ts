@@ -56,6 +56,7 @@ export const ALLOWED_TAB_KEYS = [
   "CHARTING",
   "PORTFOLIO_ANALYSER",
   "BACKTEST_LAB",
+  "DIRECTIONAL_SCORER",
 ] as const;
 export type AllowedTabKey = (typeof ALLOWED_TAB_KEYS)[number];
 

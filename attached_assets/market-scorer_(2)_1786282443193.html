@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Directional Scorer — Pre/Post + Intraday · NIFTY · BANKNIFTY · SENSEX</title>
+<style>
+  :root{
+    --bg:#0a0e14;--panel:#0f141d;--panel-2:#131a26;--line:#1e2836;--line-2:#2a3646;
+    --ink:#e6edf5;--ink-dim:#8695a8;--ink-faint:#5a6675;--bull:#26d07c;--bear:#ff5964;
+    --flat:#7e8aa0;--amber:#f5b23e;--accent:#4a9eff;--live:#ff4d6d;
+    --mono:'SFMono-Regular','JetBrains Mono','Menlo','Consolas',monospace;
+    --sans:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{-webkit-text-size-adjust:100%}
+  body{background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:14px;line-height:1.45;padding:0 0 80px}
+  .wrap{max-width:1180px;margin:0 auto;padding:0 18px}
+  header.top{border-bottom:1px solid var(--line);padding:16px 0 0;margin-bottom:20px;background:linear-gradient(180deg,#0c1119 0%,var(--bg) 100%)}
+  .top-row{display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:8px}
+  h1{font-size:15px;font-weight:700;letter-spacing:-.01em;display:flex;align-items:center;gap:10px}
+  h1 .tag{font-family:var(--mono);font-size:10px;font-weight:600;color:var(--accent);border:1px solid var(--line-2);padding:2px 7px;border-radius:3px;letter-spacing:.05em}
+  .sub{color:var(--ink-dim);font-size:12px}
+  .meta-controls{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .meta-controls label{font-size:11px;color:var(--ink-dim);font-family:var(--mono)}
+  input[type=date]{background:var(--panel-2);color:var(--ink);border:1px solid var(--line-2);border-radius:4px;padding:5px 8px;font-family:var(--mono);font-size:12px}
+  .mode-toggle{display:flex;gap:0;border:1px solid var(--line-2);border-radius:5px;overflow:hidden}
+  .mode-toggle button{background:var(--panel-2);border:none;color:var(--ink-dim);font-family:var(--mono);font-size:11px;font-weight:600;padding:6px 14px;cursor:pointer;letter-spacing:.03em}
+  .mode-toggle button.on{background:var(--accent);color:#04121f}
+  .mode-toggle button.on.live{background:var(--live);color:#fff}
+  .live-ind{display:none;align-items:center;gap:6px;font-family:var(--mono);font-size:11px;color:var(--live);font-weight:600}
+  .live-ind.show{display:inline-flex}
+  .live-dot{width:8px;height:8px;border-radius:50%;background:var(--live);animation:pulse 1.4s infinite}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.25}}
+  .idx-tabs{display:flex;gap:2px;margin-top:14px}
+  .idx-tabs button{background:transparent;border:none;border-bottom:2px solid transparent;color:var(--ink-dim);font-family:var(--mono);font-size:12px;font-weight:600;letter-spacing:.04em;padding:10px 18px;cursor:pointer;transition:all .12s}
+  .idx-tabs button:hover{color:var(--ink)}
+  .idx-tabs button.active{color:var(--ink);border-bottom-color:var(--accent)}
+  .idx-tabs button .cnt{color:var(--ink-faint);font-size:10px;margin-left:6px}
+  .section-label{font-family:var(--mono);font-size:10px;letter-spacing:.12em;color:var(--ink-dim);text-transform:uppercase;margin:22px 0 10px;display:flex;align-items:center;gap:10px}
+  .section-label::after{content:"";flex:1;height:1px;background:var(--line)}
+  .pillar{margin-bottom:14px}
+  .pillar-head{display:flex;align-items:baseline;gap:8px;margin-bottom:6px;font-family:var(--mono);font-size:11px;letter-spacing:.06em}
+  .pillar-head .pw{color:var(--ink-dim)}
+  .p-a{color:#7fd8ff}.p-b{color:#ffd97f}.p-c{color:#c69bff}.p-d{color:#7fffd4}
+  .factor{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:11px 13px;margin-bottom:7px}
+  .f-top{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+  .f-name{font-size:13px;font-weight:600;display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+  .f-name .num{color:var(--ink-dim);font-family:var(--mono);font-size:11px}
+  .badge{font-family:var(--mono);font-size:9px;font-weight:700;letter-spacing:.04em;padding:2px 6px;border-radius:3px;text-transform:uppercase}
+  .badge.proxy{background:rgba(245,178,62,.16);color:var(--amber);border:1px solid var(--amber)}
+  .badge.stale{background:rgba(126,138,160,.16);color:var(--flat);border:1px solid var(--flat)}
+  .f-weights{display:flex;gap:12px;flex-shrink:0}
+  .wchip{font-family:var(--mono);font-size:10px;color:var(--ink-dim);text-align:right}
+  .wchip b{display:block;font-size:13px;color:var(--ink)}
+  .wchip.bal b{color:#7fd8ff}.wchip.wtd b{color:var(--amber)}
+  .f-hint{color:var(--ink-dim);font-size:11.5px;margin:5px 0 9px}
+  .f-hint .band{color:var(--ink);font-family:var(--mono);font-size:10.5px}
+  .seg{display:flex;gap:4px}
+  .seg button{flex:1;background:var(--panel-2);border:1px solid var(--line-2);color:var(--ink-dim);font-family:var(--mono);font-size:11px;font-weight:600;padding:7px 4px;border-radius:4px;cursor:pointer;transition:all .12s;letter-spacing:.02em}
+  .seg button:hover{border-color:var(--flat);color:var(--ink)}
+  .seg button.on-bull{background:rgba(38,208,124,.16);border-color:var(--bull);color:var(--bull)}
+  .seg button.on-bear{background:rgba(255,89,100,.16);border-color:var(--bear);color:var(--bear)}
+  .seg button.on-flat{background:rgba(126,138,160,.16);border-color:var(--flat);color:var(--ink)}
+  .gate{background:linear-gradient(90deg,rgba(245,178,62,.08),transparent);border:1px solid var(--line-2);border-left:3px solid var(--amber);border-radius:6px;padding:12px 14px;margin-bottom:7px}
+  .gate .g-title{font-size:13px;font-weight:600;display:flex;align-items:center;gap:8px}
+  .gate .g-title .num{color:var(--ink-dim);font-family:var(--mono);font-size:11px}
+  .gate .g-sub{color:var(--ink-dim);font-size:11.5px;margin:4px 0 9px}
+  .gate-toggles{display:flex;gap:8px;flex-wrap:wrap}
+  .gate-toggles button{background:var(--panel-2);border:1px solid var(--line-2);color:var(--ink-dim);font-family:var(--mono);font-size:11px;padding:6px 12px;border-radius:4px;cursor:pointer}
+  .gate-toggles button.armed{background:rgba(245,178,62,.18);border-color:var(--amber);color:var(--amber)}
+  .coverage-banner{display:none;margin:10px 0 0;padding:9px 13px;border-radius:6px;font-family:var(--mono);font-size:11.5px;font-weight:600;background:rgba(245,178,62,.10);border:1px solid var(--amber);color:var(--amber)}
+  .coverage-banner.show{display:block}
+  .verdicts{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:8px}
+  @media(max-width:720px){.verdicts{grid-template-columns:1fr}}
+  .vcard{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:16px 16px 14px;position:relative;overflow:hidden}
+  .vcard .vlabel{font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-dim);display:flex;justify-content:space-between;align-items:center}
+  .vcard .vlabel .kind{color:var(--ink)}
+  .vscore{font-family:var(--mono);font-size:40px;font-weight:700;line-height:1;margin:10px 0 2px;letter-spacing:-.02em}
+  .vrange{font-family:var(--mono);font-size:10px;color:var(--ink-faint)}
+  .vverdict{font-size:15px;font-weight:700;margin-top:10px}
+  .vaction{font-size:12px;color:var(--ink-dim);margin-top:2px}
+  .meter{height:6px;background:var(--panel-2);border-radius:3px;margin:12px 0 4px;position:relative;overflow:hidden}
+  .meter .zero{position:absolute;left:50%;top:0;bottom:0;width:1px;background:var(--line-2)}
+  .meter .fill{position:absolute;top:0;bottom:0;border-radius:3px;transition:all .2s}
+  .bull{color:var(--bull)}.bear{color:var(--bear)}.flat{color:var(--flat)}.amber{color:var(--amber)}
+  .actions{display:flex;gap:8px;margin-top:14px;flex-wrap:wrap}
+  .btn{font-family:var(--mono);font-size:12px;font-weight:600;padding:9px 16px;border-radius:5px;cursor:pointer;border:1px solid var(--line-2);background:var(--panel-2);color:var(--ink);transition:all .12s}
+  .btn:hover{border-color:var(--flat)}
+  .btn.primary{background:var(--accent);border-color:var(--accent);color:#04121f}
+  .btn.primary:hover{filter:brightness(1.08)}
+  .btn.ghost{color:var(--ink-dim)}
+  .btn.danger:hover{border-color:var(--bear);color:var(--bear)}
+  .scoreboard{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:8px}
+  @media(max-width:720px){.scoreboard{grid-template-columns:1fr}}
+  .sb{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:14px 16px}
+  .sb.lead{border-color:var(--line-2)}
+  .sb .sb-lab{font-family:var(--mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-dim)}
+  .sb .sb-val{font-family:var(--mono);font-size:26px;font-weight:700;margin:6px 0 2px}
+  .sb .sb-sub{font-family:var(--mono);font-size:11px;color:var(--ink-dim);margin-top:4px;padding-top:6px;border-top:1px solid var(--line)}
+  .sb .sb-note{font-size:11px;color:var(--ink-dim)}
+  .log-wrap{overflow-x:auto;border:1px solid var(--line);border-radius:8px;margin-top:8px}
+  table{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:11.5px;white-space:nowrap}
+  th{text-align:left;color:var(--ink-dim);font-weight:600;padding:9px 11px;border-bottom:1px solid var(--line-2);font-size:10px;letter-spacing:.05em;text-transform:uppercase;background:var(--panel)}
+  td{padding:8px 11px;border-bottom:1px solid var(--line)}
+  tr:last-child td{border-bottom:none}
+  tbody tr:hover{background:var(--panel-2)}
+  .cell-in{background:var(--panel-2);color:var(--ink);border:1px solid var(--line-2);border-radius:3px;padding:2px 5px;font-family:var(--mono);font-size:11px;width:86px}
+  .hit{color:var(--bull)}.miss{color:var(--bear)}.na{color:var(--ink-faint)}
+  .del-row{color:var(--ink-faint);cursor:pointer;font-size:13px}
+  .del-row:hover{color:var(--bear)}
+  .empty{color:var(--ink-faint);font-family:var(--mono);font-size:12px;padding:24px;text-align:center}
+  .footnote{margin-top:26px;padding:14px 16px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--ink-dim);font-size:12px;line-height:1.6}
+  .footnote b{color:var(--ink)}
+  .footnote code{font-family:var(--mono);background:var(--panel-2);padding:1px 5px;border-radius:3px;color:var(--accent);font-size:11px}
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="wrap">
+    <div class="top-row">
+      <div>
+        <h1>Directional Scorer <span class="tag" id="modeTag">PRE/POST</span></h1>
+        <div class="sub" id="modeSub">Dual-model · scored independently per index · graded on synthetic-futures close.</div>
+      </div>
+      <div class="meta-controls">
+        <div class="mode-toggle" id="modeToggle">
+          <button data-mode="PREPOST" class="on">PRE/POST</button>
+          <button data-mode="INTRADAY">INTRADAY</button>
+        </div>
+        <span class="live-ind" id="liveInd"><span class="live-dot"></span>LIVE · 1-min</span>
+        <label>SESSION</label>
+        <input type="date" id="sessionDate">
+      </div>
+    </div>
+    <div class="idx-tabs" id="idxTabs">
+      <button data-idx="NIFTY" class="active">NIFTY 50 <span class="cnt" id="cnt-NIFTY"></span></button>
+      <button data-idx="BANKNIFTY">BANKNIFTY <span class="cnt" id="cnt-BANKNIFTY"></span></button>
+      <button data-idx="SENSEX">SENSEX <span class="cnt" id="cnt-SENSEX"></span></button>
+    </div>
+  </div>
+</header>
+<div class="wrap">
+  <div class="section-label">Score the 9 factors — <span id="activeIdxLabel" style="color:var(--accent)">NIFTY 50</span> · <span id="modeWord">pre/post</span> weights · leave a factor unset to fail-close</div>
+  <div id="pillars"></div>
+  <div class="section-label">Event gate — factor 10 (overrides both models, does not add to score)</div>
+  <div class="gate">
+    <div class="g-title"><span class="num">10</span> Events · Expiry · RBI/Fed · CAS integrity</div>
+    <div class="g-sub">Arm any that apply. If armed, both verdicts are forced to <b>NO DIRECTIONAL TRADE</b>.</div>
+    <div class="gate-toggles" id="gateToggles">
+      <button data-g="binary">Binary event (RBI/Fed/CPI)</button>
+      <button data-g="pin">Expiry pin risk</button>
+      <button data-g="cas">CAS/synthetic divergence</button>
+      <button data-g="shock">Geopolitical shock</button>
+    </div>
+  </div>
+  <div class="coverage-banner" id="coverageBanner"></div>
+  <div class="section-label">Verdicts</div>
+  <div class="verdicts">
+    <div class="vcard">
+      <div class="vlabel"><span>Model A</span><span class="kind">BALANCED</span></div>
+      <div class="vscore" id="balScore">—</div>
+      <div class="vrange">range −100 … +100 · bands ±50 / ±20</div>
+      <div class="meter"><div class="zero"></div><div class="fill" id="balFill"></div></div>
+      <div class="vverdict" id="balVerdict">Set factors</div>
+      <div class="vaction" id="balAction">Awaiting inputs</div>
+    </div>
+    <div class="vcard">
+      <div class="vlabel"><span>Model B</span><span class="kind">WEIGHTED · positioning tilt</span></div>
+      <div class="vscore" id="wtdScore">—</div>
+      <div class="vrange">range −100 … +100 · conviction override on F1+F2</div>
+      <div class="meter"><div class="zero"></div><div class="fill" id="wtdFill"></div></div>
+      <div class="vverdict" id="wtdVerdict">Set factors</div>
+      <div class="vaction" id="wtdAction">Awaiting inputs</div>
+    </div>
+  </div>
+  <div class="actions">
+    <button class="btn primary" id="logBtn">＋ Log <span id="logIdxName">NIFTY</span> <span id="logModeName">pre/post</span></button>
+    <button class="btn ghost" id="resetBtn">Reset inputs</button>
+    <button class="btn ghost" id="exportBtn">Export CSV (all)</button>
+    <button class="btn ghost danger" id="clearLogBtn">Clear all logs</button>
+  </div>
+  <div class="section-label">Accuracy scoreboard — <span id="sbIdxLabel" style="color:var(--accent)">NIFTY 50</span> · <span id="sbModeLabel">pre/post</span></div>
+  <div class="scoreboard" id="scoreboard"></div>
+  <div class="section-label">Session log — <span id="logIdxLabel" style="color:var(--accent)">NIFTY 50</span> · enter synthetic-futures return % to auto-grade</div>
+  <div class="log-wrap">
+    <table id="logTable"><thead id="logHead"></thead><tbody id="logBody"></tbody></table>
+  </div>
+  <div class="footnote" id="footnote"></div>
+</div>
+<script>
+// ---- Factor metadata (weights are per-mode) ----------------------------
+const FACTOR_META=[
+ {id:'f1',num:'01',pillar:'A',name:'Participant OI — FII + Pro options'},
+ {id:'f2',num:'02',pillar:'A',name:'FII index-futures OI'},
+ {id:'f3',num:'03',pillar:'B',name:'Price action (synthetic-futures spot)'},
+ {id:'f4',num:'04',pillar:'B',name:'Option-chain OI walls'},
+ {id:'f5',num:'05',pillar:'C',name:'India VIX / IV regime'},
+ {id:'f6',num:'06',pillar:'C',name:'PCR (banded)'},
+ {id:'f7',num:'07',pillar:'D',name:'Commodity / macro (crude-led)'},
+ {id:'f8',num:'08',pillar:'D',name:'FII / DII cash flows'},
+ {id:'f9',num:'09',pillar:'D',name:'Global cues (US indices)'},
+];
+const WEIGHTS={
+ PREPOST:{f1:{bal:13,wtd:22},f2:{bal:12,wtd:18},f3:{bal:13,wtd:14},f4:{bal:12,wtd:12},f5:{bal:13,wtd:8},f6:{bal:12,wtd:8},f7:{bal:9,wtd:7},f8:{bal:8,wtd:5},f9:{bal:8,wtd:4}},
+ INTRADAY:{f1:{bal:8,wtd:12},f2:{bal:10,wtd:14},f3:{bal:20,wtd:22},f4:{bal:14,wtd:12},f5:{bal:13,wtd:9},f6:{bal:11,wtd:8},f7:{bal:8,wtd:6},f8:{bal:3,wtd:2},f9:{bal:13,wtd:15}},
+};
+const HINTS={
+ PREPOST:{
+  f1:{h:'FII long + Pro long (buy CE / sell PE) = bull. Full magnitude only on agreement.',b:'FII+Pro long → BULL · both short → BEAR · mixed → NEUTRAL'},
+  f2:{h:'OI falling while price rises = short covering (bull). Fresh shorts = bear.',b:'covering / long buildup → BULL · fresh shorts → BEAR'},
+  f3:{h:'Off synthetic spot, NOT cash close. Gap fill + trendline hold + bullish weekly.',b:'support hold → BULL · break → BEAR · indecision → NEUTRAL'},
+  f4:{h:'Above CE wall / short-cover trigger = bull. Rejected at CE wall / below fresh PE = bear.',b:'clears CE wall → BULL · rejected → BEAR'},
+  f5:{h:'Falling VIX = trend continuation. Spiking = whipsaw. Stable = neutral.',b:'falling → BULL · spiking → BEAR · stable → NEUTRAL'},
+  f6:{h:'0.9–1.2 rising = bull. <0.7 weak = bear. >1.6 overheated = bear.',b:'0.9–1.2↑ → BULL · <0.7 or >1.6 → BEAR'},
+  f7:{h:'Crude falling (esp <70) = bull for India. Crude spiking = bear.',b:'crude down → BULL · spike → BEAR'},
+  f8:{h:'Both net buyers = bull. Both net sellers = bear. Confirmation only.',b:'both buying → BULL · both selling → BEAR'},
+  f9:{h:'US green = bull, red = bear.',b:'US green → BULL · red → BEAR'},
+ },
+ INTRADAY:{
+  f1:{h:'LIVE aggregate OI-change proxy — NOT the FII/Pro split (published EOD only).',b:'net CE unwind + PE buildup → BULL · opposite → BEAR'},
+  f2:{h:'Live futures OI change (aggregate). OI↓ & price↑ = covering.',b:'covering → BULL · fresh shorts → BEAR'},
+  f3:{h:'LIVE tape vs opening range / VWAP / prior-day. Dominant intraday factor.',b:'above VWAP & ORB-high → BULL · below & losing → BEAR · inside → NEUTRAL'},
+  f4:{h:'Live walls built today vs at-open. Clears today\u2019s CE wall = bull.',b:'clears CE wall → BULL · PE wall lost → BEAR'},
+  f5:{h:'VIX change from prev close + intraday spike detect.',b:'falling vs prev close → BULL · spiking → BEAR'},
+  f6:{h:'Intraday PCR — WIDER bands (noisier). 0.85–1.25↑ = bull.',b:'0.85–1.25↑ → BULL · <0.65 or >1.7 → BEAR'},
+  f7:{h:'Crude / global live. Crude falling = bull for India.',b:'crude down → BULL · spike → BEAR'},
+  f8:{h:'FII/DII cash is EOD only — STALE intraday. Frozen prev-day value, tiny weight.',b:'prev-day both buyers → BULL · both sellers → BEAR'},
+  f9:{h:'US index futures live during IST session.',b:'US futures green → BULL · red → BEAR'},
+ },
+};
+const PROXY_INTRADAY=['f1','f2'];
+const STALE_INTRADAY=['f8'];
+const PILLARS={A:{name:'Positioning',cls:'p-a'},B:{name:'Price & Structure',cls:'p-b'},C:{name:'Volatility & Sentiment',cls:'p-c'},D:{name:'External & Macro',cls:'p-d'}};
+function pillarWeights(mode,pk){let bal=0,wtd=0;FACTOR_META.filter(f=>f.pillar===pk).forEach(f=>{bal+=WEIGHTS[mode][f.id].bal;wtd+=WEIGHTS[mode][f.id].wtd;});return{bal,wtd};}
+const BANDS={strong:50,mild:20};
+const CONVICTION_FLOOR=60;
+const NEUTRAL_BAND={PREPOST:{NIFTY:0.30,SENSEX:0.30,BANKNIFTY:0.45},INTRADAY:{NIFTY:0.15,SENSEX:0.15,BANKNIFTY:0.22}};
+const WARMUP_MIN=15,HORIZON_MIN=60;
+const INDICES=['NIFTY','BANKNIFTY','SENSEX'];
+const IDX_LABEL={NIFTY:'NIFTY 50',BANKNIFTY:'BANKNIFTY',SENSEX:'SENSEX'};
+
+// state keyed by mode+index
+const state={};
+['PREPOST','INTRADAY'].forEach(m=>{state[m]={};INDICES.forEach(ix=>{state[m][ix]={factors:Object.fromEntries(FACTOR_META.map(f=>[f.id,null])),gates:{binary:false,pin:false,cas:false,shock:false}};});});
+let mode='PREPOST',activeIdx='NIFTY';
+let log=[]; // {id,mode,date,index,balScore,wtdScore,balVerdict,wtdVerdict,gated, prepost:{synthRet,realized}, intraday:{fwdRet,closeRet,...}}
+
+// ---- Build factor UI (rebuilt on mode switch for weights/labels) -------
+function buildPillars(){
+ const host=document.getElementById('pillars');host.innerHTML='';
+ ['A','B','C','D'].forEach(pk=>{
+  const p=PILLARS[pk];const pw=pillarWeights(mode,pk);
+  const wrap=document.createElement('div');wrap.className='pillar';
+  wrap.innerHTML='<div class="pillar-head '+p.cls+'">PILLAR '+pk+' · '+p.name.toUpperCase()+' <span class="pw">— balanced '+pw.bal+' · weighted '+pw.wtd+'</span></div>';
+  FACTOR_META.filter(f=>f.pillar===pk).forEach(f=>{
+   const w=WEIGHTS[mode][f.id];const hint=HINTS[mode][f.id];
+   let badges='';
+   if(mode==='INTRADAY'&&PROXY_INTRADAY.includes(f.id))badges+='<span class="badge proxy">Aggregate proxy</span>';
+   if(mode==='INTRADAY'&&STALE_INTRADAY.includes(f.id))badges+='<span class="badge stale">Prev day</span>';
+   const el=document.createElement('div');el.className='factor';
+   el.innerHTML='<div class="f-top"><div class="f-name"><span class="num">'+f.num+'</span>'+f.name+' '+badges+'</div><div class="f-weights"><div class="wchip bal"><span>BAL</span><b>'+w.bal+'</b></div><div class="wchip wtd"><span>WTD</span><b>'+w.wtd+'</b></div></div></div><div class="f-hint">'+hint.h+'<br><span class="band">'+hint.b+'</span></div><div class="seg" data-f="'+f.id+'"><button data-v="1">▲ BULL</button><button data-v="0">● NEUTRAL</button><button data-v="-1">▼ BEAR</button></div>';
+   wrap.appendChild(el);
+  });
+  host.appendChild(wrap);
+ });
+ syncInputsToActive();
+}
+document.getElementById('pillars').addEventListener('click',e=>{
+ const btn=e.target.closest('button[data-v]');if(!btn)return;
+ const seg=btn.closest('.seg');state[mode][activeIdx].factors[seg.dataset.f]=parseInt(btn.dataset.v,10);
+ syncInputsToActive();recompute();
+});
+document.getElementById('gateToggles').addEventListener('click',e=>{
+ const b=e.target.closest('button[data-g]');if(!b)return;
+ const g=state[mode][activeIdx].gates;g[b.dataset.g]=!g[b.dataset.g];syncInputsToActive();recompute();
+});
+document.getElementById('modeToggle').addEventListener('click',e=>{
+ const b=e.target.closest('button[data-mode]');if(!b)return;
+ mode=b.dataset.mode;
+ document.querySelectorAll('#modeToggle button').forEach(x=>{x.classList.toggle('on',x.dataset.mode===mode);x.classList.toggle('live',mode==='INTRADAY'&&x.dataset.mode==='INTRADAY');});
+ document.getElementById('modeTag').textContent=mode==='INTRADAY'?'INTRADAY · LIVE':'PRE/POST';
+ document.getElementById('liveInd').classList.toggle('show',mode==='INTRADAY');
+ document.getElementById('modeWord').textContent=mode==='INTRADAY'?'intraday':'pre/post';
+ document.getElementById('logModeName').textContent=mode==='INTRADAY'?'intraday':'pre/post';
+ document.getElementById('sbModeLabel').textContent=mode==='INTRADAY'?'intraday (dual grade)':'pre/post';
+ document.getElementById('modeSub').textContent=mode==='INTRADAY'
+   ?'Live weights · price-structure dominant · F1/F2 aggregate proxy · dual grade (+60min & close).'
+   :'Dual-model · scored independently per index · graded on synthetic-futures close.';
+ buildPillars();recompute();renderScoreboard();renderLog();renderFootnote();
+});
+document.getElementById('idxTabs').addEventListener('click',e=>{
+ const b=e.target.closest('button[data-idx]');if(!b)return;
+ activeIdx=b.dataset.idx;
+ document.querySelectorAll('#idxTabs button').forEach(x=>x.classList.toggle('active',x.dataset.idx===activeIdx));
+ syncLabels();syncInputsToActive();recompute();renderScoreboard();renderLog();
+});
+function syncLabels(){
+ const lab=IDX_LABEL[activeIdx];
+ ['activeIdxLabel','sbIdxLabel','logIdxLabel'].forEach(id=>document.getElementById(id).textContent=lab);
+ document.getElementById('logIdxName').textContent=activeIdx;
+}
+function syncInputsToActive(){
+ const st=state[mode][activeIdx];
+ document.querySelectorAll('.seg').forEach(seg=>{
+  const v=st.factors[seg.dataset.f];
+  seg.querySelectorAll('button').forEach(btn=>{const bv=parseInt(btn.dataset.v,10);btn.className=(v!==null&&bv===v)?(v===1?'on-bull':v===-1?'on-bear':'on-flat'):'';});
+ });
+ document.querySelectorAll('#gateToggles button').forEach(b=>b.classList.toggle('armed',st.gates[b.dataset.g]));
+}
+function verdictFor(s){
+ if(s>=BANDS.strong)return{v:'Strong bullish',a:'Directional long — defined-risk call spreads',cls:'bull'};
+ if(s>=BANDS.mild)return{v:'Mild bullish',a:'Lean long, smaller size',cls:'bull'};
+ if(s<=-BANDS.strong)return{v:'Strong bearish',a:'Directional short — defined-risk put spreads',cls:'bear'};
+ if(s<=-BANDS.mild)return{v:'Mild bearish',a:'Lean short, smaller size',cls:'bear'};
+ return{v:'No edge',a:'Range / non-directional / wait',cls:'flat'};
+}
+function computeActive(){
+ const st=state[mode][activeIdx];
+ const missing=FACTOR_META.filter(f=>st.factors[f.id]===null).map(f=>f.id);
+ const gateArmed=Object.values(st.gates).some(Boolean);
+ if(missing.length>0)return{status:'INSUFFICIENT_DATA',missing:missing,gateArmed:gateArmed,balScore:null,wtdScore:null};
+ let bal=0,wtd=0;
+ FACTOR_META.forEach(f=>{bal+=st.factors[f.id]*WEIGHTS[mode][f.id].bal;wtd+=st.factors[f.id]*WEIGHTS[mode][f.id].wtd;});
+ const f1=st.factors.f1,f2=st.factors.f2;
+ if(f1!==0&&f1===f2){if(f1>0&&wtd<CONVICTION_FLOOR)wtd=CONVICTION_FLOOR;if(f1<0&&wtd>-CONVICTION_FLOOR)wtd=-CONVICTION_FLOOR;}
+ if(gateArmed)return{status:'GATED_NO_TRADE',missing:[],gateArmed:true,balScore:bal,wtdScore:wtd};
+ return{status:'SCORED',missing:[],gateArmed:false,balScore:bal,wtdScore:wtd};
+}
+function paint(prefix,score,status,gated){
+ const s=document.getElementById(prefix+'Score'),fl=document.getElementById(prefix+'Fill'),vv=document.getElementById(prefix+'Verdict'),va=document.getElementById(prefix+'Action');
+ if(status==='INSUFFICIENT_DATA'){s.textContent='—';s.className='vscore flat';fl.style.width='0';vv.textContent='Insufficient data';vv.className='vverdict amber';va.textContent='Set all 9 factors (fail-closed)';return;}
+ s.textContent=(score>0?'+':'')+score;const cls=score>=BANDS.mild?'bull':score<=-BANDS.mild?'bear':'flat';s.className='vscore '+cls;
+ const pct=Math.min(Math.abs(score),100)/2;
+ fl.style.background=score>=BANDS.mild?'var(--bull)':score<=-BANDS.mild?'var(--bear)':'var(--flat)';
+ if(score>=0){fl.style.left='50%';fl.style.right='auto';fl.style.width=pct+'%';}else{fl.style.right='50%';fl.style.left='auto';fl.style.width=pct+'%';}
+ if(gated){vv.textContent='No directional trade';vv.className='vverdict amber';va.textContent='Event gate armed — verdict suppressed';}
+ else{const vd=verdictFor(score);vv.textContent=vd.v;vv.className='vverdict '+vd.cls;va.textContent=vd.a;}
+}
+function recompute(){
+ const r=computeActive();const cb=document.getElementById('coverageBanner');
+ let banner='';
+ if(r.status==='INSUFFICIENT_DATA')banner='⚠ PARTIAL COVERAGE — missing '+r.missing.length+' factor(s): '+r.missing.join(', ')+' · fail-closed';
+ else if(r.gateArmed)banner='⛔ EVENT GATE ARMED — both models forced to NO DIRECTIONAL TRADE';
+ else if(mode==='INTRADAY')banner='◐ INTRADAY — F1/F2 are AGGREGATE PROXY (not participant split); F8 is PREV-DAY cash. Verdict is a 1-min snapshot.';
+ if(banner){cb.classList.add('show');cb.textContent=banner;}else{cb.classList.remove('show');}
+ paint('bal',r.balScore,r.status,r.gateArmed);paint('wtd',r.wtdScore,r.status,r.gateArmed);
+}
+function finalVerdict(score,status,gated){if(status==='INSUFFICIENT_DATA')return'Insufficient data';if(gated)return'No trade';return verdictFor(score).v;}
+function verdictDir(v){if(v.includes('bullish'))return'up';if(v.includes('bearish'))return'down';return'flat';}
+function realizedFromRet(retStr,index,m){if(retStr===''||retStr===null||isNaN(parseFloat(retStr)))return'';const ret=parseFloat(retStr);const band=NEUTRAL_BAND[m][index];return ret>band?'up':ret<-band?'down':'flat';}
+function gradeCell(verdict,realized){if(!realized)return'<span class="na">—</span>';if(verdict==='Insufficient data')return'<span class="na">n/a</span>';const dir=verdictDir(verdict);if(dir==='flat')return realized==='flat'?'<span class="hit">✓ avoid</span>':'<span class="na">skip</span>';return dir===realized?'<span class="hit">✓ hit</span>':'<span class="miss">✗ miss</span>';}
+
+document.getElementById('logBtn').addEventListener('click',()=>{
+ const r=computeActive();
+ const base={id:Date.now(),mode:mode,date:document.getElementById('sessionDate').value||new Date().toISOString().slice(0,10),index:activeIdx,balScore:r.balScore,wtdScore:r.wtdScore,balVerdict:finalVerdict(r.balScore,r.status,r.gateArmed),wtdVerdict:finalVerdict(r.wtdScore,r.status,r.gateArmed),gated:r.gateArmed};
+ if(mode==='PREPOST'){base.synthRet='';base.realized='';}
+ else{base.fwdRet='';base.closeRet='';base.fwdReal='';base.closeReal='';base.ts=new Date().toTimeString().slice(0,5);}
+ log.unshift(base);renderLog();renderScoreboard();renderCounts();
+});
+document.getElementById('resetBtn').addEventListener('click',()=>{const st=state[mode][activeIdx];FACTOR_META.forEach(f=>st.factors[f.id]=null);Object.keys(st.gates).forEach(k=>st.gates[k]=false);syncInputsToActive();recompute();});
+document.getElementById('clearLogBtn').addEventListener('click',()=>{if(confirm('Clear ALL logged sessions (both modes, all indices)? Export first to keep them.')){log=[];renderLog();renderScoreboard();renderCounts();}});
+
+function renderLog(){
+ const head=document.getElementById('logHead'),body=document.getElementById('logBody');
+ const rows=log.filter(e=>e.index===activeIdx&&e.mode===mode);
+ if(mode==='PREPOST'){
+  head.innerHTML='<tr><th>Date</th><th>A·Bal</th><th>A verdict</th><th>B·Wtd</th><th>B verdict</th><th>Gate</th><th>Synth ret %</th><th>Realized</th><th>A</th><th>B</th><th></th></tr>';
+ }else{
+  head.innerHTML='<tr><th>Time</th><th>A·Bal</th><th>A verdict</th><th>B·Wtd</th><th>B verdict</th><th>Gate</th><th>+60m ret%</th><th>Close ret%</th><th>A·60m</th><th>B·60m</th><th>A·cl</th><th>B·cl</th><th></th></tr>';
+ }
+ if(rows.length===0){body.innerHTML='<tr><td colspan="13" class="empty">No '+IDX_LABEL[activeIdx]+' '+(mode==='INTRADAY'?'intraday':'pre/post')+' sessions logged yet.</td></tr>';return;}
+ const vc=v=>v==='No trade'?'amber':v==='Insufficient data'?'na':v.includes('bullish')?'bull':v.includes('bearish')?'bear':'flat';
+ const sc=x=>x===null?'na':x>=20?'bull':x<=-20?'bear':'flat';
+ body.innerHTML='';
+ rows.forEach(e=>{
+  const tr=document.createElement('tr');
+  const common='<td class="'+sc(e.balScore)+'">'+(e.balScore===null?'—':(e.balScore>0?'+':'')+e.balScore)+'</td><td class="'+vc(e.balVerdict)+'">'+e.balVerdict+'</td><td class="'+sc(e.wtdScore)+'">'+(e.wtdScore===null?'—':(e.wtdScore>0?'+':'')+e.wtdScore)+'</td><td class="'+vc(e.wtdVerdict)+'">'+e.wtdVerdict+'</td><td class="'+(e.gated?'amber':'na')+'">'+(e.gated?'ARMED':'—')+'</td>';
+  if(mode==='PREPOST'){
+   const band=NEUTRAL_BAND.PREPOST[e.index];
+   tr.innerHTML='<td>'+e.date+'</td>'+common+
+    '<td><input class="cell-in" type="text" inputmode="decimal" placeholder="±% ('+band+')" value="'+e.synthRet+'" data-f="synthRet" data-id="'+e.id+'"></td>'+
+    '<td class="'+(e.realized==='up'?'bull':e.realized==='down'?'bear':'flat')+'">'+(e.realized?e.realized.toUpperCase():'—')+'</td>'+
+    '<td>'+gradeCell(e.balVerdict,e.realized)+'</td><td>'+gradeCell(e.wtdVerdict,e.realized)+'</td>'+
+    '<td><span class="del-row" data-del="'+e.id+'">✕</span></td>';
+  }else{
+   tr.innerHTML='<td>'+(e.ts||'—')+'</td>'+common+
+    '<td><input class="cell-in" type="text" inputmode="decimal" placeholder="+60m%" value="'+e.fwdRet+'" data-f="fwdRet" data-id="'+e.id+'"></td>'+
+    '<td><input class="cell-in" type="text" inputmode="decimal" placeholder="close%" value="'+e.closeRet+'" data-f="closeRet" data-id="'+e.id+'"></td>'+
+    '<td>'+gradeCell(e.balVerdict,e.fwdReal)+'</td><td>'+gradeCell(e.wtdVerdict,e.fwdReal)+'</td>'+
+    '<td>'+gradeCell(e.balVerdict,e.closeReal)+'</td><td>'+gradeCell(e.wtdVerdict,e.closeReal)+'</td>'+
+    '<td><span class="del-row" data-del="'+e.id+'">✕</span></td>';
+  }
+  body.appendChild(tr);
+ });
+ body.querySelectorAll('input[data-f]').forEach(inp=>{
+  inp.addEventListener('change',ev=>{
+   const id=parseInt(ev.target.dataset.id,10),field=ev.target.dataset.f;const e=log.find(x=>x.id===id);if(!e)return;
+   e[field]=ev.target.value.trim();
+   if(field==='synthRet')e.realized=realizedFromRet(e.synthRet,e.index,'PREPOST');
+   if(field==='fwdRet')e.fwdReal=realizedFromRet(e.fwdRet,e.index,'INTRADAY');
+   if(field==='closeRet')e.closeReal=realizedFromRet(e.closeRet,e.index,'INTRADAY');
+   renderLog();renderScoreboard();
+  });
+ });
+ body.querySelectorAll('[data-del]').forEach(x=>x.addEventListener('click',ev=>{const id=parseInt(ev.target.dataset.del,10);log=log.filter(e=>e.id!==id);renderLog();renderScoreboard();renderCounts();}));
+}
+
+function rate(rows,kind,realField){
+ const dir=rows.filter(e=>{const v=kind==='bal'?e.balVerdict:e.wtdVerdict;return verdictDir(v)!=='flat'&&v!=='Insufficient data'&&e[realField];});
+ const h=dir.filter(e=>{const v=kind==='bal'?e.balVerdict:e.wtdVerdict;return verdictDir(v)===e[realField];}).length;
+ return{rate:dir.length?Math.round(h/dir.length*100):null,h:h,n:dir.length};
+}
+function renderScoreboard(){
+ const rows=log.filter(e=>e.index===activeIdx&&e.mode===mode);
+ const host=document.getElementById('scoreboard');
+ const cell=(rate,cls)=>rate===null?'<span class="flat">—</span>':'<span class="'+cls+'">'+rate+'%</span>';
+ if(mode==='PREPOST'){
+  const b=rate(rows,'bal','realized'),w=rate(rows,'wtd','realized');
+  const graded=rows.filter(e=>e.realized).length;
+  const lead=(b.rate!==null&&w.rate!==null)?(w.rate>b.rate?'B':b.rate>w.rate?'A':'tie'):null;
+  host.innerHTML=
+   '<div class="sb'+(lead==='A'?' lead':'')+'"><div class="sb-lab">Model A · Balanced'+(lead==='A'?' · leading':'')+'</div><div class="sb-val '+(b.rate===null?'flat':b.rate>=55?'bull':b.rate<=45?'bear':'flat')+'">'+(b.rate===null?'—':b.rate+'%')+'</div><div class="sb-note">'+(b.n?b.h+'/'+b.n+' directional':'no graded calls')+' · neutral baseline</div></div>'+
+   '<div class="sb'+(lead==='B'?' lead':'')+'"><div class="sb-lab">Model B · Weighted'+(lead==='B'?' · leading':'')+'</div><div class="sb-val '+(w.rate===null?'flat':w.rate>=55?'bull':w.rate<=45?'bear':'flat')+'">'+(w.rate===null?'—':w.rate+'%')+'</div><div class="sb-note">'+(w.n?w.h+'/'+w.n+' directional':'no graded calls')+' · positioning tilt</div></div>'+
+   '<div class="sb"><div class="sb-lab">Graded · '+IDX_LABEL[activeIdx]+'</div><div class="sb-val flat">'+graded+'</div><div class="sb-note">'+(graded<30?'need ~'+Math.max(0,30-graded)+'+ more':'sample sufficient')+'</div></div>';
+ }else{
+  const bH=rate(rows,'bal','fwdReal'),wH=rate(rows,'wtd','fwdReal'),bC=rate(rows,'bal','closeReal'),wC=rate(rows,'wtd','closeReal');
+  const gradedH=rows.filter(e=>e.fwdReal).length,gradedC=rows.filter(e=>e.closeReal).length;
+  const clsf=r=>r===null?'flat':r>=55?'bull':r<=45?'bear':'flat';
+  host.innerHTML=
+   '<div class="sb"><div class="sb-lab">Model A · Balanced</div><div class="sb-val '+clsf(bH.rate)+'">'+(bH.rate===null?'—':bH.rate+'%')+'</div><div class="sb-note">+60m · '+(bH.n?bH.h+'/'+bH.n:'0')+' calls</div><div class="sb-sub">to-close '+cell(bC.rate,clsf(bC.rate))+' · '+(bC.n?bC.h+'/'+bC.n:'0')+'</div></div>'+
+   '<div class="sb"><div class="sb-lab">Model B · Weighted</div><div class="sb-val '+clsf(wH.rate)+'">'+(wH.rate===null?'—':wH.rate+'%')+'</div><div class="sb-note">+60m · '+(wH.n?wH.h+'/'+wH.n:'0')+' calls</div><div class="sb-sub">to-close '+cell(wC.rate,clsf(wC.rate))+' · '+(wC.n?wC.h+'/'+wC.n:'0')+'</div></div>'+
+   '<div class="sb"><div class="sb-lab">Snapshots graded · '+IDX_LABEL[activeIdx]+'</div><div class="sb-val flat">'+gradedH+' / '+gradedC+'</div><div class="sb-note">+60m / close · '+((gradedH<30)?'need ~'+Math.max(0,30-gradedH)+'+ more':'sample ok')+'</div></div>';
+ }
+}
+function renderCounts(){INDICES.forEach(ix=>{const n=log.filter(e=>e.index===ix&&e.mode===mode).length;document.getElementById('cnt-'+ix).textContent=n?'('+n+')':'';});}
+function renderFootnote(){
+ const f=document.getElementById('footnote');
+ if(mode==='INTRADAY'){
+  f.innerHTML='<b>Intraday (live) mode.</b> Weights re-tilt to what is actually live: <b>price structure (F3) dominates</b>, while participant split is unavailable — <b>F1/F2 are a live AGGREGATE OI-change proxy</b>, badged as such, never presented as the FII/Pro split. <b>F8 (FII/DII cash) is EOD-only</b>, shown frozen as "prev day" at near-zero weight. First 15 min after open fail-closed to <code>INSUFFICIENT_DATA</code> (no range yet). Each verdict is a 1-min snapshot; in the platform these are immutable rows forming a session time series. <b>Dual grade:</b> every snapshot is scored against BOTH a +60min forward move and the session close, on synthetic-futures returns (bands NIFTY/SENSEX ±0.15%, BANKNIFTY ±0.22%) — two hit rates, avoid/skip excluded. Not a trade signal.';
+ }else{
+  f.innerHTML='<b>Pre/post mode.</b> Settled EOD data; participant OI is the real FII/Pro split. Each index scored independently, graded on <b>synthetic-futures</b> close-to-close vs a per-index band (NIFTY/SENSEX ±0.30%, BANKNIFTY ±0.45%). Fail-closed on any unset factor. A directional verdict is a hit only if its direction matches realized; No-edge/No-trade scored as avoid/skip and excluded from hit rate. Held in-page — Export CSV to persist. Not a trade signal; a bias filter pending out-of-sample validation.';
+ }
+}
+document.getElementById('exportBtn').addEventListener('click',()=>{
+ const rows=[['mode','date_or_time','index','bal_score','bal_verdict','wtd_score','wtd_verdict','gated','synth_or_fwd_ret','close_ret','realized_or_fwdReal','closeReal']];
+ log.forEach(e=>{
+  if(e.mode==='PREPOST')rows.push(['PREPOST',e.date,e.index,e.balScore,e.balVerdict,e.wtdScore,e.wtdVerdict,e.gated,e.synthRet,'',e.realized,'']);
+  else rows.push(['INTRADAY',e.ts+' '+e.date,e.index,e.balScore,e.balVerdict,e.wtdScore,e.wtdVerdict,e.gated,e.fwdRet,e.closeRet,e.fwdReal,e.closeReal]);
+ });
+ const csv=rows.map(r=>r.map(c=>'"'+c+'"').join(',')).join('\n');
+ const blob=new Blob([csv],{type:'text/csv'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='directional-scorer-'+new Date().toISOString().slice(0,10)+'.csv';a.click();
+});
+document.getElementById('sessionDate').value=new Date().toISOString().slice(0,10);
+buildPillars();syncLabels();recompute();renderScoreboard();renderLog();renderCounts();renderFootnote();
+</script>
+</body>
+</html>
