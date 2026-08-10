@@ -18,8 +18,9 @@
  * cached effective mode and refuses new auto-opens unless NORMAL. Manual
  * user-driven closes are never gated. Transitions alert the owner (Telegram).
  */
+import { createHash } from "crypto";
 import { sql } from "drizzle-orm";
-import { db } from "@workspace/db";
+import { db, pool, getDbPoolStats } from "@workspace/db";
 import { getKiteReadiness } from "./kiteReadiness";
 import { getStalenessSnapshot } from "./marketData/stalenessWatchdog";
 import { isInstrumentsRefreshFailedToday } from "./marketData/instrumentsIntegrity";
@@ -51,14 +52,70 @@ export interface SystemModeInputs {
   instrumentsRefreshFailed?: boolean; // BUG-35: daily dump refresh failed today
 }
 
+// ---------------------------------------------------------------------------
+// DB measurement types
+// ---------------------------------------------------------------------------
+
+/** Pool-like interface used by measureDbHealthWithPool — injectable for testing. */
+export interface PoolClientLike {
+  query<T extends Record<string, unknown> = Record<string, unknown>>(
+    sql: string,
+  ): Promise<{ rows: T[] }>;
+  release(): void;
+}
+
+export interface MeasurablePool {
+  connect(): Promise<PoolClientLike>;
+  totalCount?: number;
+  idleCount?: number;
+  waitingCount?: number;
+  options?: { max?: number };
+}
+
+export type DbMeasurementStatus = "ok" | "acquire_failed" | "query_failed";
+
+export interface DbMeasurementResult {
+  /** Total wall-clock ms (acquireMs + queryMs). null when either phase failed. */
+  totalMs: number | null;
+  /** Time from pool.connect() call to client returned. null when failed. */
+  acquireMs: number | null;
+  /** Time from query start to result returned. null when acquire or query failed. */
+  queryMs: number | null;
+  /** Pool snapshot before connection acquire. */
+  poolTotalCountBefore: number | null;
+  poolIdleCountBefore: number | null;
+  poolWaitingCountBefore: number | null;
+  /** Pool snapshot after query, before release (reflects in-flight state). */
+  poolTotalCountAfter: number | null;
+  poolIdleCountAfter: number | null;
+  poolWaitingCountAfter: number | null;
+  /** pg_backend_pid() from the acquired connection. null when query failed. */
+  backendPid: number | null;
+  /**
+   * true  = backend PID differs from the previous measurement → new PG backend (cold connect).
+   * false = same PID → connection was reused from pool.
+   * null  = no prior measurement to compare against.
+   */
+  backendPidChanged: boolean | null;
+  dbMeasurementStatus: DbMeasurementStatus;
+}
+
 export interface SystemModeSnapshot {
   derived: SystemMode;
   override: SystemMode | null;
   effective: SystemMode;
   drivers: string[];
+  /** Backward-compatible total latency (= dbDiagnostics.totalMs). null = check failed. */
   dbLatencyMs: number | null;
   checkedAt: string;
   autoOpensAllowed: boolean;
+  /** Full DB measurement breakdown. Populated on every tick. */
+  dbDiagnostics: DbMeasurementResult | null;
+  /**
+   * SHA-256(host:port/dbname) first 16 hex chars. Identifies the DB instance
+   * without exposing any connection secret. null when DATABASE_URL not parseable.
+   */
+  dbInstanceFingerprint: string | null;
 }
 
 /** PURE — first-principles derivation per the fix-file transition table. */
@@ -99,21 +156,156 @@ export function isValidSystemMode(v: unknown): v is SystemMode {
 }
 
 // ---------------------------------------------------------------------------
+// DB instance fingerprint
+// Computed once per process from DATABASE_URL. Never exposes the source values.
+// ---------------------------------------------------------------------------
+
+let _dbInstanceFingerprint: string | null | undefined = undefined; // undefined = not yet computed
+
+export function computeDbFingerprint(): string | null {
+  if (_dbInstanceFingerprint !== undefined) return _dbInstanceFingerprint;
+  try {
+    const raw = process.env["DATABASE_URL"];
+    if (!raw) {
+      _dbInstanceFingerprint = null;
+      return null;
+    }
+    const parsed = new URL(raw);
+    const host = parsed.hostname.toLowerCase();
+    const port = parsed.port || "5432";
+    const dbname = parsed.pathname.replace(/^\//, "").toLowerCase();
+    if (!host || !dbname) {
+      _dbInstanceFingerprint = null;
+      return null;
+    }
+    _dbInstanceFingerprint = createHash("sha256")
+      .update(`${host}:${port}/${dbname}`)
+      .digest("hex")
+      .slice(0, 16);
+    return _dbInstanceFingerprint;
+  } catch {
+    _dbInstanceFingerprint = null;
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// DB health measurement — testable core
+// ---------------------------------------------------------------------------
+
+/**
+ * Measures DB health by acquiring a real pool connection and running
+ * `SELECT 1, pg_backend_pid()` on it. Separates acquisition time from
+ * query execution time and captures pool counters before and after.
+ *
+ * Exported for unit testing with mock pools. Production callers use
+ * the private `measureDbHealth()` wrapper which supplies the real pool
+ * and tracks module-level prevBackendPid state.
+ *
+ * @param poolSrc  Pool to acquire a connection from.
+ * @param prevPid  The backend_pid from the previous measurement, or null if
+ *                 no prior measurement exists (first tick).
+ * @returns { result, nextPid } — nextPid is the PID to carry forward, or
+ *          null when the query failed.
+ */
+export async function measureDbHealthWithPool(
+  poolSrc: MeasurablePool,
+  prevPid: number | null,
+): Promise<{ result: DbMeasurementResult; nextPid: number | null }> {
+  // Snapshot pool counters before acquisition
+  const statsBefore = getDbPoolStats(
+    poolSrc as Parameters<typeof getDbPoolStats>[0],
+  );
+  const poolTotalCountBefore = statsBefore?.total ?? null;
+  const poolIdleCountBefore = statsBefore?.idle ?? null;
+  const poolWaitingCountBefore = statsBefore?.waiting ?? null;
+
+  let client: PoolClientLike | null = null;
+  let acquireMs: number | null = null;
+  let queryMs: number | null = null;
+  let backendPid: number | null = null;
+  let dbMeasurementStatus: DbMeasurementStatus = "ok";
+
+  const t0 = Date.now();
+  try {
+    client = await poolSrc.connect();
+    acquireMs = Date.now() - t0;
+
+    const qt0 = Date.now();
+    const rows = await client.query<{ ok: number; backend_pid: number }>(
+      "SELECT 1 AS ok, pg_backend_pid() AS backend_pid",
+    );
+    queryMs = Date.now() - qt0;
+
+    const pid = rows.rows[0]?.backend_pid;
+    backendPid = pid != null ? Number(pid) : null;
+  } catch {
+    if (acquireMs === null) {
+      // Failed before connect() returned
+      dbMeasurementStatus = "acquire_failed";
+    } else {
+      // Connect succeeded; query threw
+      dbMeasurementStatus = "query_failed";
+    }
+  } finally {
+    if (client !== null) {
+      client.release();
+    }
+  }
+
+  // Snapshot pool counters after query (before release settles, reflects in-flight)
+  const statsAfter = getDbPoolStats(
+    poolSrc as Parameters<typeof getDbPoolStats>[0],
+  );
+  const poolTotalCountAfter = statsAfter?.total ?? null;
+  const poolIdleCountAfter = statsAfter?.idle ?? null;
+  const poolWaitingCountAfter = statsAfter?.waiting ?? null;
+
+  const totalMs =
+    acquireMs !== null && queryMs !== null ? acquireMs + queryMs : null;
+
+  // backendPidChanged: compare against previous PID (null = first measurement)
+  let backendPidChanged: boolean | null = null;
+  if (backendPid !== null && prevPid !== null) {
+    backendPidChanged = backendPid !== prevPid;
+  }
+  const nextPid = backendPid;
+
+  return {
+    result: {
+      totalMs,
+      acquireMs,
+      queryMs,
+      poolTotalCountBefore,
+      poolIdleCountBefore,
+      poolWaitingCountBefore,
+      poolTotalCountAfter,
+      poolIdleCountAfter,
+      poolWaitingCountAfter,
+      backendPid,
+      backendPidChanged,
+      dbMeasurementStatus,
+    },
+    nextPid,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Monitor loop (module state)
 // ---------------------------------------------------------------------------
 
 let lastFeedConnectedAt = Date.now();
 let lastSnapshot: SystemModeSnapshot | null = null;
 let timer: NodeJS.Timeout | null = null;
+let prevBackendPid: number | null = null;
 
-async function measureDbLatencyMs(): Promise<number | null> {
-  const t0 = Date.now();
-  try {
-    await db.execute(sql`SELECT 1`);
-    return Date.now() - t0;
-  } catch {
-    return null;
-  }
+async function measureDbHealth(): Promise<DbMeasurementResult> {
+  const { result, nextPid } = await measureDbHealthWithPool(
+    pool as MeasurablePool,
+    prevBackendPid,
+  );
+  if (nextPid !== null) prevBackendPid = nextPid;
+  return result;
 }
 
 export async function getSystemModeOverride(): Promise<SystemMode | null> {
@@ -131,13 +323,15 @@ export async function setSystemModeOverride(mode: SystemMode | null): Promise<vo
 }
 
 export async function runSystemModeTick(): Promise<SystemModeSnapshot> {
-  const [readiness, dbLatencyMs, override] = await Promise.all([
+  const [readiness, dbMeasurement, override] = await Promise.all([
     getKiteReadiness(),
-    measureDbLatencyMs(),
+    measureDbHealth(),
     getSystemModeOverride(),
   ]);
   const now = Date.now();
   if (readiness.feedConnected) lastFeedConnectedAt = now;
+
+  const dbLatencyMs = dbMeasurement.totalMs;
 
   const { mode: derived, drivers } = deriveSystemMode({
     sessionValid: readiness.sessionValid,
@@ -160,6 +354,8 @@ export async function runSystemModeTick(): Promise<SystemModeSnapshot> {
     dbLatencyMs,
     checkedAt: new Date().toISOString(),
     autoOpensAllowed: effective === "NORMAL",
+    dbDiagnostics: dbMeasurement,
+    dbInstanceFingerprint: computeDbFingerprint(),
   };
   lastSnapshot = snapshot;
   setCachedSystemMode(effective);

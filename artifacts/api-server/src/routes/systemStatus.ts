@@ -28,7 +28,7 @@ import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
 
-router.get("/system/mode", requireOwner, async (_req, res) => {
+router.get("/system/mode", requireOwnerStrict, async (_req, res) => {
   const snapshot = getSystemModeSnapshot() ?? (await runSystemModeTick());
   res.json({
     mode: snapshot,
