@@ -1,0 +1,205 @@
+PROMPT 33B — DB LATENCY ROOT CAUSE AND FINAL REPUBLISH GATE
+
+This prompt has three bounded tasks only.
+
+Do not deploy.
+Do not activate any lock.
+Do not change latency thresholds.
+Do not create evidence-only production modules.
+Do not run full test suites unless production runtime code changes.
+
+TASK 1 — FINAL CUMULATIVE DIFF
+
+The proposed republish contains commits 5342352 and 17fdc74.
+
+Run against the actual current HEAD:
+
+git status --short
+git rev-parse HEAD
+git log --oneline c8fd8897..HEAD
+
+git diff --name-status c8fd8897..HEAD -- 
+artifacts/api-server 
+artifacts/scanner 
+lib
+
+git diff --stat c8fd8897..HEAD
+
+Return every runtime file changed.
+
+Expected scope is limited to:
+
+* scannerDataContract.ts;
+* fullNseScanner.ts;
+* scanner route provenance wiring;
+* directly related tests.
+
+If any unrelated runtime change exists, stop with:
+
+BLOCKED_UNEXPECTED_REPUBLISH_DIFF
+
+TASK 2 — CORRECT CLASSIFIER PROVENANCE STATUS
+
+The proposed fix will report:
+
+authoritativeNseReferenceIntegrated=true
+
+But it still reports:
+
+CANARY_BLOCKED_AUTHORITATIVE_NSE_SECURITY_REFERENCE_REQUIRED
+
+Those statements contradict each other.
+
+Inspect the actual meaning and consumers of `canaryStatus`.
+
+Required contract:
+
+* If the NSE security reference is unavailable:
+  `AUTHORITATIVE_NSE_SECURITY_REFERENCE_REQUIRED`
+* If the NSE reference is loaded and joined:
+  it must not claim the reference is still required.
+* If Phase A remains locked, expose the real blocker separately, based on the actual compile-time control:
+
+  * warehouse population locked;
+  * candle evaluation locked;
+  * canary activation not authorized;
+  * or the precise real state.
+
+Do not combine these independent dimensions:
+
+1. security-reference availability;
+2. universe-classification authorization;
+3. candle-history population;
+4. scanner evaluation authorization;
+5. trade actionability.
+
+Return the exact resulting production contract, including:
+
+* authoritativeNseReferenceIntegrated;
+* nseReferenceStatus;
+* warehousePopulationStatus;
+* evaluationStatus;
+* actionability;
+* canaryStatus.
+
+Add targeted contract tests proving that an integrated reference can never be labelled “reference required.”
+
+TASK 3 — DB LATENCY ROOT-CAUSE PROOF
+
+The previous sampling is not sufficient.
+
+Reported API wall time was 82–180 ms while `dbLatencyMs` was 200–2,300 ms. Therefore `dbLatencyMs` cannot have been synchronously measured inside those same requests.
+
+First inspect and report:
+
+* where `dbLatencyMs` is calculated;
+* the SQL query used;
+* whether the measurement is cached;
+* measurement timestamp;
+* cache age;
+* health-check frequency;
+* whether connection acquisition time is included;
+* whether pool waiting time is included;
+* whether all pages consume the same health snapshot.
+
+Then run a bounded 10-sample comparison from the running production process.
+
+Each sample must include:
+
+* sample timestamp;
+* API request wall time;
+* health snapshot `checkedAt`;
+* health snapshot age;
+* reported `dbLatencyMs`;
+* direct read-only `SELECT 1` duration;
+* connection acquisition duration, if separately measurable;
+* query execution duration;
+* pool total count;
+* pool idle count;
+* pool waiting count;
+* systemMode;
+* driver/reason.
+
+Do not log:
+
+* DATABASE_URL;
+* hostname;
+* username;
+* password;
+* connection string;
+* session cookie;
+* any secret.
+
+Use existing instrumentation if available. If minimal temporary instrumentation is necessary, keep it owner-only, remove it after evidence collection, and prove it is absent from the final production build.
+
+Classify the actual cause using evidence only:
+
+* stale cached health value;
+* pool acquisition delay;
+* exhausted pool;
+* slow SQL;
+* database cold start;
+* autoscale wake-up;
+* network delay;
+* incorrect health-check measurement;
+* unresolved.
+
+Do not claim “shared PostgreSQL load” without proof.
+
+ACCEPTANCE
+
+DB latency gate passes only when one of these is true:
+
+A. The reported latency was a stale/incorrect measurement and the health-state implementation is corrected and tested; or
+
+B. Direct production DB measurements demonstrate acceptable stable latency with:
+
+* p50 below 300 ms;
+* p95 below 750 ms;
+* zero 10-second events;
+* zero pool-waiting events;
+* stable systemMode;
+
+or
+
+C. A confirmed platform/database limitation is documented with a concrete remediation requirement, and the system remains:
+
+BLOCKED_DB_LATENCY_P1
+
+Do not weaken system-mode thresholds merely to make the gate pass.
+
+CLOSING CHECKS
+
+If runtime code changes, run only:
+
+* targeted DB-health tests;
+* targeted provenance-contract tests;
+* API-server TypeScript check;
+* scanner TypeScript check if scanner code changed;
+* production builds;
+* git diff --check;
+* secret/debug-route scan;
+* four-lock scan.
+
+Return only:
+
+1. final cumulative diff;
+2. corrected provenance contract;
+3. DB-health measurement architecture;
+4. 10-sample evidence table;
+5. proven root cause;
+6. code changes, if any;
+7. targeted test/build results;
+8. four lock values;
+9. remaining blocker;
+10. final verdict.
+
+Allowed verdicts:
+
+PRE_REPUBLISH_VERIFIED — OWNER_DEPLOYMENT_AUTHORIZATION_REQUIRED
+
+or
+
+PRE_REPUBLISH_BLOCKED — BLOCKED_DB_LATENCY_P1
+
+Do not republish during this task.
