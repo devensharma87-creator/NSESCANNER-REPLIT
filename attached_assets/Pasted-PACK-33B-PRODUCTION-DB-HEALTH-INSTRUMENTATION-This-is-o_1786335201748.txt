@@ -1,0 +1,168 @@
+PACK 33B — PRODUCTION DB HEALTH INSTRUMENTATION
+
+This is one bounded implementation task.
+
+Do not deploy.
+Do not change DB thresholds.
+Do not change pool timeout.
+Do not add a dedicated PostgreSQL client.
+Do not add an extra health-check query.
+Do not activate any safety lock.
+Do not modify signal, F&O, Swing or broker logic.
+
+OBJECTIVE
+
+Instrument the existing production DB health check so the current single SELECT 1 measurement separates:
+
+* pool connection acquisition time;
+* SQL execution time;
+* total time;
+* pool state;
+* connection reuse.
+
+This must replace the current measurement—not add another periodic query.
+
+IMPLEMENTATION
+
+Modify the existing measureDbLatencyMs() path to use the same application pool:
+
+1. Record pool counters before acquisition:
+    * totalCount;
+    * idleCount;
+    * waitingCount.
+2. Call pool.connect() and measure:
+    * acquireMs.
+3. On the acquired client, run one query only:
+    SELECT 1 AS ok, pg_backend_pid() AS backend_pid
+4. Measure:
+    * queryMs;
+    * totalMs = acquireMs + queryMs.
+5. Record pool counters after the query.
+6. Always release the acquired client exactly once in finally.
+7. Preserve the existing timeout and failure handling.
+8. Continue using totalMs for the existing system-mode threshold during this evidence phase. Do not weaken or change the threshold.
+9. Store these fields in the existing system-mode health snapshot:
+    * checkedAt;
+    * dbTotalMs;
+    * dbAcquireMs;
+    * dbQueryMs;
+    * poolTotalCountBefore;
+    * poolIdleCountBefore;
+    * poolWaitingCountBefore;
+    * poolTotalCountAfter;
+    * poolIdleCountAfter;
+    * poolWaitingCountAfter;
+    * backendPidChanged;
+    * dbMeasurementStatus.
+10. Do not expose raw PostgreSQL host, port, username, password, connection string or DATABASE_URL.
+11. Add a one-way database-instance fingerprint:
+
+SHA-256(normalized host + port + database name)
+
+Return only the first 16 hexadecimal characters. Never return the source values.
+
+12. Expose these diagnostics only through the existing authenticated system-mode diagnostic response. Do not create a public route.
+13. Confirm the existing route’s exact authentication middleware. If it is not owner-protected, STOP and report:
+
+BLOCKED_DIAGNOSTIC_ROUTE_NOT_OWNER_PROTECTED
+
+Do not expose pool or database diagnostics to anonymous/subscriber sessions.
+
+CORRECTNESS TESTS
+
+Add targeted tests for:
+
+* fast acquisition + fast query;
+* slow acquisition + fast query;
+* fast acquisition + slow query;
+* pool waitingCount greater than zero;
+* acquisition failure;
+* query failure;
+* timeout;
+* client released exactly once after success;
+* client released exactly once after query failure;
+* no release attempted when acquisition fails;
+* no secret or raw database identity in response;
+* backend PID unchanged means connection reuse;
+* backend PID changed means a different PostgreSQL backend;
+* totalMs reconciles with acquireMs + queryMs within clock tolerance;
+* existing system-mode thresholds remain unchanged;
+* existing safety behaviour remains fail-closed.
+
+Do not use source-regex tests as the primary proof. Invoke the production measurement function with controlled pool/client mocks.
+
+PREDEPLOY CHECK
+
+Return:
+
+git rev-parse HEAD
+
+git diff –name-status c8fd8897..HEAD – 
+artifacts/api-server 
+artifacts/scanner 
+lib
+
+Expected new runtime scope is limited to:
+
+* existing DB pool export/diagnostic accessor, if necessary;
+* systemMode health measurement;
+* existing authenticated system-mode route/schema;
+* directly related tests;
+* previously approved scannerDataContract/provenance corrections.
+
+No schema changes.
+No new scheduler.
+No additional recurring query.
+No additional persistent connection.
+
+Run only:
+
+* targeted system-mode tests;
+* targeted canary-provenance tests;
+* targeted scanner-data-contract tests;
+* affected-package TypeScript checks;
+* API-server production build;
+* scanner production build only if scanner source changed;
+* git diff –check;
+* secret scan;
+* authenticated-route guard test;
+* four-lock scan.
+
+REMEDIATION RESTRICTION
+
+Do not implement any of these yet:
+
+* dedicated persistent pg.Client;
+* double-SELECT warm-up;
+* increased idle timeout;
+* shorter tick interval;
+* pool minimum connection;
+* keepalive scheduler;
+* altered DEGRADED threshold.
+
+Instrumentation evidence must determine the remediation.
+
+REQUIRED RESPONSE
+
+Return only:
+
+1. changed files;
+2. measurement contract;
+3. route authentication proof;
+4. targeted test results;
+5. build results;
+6. cumulative runtime diff;
+7. four safety-lock values;
+8. exact recurring DB-query count before and after;
+9. secret-exposure scan;
+10. final verdict.
+
+Allowed verdicts:
+
+DB_HEALTH_INSTRUMENTATION_PREDEPLOY_VERIFIED — OWNER_DEPLOYMENT_AUTHORIZATION_REQUIRED
+
+or
+
+DB_HEALTH_INSTRUMENTATION_BLOCKED — 
+
+Do not deploy during this task.
