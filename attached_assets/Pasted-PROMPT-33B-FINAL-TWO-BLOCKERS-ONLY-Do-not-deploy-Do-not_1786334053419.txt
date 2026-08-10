@@ -1,0 +1,143 @@
+PROMPT 33B — FINAL TWO BLOCKERS ONLY
+
+Do not deploy.
+Do not change safety locks.
+Do not change DB thresholds.
+Do not run full test suites.
+Do not substitute development evidence for production evidence.
+
+BLOCKER 1 — CORRECT CANARY SEMANTICS
+
+The new contract incorrectly returns:
+
+CANARY_PASS
+
+when the NSE reference is loaded and both authorization locks are true.
+
+Authorization does not prove a successful canary.
+
+Replace the future state with:
+
+CANARY_AUTHORIZED_AWAITING_RUNTIME_VALIDATION
+
+or another equally explicit non-success state.
+
+`CANARY_PASS` may be returned only from durable runtime evidence proving the defined canary acceptance criteria were actually completed.
+
+Required states:
+
+* reference unavailable → CANARY_BLOCKED_REFERENCE_NOT_LOADED
+* warehouse locked → CANARY_BLOCKED_WAREHOUSE_POPULATION_LOCKED
+* evaluation locked → CANARY_BLOCKED_EVALUATION_LOCKED
+* prerequisites authorized but no completed runtime evidence → CANARY_AUTHORIZED_AWAITING_RUNTIME_VALIDATION
+* completed runtime canary failed → CANARY_FAILED
+* completed runtime canary passed → CANARY_PASS
+
+If no durable canary-result source currently exists, do not expose FAILED or PASS yet. Keep the highest possible state as AWAITING_RUNTIME_VALIDATION.
+
+Add targeted tests proving that lock values alone can never produce CANARY_PASS.
+
+BLOCKER 2 — PRODUCTION DB LATENCY PROOF
+
+The previous evidence is invalid for root-cause closure because:
+
+* the production authenticated session expired;
+* measurements were taken from the development environment;
+* the claim that development uses the same PostgreSQL as production was not proven;
+* ten back-to-back SELECT 1 calls do not reproduce a ten-second health-check cadence.
+
+First prove environment identity without exposing secrets.
+
+Return for development and production:
+
+* environment label;
+* current_database();
+* a one-way SHA-256 fingerprint of the normalized database host and database name;
+* deployment/process identifier.
+
+Never print the host, connection string, username or password.
+
+If fingerprints differ, explicitly withdraw the claim that development measurements represent production.
+
+Then collect evidence from the actual production process.
+
+Use 12 health-check samples at the real scheduler cadence. Each sample must include:
+
+* timestamp;
+* health snapshot checkedAt;
+* snapshot age;
+* total measured DB latency;
+* connection acquisition time;
+* query execution time;
+* pool totalCount;
+* pool idleCount;
+* pool waitingCount;
+* PostgreSQL backend PID or another non-secret connection identity;
+* systemMode;
+* driver/reason.
+
+Acceptance of the claimed idle-eviction root cause requires all of the following:
+
+1. Samples are from production.
+2. Samples are separated by the real scheduler interval—not back-to-back.
+3. PostgreSQL backend identity changes between slow ticks.
+4. Connection acquisition dominates the slow duration.
+5. Query execution remains fast after acquisition.
+6. Pool idle/waiting metrics support the conclusion.
+7. No alternative slow SQL or pool-exhaustion explanation remains.
+
+If production instrumentation cannot provide these fields, report:
+
+DB_LATENCY_ROOT_CAUSE_UNPROVEN — PRODUCTION INSTRUMENTATION REQUIRED
+
+Do not claim a platform limitation from comments or development measurements.
+
+Also measure three real production business paths during the same window:
+
+* `/api/scan/full-nse/status`
+* F&O environment/diagnostics
+* Swing environment/diagnostics
+
+Return request wall time, systemMode and the health snapshot timestamp used by each. Prove they consume the same health state.
+
+If market hours are currently open, collect this evidence now. Otherwise state the exact next NSE session.
+
+NO FIX YET
+
+Do not modify pool timeout, health interval, thresholds, connection minimums or keepalive behaviour during this task.
+
+After proving the cause, return at most three remediation options with:
+
+* expected effect;
+* DB query volume;
+* autoscale/cost impact;
+* connection-reaper risk;
+* operational risk;
+* recommended option.
+
+FINAL CHECK
+
+Return:
+
+1. canary semantic correction;
+2. targeted canary tests;
+3. dev/production DB fingerprint comparison;
+4. 12 production cadence samples;
+5. business-path consistency samples;
+6. proven root cause or UNPROVEN;
+7. three bounded remediation options;
+8. current HEAD and cumulative runtime diff from c8fd8897;
+9. four safety-lock values;
+10. final verdict.
+
+Allowed verdicts:
+
+PRE_REPUBLISH_VERIFIED — OWNER_DEPLOYMENT_AUTHORIZATION_REQUIRED
+
+or
+
+PRE_REPUBLISH_BLOCKED — DB_LATENCY_ROOT_CAUSE_UNPROVEN
+
+or
+
+PRE_REPUBLISH_BLOCKED — BLOCKED_DB_LATENCY_P1
