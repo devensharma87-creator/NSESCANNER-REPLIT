@@ -360,7 +360,25 @@ export type CanaryStatus =
   | "CANARY_BLOCKED_WAREHOUSE_POPULATION_LOCKED"
   /** Reference integrated, warehouse ok, but SCANNER_KITE_CANDLE_EVALUATION_AUTHORIZED=false. */
   | "CANARY_BLOCKED_EVALUATION_LOCKED"
-  /** All gates cleared — canary may proceed. (Future state; requires owner authorization.) */
+  /**
+   * All compile-time prerequisites authorized, but no durable runtime canary evidence exists.
+   * Authorization alone does NOT prove a successful canary — the runtime validation
+   * process must complete and its result must be persisted before CANARY_PASS can be emitted.
+   * This is the maximum state producible by `buildClassifierProvenance` without runtime evidence.
+   */
+  | "CANARY_AUTHORIZED_AWAITING_RUNTIME_VALIDATION"
+  /**
+   * Durable runtime canary evidence proves the canary completed and FAILED acceptance criteria.
+   * NOT producible by `buildClassifierProvenance` in the current implementation —
+   * requires a persisted canary-result source.
+   */
+  | "CANARY_FAILED"
+  /**
+   * Durable runtime canary evidence proves the canary completed and PASSED acceptance criteria.
+   * NOT producible by `buildClassifierProvenance` in the current implementation —
+   * requires a persisted canary-result source. Authorization locks being true is
+   * a necessary but NOT sufficient condition for this state.
+   */
   | "CANARY_PASS";
 
 export interface ClassifierProvenance {
@@ -381,11 +399,16 @@ export interface ClassifierProvenance {
   /** Compile-time Lock E: whether candle evaluation is authorised. */
   evaluationStatus: EvaluationLockStatus;
   /**
-   * Most-specific canary gate blocker in priority order:
-   *   1. REFERENCE_NOT_LOADED   — primary prerequisite; must be resolved first.
-   *   2. WAREHOUSE_LOCKED       — reference present; owner must authorise warehouse population.
-   *   3. EVALUATION_LOCKED      — warehouse ok; owner must authorise candle evaluation.
-   *   4. CANARY_PASS            — all gates cleared (future state).
+   * Most-specific canary gate state in priority order:
+   *   1. CANARY_BLOCKED_REFERENCE_NOT_LOADED               — primary prerequisite.
+   *   2. CANARY_BLOCKED_WAREHOUSE_POPULATION_LOCKED        — reference present; warehouse locked.
+   *   3. CANARY_BLOCKED_EVALUATION_LOCKED                  — warehouse ok; evaluation locked.
+   *   4. CANARY_AUTHORIZED_AWAITING_RUNTIME_VALIDATION     — all locks authorized; runtime evidence required.
+   *   5. CANARY_FAILED / CANARY_PASS                       — durable runtime evidence only; not emitted here.
+   *
+   * IMPORTANT: compile-time lock values (both true) are a NECESSARY but NOT SUFFICIENT condition
+   * for CANARY_PASS. CANARY_PASS requires durable persisted runtime evidence of completed canary validation.
+   * `buildClassifierProvenance` can never produce CANARY_PASS or CANARY_FAILED.
    * Never claims reference is "required" if it is already integrated.
    */
   canaryStatus: CanaryStatus;
@@ -457,13 +480,16 @@ export function buildClassifierProvenance(
   const evaluationStatus: EvaluationLockStatus =
     locks.evaluationAuthorized ? "AUTHORIZED" : "LOCKED";
 
+  // Authorization locks being true is NECESSARY but NOT SUFFICIENT for CANARY_PASS.
+  // CANARY_PASS and CANARY_FAILED require durable runtime evidence — this function
+  // never produces them. The highest producible state is AWAITING_RUNTIME_VALIDATION.
   const canaryStatus: CanaryStatus = !nseRefMeta.loaded
     ? "CANARY_BLOCKED_REFERENCE_NOT_LOADED"
     : !locks.warehousePopulationAuthorized
       ? "CANARY_BLOCKED_WAREHOUSE_POPULATION_LOCKED"
       : !locks.evaluationAuthorized
         ? "CANARY_BLOCKED_EVALUATION_LOCKED"
-        : "CANARY_PASS";
+        : "CANARY_AUTHORIZED_AWAITING_RUNTIME_VALIDATION";
 
   if (!nseRefMeta.loaded) {
     return {

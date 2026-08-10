@@ -56,12 +56,15 @@ describe("I1+I2: integrated reference (loaded=true) never claims reference is no
     expect(p.authoritativeNseReferenceIntegrated).toBe(true);
   });
 
-  it("loaded + both authorized → canaryStatus=CANARY_PASS, nseReferenceStatus=LOADED_AND_INTEGRATED", () => {
+  it("loaded + both authorized → CANARY_AUTHORIZED_AWAITING_RUNTIME_VALIDATION (never CANARY_PASS from locks alone)", () => {
     const p = buildClassifierProvenance(LOADED_META, {
       warehousePopulationAuthorized: true,
       evaluationAuthorized: true,
     });
-    expect(p.canaryStatus).toBe("CANARY_PASS");
+    // Authorization is NECESSARY but NOT SUFFICIENT for CANARY_PASS.
+    // Runtime evidence of a completed canary is required; locks alone cannot produce CANARY_PASS.
+    expect(p.canaryStatus).toBe("CANARY_AUTHORIZED_AWAITING_RUNTIME_VALIDATION");
+    expect(p.canaryStatus).not.toBe("CANARY_PASS");
     expect(p.nseReferenceStatus).toBe("LOADED_AND_INTEGRATED");
     expect(p.authoritativeNseReferenceIntegrated).toBe(true);
   });
@@ -94,12 +97,13 @@ describe("I3: canaryStatus reflects the most specific remaining blocker", () => 
     expect(p.canaryStatus).toBe("CANARY_BLOCKED_EVALUATION_LOCKED");
   });
 
-  it("loaded + both authorized → CANARY_PASS", () => {
+  it("loaded + both authorized → CANARY_AUTHORIZED_AWAITING_RUNTIME_VALIDATION (not CANARY_PASS)", () => {
     const p = buildClassifierProvenance(LOADED_META, {
       warehousePopulationAuthorized: true,
       evaluationAuthorized: true,
     });
-    expect(p.canaryStatus).toBe("CANARY_PASS");
+    expect(p.canaryStatus).toBe("CANARY_AUTHORIZED_AWAITING_RUNTIME_VALIDATION");
+    expect(p.canaryStatus).not.toBe("CANARY_PASS");
   });
 });
 
@@ -186,5 +190,47 @@ describe("Production-state contract: reference integrated, both locks locked", (
     expect(p.nseReferenceSource?.snapshotDate).toBe("2026-08-10");
     // Must NOT claim reference is still required
     expect(p.canaryStatus).not.toBe("CANARY_BLOCKED_REFERENCE_NOT_LOADED");
+  });
+});
+
+// ── CRITICAL: lock values alone can NEVER produce CANARY_PASS or CANARY_FAILED ──
+
+describe("Authorization locks alone can never produce CANARY_PASS or CANARY_FAILED", () => {
+  const allCombinations = [
+    { loaded: false, warehousePopulationAuthorized: false, evaluationAuthorized: false },
+    { loaded: false, warehousePopulationAuthorized: true,  evaluationAuthorized: false },
+    { loaded: false, warehousePopulationAuthorized: false, evaluationAuthorized: true  },
+    { loaded: false, warehousePopulationAuthorized: true,  evaluationAuthorized: true  },
+    { loaded: true,  warehousePopulationAuthorized: false, evaluationAuthorized: false },
+    { loaded: true,  warehousePopulationAuthorized: true,  evaluationAuthorized: false },
+    { loaded: true,  warehousePopulationAuthorized: false, evaluationAuthorized: true  },
+    { loaded: true,  warehousePopulationAuthorized: true,  evaluationAuthorized: true  },
+  ];
+
+  for (const { loaded, warehousePopulationAuthorized, evaluationAuthorized } of allCombinations) {
+    const label = `loaded=${loaded} W=${warehousePopulationAuthorized} E=${evaluationAuthorized}`;
+
+    it(`${label} → canaryStatus is not CANARY_PASS`, () => {
+      const meta = loaded ? LOADED_META : NOT_LOADED_META;
+      const p = buildClassifierProvenance(meta, { warehousePopulationAuthorized, evaluationAuthorized });
+      expect(p.canaryStatus).not.toBe("CANARY_PASS");
+    });
+
+    it(`${label} → canaryStatus is not CANARY_FAILED`, () => {
+      const meta = loaded ? LOADED_META : NOT_LOADED_META;
+      const p = buildClassifierProvenance(meta, { warehousePopulationAuthorized, evaluationAuthorized });
+      expect(p.canaryStatus).not.toBe("CANARY_FAILED");
+    });
+  }
+
+  it("CANARY_AUTHORIZED_AWAITING_RUNTIME_VALIDATION is the maximum state producible by buildClassifierProvenance", () => {
+    // With all prerequisites satisfied (reference integrated, both locks authorized),
+    // the function produces AWAITING_RUNTIME_VALIDATION — not PASS.
+    // CANARY_PASS requires durable runtime evidence from a completed canary validation.
+    const p = buildClassifierProvenance(LOADED_META, {
+      warehousePopulationAuthorized: true,
+      evaluationAuthorized: true,
+    });
+    expect(p.canaryStatus).toBe("CANARY_AUTHORIZED_AWAITING_RUNTIME_VALIDATION");
   });
 });
