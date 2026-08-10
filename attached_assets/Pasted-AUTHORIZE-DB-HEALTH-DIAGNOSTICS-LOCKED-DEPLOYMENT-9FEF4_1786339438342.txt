@@ -1,0 +1,166 @@
+AUTHORIZE_DB_HEALTH_DIAGNOSTICS_LOCKED_DEPLOYMENT_9FEF473
+
+Deploy commit:
+
+9fef473451ede42e6045ac87f9a270f6b49d52d5
+
+This authorization is limited to the audited cumulative runtime diff from c8fd8897 to 9fef473.
+
+Do not modify code before publishing.
+Do not activate any safety lock.
+Do not change DB configuration or thresholds.
+Do not activate evaluation, warehouse population, V2, paper automation or broker execution.
+
+POST-DEPLOY VERIFICATION
+
+1. DEPLOYMENT IDENTITY
+
+Verify:
+
+* production URL: https://marketscannerbydev.in
+* `/api/build-info` commit exactly equals `9fef473`
+* production boot completes without migration, schema or route errors.
+
+If the deployed commit differs, stop with:
+
+BLOCKED_DEPLOYMENT_COMMIT_MISMATCH
+
+2. ROUTE REGRESSION CHECK
+
+Verify the existing safe route:
+
+GET /api/system/mode
+
+Required:
+
+* existing authorized consumer still receives 200;
+* existing response fields remain present;
+* no `dbDiagnostics`;
+* no `dbInstanceFingerprint`;
+* no backend PID;
+* no pool counters;
+* Home/Infra consumers show no 401/403 regression.
+
+Verify the new route:
+
+GET /api/system/mode/diagnostics
+
+Required:
+
+* anonymous request rejected;
+* non-owner request rejected;
+* owner request succeeds;
+* no database query is executed by the request;
+* response uses the cached background measurement.
+
+3. PRODUCTION DB EVIDENCE
+
+Collect at least 12 valid samples at the real 10-second scheduler cadence.
+
+All 12 samples must belong to the same:
+
+* runtimeBootId;
+* runtimeProcessId.
+
+If either value changes, discard the cross-instance sequence and begin a new same-instance sequence.
+
+For each sample return:
+
+* timestamp;
+* runtimeBootId;
+* runtimeProcessId;
+* checkedAt;
+* snapshot age;
+* dbTotalMs;
+* dbAcquireMs;
+* dbQueryMs;
+* poolTotalCountBefore;
+* poolIdleCountBefore;
+* poolWaitingCountBefore;
+* poolTotalCountAfter;
+* poolIdleCountAfter;
+* poolWaitingCountAfter;
+* backendPid;
+* backendPidChanged;
+* dbMeasurementStatus;
+* systemMode;
+* driver.
+
+4. ROOT-CAUSE DECISION
+
+Classify from production evidence only.
+
+IDLE_EVICTION_CONFIRMED requires:
+
+* slow total time dominated by acquireMs;
+* queryMs remains low;
+* backend PID changes on slow ticks;
+* pool idle count is zero before acquisition;
+* pool waiting count does not indicate exhaustion.
+
+POOL_EXHAUSTION_CONFIRMED requires:
+
+* waitingCount greater than zero;
+* acquisition delay dominates;
+* pool total count is at configured limit.
+
+SLOW_SQL_CONFIRMED requires:
+
+* queryMs, not acquireMs, dominates.
+
+If evidence does not satisfy one classification, return:
+
+DB_LATENCY_ROOT_CAUSE_UNRESOLVED
+
+Do not implement a remediation during this verification.
+
+5. SAFETY
+
+Reconfirm:
+
+FULL_NSE_WAREHOUSE_POPULATION_AUTHORIZED=false
+SCANNER_KITE_CANDLE_EVALUATION_AUTHORIZED=false
+FNO_PAPER_V2_RUNTIME_AUTHORIZED=false
+SWING_PAPER_V2_RUNTIME_AUTHORIZED=false
+
+Also verify:
+
+* no warehouse scheduler;
+* no evaluated scanner rows;
+* no score or confidence;
+* no actionable recommendation;
+* no paper position opened;
+* no broker order submitted.
+
+6. QUERY LOAD
+
+Confirm production logs/metrics show:
+
+* exactly one DB health query per 10-second tick;
+* zero DB queries from diagnostics-route requests;
+* no new scheduler;
+* no persistent diagnostic connection.
+
+7. FINAL RESPONSE
+
+Return only:
+
+* deployed commit;
+* boot status;
+* route regression results;
+* 12-sample production table;
+* root-cause verdict;
+* query-load confirmation;
+* four lock values;
+* remaining blocker;
+* final verdict.
+
+Allowed verdicts:
+
+DB_HEALTH_PRODUCTION_EVIDENCE_VERIFIED — ROOT_CAUSE_CONFIRMED
+
+or
+
+DB_HEALTH_PRODUCTION_EVIDENCE_BLOCKED — <exact reason>
+
+Do not begin Pack 33C during this task. After this DB-health task is closed, the next priority is Pack 33C Production Data Availability Closure.
