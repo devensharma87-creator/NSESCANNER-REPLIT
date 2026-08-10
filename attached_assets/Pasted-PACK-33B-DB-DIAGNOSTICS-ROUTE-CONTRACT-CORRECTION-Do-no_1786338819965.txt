@@ -1,0 +1,186 @@
+PACK 33B — DB DIAGNOSTICS ROUTE CONTRACT CORRECTION
+
+Do not deploy.
+Do not change the DB measurement implementation.
+Do not change pool configuration, thresholds, scheduler cadence, signal logic or safety locks.
+Do not run full test suites.
+
+PROBLEM
+
+Commit 8e54d76 changed:
+
+GET /system/mode
+
+from `requireOwner` to `requireOwnerStrict`.
+
+This was not authorized. The instruction required stopping if the existing route was not owner-strict—not changing an existing route contract that may be consumed by Home, F&O, Swing or subscriber/public-access sessions.
+
+TASK 1 — PRESERVE EXISTING SYSTEM-MODE CONTRACT
+
+Restore the existing authentication and response contract for:
+
+GET /system/mode
+
+It must continue returning only the existing safe operational fields required by current consumers.
+
+It must not return:
+
+* database fingerprint;
+* backend PID;
+* pool counters;
+* acquisition/query timing;
+* raw DB diagnostics.
+
+Do not break existing anonymous, public-access, subscriber or authenticated consumers.
+
+TASK 2 — ADD OWNER-STRICT DIAGNOSTIC SURFACE
+
+Add a separate read-only route:
+
+GET /system/mode/diagnostics
+
+Requirements:
+
+* `requireOwnerStrict`;
+* returns the existing cached system-mode snapshot plus `dbDiagnostics`;
+* returns `dbInstanceFingerprint`;
+* performs zero DB queries in the request path;
+* registers no scheduler;
+* invokes no mutation;
+* returns no raw host, port, database name, username, password, DATABASE_URL or connection string.
+
+The route must read only the latest cached measurement produced by the existing system-mode tick.
+
+TASK 3 — AUTOSCALE INSTANCE CORRELATION
+
+Add these non-secret diagnostic fields:
+
+* `runtimeProcessId`;
+* `runtimeBootId`;
+* `runtimeStartedAt`;
+* `deploymentCommit`, if already safely available.
+
+Generate `runtimeBootId` once at process boot. Do not regenerate it per request or per health tick.
+
+Backend-PID comparison is valid only within the same:
+
+* runtimeBootId;
+* runtimeProcessId.
+
+If the runtime instance changes, return:
+
+* `backendPidChanged: null`;
+* `comparisonResetReason: "RUNTIME_INSTANCE_CHANGED"`.
+
+Do not compare PostgreSQL backend PIDs across different autoscale processes.
+
+TASK 4 — CALLER AUDIT
+
+Search every caller of:
+
+* `/api/system/mode`;
+* `/system/mode`;
+* `getSystemModeSnapshot`;
+* `getCachedSystemMode`.
+
+Return a caller table containing:
+
+* file;
+* consumer;
+* expected authentication;
+* fields consumed;
+* whether the corrected route contract remains compatible.
+
+Explicitly verify:
+
+* Home;
+* layout/global banner;
+* F&O;
+* Swing;
+* Admin/Infra;
+* scanner frontend;
+* server-side schedulers.
+
+No existing consumer may be redirected to the owner-only diagnostics route.
+
+TASK 5 — TARGETED TESTS
+
+Add tests proving:
+
+1. Existing `/system/mode` route retains its original middleware.
+2. Existing route does not expose `dbDiagnostics`.
+3. Existing route does not expose `dbInstanceFingerprint`.
+4. Existing route does not expose backend PID or pool counters.
+5. `/system/mode/diagnostics` uses `requireOwnerStrict`.
+6. Anonymous request to diagnostics is rejected.
+7. Subscriber/non-owner request to diagnostics is rejected.
+8. Owner request succeeds.
+9. Diagnostics request performs zero DB queries.
+10. Diagnostics request performs zero pool acquisitions.
+11. Diagnostics returns the cached tick unchanged.
+12. runtimeBootId is stable across requests.
+13. different runtimeBootId resets backend comparison.
+14. raw database identity and secrets are absent.
+15. recurring DB-query count remains exactly one query per system-mode tick.
+
+Use runtime route/function tests, not source regex alone.
+
+TASK 6 — FINAL DIFF
+
+Return:
+
+git rev-parse HEAD
+
+git diff --name-status c8fd8897..HEAD -- 
+artifacts/api-server 
+artifacts/scanner 
+lib
+
+Confirm:
+
+* no schema change;
+* no scanner-source change;
+* no signal/F&O/Swing/broker change;
+* no pool-setting change;
+* no threshold change;
+* no additional scheduler;
+* no additional recurring DB query;
+* all four locks remain false.
+
+Run only:
+
+* DB measurement tests;
+* route-auth/response tests;
+* canary-provenance tests;
+* scanner-data-contract tests;
+* API-server TypeScript check;
+* API-server production build;
+* git diff --check;
+* secret scan;
+* four-lock scan.
+
+FINAL RESPONSE
+
+Return only:
+
+1. changed files;
+2. restored `/system/mode` contract;
+3. new owner-only diagnostics contract;
+4. caller audit;
+5. autoscale-instance correlation behaviour;
+6. targeted tests;
+7. build result;
+8. cumulative diff;
+9. recurring query count;
+10. safety-lock values;
+11. final verdict.
+
+Allowed verdicts:
+
+DB_HEALTH_DIAGNOSTICS_PREDEPLOY_VERIFIED — OWNER_DEPLOYMENT_AUTHORIZATION_REQUIRED
+
+or
+
+DB_HEALTH_DIAGNOSTICS_BLOCKED — <exact reason>
+
+Do not deploy during this task.
