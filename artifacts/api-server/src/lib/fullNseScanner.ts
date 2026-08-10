@@ -73,7 +73,7 @@ import { loadBlob, saveBlob } from "./diskCache";
 import { centralKiteNseEqInstruments, centralBatchEquityQuotes, type KiteScannerQuote } from "./marketData/compat";
 import { classifyInstrument, WAREHOUSE_EXCLUDED_CLASSES } from "./kiteCandle/instrumentEligibility";
 import { getNseSecurityMaster, getNseSecurityMasterMap, getNseSecurityMasterMeta } from "./nseSecurityMaster";
-import { SCANNER_KITE_CANDLE_EVALUATION_AUTHORIZED } from "./candleEvaluationControl";
+import { FULL_NSE_WAREHOUSE_POPULATION_AUTHORIZED, SCANNER_KITE_CANDLE_EVALUATION_AUTHORIZED } from "./candleEvaluationControl";
 import { computeScannerGrade } from "./scannerDataContract";
 import { buildAllSwingSignals } from "./swingSignals";
 import { runEquityPaperTradingTick } from "./paperTradingEq";
@@ -318,6 +318,51 @@ export interface ScanCountReconciliation {
  * Until it is, the classifier uses Kite master presence + trading symbol suffix patterns.
  * This is supporting evidence only — not a definitive source of eligibility truth.
  */
+/**
+ * Five-dimension provenance contract — each dimension is independent.
+ *
+ * 1. nseReferenceStatus   — Has the authoritative EQUITY_L.csv been loaded and joined?
+ * 2. warehousePopulationStatus — Compile-time Lock W: FULL_NSE_WAREHOUSE_POPULATION_AUTHORIZED
+ * 3. evaluationStatus     — Compile-time Lock E: SCANNER_KITE_CANDLE_EVALUATION_AUTHORIZED
+ * 4. canaryStatus         — Most-specific remaining gate blocker (never "required" if already integrated)
+ * 5. authoritativeNseReferenceIntegrated — Boolean summary of dimension 1
+ *
+ * These dimensions MUST NOT be collapsed into a single field. In particular:
+ *   • canaryStatus="CANARY_BLOCKED_REFERENCE_NOT_LOADED" only when reference is truly absent.
+ *   • canaryStatus must not claim reference is "required" if it is already integrated.
+ *   • warehousePopulationStatus and evaluationStatus reflect only their respective compile locks.
+ */
+
+export type NseReferenceStatus =
+  /** EQUITY_L.csv not yet loaded; provisional Kite+suffix classifier is active. */
+  | "NOT_LOADED"
+  /** EQUITY_L.csv loaded and joined; series=EQ → ORDINARY_COMPANY_EQUITY_ELIGIBLE. */
+  | "LOADED_AND_INTEGRATED"
+  /** EQUITY_L.csv loaded but exceeded max-age governance; cannot authorize a new universe generation. */
+  | "STALE_CANNOT_AUTHORIZE";
+
+export type WarehousePopulationStatus =
+  /** FULL_NSE_WAREHOUSE_POPULATION_AUTHORIZED=false. Warehouse scheduler is not registered. */
+  | "LOCKED"
+  /** FULL_NSE_WAREHOUSE_POPULATION_AUTHORIZED=true. Population may start when other conditions are met. */
+  | "AUTHORIZED";
+
+export type EvaluationLockStatus =
+  /** SCANNER_KITE_CANDLE_EVALUATION_AUTHORIZED=false. Phase A: store populates, rows NOT_EVALUATED. */
+  | "LOCKED"
+  /** SCANNER_KITE_CANDLE_EVALUATION_AUTHORIZED=true. Phase B: evaluated recommendations enabled. */
+  | "AUTHORIZED";
+
+export type CanaryStatus =
+  /** NSE reference not yet loaded — this is the primary gate before any other step can proceed. */
+  | "CANARY_BLOCKED_REFERENCE_NOT_LOADED"
+  /** Reference is integrated but FULL_NSE_WAREHOUSE_POPULATION_AUTHORIZED=false blocks the canary. */
+  | "CANARY_BLOCKED_WAREHOUSE_POPULATION_LOCKED"
+  /** Reference integrated, warehouse ok, but SCANNER_KITE_CANDLE_EVALUATION_AUTHORIZED=false. */
+  | "CANARY_BLOCKED_EVALUATION_LOCKED"
+  /** All gates cleared — canary may proceed. (Future state; requires owner authorization.) */
+  | "CANARY_PASS";
+
 export interface ClassifierProvenance {
   /**
    * Current classifier type.
@@ -327,13 +372,24 @@ export interface ClassifierProvenance {
   type: "PROVISIONAL_KITE_MASTER_PLUS_SUFFIX" | "NSE_EQUITY_L_REFERENCE_JOINED";
   /** Machine-readable status that must appear in any automation/logging checks. */
   status: "ELIGIBILITY_CLASSIFIER_PROVISIONAL" | "ELIGIBILITY_CLASSIFIER_AUTHORITATIVE_NSE_REFERENCE";
+
+  // ── Five independent dimensions ─────────────────────────────────────────────
+  /** Availability and integration state of the NSE EQUITY_L.csv security reference. */
+  nseReferenceStatus: NseReferenceStatus;
+  /** Compile-time Lock W: whether warehouse population is authorised. */
+  warehousePopulationStatus: WarehousePopulationStatus;
+  /** Compile-time Lock E: whether candle evaluation is authorised. */
+  evaluationStatus: EvaluationLockStatus;
   /**
-   * CANARY_BLOCKED_AUTHORITATIVE_NSE_SECURITY_REFERENCE_REQUIRED: warehouse canary is blocked
-   * because the classifier is provisional. An authoritative NSE security reference (ISIN,
-   * series, security type, active/delisted status) must be integrated before canary can proceed.
-   * The approximate Kite-master+suffix universe is NOT acceptable as a final equity reference.
+   * Most-specific canary gate blocker in priority order:
+   *   1. REFERENCE_NOT_LOADED   — primary prerequisite; must be resolved first.
+   *   2. WAREHOUSE_LOCKED       — reference present; owner must authorise warehouse population.
+   *   3. EVALUATION_LOCKED      — warehouse ok; owner must authorise candle evaluation.
+   *   4. CANARY_PASS            — all gates cleared (future state).
+   * Never claims reference is "required" if it is already integrated.
    */
-  canaryStatus: "CANARY_BLOCKED_AUTHORITATIVE_NSE_SECURITY_REFERENCE_REQUIRED";
+  canaryStatus: CanaryStatus;
+
   /**
    * Has an authoritative NSE security reference (ISIN/series/type/status) been joined?
    * - false: NSE EQUITY_L.csv was unavailable; instruments are KITE_NSE_EQ_LIKE_PROVISIONAL.
@@ -364,21 +420,7 @@ export interface ClassifierProvenance {
   };
 }
 
-export const CLASSIFIER_PROVENANCE: ClassifierProvenance = {
-  type: "PROVISIONAL_KITE_MASTER_PLUS_SUFFIX",
-  status: "ELIGIBILITY_CLASSIFIER_PROVISIONAL",
-  canaryStatus: "CANARY_BLOCKED_AUTHORITATIVE_NSE_SECURITY_REFERENCE_REQUIRED",
-  authoritativeNseReferenceIntegrated: false,
-  authoritativeReferenceDate: null,
-  unresolvedHandling: "EXCLUDED_DISCLOSED",
-  reason:
-    "NSE EQUITY_L.csv reference not yet loaded. Classifier uses Kite master list presence " +
-    "(inCurrentMaster=true) and trading symbol suffix patterns as provisional evidence. " +
-    "Instruments classified as KITE_NSE_EQ_LIKE_PROVISIONAL cannot drive breadth, signals, " +
-    "or trade actions. Reference will be joined on next scan cycle once EQUITY_L.csv loads.",
-};
-
-interface NseRefMeta {
+export interface NseRefMeta {
   loaded: boolean;
   totalRecords: number | null;
   seriesCounts: Record<string, number> | null;
@@ -388,18 +430,67 @@ interface NseRefMeta {
   fetchedAt: string | null;
 }
 
+export interface ProviderLockState {
+  warehousePopulationAuthorized: boolean;
+  evaluationAuthorized: boolean;
+}
+
 /**
- * Build a dynamic ClassifierProvenance object reflecting the NSE master state at scan time.
- * Called once per scan generation so provenance is accurate to that generation's data.
+ * Build a ClassifierProvenance object reflecting both the NSE reference state
+ * and the current compile-time lock states.
+ *
+ * The five dimensions are computed independently — canaryStatus reflects the
+ * most-specific remaining blocker and never claims reference is "required"
+ * when it is already integrated.
  */
-export function buildClassifierProvenance(nseRefMeta: NseRefMeta): ClassifierProvenance {
+export function buildClassifierProvenance(
+  nseRefMeta: NseRefMeta,
+  locks: ProviderLockState,
+): ClassifierProvenance {
+  const nseReferenceStatus: NseReferenceStatus = nseRefMeta.loaded
+    ? "LOADED_AND_INTEGRATED"
+    : "NOT_LOADED";
+
+  const warehousePopulationStatus: WarehousePopulationStatus =
+    locks.warehousePopulationAuthorized ? "AUTHORIZED" : "LOCKED";
+
+  const evaluationStatus: EvaluationLockStatus =
+    locks.evaluationAuthorized ? "AUTHORIZED" : "LOCKED";
+
+  const canaryStatus: CanaryStatus = !nseRefMeta.loaded
+    ? "CANARY_BLOCKED_REFERENCE_NOT_LOADED"
+    : !locks.warehousePopulationAuthorized
+      ? "CANARY_BLOCKED_WAREHOUSE_POPULATION_LOCKED"
+      : !locks.evaluationAuthorized
+        ? "CANARY_BLOCKED_EVALUATION_LOCKED"
+        : "CANARY_PASS";
+
   if (!nseRefMeta.loaded) {
-    return CLASSIFIER_PROVENANCE; // static provisional
+    return {
+      type: "PROVISIONAL_KITE_MASTER_PLUS_SUFFIX",
+      status: "ELIGIBILITY_CLASSIFIER_PROVISIONAL",
+      nseReferenceStatus,
+      warehousePopulationStatus,
+      evaluationStatus,
+      canaryStatus,
+      authoritativeNseReferenceIntegrated: false,
+      authoritativeReferenceDate: null,
+      unresolvedHandling: "EXCLUDED_DISCLOSED",
+      reason:
+        "NSE EQUITY_L.csv reference not yet loaded. Classifier uses Kite master list presence " +
+        "(inCurrentMaster=true) and trading symbol suffix patterns as provisional evidence. " +
+        "Instruments classified as KITE_NSE_EQ_LIKE_PROVISIONAL cannot drive breadth, signals, " +
+        `or trade actions. Canary blocked: ${canaryStatus}.`,
+    };
   }
+
   return {
     type: "NSE_EQUITY_L_REFERENCE_JOINED",
     status: "ELIGIBILITY_CLASSIFIER_AUTHORITATIVE_NSE_REFERENCE",
-    canaryStatus: "CANARY_BLOCKED_AUTHORITATIVE_NSE_SECURITY_REFERENCE_REQUIRED",
+    nseReferenceStatus,
+    warehousePopulationStatus,
+    evaluationStatus,
+    canaryStatus,
     authoritativeNseReferenceIntegrated: true,
     authoritativeReferenceDate: nseRefMeta.snapshotDate,
     unresolvedHandling: "EXCLUDED_DISCLOSED",
@@ -408,8 +499,7 @@ export function buildClassifierProvenance(nseRefMeta: NseRefMeta): ClassifierPro
       `hash: ${nseRefMeta.sourceHash}, records: ${nseRefMeta.totalRecords}). ` +
       `Instruments with series=EQ → ORDINARY_COMPANY_EQUITY_ELIGIBLE (eligible for signals). ` +
       `Instruments absent from reference → UNRESOLVED_SECURITY_TYPE (excluded). ` +
-      `Canary still blocked: CANARY_BLOCKED_AUTHORITATIVE_NSE_SECURITY_REFERENCE_REQUIRED ` +
-      `(warehouse population gates not yet authorized).`,
+      `Canary blocked: ${canaryStatus}.`,
     nseReferenceSource: {
       sourceFile: "EQUITY_L.csv",
       sourceUrl: nseRefMeta.sourceUrl,
@@ -422,22 +512,32 @@ export function buildClassifierProvenance(nseRefMeta: NseRefMeta): ClassifierPro
 }
 
 /**
- * Returns the current ClassifierProvenance reflecting the live NSE reference state.
- * Callers (e.g. the scanner route) should use this rather than the static
- * CLASSIFIER_PROVENANCE constant, which is always provisional and does not update
- * when the authoritative NSE EQUITY_L.csv reference has been loaded.
+ * Returns the current ClassifierProvenance reflecting the live NSE reference state
+ * AND the current compile-time lock values.
+ *
+ * All five dimensions are computed independently:
+ *   • nseReferenceStatus / authoritativeNseReferenceIntegrated — from EQUITY_L.csv cache
+ *   • warehousePopulationStatus — from FULL_NSE_WAREHOUSE_POPULATION_AUTHORIZED
+ *   • evaluationStatus — from SCANNER_KITE_CANDLE_EVALUATION_AUTHORIZED
+ *   • canaryStatus — derived from the above three (most-specific blocker)
  */
 export function getCurrentClassifierProvenance(): ClassifierProvenance {
   const meta = getNseSecurityMasterMeta();
-  return buildClassifierProvenance({
-    loaded: meta.loaded,
-    totalRecords: meta.totalRecords,
-    seriesCounts: meta.seriesCounts,
-    snapshotDate: meta.snapshotDate,
-    sourceHash: meta.sourceHash,
-    sourceUrl: meta.sourceUrl,
-    fetchedAt: meta.fetchedAt,
-  });
+  return buildClassifierProvenance(
+    {
+      loaded: meta.loaded,
+      totalRecords: meta.totalRecords,
+      seriesCounts: meta.seriesCounts,
+      snapshotDate: meta.snapshotDate,
+      sourceHash: meta.sourceHash,
+      sourceUrl: meta.sourceUrl,
+      fetchedAt: meta.fetchedAt,
+    },
+    {
+      warehousePopulationAuthorized: FULL_NSE_WAREHOUSE_POPULATION_AUTHORIZED,
+      evaluationAuthorized: SCANNER_KITE_CANDLE_EVALUATION_AUTHORIZED,
+    },
+  );
 }
 
 let generationCounter = 0;
