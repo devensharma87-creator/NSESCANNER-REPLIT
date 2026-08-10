@@ -1,11 +1,14 @@
 /**
  * System status routes (fix-file BUG-28 + BUG-29 + BUG-89).
  *
- *   GET  /system/mode           — owner: SystemMode snapshot + clock drift.
- *   POST /system/mode-override  — owner (strict): set/clear manual mode override.
- *   GET  /metrics               — Prometheus text exposition. Auth: `Authorization:
- *                                 Bearer $METRICS_TOKEN` (for external scrapers)
- *                                 OR an owner session cookie. Never public.
+ *   GET  /system/mode             — requireOwner: safe operational snapshot (no DB diagnostics).
+ *                                   Compatible with anonymous/public-access/subscriber sessions.
+ *   GET  /system/mode/diagnostics — requireOwnerStrict: full DB measurement breakdown,
+ *                                   pool counters, backend PID, instance fingerprint.
+ *                                   Never exposed to anonymous or public-access sessions.
+ *   POST /system/mode-override    — requireOwnerStrict: set/clear manual mode override.
+ *   GET  /metrics                 — Auth: `Authorization: Bearer $METRICS_TOKEN` (for external
+ *                                   scrapers) OR an owner session cookie. Never public.
  */
 import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
 import { requireOwner, requireOwnerStrict } from "../lib/userAuth";
@@ -24,20 +27,94 @@ import { SYSTEM_MODE_RANK } from "../lib/systemModeCache";
 import { getKiteReadiness } from "../lib/kiteReadiness";
 import { buildGlobalDataHealth } from "../lib/globalDataHealth";
 import { getProviderCapabilities } from "../lib/marketData/providerCapability";
+import { getBuildInfo } from "../lib/buildInfo";
+import { RUNTIME_PROCESS_ID, RUNTIME_BOOT_ID, RUNTIME_STARTED_AT } from "../lib/runtimeIdentity";
 import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
 
-router.get("/system/mode", requireOwnerStrict, async (_req, res) => {
+/**
+ * Extract the safe, public-safe operational fields from a SystemModeSnapshot.
+ * Explicitly selected — never spread — so that future additions to
+ * SystemModeSnapshot (e.g. dbDiagnostics, dbInstanceFingerprint) cannot
+ * accidentally leak through this route.
+ */
+function safeSnapshotFields(snapshot: ReturnType<typeof getSystemModeSnapshot> & object) {
+  return {
+    derived: snapshot.derived,
+    override: snapshot.override,
+    effective: snapshot.effective,
+    drivers: snapshot.drivers,
+    dbLatencyMs: snapshot.dbLatencyMs,
+    checkedAt: snapshot.checkedAt,
+    autoOpensAllowed: snapshot.autoOpensAllowed,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// GET /system/mode — requireOwner (public-access compatible)
+// Returns safe operational fields ONLY. Never exposes DB diagnostics,
+// fingerprint, backend PID, pool counters or acquisition timing.
+// ---------------------------------------------------------------------------
+router.get("/system/mode", requireOwner, async (_req, res) => {
   const snapshot = getSystemModeSnapshot() ?? (await runSystemModeTick());
   res.json({
-    mode: snapshot,
+    mode: safeSnapshotFields(snapshot),
     clockDrift: getClockDriftSnapshot(),
     tokenStaleness: getStalenessSnapshot(),
     instrumentsIntegrity: getInstrumentsIntegrityStatus(),
     // B1.1 — Machine-readable provider capability snapshot.
     // Contains no credentials — only state names and safe reason strings.
     providerCapabilities: getProviderCapabilities(),
+  });
+});
+
+// ---------------------------------------------------------------------------
+// GET /system/mode/diagnostics — requireOwnerStrict
+// Full DB measurement breakdown. Never exposed to anonymous/public-access
+// sessions. Reads the cached tick only — zero DB queries in request path.
+// ---------------------------------------------------------------------------
+router.get("/system/mode/diagnostics", requireOwnerStrict, (_req, res) => {
+  const snapshot = getSystemModeSnapshot();
+  if (!snapshot) {
+    res.status(503).json({
+      error: "system_mode_not_yet_initialized",
+      hint: "The system-mode tick has not completed yet. Retry in a few seconds.",
+    });
+    return;
+  }
+
+  const diag = snapshot.dbDiagnostics;
+
+  // comparisonResetReason: explains why backendPidChanged is null on this response.
+  // "FIRST_MEASUREMENT"  — this process has not yet completed a second tick; no
+  //                         prior PID to compare against.
+  // null                 — a prior PID was available for comparison.
+  //
+  // Across autoscale instances: callers should compare runtimeBootId between
+  // consecutive samples. Different runtimeBootId → backend PID from the previous
+  // sample belongs to a different process; treat as if backendPidChanged = null
+  // (RUNTIME_INSTANCE_CHANGED semantics).
+  const comparisonResetReason =
+    diag?.backendPidChanged === null && diag?.dbMeasurementStatus === "ok"
+      ? "FIRST_MEASUREMENT"
+      : null;
+
+  const buildInfo = getBuildInfo();
+
+  res.json({
+    // Safe operational snapshot — same fields as /system/mode
+    systemMode: safeSnapshotFields(snapshot),
+    // Full DB measurement breakdown
+    dbDiagnostics: diag ?? null,
+    dbInstanceFingerprint: snapshot.dbInstanceFingerprint ?? null,
+    comparisonResetReason,
+    // Autoscale instance identity
+    // PID comparison is valid ONLY within the same runtimeBootId + runtimeProcessId.
+    runtimeProcessId: RUNTIME_PROCESS_ID,
+    runtimeBootId: RUNTIME_BOOT_ID,
+    runtimeStartedAt: RUNTIME_STARTED_AT,
+    deploymentCommit: buildInfo.commitShort,
   });
 });
 
