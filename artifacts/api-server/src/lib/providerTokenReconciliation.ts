@@ -40,6 +40,8 @@
  * SubscriptionPort so the policy is testable without a live socket.
  */
 import { instrumentRegistry } from "./canonicalInstrument";
+import { getQuoteByCanonicalId } from "./liveQuoteStore";
+import { getPolicy } from "./marketData/policy";
 
 /** The subscription side-effects a rebind needs. Implemented by kiteFeed. */
 export interface SubscriptionPort {
@@ -90,9 +92,132 @@ export function pendingReconciliationCount(): number {
   return pending.size;
 }
 
-/** Test-only reset, mirroring instrumentRegistry.clear() / clearQuotes(). */
-export function clearPendingReconciliations(): void {
+/**
+ * Test-only reset, mirroring instrumentRegistry.clear() / clearQuotes().
+ * Named with the _forTesting_ prefix so a production caller is grep-visible.
+ * Production callers: zero.
+ */
+export function _forTesting_clearPendingReconciliations(): void {
   pending.clear();
+}
+
+/** Is this identity awaiting a controlled resubscription? */
+export function isReconciliationPending(canonicalInstrumentId: string): boolean {
+  return pending.has(canonicalInstrumentId);
+}
+
+// ---------------------------------------------------------------------------
+// Diagnostics serialization
+//
+// Draining the queue is deliberately NOT implemented here — that belongs to
+// the future controlled subscription-reconciliation phase. What IS required
+// before then is that a deferred rotation can never hide: it must be visible
+// in status output, and an affected identity must never be presented as a
+// current, LIVE instrument.
+//
+// The derivers below are PURE so the safety rules are unit-testable without a
+// socket, a clock, or a DB, matching the marketDataHealth.ts convention.
+// ---------------------------------------------------------------------------
+
+export type TokenReconciliationState = "NONE" | "TOKEN_RECONCILIATION_PENDING";
+
+/**
+ * PUBLIC shape. State and count ONLY — deliberately no canonical ids, no
+ * provider tokens, no failure detail strings, and never any credential or
+ * provider secret.
+ */
+export interface PublicTokenReconciliationStatus {
+  state: TokenReconciliationState;
+  pendingReconciliationCount: number;
+}
+
+/** OWNER shape. Adds the exact identity/token detail an operator needs. */
+export interface OwnerReconciliationEntry {
+  canonicalInstrumentId: string;
+  /** The token still subscribed and serving ticks. */
+  activeToken: number;
+  /** The token the provider master now advertises. */
+  desiredToken: number;
+  detail: string;
+  recordedAt: string;
+  lastTickTs: number | null;
+  lastTickAgeSec: number | null;
+  /** True once the newest tick for this identity is older than the freshness budget. */
+  tickFreshnessExpired: boolean;
+  /** ALWAYS false — a pending identity is not a current provider mapping. */
+  current: false;
+  /** ALWAYS false — a pending identity is never presentable as LIVE. */
+  liveLabelEligible: false;
+  code: "TOKEN_RECONCILIATION_PENDING";
+}
+
+export interface OwnerTokenReconciliationDiagnostics extends PublicTokenReconciliationStatus {
+  pending: OwnerReconciliationEntry[];
+}
+
+/** PURE. */
+export function buildPublicTokenReconciliationStatus(
+  pendingCount: number,
+): PublicTokenReconciliationStatus {
+  return {
+    state: pendingCount > 0 ? "TOKEN_RECONCILIATION_PENDING" : "NONE",
+    pendingReconciliationCount: pendingCount,
+  };
+}
+
+/**
+ * PURE. `freshnessBudgetSec` is supplied by the caller from the EXISTING
+ * freshness policy — this module defines no threshold of its own.
+ */
+export function buildOwnerTokenReconciliationDiagnostics(input: {
+  pending: PendingReconciliation[];
+  lastTickTsById: Record<string, number | null>;
+  nowMs: number;
+  freshnessBudgetSec: number;
+}): OwnerTokenReconciliationDiagnostics {
+  const entries: OwnerReconciliationEntry[] = input.pending.map((p) => {
+    const ts = input.lastTickTsById[p.canonicalInstrumentId] ?? null;
+    const ageSec = ts == null ? null : Math.max(0, (input.nowMs - ts) / 1000);
+    return {
+      canonicalInstrumentId: p.canonicalInstrumentId,
+      activeToken: p.activeToken,
+      desiredToken: p.desiredToken,
+      detail: p.detail,
+      recordedAt: new Date(p.recordedAtMs).toISOString(),
+      lastTickTs: ts,
+      lastTickAgeSec: ageSec,
+      // No tick at all is treated as expired, not as "fresh by default".
+      tickFreshnessExpired: ageSec == null ? true : ageSec > input.freshnessBudgetSec,
+      current: false,
+      liveLabelEligible: false,
+      code: "TOKEN_RECONCILIATION_PENDING",
+    };
+  });
+  entries.sort((a, b) => a.canonicalInstrumentId.localeCompare(b.canonicalInstrumentId));
+  return { ...buildPublicTokenReconciliationStatus(entries.length), pending: entries };
+}
+
+/** Owner diagnostics over live process state. */
+export function tokenReconciliationDiagnostics(
+  nowMs: number = Date.now(),
+): OwnerTokenReconciliationDiagnostics {
+  const list = listPendingSubscriptionReconciliations();
+  const lastTickTsById: Record<string, number | null> = {};
+  for (const p of list) {
+    lastTickTsById[p.canonicalInstrumentId] =
+      getQuoteByCanonicalId(p.canonicalInstrumentId)?.ts ?? null;
+  }
+  return buildOwnerTokenReconciliationDiagnostics({
+    pending: list,
+    lastTickTsById,
+    nowMs,
+    freshnessBudgetSec: getPolicy().freshnessBudgetSec,
+  });
+}
+
+/** Safe status for public surfaces. */
+export function publicTokenReconciliationStatus(): PublicTokenReconciliationStatus {
+  return buildPublicTokenReconciliationStatus(pendingReconciliationCount());
 }
 
 /**

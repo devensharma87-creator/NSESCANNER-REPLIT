@@ -22,7 +22,12 @@ import {
   type CanonicalExchange,
   type CanonicalSegment,
 } from "./canonicalInstrument";
-import { reconcileProviderToken, type SubscriptionPort } from "./providerTokenReconciliation";
+import {
+  reconcileProviderToken,
+  tokenReconciliationDiagnostics,
+  type OwnerTokenReconciliationDiagnostics,
+  type SubscriptionPort,
+} from "./providerTokenReconciliation";
 import {
   upsertQuote,
   getQuoteBySymbol,
@@ -503,6 +508,11 @@ export function getAllLiveQuotes(): Record<string, LiveTick> {
   return allQuotes();
 }
 
+/**
+ * Owner-only feed status (every /api/kite/* route is owner-gated), so this may
+ * carry exact identity and provider-token detail for deferred rotations.
+ * Public surfaces must use publicTokenReconciliationStatus() instead.
+ */
 export function feedStatus(): {
   running: boolean;
   connected: boolean;
@@ -511,6 +521,7 @@ export function feedStatus(): {
   lastConnectAt: string | null;
   lastDisconnectAt: string | null;
   lastError: string | null;
+  tokenReconciliation: OwnerTokenReconciliationDiagnostics;
 } {
   return {
     running: tickerStarted,
@@ -520,6 +531,7 @@ export function feedStatus(): {
     lastConnectAt: lastConnect ? new Date(lastConnect).toISOString() : null,
     lastDisconnectAt: lastDisconnect ? new Date(lastDisconnect).toISOString() : null,
     lastError,
+    tokenReconciliation: tokenReconciliationDiagnostics(),
   };
 }
 

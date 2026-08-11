@@ -19,6 +19,10 @@
  */
 
 import { feedStatus } from "./kiteFeed";
+import {
+  publicTokenReconciliationStatus,
+  type PublicTokenReconciliationStatus,
+} from "./providerTokenReconciliation";
 import { getKiteReadiness } from "./kiteReadiness";
 
 export type QuoteStatus =
@@ -51,6 +55,13 @@ export interface MarketDataHealth {
     quoteStatus: QuoteStatus;
     tradeGrade: boolean;
     explanation: string;
+    /**
+     * Deferred provider-token rotations. PUBLIC surface, so this carries the
+     * state and count ONLY — never canonical ids, provider tokens, failure
+     * detail, or anything credential-bearing. Owner detail lives on
+     * /api/kite/status (feedStatus().tokenReconciliation).
+     */
+    tokenReconciliation: PublicTokenReconciliationStatus;
   };
 
   scanner: {
@@ -267,6 +278,7 @@ export async function buildMarketDataHealth(): Promise<MarketDataHealth> {
         readiness.sessionPresent,
         liveQuotesCount,
       ),
+      tokenReconciliation: publicTokenReconciliationStatus(),
     },
 
     scanner: {

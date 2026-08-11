@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { applySnapshot, applyTick, type IdentifiedTick } from "@/lib/liveTickStream";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Activity, AlertCircle, CheckCircle2, Download, ExternalLink, LogOut, RefreshCw } from "lucide-react";
 import { Seo } from "@/components/seo";
@@ -24,17 +25,13 @@ interface KiteStatus {
   };
 }
 
-interface LiveTick {
-  /**
-   * Exchange-qualified storage identity (e.g. "NSE:EQUITY:RELIANCE"). This is
-   * the key the server stores quotes under; keying client state by `symbol`
-   * would re-collapse an NSE and a BSE listing of the same symbol into one row.
-   */
-  canonicalInstrumentId: string;
-  exchange?: string;
-  tradingSymbol?: string;
-  /** Legacy display alias. Not unique across exchanges — never use as a key. */
-  symbol: string;
+/**
+ * Exchange-qualified storage identity (e.g. "NSE:EQUITY:RELIANCE") comes from
+ * IdentifiedTick. Keying client state by `symbol` would re-collapse an NSE and
+ * a BSE listing of the same symbol into one row, so both stream events are
+ * reduced through the shared pure reducers in lib/liveTickStream.
+ */
+interface LiveTick extends IdentifiedTick {
   ltp: number;
   open?: number;
   high?: number;
@@ -42,7 +39,6 @@ interface LiveTick {
   close?: number;
   volume?: number;
   changePercent?: number;
-  ts: number;
 }
 
 const API = (path: string) => `${import.meta.env.BASE_URL.replace(/\/$/, "")}/api${path}`;
@@ -70,21 +66,16 @@ export default function KitePage() {
     const es = new EventSource(API("/kite/stream"));
     es.addEventListener("snapshot", (e: MessageEvent) => {
       try {
-        // The snapshot arrives keyed by legacy display alias; re-key it by the
-        // exchange-qualified identity so it matches how `tick` events are
-        // stored below. Mixing the two keyings would show one instrument twice.
-        const raw = JSON.parse(e.data) as Record<string, LiveTick>;
-        const next: Record<string, LiveTick> = {};
-        for (const t of Object.values(raw)) {
-          if (t?.canonicalInstrumentId) next[t.canonicalInstrumentId] = t;
-        }
-        setTicks(next);
+        // The snapshot arrives keyed by legacy display alias; applySnapshot
+        // re-keys it by the exchange-qualified identity so it matches how
+        // `tick` events are stored. Mixing keyings shows one instrument twice.
+        setTicks(applySnapshot(JSON.parse(e.data) as Record<string, LiveTick>));
       } catch { /* ignore */ }
     });
     es.addEventListener("tick", (e: MessageEvent) => {
       try {
         const t = JSON.parse(e.data) as LiveTick;
-        setTicks(prev => ({ ...prev, [t.canonicalInstrumentId]: t }));
+        setTicks(prev => applyTick(prev, t));
       } catch { /* ignore */ }
     });
     es.onerror = () => { /* EventSource auto-reconnects */ };

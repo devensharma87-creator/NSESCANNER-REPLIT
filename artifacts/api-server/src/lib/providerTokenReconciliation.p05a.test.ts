@@ -11,7 +11,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { instrumentRegistry } from "./canonicalInstrument";
 import {
   reconcileProviderToken,
-  clearPendingReconciliations,
+  _forTesting_clearPendingReconciliations,
   listPendingSubscriptionReconciliations,
   pendingReconciliationCount,
   type SubscriptionPort,
@@ -61,7 +61,7 @@ function tick(token: number, ltp: number) {
 beforeEach(() => {
   instrumentRegistry.clear();
   clearQuotes();
-  clearPendingReconciliations();
+  _forTesting_clearPendingReconciliations();
 });
 
 describe("P0.5A-B — token rebind leaves no orphan subscription", () => {
