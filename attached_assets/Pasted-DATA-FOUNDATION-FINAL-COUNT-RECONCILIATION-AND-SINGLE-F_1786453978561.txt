@@ -1,0 +1,94 @@
+DATA FOUNDATION — FINAL COUNT RECONCILIATION AND SINGLE-FEED TOPOLOGY
+
+This is a read-only design gate. Do not modify code, run builds or full test suites, restart services, deploy, or make paid provider calls.
+
+The corrected capacity calculation is accepted provisionally. The approved intended scope is:
+
+LIVE:
+- All NSE ordinary, BE, BZ and SME equities
+- All BSE ordinary, restricted/T2T and SME equities
+- Preference shares
+- REITs and InvITs
+- All 209 NSE/BSE index tokens
+
+SNAPSHOT TIER INITIALLY:
+- ETFs and funds
+
+UNAVAILABLE:
+- Suspended securities without a valid current provider quote
+
+PROVIDER POLICY:
+- Kite is the primary live provider
+- Upstox remains shadow validation/fallback
+- Yahoo is never trade-grade
+- No new paid provider is authorized
+
+Before implementation, resolve these two blockers.
+
+BLOCKER 1 — EXACT UNIVERSE RECONCILIATION
+
+Produce one final table showing, separately for NSE and BSE:
+
+- Official active records by security class
+- Included-live count
+- Snapshot-tier count
+- Suspended/unavailable count
+- Exact Kite mapping count
+- Every unmapped instrument with symbol, exchange identifier, ISIN, class and reason
+- Duplicate count
+- Excluded count
+- Total reconciliation equation with zero unexplained remainder
+
+Resolve the current contradiction:
+- BSE 4,659 required and 4,658 mapped implies one missing
+- The report separately names four missing recent BSE instruments
+Explain precisely whether those four fall inside or outside the 4,659 scope.
+
+Do not use symbol-only identity matching. Use exchange-qualified identifiers, ISIN and exact BSE SCRIP_CD/Kite exchange_token mapping.
+
+BLOCKER 2 — SINGLE FEED OWNER FOR REPLIT AUTOSCALE
+
+Kite permits only three WebSocket connections per API key. Multiple autoscale replicas must not independently open three sockets.
+
+Design and compare:
+
+A. One Reserved VM process owns all three sockets and serves the API
+B. One dedicated singleton market-data worker owns the sockets and publishes canonical quotes to API replicas
+C. Another topology only if it guarantees exactly one feed owner
+
+For each option provide:
+
+- How singleton ownership is enforced
+- How API replicas receive current quotes
+- Failover and restart behaviour
+- Whether any tick is written to PostgreSQL
+- Expected request/query/storage load
+- Incremental Replit cost or resource impact
+- Operational complexity
+- Data-loss and stale-data risks
+
+Do not invent pricing. Label unavailable cost facts as NOT YET VERIFIED.
+
+The selected design must guarantee:
+
+- No more than three Kite WebSockets across the entire deployment
+- Stable shards of no more than 3,000 tokens each
+- All indices receive highest reconnect priority
+- A dropped shard reconnects without exceeding provider limits
+- One canonical quote record per instrument
+- Every website consumer reads the same canonical service
+- No direct provider calls outside approved adapters
+- No per-tick PostgreSQL writes
+- Explicit LIVE / CURRENT_SNAPSHOT / LAST_KNOWN / STALE / UNAVAILABLE states
+- No stale or fallback value labelled LIVE
+- Cost metrics and hard resource ceilings
+
+Required final verdict:
+
+DATA_FOUNDATION_TOPOLOGY_VERIFIED — IMPLEMENTATION_AUTHORIZATION_REQUIRED
+
+or
+
+DATA_FOUNDATION_BLOCKED — [exact unresolved blocker]
+
+Do not implement anything and do not authorize deployment.
