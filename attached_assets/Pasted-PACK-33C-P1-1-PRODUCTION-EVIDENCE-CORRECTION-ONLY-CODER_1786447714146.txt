@@ -1,0 +1,180 @@
+PACK 33C — P1-1 PRODUCTION EVIDENCE CORRECTION ONLY
+
+CODER_EXECUTION_CONTRACT remains active.
+
+Do not modify code.
+Do not deploy again.
+Do not start P1-2.
+Do not use development API, development cache, or development logs as
+production proof.
+
+The deployment remains live. No rollback is authorized at this stage.
+
+A. EVIDENCE SEPARATION
+
+Create a table for every claim with one of these sources:
+
+- PRODUCTION_API
+- PRODUCTION_DATABASE
+- PRODUCTION_LOG
+- PRODUCTION_BROWSER
+- DEVELOPMENT_ONLY
+- TEST_ONLY
+
+Retract every production PASS currently supported only by DEVELOPMENT_ONLY or
+TEST_ONLY evidence.
+
+B. PRODUCTION AUTHENTICATION
+
+Use an actual owner-authenticated browser session against:
+
+https://marketscannerbydev.in
+
+Do not request or print the owner password, Clerk token, session cookie, or any
+credential.
+
+If authentication requires owner interaction, pause and ask the owner to sign in
+through the browser UI. Resume only after login is complete.
+
+C. PRODUCTION SCANNER API
+
+From the authenticated production browser session, capture the real network
+response for:
+
+GET https://marketscannerbydev.in/api/scan/full-nse
+
+Prove:
+
+- HTTP 200;
+- rows.length >= 1000;
+- total equals rows.length;
+- generationId present;
+- generatedAt present;
+- cacheSource present;
+- lastGoodLabel present;
+- evaluationState = PHASE_A_POPULATION_ONLY;
+- actionability = NOT_ACTIONABLE;
+- evaluatedRows = 0;
+- notEvaluatedRows = total;
+- reconciliation allValid = true;
+- degraded = false for NEW_SCAN;
+- no row contains an actionable signal.
+
+Save a redacted JSON evidence extract containing no cookies or credentials.
+
+Do not use localhost, dev domain, dev API, or direct development cache.
+
+D. PRODUCTION SCANNER BROWSER
+
+In the same authenticated production session:
+
+1. Open the actual Full Scanner page.
+2. Capture a screenshot showing:
+   - scanner rows visibly rendered;
+   - row count;
+   - PHASE_A / NOT_EVALUATED state;
+   - no actionable/trade-grade signal;
+   - CURRENT label for NEW_SCAN;
+   - no contradictory LAST KNOWN label.
+
+A Clerk login screenshot does not satisfy this gate.
+
+If the page shows zero rows while the production API has rows, stop:
+
+P1_1_POSTDEPLOY_BLOCKED — PRODUCTION_UI_ROWS_NOT_RENDERED
+
+E. PRODUCTION CHECKSUM
+
+Using the production PostgreSQL snapshot:
+
+1. Read the stored payload and stored payload_checksum.
+2. Run the same canonicalisation algorithm used by production code:
+   - JSON-compatible normalization;
+   - remove generationProvenance.payloadChecksum;
+   - recursively sort object keys;
+   - preserve array order;
+   - SHA-256 the canonical JSON.
+3. Compare recomputed checksum with stored checksum.
+4. Report only:
+   - snapshot id;
+   - generationId;
+   - row_count;
+   - stored checksum;
+   - recomputed checksum;
+   - match true/false.
+
+Do not expose the full payload.
+
+If mismatch:
+
+P1_1_POSTDEPLOY_BLOCKED — PRODUCTION_SNAPSHOT_CHECKSUM_MISMATCH
+
+F. PRODUCTION BSE MASTER
+
+The earlier authorization permits one controlled production force refresh because
+the production Kite session is reported valid.
+
+Before refresh capture:
+
+- production per-exchange counts;
+- BSE status/readiness;
+- NSDL resolution;
+- 544467 resolution.
+
+Run exactly one authenticated owner-only:
+
+POST /api/kite/refresh-instruments
+
+Then capture from production:
+
+- HTTP result;
+- all requested exchanges include NSE, BSE, NFO, BFO;
+- validation result for each exchange;
+- previous and new row count;
+- cache action;
+- reason code;
+- BSE count >= 500;
+- NSE count >= 5000;
+- NFO count >= 15000;
+- BFO count >= 2000;
+- NSDL resolves to BSE;
+- 544467 resolves to NSDL;
+- no payload=[] written;
+- no valid last-good cache deleted.
+
+If the refresh endpoint cannot be safely authenticated, stop and ask for owner
+browser interaction. Do not substitute dev evidence.
+
+If BSE becomes empty or NSDL/544467 fails, execute the approved rollback to
+6bf25a7f and report immediately.
+
+G. DATABASE ENVIRONMENT IDENTITY
+
+Prove the database queried for scanner snapshots is the production database
+without exposing credentials:
+
+- environment = production;
+- deployment commit;
+- redacted database fingerprint;
+- snapshot saved_at after production deployment boot;
+- generationId correlation with production log or API.
+
+Do not identify a shared/dev database as production merely because the table exists.
+
+H. FINAL VERDICT
+
+Only when Sections C through G pass with actual production evidence report:
+
+P1_1_DEPLOYED_AND_POSTDEPLOY_VERIFIED —
+BSE_MASTER_LAST_GOOD_PROTECTION_ACTIVE
+
+If authentication is the only blocker:
+
+P1_1_DEPLOYED_VERIFICATION_PAUSED —
+OWNER_BROWSER_AUTHENTICATION_REQUIRED
+
+If any functional check fails:
+
+P1_1_POSTDEPLOY_BLOCKED — <exact defect and rollback status>
+
+Do not begin P1-2.
