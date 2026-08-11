@@ -226,6 +226,10 @@ describe("P0.5A-E — required tests", () => {
       exchange: "NSE", segment: "INDEX", tradingSymbol: "NIFTY FIN SERVICE",
       providerInstrumentToken: NSE_FINNIFTY.token, securityClass: "INDEX",
       aliases: ["^CNXFIN", "NIFTY_FIN_SERVICE.NS"],
+      // Declared explicitly — exactly as getIndexIdentityByToken() supplies it.
+      // The preferred key must come from a declaration, never from the order
+      // aliases happen to appear in INDEX_TABLE.
+      preferredAlias: "^CNXFIN",
     });
     tickFor(NSE_FINNIFTY.token, 23_400);
     expect(getQuoteBySymbol("^CNXFIN")?.ltp).toBe(23_400);
@@ -325,28 +329,32 @@ describe("P0.5A-F — provider-token reconciliation (code-review follow-up)", ()
       .toBe("NSE:EQUITY:RELIANCE");
   });
 
-  it("F2: an authoritative rebind repoints the identity and retires the old token", () => {
+  it("F2: register() NEVER rebinds — a rotation must go through prepare/commit", () => {
+    // register() has no rebind opt-in at all. Installing a new token there
+    // would silently orphan the old token's live subscription.
     registerNseReliance();
     tickFor(NSE_RELIANCE.token, 1500.0);
-    expect(getQuoteByCanonicalId("NSE:EQUITY:RELIANCE")?.ltp).toBe(1500.0);
 
     const res = instrumentRegistry.register({
       exchange: "NSE", segment: "EQUITY", tradingSymbol: "RELIANCE",
-      providerInstrumentToken: 999_111, allowTokenRebind: true,
+      providerInstrumentToken: 999_111,
     });
-    expect(res.ok).toBe(true);
-    if (!res.ok) return;
-    expect(res.rebound).toBe(true);
-    expect(res.previousToken).toBe(NSE_RELIANCE.token);
-    expect(res.identity.providerInstrumentToken).toBe(999_111);
+    expect(res.ok).toBe(false);
+    expect(instrumentRegistry.resolveById("NSE:EQUITY:RELIANCE")?.providerInstrumentToken)
+      .toBe(NSE_RELIANCE.token);
 
-    // The retired token must stop resolving, so late ticks on it are dropped
-    // rather than mis-attributed to this instrument.
+    // prepare() reports the rotation without mutating anything.
+    const prep = instrumentRegistry.prepareTokenRebind("NSE:EQUITY:RELIANCE", 999_111);
+    expect(prep.status).toBe("REBIND_REQUIRED");
+    if (prep.status === "REBIND_REQUIRED") expect(prep.previousToken).toBe(NSE_RELIANCE.token);
+    expect(instrumentRegistry.resolveByToken(NSE_RELIANCE.token)).not.toBeNull();
+
+    // commit() re-points atomically. The caller is responsible for having
+    // unsubscribed the old token first (see providerTokenReconciliation.ts).
+    const commit = instrumentRegistry.commitTokenRebind("NSE:EQUITY:RELIANCE", 999_111);
+    expect(commit.ok).toBe(true);
     expect(instrumentRegistry.resolveByToken(NSE_RELIANCE.token)).toBeNull();
     expect(tickFor(NSE_RELIANCE.token, 1234.0).ok).toBe(false);
-    expect(getQuoteByCanonicalId("NSE:EQUITY:RELIANCE")?.ltp).toBe(1500.0);
-
-    // The new token owns the identity, and there is still exactly one entry.
     expect(instrumentRegistry.resolveByToken(999_111)?.canonicalInstrumentId).toBe("NSE:EQUITY:RELIANCE");
     expect(tickFor(999_111, 1600.0).ok).toBe(true);
     expect(quoteCount()).toBe(1);
@@ -356,12 +364,11 @@ describe("P0.5A-F — provider-token reconciliation (code-review follow-up)", ()
   it("F3: a rebind still cannot steal a token owned by another identity", () => {
     registerNseReliance();
     registerBseReliance();
-    const res = instrumentRegistry.register({
-      exchange: "NSE", segment: "EQUITY", tradingSymbol: "RELIANCE",
-      providerInstrumentToken: BSE_RELIANCE.token, allowTokenRebind: true,
-    });
-    expect(res.ok).toBe(false);
-    if (!res.ok) expect(res.reason).toBe("DUPLICATE_TOKEN_CONFLICT");
+    const prep = instrumentRegistry.prepareTokenRebind("NSE:EQUITY:RELIANCE", BSE_RELIANCE.token);
+    expect(prep.status).toBe("TOKEN_OWNED_BY_OTHER_IDENTITY");
+    const commit = instrumentRegistry.commitTokenRebind("NSE:EQUITY:RELIANCE", BSE_RELIANCE.token);
+    expect(commit.ok).toBe(false);
+    if (!commit.ok) expect(commit.reason).toBe("DUPLICATE_TOKEN_CONFLICT");
     expect(instrumentRegistry.resolveByToken(BSE_RELIANCE.token)?.canonicalInstrumentId)
       .toBe("BSE:EQUITY:RELIANCE");
   });

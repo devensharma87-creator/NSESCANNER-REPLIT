@@ -1,15 +1,18 @@
 /**
  * Live quote store — Data Foundation Phase 0.5A.
  *
+ * Keyed by the EXCHANGE_QUALIFIED_RUNTIME_QUOTE_IDENTITY minted in
+ * canonicalInstrument.ts. That identity is a runtime quote key, NOT an
+ * authoritative security master: securityId and isin are null and
+ * securityClass is UNRESOLVED until the official exchange master is
+ * integrated. See canonicalInstrument.ts for the full scope statement.
+ *
  * STORAGE IDENTITY RULE
  * ---------------------
  * A quote is stored under its canonicalInstrumentId, which is resolved from
  * the provider instrument token BEFORE insertion. The trading symbol plays no
  * part in deciding where a quote is stored. A tick whose token is not in the
  * canonical registry is rejected outright — it can never reach the store.
- *
- * This replaces the previous `liveQuotes.set(symbol, tick)`, under which an
- * NSE and a BSE tick for the same symbol collapsed onto one entry.
  *
  * Freshness semantics are unchanged by this phase: this module stores and
  * returns ticks with their timestamps and does not classify anything as LIVE.

@@ -25,6 +25,15 @@ interface KiteStatus {
 }
 
 interface LiveTick {
+  /**
+   * Exchange-qualified storage identity (e.g. "NSE:EQUITY:RELIANCE"). This is
+   * the key the server stores quotes under; keying client state by `symbol`
+   * would re-collapse an NSE and a BSE listing of the same symbol into one row.
+   */
+  canonicalInstrumentId: string;
+  exchange?: string;
+  tradingSymbol?: string;
+  /** Legacy display alias. Not unique across exchanges — never use as a key. */
   symbol: string;
   ltp: number;
   open?: number;
@@ -60,12 +69,22 @@ export default function KitePage() {
     if (!status.data?.feed.running) return;
     const es = new EventSource(API("/kite/stream"));
     es.addEventListener("snapshot", (e: MessageEvent) => {
-      try { setTicks(JSON.parse(e.data)); } catch { /* ignore */ }
+      try {
+        // The snapshot arrives keyed by legacy display alias; re-key it by the
+        // exchange-qualified identity so it matches how `tick` events are
+        // stored below. Mixing the two keyings would show one instrument twice.
+        const raw = JSON.parse(e.data) as Record<string, LiveTick>;
+        const next: Record<string, LiveTick> = {};
+        for (const t of Object.values(raw)) {
+          if (t?.canonicalInstrumentId) next[t.canonicalInstrumentId] = t;
+        }
+        setTicks(next);
+      } catch { /* ignore */ }
     });
     es.addEventListener("tick", (e: MessageEvent) => {
       try {
         const t = JSON.parse(e.data) as LiveTick;
-        setTicks(prev => ({ ...prev, [t.symbol]: t }));
+        setTicks(prev => ({ ...prev, [t.canonicalInstrumentId]: t }));
       } catch { /* ignore */ }
     });
     es.onerror = () => { /* EventSource auto-reconnects */ };
@@ -383,8 +402,15 @@ export default function KitePage() {
                   </td>
                 </tr>
               ) : sortedTicks.map(t => (
-                <tr key={t.symbol} className="border-t border-border/60">
-                  <td className="px-3 py-1.5 font-mono">{t.symbol}</td>
+                <tr key={t.canonicalInstrumentId} className="border-t border-border/60">
+                  <td className="px-3 py-1.5 font-mono">
+                    {t.symbol}
+                    {t.exchange ? (
+                      <span className="ml-2 rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                        {t.exchange}
+                      </span>
+                    ) : null}
+                  </td>
                   <td className="px-3 py-1.5 text-right font-mono">{t.ltp.toFixed(2)}</td>
                   <td className={`px-3 py-1.5 text-right font-mono ${
                     t.changePercent == null ? "" : t.changePercent >= 0 ? "text-emerald-400" : "text-red-400"

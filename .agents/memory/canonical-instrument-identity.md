@@ -39,10 +39,19 @@ every later alias for the same token became **permanently unresolvable** —
 a silent live defect, not a theoretical one. Any token→name map is vulnerable to
 this. Register all aliases against one identity instead.
 
-`primaryAlias` preserves the exact key legacy consumers already use (the Yahoo
-alias for indices, the NSE symbol for equities). Explicit aliases are ordered
-before the trading symbol so this stays stable; changing that order silently
-rekeys the `/api/kite/quotes` snapshot and the SSE payload.
+`primaryAlias` is the preferred display key (the Yahoo alias for indices, the
+NSE symbol for equities). It MUST be chosen by an explicit declaration, falling
+back to the lexicographically smallest alias — **never by position in the alias
+list or the source table**.
+
+**Why:** a positional rule ("first alias wins") makes the public snapshot key
+and the SSE payload silently depend on source-table iteration order, so an
+unrelated reordering rekeys a public surface. It is also non-deterministic
+across restarts once more than one row declares a preference.
+
+**How to apply:** when several rows share one token, exactly one must declare
+the preference. If two declare it, sort and warn rather than letting whichever
+row was seen last win.
 
 ## Identities outlive the socket
 
@@ -55,3 +64,39 @@ reconnect.
 Kite's CSV-backed dumps can yield `instrument_token`/`exchange_token` as
 strings. Coerce with `Number()` and validate before using them as a key — a
 string token silently fails an integer check and drops the instrument.
+
+## Rotating a provider token must not orphan a subscription
+
+The provider caps concurrently subscribed tokens (Kite: 9,000). An orphan token
+consumes that entitlement while delivering ticks that resolve to nothing, so a
+rotation that installs the new token and forgets the old one is a *capacity*
+regression even though every functional test passes.
+
+**Why:** the two failure modes are asymmetric and both are silent. Leaving the
+old token subscribed burns entitlement invisibly. Retiring the old token but
+failing to subscribe the replacement leaves the instrument dark while the
+in-memory subscription set still claims it is covered — which also blocks the
+retry, because the set is what the next pass consults.
+
+**How to apply:**
+- Treat the whole rotation as one transaction and put the replacement's
+  subscribe *inside* it. Never retire the old token and leave the replacement
+  to a later batch subscribe that can fail independently.
+- Order: unsubscribe old → unmark old → subscribe replacement → commit the
+  registry → mark replacement. Every failure unwinds to exactly ONE active
+  token.
+- A rotation must never be reachable from an ordinary `register()` call. Split
+  it into prepare (pure inspection) and commit (atomic swap) so the caller is
+  forced to retire the subscription first.
+- When it cannot be done safely, reject explicitly, keep the existing valid
+  token live, install nothing, and queue the identity for a controlled
+  resubscription cycle. Silence is the failure mode to design against.
+- Evict the cached quote on a successful rotation: it was priced off a token
+  that no longer identifies the instrument.
+
+## Client state must be keyed by identity too
+
+Fixing storage identity on the server is not enough. Any client keying its own
+state by `symbol` (e.g. an SSE consumer doing `next[t.symbol] = t`) re-collapses
+NSE and BSE into one row. Check that snapshot and incremental events use the
+*same* key, or one instrument appears twice.

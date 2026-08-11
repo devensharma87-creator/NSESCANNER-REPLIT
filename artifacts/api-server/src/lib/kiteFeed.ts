@@ -15,20 +15,91 @@ import { getActiveSession, getRestClient, autoMirrorSession, autoMirrorInstrumen
 import { NIFTY50_SYMBOLS } from "./watchlistLists";
 import { KiteTicker } from "kiteconnect";
 import { tapPushTick, tapPushSystemEvent } from "./liveTapRing";
-import { instrumentRegistry } from "./canonicalInstrument";
+import {
+  instrumentRegistry,
+  buildCanonicalInstrumentId,
+  normalizeTradingSymbol,
+  type CanonicalExchange,
+  type CanonicalSegment,
+} from "./canonicalInstrument";
+import { reconcileProviderToken, type SubscriptionPort } from "./providerTokenReconciliation";
 import {
   upsertQuote,
   getQuoteBySymbol,
   allQuotes,
   quoteCount,
   clearQuotes,
-  evictQuote,
+  evictQuote as evictStoredQuote,
   resolveQuoteBySymbol,
   type LiveTick,
   type QuoteResolution,
 } from "./liveQuoteStore";
 
 export type { LiveTick, QuoteResolution };
+
+/**
+ * Subscription side-effects handed to the token reconciler. Keeping them
+ * behind this port is what lets the no-orphan policy be tested without a
+ * live socket.
+ */
+const subscriptionPort: SubscriptionPort = {
+  isSubscribed: (t) => subscribedTokens.has(t),
+  unsubscribe: (t) => {
+    if (!ticker) throw new Error("ticker unavailable");
+    ticker.unsubscribe([t]);
+  },
+  markUnsubscribed: (t) => { subscribedTokens.delete(t); },
+  subscribeToken: (t) => {
+    if (!ticker) throw new Error("ticker unavailable");
+    ticker.subscribe([t]);
+    ticker.setMode(ticker.modeQuote, [t]);
+  },
+  markSubscribed: (t) => { subscribedTokens.add(t); },
+  evictQuote: (id) => { evictStoredQuote(id); },
+};
+
+/** Canonical id, or null when the symbol cannot form one. Never throws. */
+function safeCanonicalId(
+  exchange: CanonicalExchange,
+  segment: CanonicalSegment,
+  tradingSymbol: string,
+): string | null {
+  if (normalizeTradingSymbol(tradingSymbol) == null) return null;
+  return buildCanonicalInstrumentId(exchange, segment, tradingSymbol);
+}
+
+/**
+ * Align an identity's provider token with the freshly loaded master.
+ * Returns false when the caller must skip this instrument this cycle.
+ */
+function reconcileOrSkip(canonicalId: string, token: number, label: string): boolean {
+  const rec = reconcileProviderToken({
+    canonicalInstrumentId: canonicalId,
+    desiredToken: token,
+    port: subscriptionPort,
+    nowMs: Date.now(),
+  });
+  if (rec.status === "TOKEN_REBIND_REQUIRES_SUBSCRIPTION_RECONCILIATION") {
+    logger.warn(
+      { instrument: label, previousToken: rec.previousToken, desiredToken: rec.desiredToken, detail: rec.detail },
+      "Token rebind deferred — previous token stays active, queued for reconciliation",
+    );
+    return false;
+  }
+  if (rec.status === "REJECTED") {
+    logger.warn({ instrument: label, token, reason: rec.reason, detail: rec.detail }, "Token reconciliation rejected");
+    return false;
+  }
+  if (rec.status === "REBOUND") {
+    // The replacement token was subscribed and marked inside the rotation, so
+    // the caller's batch subscribe must NOT re-add it.
+    logger.warn(
+      { instrument: label, previousToken: rec.previousToken, newToken: rec.newToken },
+      "Provider token rebound — old token unsubscribed, replacement subscribed, stale quote evicted",
+    );
+  }
+  return true;
+}
 
 /**
  * Explicit symbol/alias resolution. Unlike getLiveQuote(), this reports
@@ -310,6 +381,12 @@ export async function subscribe(symbols: string[]): Promise<number> {
       );
       continue;
     }
+    const canonicalId = safeCanonicalId(exchange, "EQUITY", ins.tradingsymbol);
+    if (canonicalId == null) {
+      logger.warn({ tradingsymbol: ins.tradingsymbol }, "Skipping instrument with unusable trading symbol");
+      continue;
+    }
+    if (!reconcileOrSkip(canonicalId, token, ins.tradingsymbol)) continue;
     if (subscribedTokens.has(token)) continue;
     const reg = instrumentRegistry.register({
       exchange,
@@ -317,8 +394,6 @@ export async function subscribe(symbols: string[]): Promise<number> {
       tradingSymbol: ins.tradingsymbol,
       providerInstrumentToken: token,
       providerExchangeToken: asToken(ins.exchange_token),
-      // Fed from a freshly loaded Kite master, so this is authoritative.
-      allowTokenRebind: true,
     });
     if (!reg.ok) {
       logger.warn(
@@ -326,13 +401,6 @@ export async function subscribe(symbols: string[]): Promise<number> {
         "Canonical identity rejected; instrument not subscribed",
       );
       continue;
-    }
-    if (reg.rebound) {
-      evictQuote(reg.identity.canonicalInstrumentId);
-      logger.warn(
-        { tradingsymbol: ins.tradingsymbol, previousToken: reg.previousToken, token },
-        "Provider instrument token rebound; stale quote evicted",
-      );
     }
     subscribedTokens.add(token);
     newTokens.push(token);
@@ -369,24 +437,9 @@ export async function subscribeIndices(): Promise<number> {
   // Lazy import to avoid an init-time circular reference between
   // kiteFeed and kiteIntraday (kiteIntraday already imports
   // getInstrumentToken from this module).
-  const { getIndexIdentityMap } = await import("./kiteIntraday");
-  const map = await getIndexIdentityMap();
-  if (!map) return 0;
-  // Several Yahoo aliases can share one Kite token (e.g. "^CNXFIN" and
-  // "NIFTY_FIN_SERVICE.NS"). Group by token first so every alias resolves to
-  // the same canonical identity instead of the first alias winning and the
-  // rest becoming permanently unresolvable.
-  const byToken = new Map<number, { exchange: string; tradingSymbol: string; aliases: string[] }>();
-  for (const [alias, meta] of map) {
-    const token = asToken(meta.token);
-    if (token == null) continue;
-    const entry = byToken.get(token);
-    if (entry) {
-      if (!entry.aliases.includes(alias)) entry.aliases.push(alias);
-    } else {
-      byToken.set(token, { exchange: meta.exchange, tradingSymbol: meta.tradingSymbol, aliases: [alias] });
-    }
-  }
+  const { getIndexIdentityByToken } = await import("./kiteIntraday");
+  const byToken = await getIndexIdentityByToken();
+  if (!byToken) return 0;
   const newTokens: number[] = [];
   for (const [token, meta] of byToken) {
     const exchange = asExchange(meta.exchange);
@@ -394,6 +447,12 @@ export async function subscribeIndices(): Promise<number> {
       logger.warn({ tradingSymbol: meta.tradingSymbol, exchange: meta.exchange }, "Skipping index with unusable exchange");
       continue;
     }
+    const canonicalId = safeCanonicalId(exchange, "INDEX", meta.tradingSymbol);
+    if (canonicalId == null) {
+      logger.warn({ tradingSymbol: meta.tradingSymbol }, "Skipping index with unusable trading symbol");
+      continue;
+    }
+    if (!reconcileOrSkip(canonicalId, token, meta.tradingSymbol)) continue;
     const reg = instrumentRegistry.register({
       exchange,
       segment: "INDEX",
@@ -401,7 +460,7 @@ export async function subscribeIndices(): Promise<number> {
       providerInstrumentToken: token,
       securityClass: "INDEX",
       aliases: meta.aliases,
-      allowTokenRebind: true,
+      preferredAlias: meta.preferredAlias,
     });
     if (!reg.ok) {
       logger.warn(
@@ -409,13 +468,6 @@ export async function subscribeIndices(): Promise<number> {
         "Canonical index identity rejected; index not subscribed",
       );
       continue;
-    }
-    if (reg.rebound) {
-      evictQuote(reg.identity.canonicalInstrumentId);
-      logger.warn(
-        { tradingSymbol: meta.tradingSymbol, previousToken: reg.previousToken, token },
-        "Provider index token rebound; stale quote evicted",
-      );
     }
     if (subscribedTokens.has(token)) continue;
     subscribedTokens.add(token);

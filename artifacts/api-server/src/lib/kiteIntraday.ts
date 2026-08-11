@@ -31,6 +31,12 @@ import type { YahooChart, YahooMeta } from "./yahoo";
 interface IndexEntry {
   yahoo: string;
   exchange: "NSE" | "BSE";
+  /**
+   * Marks THE preferred display alias when several rows share one Kite token.
+   * Declared explicitly so the preferred symbol never depends on the order of
+   * this table (Phase 0.5A index-alias invariant).
+   */
+  preferred?: boolean;
   /** Exact tradingsymbol Kite accepts in `getInstruments(exchange)` lookup. */
   tradingSymbol: string;
   /** Pre-known instrument token; revalidated against the live dump. */
@@ -40,7 +46,7 @@ interface IndexEntry {
 const INDEX_TABLE: IndexEntry[] = [
   { yahoo: "^NSEI",                exchange: "NSE", tradingSymbol: "NIFTY 50",          fallbackToken: 256265 },
   { yahoo: "^NSEBANK",             exchange: "NSE", tradingSymbol: "NIFTY BANK",        fallbackToken: 260105 },
-  { yahoo: "^CNXFIN",              exchange: "NSE", tradingSymbol: "NIFTY FIN SERVICE", fallbackToken: 257801 },
+  { yahoo: "^CNXFIN",              exchange: "NSE", tradingSymbol: "NIFTY FIN SERVICE", fallbackToken: 257801, preferred: true },
   // FINNIFTY alias — different parts of the codebase historically used
   // the newer Yahoo symbol. Both keys must hit the same Kite token so
   // hasKiteIntradayCoverage() returns true regardless of which side
@@ -103,19 +109,78 @@ export async function getIndexTokenMap(): Promise<Map<string, number> | null> {
  * Phase 0.5A: same resolution as getIndexTokenMap, but carrying the exchange
  * and the canonical exchange trading symbol alongside the token so callers can
  * mint a canonical instrument identity instead of keying indices by their
- * Yahoo-style alias. Iteration order follows INDEX_TABLE, so the first alias
- * seen for a token is the one legacy consumers already use.
+ * Yahoo-style alias.
  */
-export async function getIndexIdentityMap(): Promise<
-  Map<string, { token: number; exchange: string; tradingSymbol: string }> | null
-> {
+export interface IndexIdentityEntry {
+  token: number;
+  exchange: string;
+  tradingSymbol: string;
+  /** Every alias that must resolve to this one instrument, sorted. */
+  aliases: string[];
+  /** Deterministic preferred display alias. */
+  preferredAlias: string;
+}
+
+/**
+ * Index identities grouped BY PROVIDER TOKEN.
+ *
+ * Several Yahoo-style aliases legitimately share one Kite token (e.g.
+ * "^CNXFIN" and "NIFTY_FIN_SERVICE.NS"). One token is one instrument, so the
+ * aliases are collected onto a single entry rather than producing separate
+ * instruments. `preferredAlias` comes from the explicit `preferred` flag, and
+ * falls back to the lexicographically smallest alias — never to table order.
+ */
+export async function getIndexIdentityByToken(): Promise<Map<number, IndexIdentityEntry> | null> {
   const tokens = await getIndexTokenMap();
   if (!tokens) return null;
-  const out = new Map<string, { token: number; exchange: string; tradingSymbol: string }>();
+  const out = new Map<number, IndexIdentityEntry>();
+  const declared = new Map<number, string[]>();
   for (const e of INDEX_TABLE) {
     const token = tokens.get(e.yahoo);
     if (token == null) continue;
-    out.set(e.yahoo, { token, exchange: e.exchange, tradingSymbol: e.tradingSymbol });
+    if (e.preferred === true) {
+      const list = declared.get(token) ?? [];
+      list.push(e.yahoo);
+      declared.set(token, list);
+    }
+    const cur = out.get(token);
+    if (cur) {
+      if (!cur.aliases.includes(e.yahoo)) cur.aliases.push(e.yahoo);
+    } else {
+      out.set(token, {
+        token,
+        exchange: e.exchange,
+        tradingSymbol: e.tradingSymbol,
+        aliases: [e.yahoo],
+        preferredAlias: e.yahoo,
+      });
+    }
+  }
+  for (const entry of out.values()) {
+    entry.aliases.sort();
+    const prefs = declared.get(entry.token);
+    if (prefs != null && prefs.length > 0) {
+      if (prefs.length > 1) {
+        // Malformed table: two rows claim preference for one token. Sorting
+        // keeps the winner independent of table order rather than letting
+        // whichever row came last silently win.
+        prefs.sort();
+        logger.warn(
+          { token: entry.token, declared: prefs },
+          "index token has multiple declared preferred aliases; using the lexicographically smallest",
+        );
+      }
+      entry.preferredAlias = prefs[0]!;
+    } else if (entry.aliases.length > 1) {
+      // Order-independent fallback, but this should be declared explicitly.
+      entry.preferredAlias = entry.aliases[0]!;
+      logger.warn(
+        { token: entry.token, aliases: entry.aliases },
+        "index token has multiple aliases but no declared preferred alias",
+      );
+    } else {
+      entry.preferredAlias = entry.aliases[0]!;
+    }
   }
   return out;
 }

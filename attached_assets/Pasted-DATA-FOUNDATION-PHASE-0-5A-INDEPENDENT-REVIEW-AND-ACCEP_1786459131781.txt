@@ -1,0 +1,242 @@
+DATA FOUNDATION PHASE 0.5A — INDEPENDENT REVIEW AND ACCEPTANCE CORRECTION
+
+CODER_EXECUTION_CONTRACT remains active.
+
+Do not commit yet. Do not deploy. Do not expand subscriptions. Do not begin Phase 0.5B.
+
+This is a bounded independent-review and correction pass for the uncommitted Phase 0.5A changes only.
+
+Use targeted inspection and targeted tests. Do not rerun the full 7,113-test API suite unless a material production-code correction is made after review and repository policy requires it.
+
+A. CORRECT THE CLAIM
+
+The current implementation establishes an exchange-qualified runtime quote identity. It is not yet the final authoritative canonical security identity because:
+
+- securityId is null
+- ISIN is null
+- securityClass is UNRESOLVED
+- official NSE/BSE master integration is pending
+- trading symbols may change
+
+Use the accurate description:
+
+EXCHANGE_QUALIFIED_RUNTIME_QUOTE_IDENTITY
+
+Do not claim the complete canonical instrument master has been implemented.
+
+B. TOKEN-REBIND P0 CORRECTION
+
+The current report states that after a token rebind:
+
+- the old provider token remains subscribed
+- it stays in subscribedTokens
+- incoming ticks are dropped because identity resolution was removed
+
+This is not acceptable for the future 7,890-token universe because orphan subscriptions consume the 9,000-token entitlement and can exhaust the 1,110-token headroom.
+
+Implement one safe contract:
+
+Preferred:
+- Atomically unregister the old token from identity resolution
+- Unsubscribe the old token from the correct Kite ticker/shard
+- Remove it from subscribedTokens only after unsubscribe handling
+- Register and subscribe the new token
+- Preserve one-token-to-one-identity and one-identity-to-one-active-token invariants
+
+If the current single-ticker API cannot safely perform this atomically:
+- Reject live token rebind
+- Return an explicit TOKEN_REBIND_REQUIRES_SUBSCRIPTION_RECONCILIATION result
+- Queue/record the identity for a future controlled resubscription cycle
+- Keep the existing valid token active
+- Do not silently install the new mapping
+- Do not leave an orphan subscription
+
+Do not create the three-shard architecture in this task.
+
+Required tests:
+
+1. Successful rebind leaves no old token in subscribedTokens.
+2. Old token is unsubscribed exactly once.
+3. Old-token ticks cannot update the new identity.
+4. New token resolves to the existing canonical identity.
+5. Failed unsubscribe does not create two active tokens.
+6. Repeated rebind is idempotent.
+7. Duplicate provider token remains rejected.
+8. Subscription count does not grow after rebind.
+9. Rebind cannot consume entitlement through orphan tokens.
+10. No change to freshness thresholds or safety locks.
+
+C. INDEX ALIAS INVARIANT
+
+Review the index alias handling for:
+
+- ^CNXFIN
+- NIFTY_FIN_SERVICE.NS
+- every other duplicate-token alias in INDEX_TABLE
+
+Required contract:
+
+- One provider token represents one canonical index instrument.
+- Multiple display/search aliases may resolve to that identity.
+- Aliases must not create separate canonicalInstrumentIds.
+- One quote is stored for the canonical identity.
+- All registered aliases retrieve that same quote.
+- quoteCount must count the instrument once, not once per alias.
+- SSE must emit one canonical identity, with aliases optional as metadata.
+- The preferred canonical symbol must be deterministic across restarts and independent of INDEX_TABLE iteration order.
+
+Required tests:
+
+1. Both aliases resolve.
+2. Both return the same canonicalInstrumentId.
+3. Both return the same stored quote.
+4. Registry contains one canonical instrument.
+5. quoteCount increases by one only.
+6. Reversing alias registration order produces the same preferred identity.
+7. Restart/reset followed by registration produces the same identity.
+8. No alias is treated as a separate WebSocket subscription.
+
+D. PUBLIC 409 CONTRACT AND CONSUMER REVIEW
+
+The new response:
+
+409 SYMBOL_RESOLVES_TO_MULTIPLE_EXCHANGES
+
+is safer than silently choosing NSE, but it changes a public API contract.
+
+Inventory every caller of the affected endpoint, including:
+
+- scanner frontend
+- watchlist
+- portfolio
+- charts
+- search/autocomplete
+- deep scan
+- option/F&O interfaces
+- Swing
+- Telegram/server-side consumers
+- generated API clients
+- external/admin routes
+
+For every caller state:
+
+- endpoint called
+- request fields
+- whether exchange is already supplied
+- current 404/409 handling
+- required compatibility change
+- changed now or deferred
+- user-visible behaviour
+
+Required behaviour:
+
+- If exchange is supplied, resolve the exact exchange-qualified instrument.
+- If a bare symbol has one candidate, preserve compatible success.
+- If a bare symbol has multiple candidates, return 409 with deterministic candidates.
+- Frontend must show NSE/BSE choices rather than generic “data unavailable.”
+- Portfolio/watchlist records with stored exchange must not use ambiguous lookup.
+- No consumer may silently default to NSE.
+- No consumer may convert ambiguity into a fake zero, stale fallback or unrelated provider lookup.
+
+If updating the frontend would materially broaden this bounded API-server task, do not silently modify it. Report:
+
+BLOCKED_PUBLIC_409_REQUIRES_BOUNDED_FRONTEND_FOLLOWUP
+
+In that case, either retain the previous public response contract safely while exposing a new exchange-qualified endpoint, or stop for owner review. Do not ship a breaking API contract without its consumers.
+
+E. IDENTITY BOUNDARY
+
+Confirm the current phase stores, at minimum:
+
+- canonicalInstrumentId
+- exchange
+- segment
+- tradingSymbol
+- providerInstrumentToken
+- providerExchangeToken where available
+- provider
+- exchange/received timestamp where present
+
+Do not fabricate:
+
+- ISIN
+- securityId
+- securityClass
+
+Leave them null/unresolved until official NSE/BSE master integration.
+
+Document explicitly that the future authoritative registry will enrich this runtime identity without changing the exchange distinction or deduplicating NSE/BSE listings by ISIN.
+
+F. CHANGE-SCOPE REVIEW
+
+Review the complete uncommitted diff and report:
+
+- Modified files
+- New files
+- Any unrelated changes
+- Any debug/test-only exports leaking into production
+- Any intentionally defective intermediate code remaining
+- Any comments that overstate evidence
+- Any subscriber or API behaviour changed beyond this task
+- Whether the API server was restarted and whether that caused provider calls or other recurring work
+
+Remove obsolete characterization-only comments from final production code while retaining the evidence in the test/report.
+
+G. VERIFICATION
+
+Run:
+
+- Targeted identity/store tests
+- Targeted token-rebind tests
+- Targeted index-alias tests
+- Targeted route-contract tests
+- Relevant TypeScript check
+- git diff --check
+
+Do not rerun the complete API suite if no material production correction is made.
+
+If production code is materially corrected, run the affected package suite once after all targeted checks pass. Do not run it repeatedly.
+
+Do not run scanner-wide tests unless scanner code changes.
+Do not run production builds.
+Do not restart the server again unless module-load verification is genuinely required after a material correction.
+Do not use production data or provider calls.
+
+H. FINAL RESPONSE
+
+Report:
+
+1. Token-rebind final contract
+2. Evidence that no orphan subscription remains
+3. Index canonical identity and alias behaviour
+4. Complete affected-endpoint consumer audit
+5. 409 compatibility decision
+6. Changed files
+7. Targeted test results
+8. TypeScript result
+9. Subscription count before/after
+10. Four frozen safety-lock values
+11. Remaining blockers
+12. Git status
+
+Use only:
+
+- OBSERVED
+- TESTED
+- INFERRED
+- NOT_YET_VERIFIED
+
+Required verdict:
+
+EXCHANGE_QUALIFIED_RUNTIME_IDENTITY_ACCEPTED_IN_DEVELOPMENT —
+NO_ORPHAN_TOKEN_SUBSCRIPTIONS —
+INDEX_ALIASES_CANONICALIZED —
+PUBLIC_CONSUMERS_COMPATIBLE —
+INDEPENDENT_COMMIT_AUTHORIZATION_REQUIRED
+
+or:
+
+DATA_FOUNDATION_PHASE_0_5A_BLOCKED — [exact blocker]
+
+Do not commit unless the final verdict fully passes and the owner separately authorizes the commit.
+Do not authorize deployment or the next phase.
