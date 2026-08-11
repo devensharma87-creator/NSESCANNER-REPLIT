@@ -1,3 +1,4 @@
+- [NSE+BSE live capacity ceiling](nse-bse-live-capacity-ceiling.md) — full NSE+BSE live needs ~22.8k tokens vs Kite's 9,000 hard cap; also no ISIN in Kite master and no BSE authoritative security master.
 - [Pack 33B three-blocker closure](pack33b-three-blocker-closure-2.md) — threshold unified to MIN=1000 everywhere; actual server PG hydration log; real PG failure totalRecords=1000; 6920+1305 PASS; commit b45df02; OWNER_DEPLOYMENT_AUTHORIZATION_REQUIRED.
 - [Pack 33B four-blocker correction](pack33b-four-blocker-correction.md) — pre-insert gate (MIN=1000), real PG failure, PostgreSQL hydration, REIT reconciliation; 6920+1305 PASS; commit 75f2a56; OWNER_DEPLOYMENT_AUTHORIZATION_REQUIRED.
 - [Pack 33B final bounded closure](pack33b-final-bounded-closure.md) — 3 blockers fixed (ETF comment, durableStore on ok=false, live reconciliation); 6916+1305 PASS; commit db0333e; OWNER_DEPLOYMENT_AUTHORIZATION_REQUIRED.

@@ -1,0 +1,513 @@
+NSE STOCK SCANNER PRO — DATA FOUNDATION RESET
+
+This instruction supersedes all pending Pack 33C feature work.
+
+CODER_EXECUTION_CONTRACT remains active.
+
+ONLY ACTIVE OBJECTIVE:
+
+Provide accurate, live and honestly labelled market data for every required NSE
+and BSE listed equity and every required NSE/BSE index through one canonical
+structured data pipeline.
+
+STOP ALL OTHER WORK
+
+Do not work on:
+
+- P1-2 or later Pack 33C blockers;
+- Daily Analysis;
+- Directional Scorer;
+- F&O or Swing signals;
+- scoring or strategy logic;
+- UI redesign;
+- paper trading;
+- broker execution;
+- evaluation activation.
+
+Do not change these locks:
+
+FULL_NSE_WAREHOUSE_POPULATION_AUTHORIZED=false
+SCANNER_KITE_CANDLE_EVALUATION_AUTHORIZED=false
+FNO_PAPER_V2_RUNTIME_AUTHORIZED=false
+SWING_PAPER_V2_RUNTIME_AUTHORIZED=false
+
+No signal or trade feature may proceed until the data foundation passes.
+
+OWNER REQUIREMENT
+
+All required NSE and BSE stocks and indices must have:
+
+- correct canonical identity;
+- correct exchange;
+- correct instrument token;
+- accurate quote;
+- accurate OHLC;
+- accurate previous close;
+- accurate volume;
+- exchange timestamp;
+- provider timestamp;
+- freshness state;
+- source;
+- availability state.
+
+No fake, silently stale, synthetic or zero-substituted data.
+
+PHASE D0 — REPOSITORY AND DEPLOYMENT FREEZE
+
+1. Record:
+   - branch;
+   - HEAD;
+   - deployed production commit;
+   - working-tree status;
+   - current safety-lock values.
+
+2. Create a dedicated data-foundation branch from the deployed production commit.
+3. Do not include unrelated Pack 33C work.
+4. Do not deploy until all predeployment gates below pass.
+
+PHASE D1 — AUTHORITATIVE UNIVERSE INVENTORY
+
+Build a read-only inventory of every required listing.
+
+NSE:
+
+- all equity listings and series;
+- SME;
+- trade-to-trade;
+- partly paid;
+- preference;
+- REIT/InvIT;
+- ETF/fund;
+- suspended/unavailable classification;
+- all required official indices.
+
+BSE:
+
+- all equity listings;
+- SME;
+- trade-to-trade/restricted groups;
+- partly paid;
+- preference;
+- REIT/InvIT;
+- ETF/fund;
+- suspended/unavailable classification;
+- all required official indices.
+
+Do not treat every Kite EQ-like token as an ordinary company equity.
+
+For every record produce:
+
+- canonicalSecurityId;
+- ISIN where available;
+- exchange;
+- segment;
+- series/group;
+- symbol;
+- company/security name;
+- instrumentToken;
+- exchangeToken/scripCode;
+- listing status;
+- security class;
+- signal eligibility;
+- authoritative-source timestamp.
+
+Report exact counts by exchange and class.
+
+Prove:
+
+total raw records =
+equity +
+SME +
+trade-to-trade +
+ETF/fund +
+REIT/InvIT +
+partly paid/preference +
+debt/non-equity +
+unresolved +
+invalid
+
+No unexplained remainder.
+
+PHASE D2 — LIVE CAPACITY PROOF
+
+Using official current provider limits, report:
+
+- exact number of NSE quote tokens;
+- exact number of BSE quote tokens;
+- exact number of index tokens;
+- duplicate cross-listed companies;
+- total exchange-specific subscriptions;
+- total unique securities;
+- required WebSocket connections;
+- instruments allocated to each connection;
+- REST reconciliation request volume;
+- expected bandwidth and memory.
+
+Kite capacity contract:
+
+- maximum 3,000 instruments per WebSocket;
+- maximum three WebSockets per API key;
+- total maximum 9,000 simultaneous subscriptions;
+- full quote REST batches maximum 500 instruments.
+
+Do not claim full live coverage if required subscriptions exceed verified capacity.
+
+If capacity exceeds Kite limits, stop with:
+
+DATA_FOUNDATION_BLOCKED — VERIFIED_LIVE_PROVIDER_CAPACITY_REQUIRED
+
+Then provide exact options:
+
+- verified Upstox overflow/redundancy;
+- authorized second broker/feed;
+- licensed NSE/BSE real-time feed.
+
+Do not use Yahoo to fill a trade-grade capacity gap.
+
+PHASE D3 — CANONICAL QUOTE CONTRACT
+
+Create one canonical quote type consumed by every page:
+
+{
+  canonicalSecurityId,
+  isin,
+  symbol,
+  exchange,
+  segment,
+  seriesOrGroup,
+  instrumentToken,
+  exchangeToken,
+  securityClass,
+
+  lastPrice,
+  open,
+  high,
+  low,
+  previousClose,
+  change,
+  changePercent,
+  volume,
+  lastTradeTime,
+  exchangeTimestamp,
+
+  sourceProvider,
+  sourceMode,
+  receivedAt,
+  ageMs,
+  freshnessState,
+  availabilityState,
+  marketState,
+
+  isLive,
+  isDelayed,
+  isLastKnown,
+  isTradeGrade,
+  blockerCode
+}
+
+Allowed freshnessState:
+
+- LIVE
+- CURRENT_SNAPSHOT
+- MARKET_CLOSED_EOD
+- LAST_KNOWN
+- STALE
+- UNAVAILABLE
+
+Rules:
+
+1. LIVE requires:
+   - market open;
+   - authenticated provider;
+   - valid exchange timestamp;
+   - age within the approved live SLA.
+
+2. Market-closed data must be MARKET_CLOSED_EOD, never LIVE.
+
+3. Missing values remain null, never zero.
+
+4. LAST_KNOWN must preserve its original timestamp.
+
+5. STALE or UNAVAILABLE data cannot authorize scoring, signals or trades.
+
+6. Yahoo must always be:
+   sourceProvider=YAHOO
+   isDelayed=true
+   isTradeGrade=false
+
+7. Provider name, freshness and actionability must be independent fields.
+
+PHASE D4 — WEBSOCKET COVERAGE ENGINE
+
+Implement a deterministic subscription plan:
+
+- stable token sharding;
+- maximum 3,000 tokens per Kite socket;
+- no duplicate token on multiple primary sockets;
+- required indices assigned first;
+- all equity tokens assigned;
+- reconnect and automatic resubscription;
+- subscription acknowledgement;
+- per-socket heartbeat;
+- per-token last-tick timestamp;
+- stale-token detection;
+- missing-token reconciliation;
+- connection generation ID;
+- feed diagnostics.
+
+Required reconciliation every controlled interval:
+
+expected tokens
+= subscribed live
++ market-closed/no-tick
++ unavailable
++ explicitly unsupported
+
+No unexplained tokens.
+
+A connected WebSocket does not mean every instrument is live.
+Readiness requires per-token tick evidence.
+
+PHASE D5 — REST SNAPSHOT RECONCILIATION
+
+Use Kite REST quotes only within documented batch and rate limits.
+
+- maximum 500 instruments per full-quote request;
+- bounded concurrency;
+- token-bucket rate limiter;
+- retry with jitter;
+- 429 handling;
+- session-expiry handling;
+- no uncontrolled full-universe polling.
+
+Use REST to:
+
+- establish initial snapshots;
+- reconcile WebSocket gaps;
+- validate suspicious/stale tokens;
+- recover selected missing instruments.
+
+Do not present REST polling as tick streaming.
+
+PHASE D6 — PROVIDER REDUNDANCY
+
+Kite remains primary.
+
+Before using Upstox as failover, prove:
+
+- current API limits;
+- WebSocket token capacity;
+- supported exchanges/segments;
+- timestamp semantics;
+- instrument mapping;
+- session lifecycle;
+- licensing/usage eligibility;
+- observed latency and freshness.
+
+Failover must preserve source identity.
+
+Never merge prices from two providers without reporting:
+
+- selected provider;
+- other-provider value;
+- timestamp difference;
+- price difference;
+- decision rule.
+
+A disagreement outside tolerance must produce:
+
+PROVIDER_DIVERGENCE
+
+It must not silently choose whichever value is convenient.
+
+PHASE D7 — DURABILITY AND RESTART
+
+Persist:
+
+- authoritative instrument-master versions;
+- subscription generation;
+- most recent valid quote snapshot;
+- source timestamp;
+- provider;
+- freshness;
+- validation result;
+- checksum.
+
+On restart:
+
+1. Load LAST_KNOWN data.
+2. Label it LAST_KNOWN—not LIVE.
+3. Restore WebSocket subscriptions.
+4. Promote each instrument to LIVE only after receiving a fresh tick.
+5. Never replace a valid snapshot with an empty/implausible response.
+
+PHASE D8 — HISTORICAL CANDLE CAPACITY DESIGN
+
+Do not activate warehouse population yet.
+
+Produce the exact capacity plan for:
+
+- required symbols;
+- 252+ daily candles;
+- intraday candle depth;
+- API calls required;
+- provider rate limit;
+- batching;
+- completion time;
+- storage size;
+- refresh frequency;
+- corporate-action handling;
+- split/bonus adjustment policy;
+- missing-candle validation.
+
+Separate:
+
+A. Data collection
+B. Descriptive indicator computation
+C. Scoring/signal evaluation
+
+Historical data collection must not automatically activate scoring.
+
+If current architecture cannot compute descriptive EMA/RSI/52W/VOL× while the
+evaluation lock remains false, propose a separate DESCRIPTIVE_ONLY enrichment
+stage.
+
+Do not change either lock.
+
+PHASE D9 — CONSUMER MIGRATION INVENTORY
+
+List every page and backend consumer:
+
+- Home;
+- Full Scanner;
+- Deep Scan;
+- Charting;
+- Portfolio;
+- Watchlist;
+- Option Chain;
+- Daily Analysis;
+- Directional Scorer;
+- F&O;
+- Swing;
+- alerts;
+- paper trading.
+
+For every displayed market field identify:
+
+- canonical field;
+- provider;
+- freshness requirement;
+- fallback;
+- unavailable behaviour.
+
+Identify every remaining direct provider call, legacy cache, Yahoo fallback or
+duplicate calculation outside the canonical pipeline.
+
+No consumer migration yet unless separately authorized.
+
+PHASE D10 — DATA-HONEST UI CONTRACT
+
+Every page must display:
+
+- source;
+- exchange;
+- timestamp;
+- LIVE/CURRENT/EOD/LAST_KNOWN/STALE/UNAVAILABLE;
+- market-open/closed state.
+
+Remove contradictory global banners.
+
+A Full-NSE page may not display a curated-scanner Yahoo warning as if it applies
+to all Full-NSE rows.
+
+When data is unavailable:
+
+- show —
+- show blocker reason;
+- do not show zero;
+- do not hide the entire table if descriptive rows are available.
+
+PHASE D11 — ACCURACY ACCEPTANCE
+
+During a real market session, sample at minimum:
+
+- 25 NSE equities;
+- 25 BSE equities;
+- all required indices;
+- cross-listed securities;
+- SME/security-class edge cases;
+- illiquid/no-tick instruments;
+- upper/lower-circuit instruments.
+
+For each validate:
+
+- identity;
+- exchange;
+- token;
+- LTP;
+- OHLC;
+- previous close;
+- volume;
+- exchange timestamp;
+- provider timestamp;
+- freshness;
+- mathematical change reconciliation.
+
+Compare against the authenticated broker terminal or second authorized source at
+the same timestamp.
+
+Required:
+
+change = lastPrice - previousClose
+
+changePercent = change / previousClose × 100
+
+Report every mismatch.
+
+PHASE D12 — FAILURE ACCEPTANCE
+
+Prove:
+
+- Kite login expired;
+- one WebSocket disconnected;
+- all WebSockets disconnected;
+- partial token subscription failure;
+- REST 429;
+- provider timeout;
+- empty instrument master;
+- malformed provider payload;
+- server restart;
+- stale PostgreSQL snapshot;
+- market close transition.
+
+For every failure, the UI must become LAST_KNOWN, STALE or UNAVAILABLE.
+It must never continue displaying LIVE.
+
+FINAL OUTPUT
+
+Provide:
+
+1. Exact authoritative NSE/BSE universe counts.
+2. Exact required live-token count.
+3. Verified provider-capacity result.
+4. Current architecture gaps.
+5. Required implementation files.
+6. Provider or subscription purchases required from owner.
+7. Data-foundation implementation roadmap.
+8. Time and API-call estimates.
+9. Licensing/usage constraints.
+10. Explicit list of all stopped non-data work.
+
+Finish with exactly one verdict:
+
+DATA_FOUNDATION_DESIGN_VERIFIED —
+IMPLEMENTATION_AUTHORIZATION_REQUIRED
+
+or
+
+DATA_FOUNDATION_BLOCKED —
+<exact provider, capacity, licensing or evidence gap>
+
+Do not implement feature work.
+Do not activate any safety lock.
+Do not deploy.

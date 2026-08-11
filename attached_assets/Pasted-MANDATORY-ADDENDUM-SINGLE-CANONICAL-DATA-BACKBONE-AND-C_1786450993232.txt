@@ -1,0 +1,377 @@
+MANDATORY ADDENDUM — SINGLE CANONICAL DATA BACKBONE AND COST CONTROL
+
+This addendum is binding and overrides any conflicting legacy implementation.
+
+A. ONE DATA BACKBONE
+
+There must be exactly one canonical market-data backbone for the entire
+NSE Stock Scanner Pro website.
+
+Provider adapters may write into the backbone.
+
+Website pages, routes, scanners, indicators, alerts, paper trading and signal
+engines may only read from the backbone.
+
+No consumer may independently decide which provider value to use.
+
+Required architecture:
+
+Provider adapters
+  → validation
+  → identity resolution
+  → source/freshness selection
+  → canonical market-data record
+  → cache/persistence
+  → canonical API/service
+  → all website consumers
+
+B. ONE CANONICAL SECURITY IDENTITY
+
+Every security must have one canonical identity containing:
+
+- canonicalSecurityId;
+- ISIN;
+- NSE symbol/series/token where listed;
+- BSE symbol/group/scrip code/token where listed;
+- security class;
+- listing status;
+- cross-list mapping.
+
+A cross-listed company must not be accidentally treated as one exchange quote.
+
+NSE and BSE listings remain separate exchange-level quote records, linked under
+one canonical security identity.
+
+No symbol-only joins where ISIN or exchange-qualified identity is required.
+
+C. ONE CANONICAL VALUE PER FIELD
+
+For every instrument, field and timestamp, the backbone must publish one accepted
+value.
+
+Required examples:
+
+- accepted lastPrice;
+- accepted OHLC;
+- accepted previousClose;
+- accepted volume;
+- accepted exchange timestamp;
+- accepted freshness state;
+- accepted source;
+- accepted generationId.
+
+Every accepted value must include:
+
+{
+  value,
+  exchange,
+  provider,
+  providerTimestamp,
+  exchangeTimestamp,
+  receivedAt,
+  ageMs,
+  freshnessState,
+  validationState,
+  generationId,
+  blockerCode
+}
+
+No consumer may remove or replace provenance.
+
+D. PROVIDER PRIORITY
+
+Default policy:
+
+1. Kite — primary live/trade-grade broker data.
+2. Upstox — secondary validation or failover only after its contract and
+   timestamp semantics are verified.
+3. Official NSE/BSE files — instrument identity, classification, bhavcopy and
+   EOD reconciliation.
+4. IndianAPI — fundamentals/news/approved auxiliary fields.
+5. Yahoo — delayed display-only fallback; never trade-grade.
+
+Provider fallback must occur inside the canonical backbone, not inside pages.
+
+The selected provider and fallback reason must be recorded.
+
+E. DIRECT PROVIDER ACCESS PROHIBITED
+
+Inventory every direct import/call to:
+
+- Kite/KiteConnect;
+- Upstox;
+- Yahoo;
+- IndianAPI;
+- NSE/BSE HTTP sources;
+- legacy provider wrappers;
+- local provider caches.
+
+Classify each as:
+
+- AUTHORIZED_PROVIDER_ADAPTER
+- LEGACY_CONSUMER_BYPASS
+- TEST_ONLY
+- DEAD_CODE
+
+Create an enforceable import/CI guard:
+
+- only approved provider-adapter modules may import provider SDKs or call
+  provider endpoints;
+- all other production imports fail CI;
+- no page or business feature may call a provider directly.
+
+Do not implement this guard until the inventory is reviewed, to avoid breaking
+unknown consumers.
+
+F. CONSUMER CONSISTENCY
+
+All these consumers must read the same canonical data service:
+
+- Home;
+- Market Pulse;
+- Full Scanner;
+- Deep Scan;
+- Watchlist;
+- Portfolio;
+- Charting;
+- Option Chain;
+- Daily Analysis;
+- Directional Scorer;
+- F&O;
+- Swing;
+- Telegram/alerts;
+- paper trading;
+- backtesting where live/current data is used.
+
+For every consumer report:
+
+- current data path;
+- target canonical field;
+- target API/service;
+- remaining bypass;
+- migration risk.
+
+G. NO DISCREPANCIES
+
+For the same exchange-qualified instrument and generation:
+
+- price must match on every page;
+- OHLC must match on every page;
+- previous close must match;
+- source must match;
+- timestamp must match;
+- freshness must match.
+
+A page may display an older historical candle only when clearly labelled with
+its own interval/timestamp. It must not be compared as if it were the current quote.
+
+Required discrepancy state:
+
+PROVIDER_DIVERGENCE
+
+Required fields:
+
+- canonicalSecurityId;
+- exchange;
+- primaryValue;
+- primaryTimestamp;
+- secondaryValue;
+- secondaryTimestamp;
+- absoluteDifference;
+- percentageDifference;
+- tolerance;
+- selectedValue;
+- selectionReason.
+
+Never average conflicting provider prices.
+Never silently select the larger, newer-looking or more convenient value.
+
+H. GENERATION CONSISTENCY
+
+Every API response and page must expose:
+
+- quoteGenerationId;
+- instrumentMasterVersion;
+- providerSessionId or feed generation;
+- generatedAt;
+- source timestamp.
+
+A page load must not silently combine:
+
+- old universe metadata;
+- new quote rows;
+- old indicator values;
+- different provider generations.
+
+If mixed generations are unavoidable, label the affected fields individually
+and prevent scoring/actionability.
+
+I. DATA-QUALITY CONTROL PLANE
+
+Provide one owner-only diagnostics surface showing:
+
+- expected instruments;
+- subscribed instruments;
+- instruments with fresh ticks;
+- stale instruments;
+- unavailable instruments;
+- last-known instruments;
+- provider divergence;
+- unresolved identity;
+- missing OHLC;
+- missing previous close;
+- missing timestamps;
+- per-page bypass count;
+- per-provider API/request rate;
+- WebSocket status;
+- cache and database state.
+
+This diagnostics route must read existing metrics and must not itself generate
+additional provider calls.
+
+J. COST CONTROL — REPLIT
+
+The coder must minimize Replit compute and agent cost.
+
+Mandatory rules:
+
+1. No broad parallel execution of expensive jobs.
+
+2. Do not repeatedly run:
+   - complete test suites;
+   - production builds;
+   - full-universe scans;
+   - browser installations;
+   - Playwright/Chromium sessions;
+   - server restart loops.
+
+3. During investigation:
+   - use source inspection;
+   - use one captured API payload;
+   - use targeted tests;
+   - reuse existing logs;
+   - reuse existing builds and caches when valid.
+
+4. Run complete suites and production builds only:
+   - once before an implementation;
+   - once after the implementation is complete;
+   - again only when an actual failure requires it.
+
+5. Do not run full-market provider refreshes merely to collect evidence.
+
+6. Do not start multiple full scanners simultaneously.
+
+7. Use:
+   - request deduplication;
+   - in-flight promise sharing;
+   - WebSocket fan-out;
+   - batching;
+   - caching;
+   - rate limiting;
+   - bounded retries.
+
+8. No polling when the same data is already available through WebSocket or cache.
+
+9. No recurring diagnostic query that exists only for display.
+
+10. Stop unused dev servers, temporary browsers and evidence processes after use.
+
+11. Before implementing, report:
+    - expected files changed;
+    - expected provider calls;
+    - expected database writes;
+    - expected background jobs;
+    - expected Replit runtime impact.
+
+12. If a proposed approach materially increases recurring compute, storage,
+    provider requests or deployment cost, stop:
+
+COST_INCREASE_REQUIRES_OWNER_AUTHORIZATION
+
+K. COST OBSERVABILITY
+
+Add design requirements for owner-visible metrics:
+
+- provider requests per minute/day;
+- REST batches;
+- WebSocket connections;
+- subscribed-token count;
+- reconnect count;
+- bytes/ticks received;
+- database writes;
+- cache hit rate;
+- full-scan duration;
+- background-job duration;
+- estimated monthly resource impact.
+
+Do not build a billing estimator using invented rates.
+Report measured usage separately from estimated cost.
+
+L. ACCEPTANCE TEST — CROSS-PAGE CONSISTENCY
+
+During a live market session select at least:
+
+- 25 NSE equities;
+- 25 BSE equities;
+- all required indices;
+- cross-listed securities;
+- illiquid securities;
+- upper/lower-circuit securities.
+
+For each instrument compare across every applicable page:
+
+- price;
+- OHLC;
+- previous close;
+- volume;
+- source;
+- exchange timestamp;
+- freshness;
+- generationId.
+
+Required result:
+
+ZERO_UNEXPLAINED_CROSS_PAGE_MISMATCHES
+
+Every explained mismatch must be caused by a clearly different interval,
+exchange or timestamp and visibly labelled as such.
+
+M. MIGRATION RULE
+
+Do not replace all data paths in one uncontrolled deployment.
+
+Required sequence:
+
+1. Inventory.
+2. Canonical contract.
+3. Shadow-write provider values.
+4. Compare old vs canonical outputs.
+5. Migrate one consumer cohort.
+6. Verify production.
+7. Continue consumer by consumer.
+8. Remove legacy bypass only after zero unexplained mismatch.
+9. Keep rollback available for every cohort.
+
+N. STOP CONDITION
+
+Do not proceed to indicators, scoring, signals, F&O, Swing, Daily Analysis or
+Directional Scorer until:
+
+- authoritative universe is reconciled;
+- live capacity is proven;
+- canonical quote pipeline is operational;
+- all direct provider bypasses are identified;
+- production freshness is verified;
+- cross-page consistency passes;
+- cost impact is measured and accepted.
+
+Required final data-foundation verdict:
+
+CANONICAL_DATA_BACKBONE_VERIFIED —
+ZERO_UNEXPLAINED_CROSS_PAGE_MISMATCHES —
+OWNER_ACCEPTANCE_REQUIRED
+
+Until then:
+
+DATA_FOUNDATION_INCOMPLETE —
+ALL_SIGNAL_AND_FEATURE_WORK_FROZEN
