@@ -1,0 +1,62 @@
+PHASE 0.5A CHECKPOINT DECISION
+
+The two Replit automatic commits fd4dddc and 4149f44 may remain exactly as they are.
+
+Do not reset, revert, squash, rebase, cherry-pick or rewrite history.
+
+Retain:
+- scanner canonicalInstrumentId state keying
+- exchange badge
+- fail-closed dropping of identity-less ticks
+- safe public token-reconciliation count/state
+- owner-only reconciliation diagnostics
+- explicitly test-only reset function
+- no automatic queue-drain scheduler
+
+Authorize one controlled development checkpoint commit containing only these remaining eight files:
+
+- artifacts/api-server/src/lib/kiteFeed.ts
+- artifacts/api-server/src/lib/marketDataHealth.ts
+- artifacts/api-server/src/lib/providerTokenReconciliation.ts
+- artifacts/api-server/src/lib/providerTokenReconciliation.p05a.test.ts
+- artifacts/api-server/src/lib/tokenReconciliationDiagnostics.p05a.test.ts
+- artifacts/scanner/src/lib/liveTickStream.ts
+- artifacts/scanner/src/lib/liveTickStream.test.ts
+- artifacts/scanner/src/pages/kite.tsx
+
+Do not include:
+- attached_assets
+- screenshots
+- memory files
+- generated files
+- unrelated changes
+
+Record this unresolved deployment blocker:
+
+AGGREGATE_LIVE_STATUS_NOT_FRESHNESS_OR_COVERAGE_AWARE
+
+Reason:
+deriveQuoteStatus currently derives LIVE_TICKS from non-zero quote count and does not prove per-instrument freshness, required-universe coverage or pending reconciliation state.
+
+Do not fix that blocker in this commit. It will receive a separate bounded phase.
+
+After committing:
+
+1. Report commit SHA.
+2. Report git status.
+3. Report exact committed file list.
+4. Report cumulative source diff from 54c69b5 to final HEAD.
+5. Confirm branch remains pack33c-p1-1-isolated.
+6. Confirm main remains untouched.
+7. Confirm branch remains unpushed.
+8. Confirm nothing deployed.
+9. Confirm all four safety locks remain false.
+10. Stop.
+
+Required verdict:
+
+PHASE_0_5A_DEVELOPMENT_CHECKPOINT_COMMITTED —
+DEPLOYMENT_BLOCKED_BY_AGGREGATE_LIVE_STATUS —
+OWNER_NEXT_PHASE_AUTHORIZATION_REQUIRED
+
+Do not deploy, merge, push or begin the next phase.
