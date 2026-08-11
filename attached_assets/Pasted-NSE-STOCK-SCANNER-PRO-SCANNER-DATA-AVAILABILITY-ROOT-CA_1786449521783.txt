@@ -1,0 +1,251 @@
+NSE STOCK SCANNER PRO — SCANNER DATA AVAILABILITY ROOT-CAUSE AUDIT
+
+CODER_EXECUTION_CONTRACT remains active.
+
+This task concerns only NSE Stock Scanner Pro.
+
+READ-ONLY ONLY.
+
+Do not modify code, tests, database, cache, schema, configuration, safety locks,
+documentation, branches, or commits.
+Do not deploy.
+Do not begin P1-2.
+Do not activate warehouse population or candle evaluation.
+
+User-observed production and development defects:
+
+DEVELOPMENT/PREVIEW:
+- provisional universe = 8,891
+- quotes = 8,841
+- no-feed = 50
+- All filter selected
+- table renders 0 of 8,891
+- NO MATCHING STOCKS FOUND
+
+PRODUCTION:
+- authoritative universe = 2,111
+- rows are visible
+- price/change/OHLC/delivery populated
+- VWAP, EMA20/50/100/200, RSI, 52W H/L, VOL×, FUT OI and SCORE mostly unavailable
+- evaluationState = PHASE_A_POPULATION_ONLY
+- actionability = NOT_ACTIONABLE
+- yellow banner says YAHOO INFO ONLY
+- adjacent badges say Kite live / INFO ONLY Kite
+- market is closed
+
+Objective:
+Prove exactly why the Scanner remains incomplete and contradictory.
+
+A. CAPTURE BOTH ENVIRONMENTS
+
+For DEVELOPMENT/PREVIEW and PRODUCTION separately capture:
+
+- deployed/active commit;
+- API URL;
+- GET /api/scan/full-nse response;
+- total;
+- rows.length;
+- universeSize;
+- liveQuoteCount;
+- noFeedCount;
+- cacheSource;
+- lastGoodLabel;
+- source/provenance fields;
+- evaluationState;
+- actionability;
+- marketOpen;
+- generatedAt;
+- countReconciliation;
+- first three complete row objects, redacted only for secrets.
+
+Do not mix development and production evidence.
+
+B. EXPLAIN 8,891 VS 2,111
+
+Trace the exact origin of:
+
+- development provisional universe 8,891;
+- production authoritative ordinary-equity universe 2,111.
+
+Determine whether development is running:
+
+- different source code;
+- a stale bundle;
+- an unfiltered Kite universe;
+- a different API route;
+- a legacy response;
+- a different cache generation;
+- or another proven cause.
+
+Identify which universe is contractually correct for the Full Scanner.
+
+Do not guess.
+
+C. DEVELOPMENT ZERO-ROW DEFECT
+
+With the All filter selected, trace every transformation from API rows to renderedRows:
+
+- API response rows count;
+- response-schema parsing;
+- React state assignment;
+- market/sector filter;
+- signal filter;
+- preset filter;
+- search filter;
+- evaluation/actionability filter;
+- pagination/virtualisation;
+- stale/degraded guard;
+- default values;
+- final renderedRows.length.
+
+Find the exact predicate that converts available rows/quotes into zero displayed rows.
+
+Report:
+
+- original count;
+- count after every filtering stage;
+- exact condition responsible;
+- whether it is frontend-only or API-side.
+
+D. TECHNICAL-FIELD AVAILABILITY MATRIX
+
+For each field report its required source and current blocker:
+
+- CMP
+- change
+- percentage change
+- open/high/low/previous close
+- volume
+- delivery percentage
+- VWAP
+- EMA20
+- EMA50
+- EMA100
+- EMA200
+- RSI
+- 52-week high
+- 52-week low
+- volume multiple
+- futures OI
+- score
+- signal/direction
+- confidence
+- actionability
+
+For every field classify:
+
+- AVAILABLE_CURRENT
+- AVAILABLE_LAST_KNOWN
+- UNAVAILABLE_NO_SOURCE
+- BLOCKED_WAREHOUSE_LOCK
+- BLOCKED_EVALUATION_LOCK
+- NOT_APPLICABLE
+- DEFECT
+
+Identify the actual code path that supplies or blocks each field.
+
+E. LOCK DEPENDENCY
+
+Prove separately what each lock controls:
+
+1. FULL_NSE_WAREHOUSE_POPULATION_AUTHORIZED
+2. SCANNER_KITE_CANDLE_EVALUATION_AUTHORIZED
+
+Answer:
+
+- Which missing columns require historical candles?
+- Which require only current Kite quotes?
+- Which could be populated safely without enabling scoring?
+- Does warehouse population make any provider/order call?
+- Does evaluation create scores/signals/actions?
+- Can descriptive indicators be computed while actionability remains locked?
+- Is PHASE_A intentionally designed to show these indicator columns as blank?
+- What exact evidence is required before either lock can be considered for activation?
+
+Do not change either lock.
+
+F. PROVENANCE CONTRADICTION
+
+Trace every UI banner and badge shown in the production screenshot:
+
+- YAHOO INFO ONLY
+- Kite (live)
+- INFO ONLY · Kite
+- market closed
+- Phase A / NOT EVALUATED
+
+For each label identify:
+
+- component;
+- API field;
+- provider;
+- timestamp;
+- freshness rule;
+- intended meaning.
+
+Determine why Yahoo and Kite are simultaneously presented as the source for all rows.
+
+Determine whether “Kite live” is valid while the market is closed.
+
+Required outcome:
+one unambiguous source/freshness model for the page, without changing code yet.
+
+G. DATA ACCURACY CHECK
+
+Select 10 production symbols from the visible table.
+
+For each compare:
+
+- CMP;
+- open;
+- high;
+- low;
+- previous close;
+- absolute change;
+- percentage change;
+- timestamp;
+- source.
+
+Validate mathematical reconciliation:
+
+change = CMP - previousClose
+
+percentageChange = change / previousClose × 100
+
+Report mismatches exactly.
+Do not compare delayed Yahoo values with Kite values without labelling timestamps.
+
+H. USER-VALUE ASSESSMENT
+
+Answer plainly:
+
+1. What data is genuinely usable today?
+2. What is informational only?
+3. What is missing because of intentional locks?
+4. What is missing because of defects?
+5. Can this Scanner currently support reliable F&O or Swing signalling?
+6. What is the minimum safe implementation sequence to make it useful?
+
+I. FINAL OUTPUT
+
+Provide:
+
+- confirmed root causes;
+- affected files/components/routes;
+- fields affected;
+- production vs development differences;
+- contract-safe fix design;
+- items requiring owner authorization;
+- items that can be fixed without changing safety contracts.
+
+Finish with exactly one verdict:
+
+SCANNER_DATA_ROOT_CAUSE_CONFIRMED — FIX_DESIGN_REQUIRED
+
+or
+
+SCANNER_DATA_AUDIT_BLOCKED — <missing evidence>
+
+Do not implement anything.
+Do not activate any lock.
+Do not start P1-2.
