@@ -35,6 +35,47 @@ type QuoteStatus =
   | "STALE"
   | "UNAVAILABLE";
 
+/**
+ * Phase 0.5B — truthful coverage. Public-safe aggregate counts only.
+ *
+ * `LIVE_COMPLETE` is only reachable against an AUTHORITATIVE_RECONCILED_UNIVERSE,
+ * which is not configured yet, so today's honest state is `LIVE_PARTIAL`.
+ */
+export type AggregateMarketDataState =
+  | "INITIALIZING"
+  | "UNIVERSE_NOT_CONFIGURED"
+  | "LIVE_COMPLETE"
+  | "LIVE_PARTIAL"
+  | "RECONCILIATION_PENDING"
+  | "CONFLICTED"
+  | "STALE"
+  | "UNAVAILABLE"
+  | "MARKET_CLOSED_CURRENT"
+  | "MARKET_CLOSED_PARTIAL";
+
+export type MarketCoverage = {
+  overallState: AggregateMarketDataState;
+  coverageAuthority:
+    | "AUTHORITATIVE_RECONCILED_UNIVERSE"
+    | "LEGACY_PARTIAL_CONFIGURATION"
+    | "UNIVERSE_NOT_CONFIGURED";
+  requiredInstrumentCount: number;
+  subscribedInstrumentCount: number;
+  freshInstrumentCount: number;
+  staleInstrumentCount: number;
+  unavailableInstrumentCount: number;
+  conflictedInstrumentCount: number;
+  pendingReconciliationCount: number;
+  coveragePct: number;
+  blockers: string[];
+  authoritative: {
+    coverageAuthority: string;
+    requiredInstrumentCount: number;
+    freshInstrumentCount: number;
+    coveragePct: number;
+  };
+};
+
 type MarketDataHealthPublic = {
   marketSession: "open" | "closed" | "pre_open";
   kite: {
@@ -49,7 +90,32 @@ type MarketDataHealthPublic = {
     actionRequired: boolean;
     action: string | null;
   };
+  coverage?: MarketCoverage;
 };
+
+/** Deterministic mock coverage for the dev-only banner preview. */
+function mockCoverage(over: Partial<MarketCoverage> = {}): MarketCoverage {
+  return {
+    overallState: "LIVE_PARTIAL",
+    coverageAuthority: "LEGACY_PARTIAL_CONFIGURATION",
+    requiredInstrumentCount: 58,
+    subscribedInstrumentCount: 58,
+    freshInstrumentCount: 58,
+    staleInstrumentCount: 0,
+    unavailableInstrumentCount: 0,
+    conflictedInstrumentCount: 0,
+    pendingReconciliationCount: 0,
+    coveragePct: 100,
+    blockers: ["AUTHORITATIVE_UNIVERSE_NOT_CONFIGURED"],
+    authoritative: {
+      coverageAuthority: "UNIVERSE_NOT_CONFIGURED",
+      requiredInstrumentCount: 0,
+      freshInstrumentCount: 0,
+      coveragePct: 0,
+    },
+    ...over,
+  };
+}
 
 const DATA_HEALTH_KEY = ["data-health-market"] as const;
 const API_PATH = "/api/data-health/market";
@@ -95,26 +161,31 @@ export function getMockProviderStatus(): MarketDataHealthPublic | null {
         marketSession: "open",
         kite: { sessionStatus: "EXPIRED", quoteStatus: "UNAVAILABLE", explanation: "Kite session has expired — complete Zerodha daily login." },
         overall: { badge: "KITE LOGIN REQUIRED", severity: "red", userMessage: "Session expired — scanner on delayed Yahoo Finance data.", actionRequired: true, action: "/kite" },
+        coverage: mockCoverage({ overallState: "UNAVAILABLE", subscribedInstrumentCount: 0, freshInstrumentCount: 0, unavailableInstrumentCount: 58, coveragePct: 0 }),
       },
       disconnected: {
         marketSession: "open",
         kite: { sessionStatus: "ACTIVE", quoteStatus: "STALE", explanation: "Session active but WebSocket feed has stopped." },
         overall: { badge: "KITE STALE — RECONNECTING", severity: "orange", userMessage: "WebSocket feed disconnected — data may be stale.", actionRequired: false, action: null },
+        coverage: mockCoverage({ overallState: "STALE", freshInstrumentCount: 0, staleInstrumentCount: 58, coveragePct: 0 }),
       },
       waiting: {
         marketSession: "open",
         kite: { sessionStatus: "ACTIVE", quoteStatus: "CONNECTED_WAITING", explanation: "Session active, WebSocket connected — waiting for first tick." },
         overall: { badge: "KITE SESSION ACTIVE — WAITING FOR TICKS", severity: "yellow", userMessage: "Kite session active, warming up — scanner may show cached data.", actionRequired: false, action: null },
+        coverage: mockCoverage({ overallState: "INITIALIZING", freshInstrumentCount: 0, unavailableInstrumentCount: 58, coveragePct: 0 }),
       },
       market_closed: {
         marketSession: "closed",
         kite: { sessionStatus: "ACTIVE", quoteStatus: "MARKET_CLOSED_SESSION_ACTIVE", explanation: "Market closed — session active and ready." },
         overall: { badge: "KITE SESSION ACTIVE — MARKET CLOSED", severity: "green", userMessage: "Market closed — data from last session.", actionRequired: false, action: null },
+        coverage: mockCoverage({ overallState: "MARKET_CLOSED_PARTIAL", freshInstrumentCount: 0, unavailableInstrumentCount: 58, coveragePct: 0 }),
       },
       kite: {
         marketSession: "open",
         kite: { sessionStatus: "ACTIVE", quoteStatus: "LIVE_TICKS", explanation: "Live Kite ticks streaming." },
         overall: { badge: "KITE LIVE", severity: "green", userMessage: "Live Kite data streaming.", actionRequired: false, action: null },
+        coverage: mockCoverage(),
       },
     };
     return MOCK[key] ?? null;
@@ -142,6 +213,58 @@ function useMarketDataHealth(pollMs: number | null) {
     return { data: mock, isLoading: false, isError: false } as const;
   }
   return q;
+}
+
+/**
+ * Phase 0.5B — shared cache reader for the truthful coverage block.
+ *
+ * Reuses the SAME react-query key as the banner, so consuming this adds no
+ * extra network request. Returns null while loading/erroring and when the
+ * server has not been upgraded yet (fail-open: never invent coverage).
+ */
+export function useMarketCoverage(): MarketCoverage | null {
+  const { data } = useMarketDataHealth(null);
+  return data?.coverage ?? null;
+}
+
+/**
+ * One-line honest summary of coverage. Never claims completeness: the
+ * headline count is always "fresh / required", and the authoritative-universe
+ * gap is stated explicitly rather than rounded away.
+ */
+export function coverageSummaryLine(c: MarketCoverage): string {
+  const parts = [
+    `${c.freshInstrumentCount}/${c.requiredInstrumentCount} configured instruments fresh`,
+    `${c.subscribedInstrumentCount} subscribed`,
+  ];
+  if (c.staleInstrumentCount > 0) parts.push(`${c.staleInstrumentCount} stale`);
+  if (c.unavailableInstrumentCount > 0) parts.push(`${c.unavailableInstrumentCount} unavailable`);
+  if (c.conflictedInstrumentCount > 0) parts.push(`${c.conflictedInstrumentCount} conflicted`);
+  if (c.pendingReconciliationCount > 0)
+    parts.push(`${c.pendingReconciliationCount} pending token reconciliation`);
+  const auth =
+    c.authoritative.coverageAuthority === "AUTHORITATIVE_RECONCILED_UNIVERSE"
+      ? `${c.authoritative.freshInstrumentCount}/${c.authoritative.requiredInstrumentCount} of the full market universe`
+      : "full-market universe not configured — this is NOT whole-market coverage";
+  return `${parts.join(" · ")}. ${auth}.`;
+}
+
+/**
+ * Compact coverage strip. Renders the real counts so no surface can imply
+ * complete market coverage from a partial configured feed.
+ */
+export function MarketCoverageNote(): React.JSX.Element | null {
+  const coverage = useMarketCoverage();
+  if (!coverage) return null;
+  return (
+    <div
+      className="text-[10px] font-mono opacity-70 leading-snug"
+      data-testid="market-coverage-note"
+      data-coverage-state={coverage.overallState}
+    >
+      Coverage {coverage.overallState} — {coverageSummaryLine(coverage)}
+    </div>
+  );
 }
 
 /** Returns true if the banner should be shown for this quoteStatus. */
@@ -209,6 +332,15 @@ export function KiteOfflineBanner() {
         {data.kite.explanation && (
           <div className="text-[10px] opacity-60 font-mono mt-0.5">
             {data.kite.explanation}
+          </div>
+        )}
+        {data.coverage && (
+          <div
+            className="text-[10px] opacity-70 font-mono mt-0.5"
+            data-testid="kite-banner-coverage"
+            data-coverage-state={data.coverage.overallState}
+          >
+            Coverage {data.coverage.overallState} — {coverageSummaryLine(data.coverage)}
           </div>
         )}
       </div>

@@ -11,6 +11,7 @@ import {
   deriveCanDriveSignals,
   buildModuleHealthMap,
   deriveGlobalDataHealthStatus,
+  applyCoverageGate,
   deriveGlobalSeverity,
   deriveBadgeAndHeadline,
   type GlobalDataHealthStatus,
@@ -247,5 +248,38 @@ describe("deriveBadgeAndHeadline", () => {
 
   it("KITE_FEED_DISCONNECTED → badge contains 'DISCONNECTED'", () => {
     expect(deriveBadgeAndHeadline("KITE_FEED_DISCONNECTED").badge).toContain("DISCONNECTED");
+  });
+});
+
+// ── Phase 0.5B: applyCoverageGate ────────────────────────────────────────────
+
+describe("applyCoverageGate", () => {
+  it("downgrades TRADE_GRADE_LIVE when coverage is not complete", () => {
+    expect(applyCoverageGate("TRADE_GRADE_LIVE", false, "LIVE_PARTIAL")).toBe("KITE_PARTIAL");
+    expect(applyCoverageGate("TRADE_GRADE_LIVE", false, "STALE")).toBe("KITE_PARTIAL");
+  });
+
+  it("leaves TRADE_GRADE_LIVE intact only when coverage is genuinely complete", () => {
+    expect(applyCoverageGate("TRADE_GRADE_LIVE", true, "LIVE_COMPLETE")).toBe("TRADE_GRADE_LIVE");
+  });
+
+  it("downgrades the green market-closed status on an integrity fault", () => {
+    // Market being shut does not make a conflicted or misattributed price ok.
+    expect(applyCoverageGate("SESSION_ACTIVE_MARKET_CLOSED", false, "CONFLICTED")).toBe("DEGRADED_DATA");
+    expect(applyCoverageGate("SESSION_ACTIVE_MARKET_CLOSED", false, "RECONCILIATION_PENDING")).toBe("DEGRADED_DATA");
+  });
+
+  it("keeps the green market-closed status for the expected after-hours stale case", () => {
+    // No verified official close is available to this path yet, so every
+    // instrument degrades to LAST_KNOWN after close. That known gap is
+    // reported through coverage.overallState, not through a nightly amber badge.
+    expect(applyCoverageGate("SESSION_ACTIVE_MARKET_CLOSED", false, "STALE")).toBe("SESSION_ACTIVE_MARKET_CLOSED");
+    expect(applyCoverageGate("SESSION_ACTIVE_MARKET_CLOSED", false, "MARKET_CLOSED_PARTIAL")).toBe("SESSION_ACTIVE_MARKET_CLOSED");
+  });
+
+  it("never UPGRADES a status", () => {
+    for (const s of ["KITE_PARTIAL", "DEGRADED_DATA", "KITE_SESSION_EXPIRED", "KITE_SESSION_MISSING", "KITE_FEED_DISCONNECTED", "UNAVAILABLE"] as const) {
+      expect(applyCoverageGate(s, true, "LIVE_COMPLETE")).toBe(s);
+    }
   });
 });

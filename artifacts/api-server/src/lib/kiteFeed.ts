@@ -509,6 +509,17 @@ export function getAllLiveQuotes(): Record<string, LiveTick> {
 }
 
 /**
+ * Read-only snapshot of the provider tokens currently subscribed.
+ *
+ * Coverage accounting needs PER-INSTRUMENT subscription state; the aggregate
+ * `feedStatus().subscribed` count cannot tell you WHICH instruments are dark.
+ * Returns a copy — callers must never mutate the live subscription set.
+ */
+export function subscribedTokenSnapshot(): number[] {
+  return [...subscribedTokens];
+}
+
+/**
  * Owner-only feed status (every /api/kite/* route is owner-gated), so this may
  * carry exact identity and provider-token detail for deferred rotations.
  * Public surfaces must use publicTokenReconciliationStatus() instead.

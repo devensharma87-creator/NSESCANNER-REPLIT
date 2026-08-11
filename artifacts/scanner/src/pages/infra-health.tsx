@@ -2926,6 +2926,34 @@ interface GlobalDataHealthResp {
     isPreOpenWindow: boolean;
   };
   modules: Record<string, GlobalDataHealthModuleH>;
+  /**
+   * Phase 0.5B — truthful coverage accounting. Optional so the page still
+   * renders against an older server build instead of blanking out.
+   */
+  coverage?: {
+    overallState: string;
+    coverageAuthority: string;
+    universeReconciliationValid: boolean;
+    universeScopeId: string;
+    marketState: string;
+    freshnessBudgetSec: number;
+    requiredInstrumentCount: number;
+    subscribedInstrumentCount: number;
+    freshInstrumentCount: number;
+    staleInstrumentCount: number;
+    unavailableInstrumentCount: number;
+    conflictedInstrumentCount: number;
+    pendingReconciliationCount: number;
+    coveragePct: number;
+    blockers: string[];
+    authoritative: {
+      coverageAuthority: string;
+      universeReconciliationValid: boolean;
+      requiredInstrumentCount: number;
+      freshInstrumentCount: number;
+      coveragePct: number;
+    };
+  };
   fallback: { yahooActive: boolean; label: string };
   userAction: { required: boolean; reason: string | null; path: string | null };
   preOpenAlert: { isPreOpenWindow: boolean; alertFired: boolean; lastAlertEvent: string | null };
@@ -2981,6 +3009,55 @@ function GlobalHealthSection({ data, error, loading }: FetchState<GlobalDataHeal
               </div>
             ))}
           </div>
+
+          {/* Phase 0.5B — truthful coverage. `Live Quotes` above is a raw
+              count and proves nothing about coverage; these are the real
+              numbers, reported against BOTH denominators. */}
+          {data.coverage && (
+            <div data-testid="global-health-coverage" data-coverage-state={data.coverage.overallState}>
+              <div className="font-mono text-[10px] uppercase text-muted-foreground mb-2">
+                Market Data Coverage — {data.coverage.overallState}
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                {(
+                  [
+                    { label: "Required", value: String(data.coverage.requiredInstrumentCount), green: data.coverage.requiredInstrumentCount > 0 },
+                    { label: "Subscribed", value: String(data.coverage.subscribedInstrumentCount), green: data.coverage.subscribedInstrumentCount >= data.coverage.requiredInstrumentCount },
+                    { label: "Fresh", value: String(data.coverage.freshInstrumentCount), green: data.coverage.freshInstrumentCount === data.coverage.requiredInstrumentCount },
+                    { label: "Coverage", value: `${data.coverage.coveragePct}%`, green: data.coverage.coveragePct === 100 },
+                    { label: "Stale", value: String(data.coverage.staleInstrumentCount), green: data.coverage.staleInstrumentCount === 0 },
+                    { label: "Unavailable", value: String(data.coverage.unavailableInstrumentCount), green: data.coverage.unavailableInstrumentCount === 0 },
+                    { label: "Conflicted", value: String(data.coverage.conflictedInstrumentCount), green: data.coverage.conflictedInstrumentCount === 0 },
+                    { label: "Pending recon.", value: String(data.coverage.pendingReconciliationCount), green: data.coverage.pendingReconciliationCount === 0 },
+                  ] as const
+                ).map((r) => (
+                  <div key={r.label} className="rounded border border-border bg-muted/20 p-2">
+                    <div className="font-mono text-[10px] uppercase text-muted-foreground mb-1">{r.label}</div>
+                    <div className={`font-semibold ${r.green ? "text-emerald-400" : "text-amber-400"}`}>{r.value}</div>
+                  </div>
+                ))}
+              </div>
+              <div className="mt-2 rounded border border-border bg-muted/10 p-2 text-[10px] font-mono leading-relaxed">
+                <div>
+                  Configured scope: <span className="text-foreground">{data.coverage.universeScopeId}</span> ·
+                  authority <span className={data.coverage.coverageAuthority === "AUTHORITATIVE_RECONCILED_UNIVERSE" ? "text-emerald-400" : "text-amber-400"}>{data.coverage.coverageAuthority}</span> ·
+                  reconciliation valid <span className={data.coverage.universeReconciliationValid ? "text-emerald-400" : "text-amber-400"}>{String(data.coverage.universeReconciliationValid)}</span>
+                </div>
+                <div>
+                  Authoritative universe: <span className={data.coverage.authoritative.coverageAuthority === "AUTHORITATIVE_RECONCILED_UNIVERSE" ? "text-emerald-400" : "text-amber-400"}>{data.coverage.authoritative.coverageAuthority}</span> ·
+                  {" "}{data.coverage.authoritative.freshInstrumentCount}/{data.coverage.authoritative.requiredInstrumentCount} fresh ({data.coverage.authoritative.coveragePct}%)
+                </div>
+                <div className="text-muted-foreground">
+                  Market {data.coverage.marketState} · freshness budget {data.coverage.freshnessBudgetSec}s
+                </div>
+                {data.coverage.blockers.length > 0 && (
+                  <div className="text-amber-400 mt-1" data-testid="coverage-blockers">
+                    Blockers: {data.coverage.blockers.join(", ")}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
 
           {Object.keys(data.modules).length > 0 && (
             <div>

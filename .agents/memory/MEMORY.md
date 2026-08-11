@@ -1,4 +1,5 @@
 - [Canonical exchange-qualified instrument identity](canonical-instrument-identity.md) — live quotes keyed by NSE:SEGMENT:SYMBOL not symbol; token rotation must never orphan a subscription; preferred alias never positional.
+- [Aggregate market-data coverage contract](aggregate-coverage-contract.md) — two denominators; never inherit authoritative counts; enum alone grants no authority; pending overlay cross-cuts buckets; verified-close gap.
 - [Aggregate LIVE status blocker](aggregate-live-status-blocker.md) — deriveQuoteStatus reads LIVE_TICKS off a non-zero quote count; proves no per-instrument freshness, coverage, or pending-reconciliation state. Open blocker.
 - [NSE+BSE live capacity ceiling](nse-bse-live-capacity-ceiling.md) — full NSE+BSE live needs ~22.8k tokens vs Kite's 9,000 hard cap; also no ISIN in Kite master and no BSE authoritative security master.
 - [Pack 33B three-blocker closure](pack33b-three-blocker-closure-2.md) — threshold unified to MIN=1000 everywhere; actual server PG hydration log; real PG failure totalRecords=1000; 6920+1305 PASS; commit b45df02; OWNER_DEPLOYMENT_AUTHORIZATION_REQUIRED.

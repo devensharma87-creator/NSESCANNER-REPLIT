@@ -27,6 +27,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { AlertTriangle, RefreshCw, CheckCircle2, Clock, ShieldAlert } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
+import { useMarketCoverage } from "@/components/kite-offline-banner";
 
 export type KiteReadinessState =
   | "KITE_READY"
@@ -152,9 +153,21 @@ const FEED_STALE_COPY =
  * @param liveQuotes Feed live-quote count from /api/kite/status feed.liveQuotes.
  *                  Pass undefined to use legacy behaviour (no quote-count nuance).
  */
+/**
+ * Phase 0.5B — the minimum coverage facts the chip needs to stay honest.
+ * Kept structural (not an import of the full contract) so this module has no
+ * new dependency and legacy 2-argument callers keep compiling.
+ */
+export interface BannerCoverage {
+  overallState: string;
+  freshInstrumentCount: number;
+  requiredInstrumentCount: number;
+}
+
 export function deriveBannerView(
   r: KiteReadiness | null | undefined,
   liveQuotes?: number,
+  coverage?: BannerCoverage | null,
 ): BannerView {
   if (!r) {
     return { mode: "hidden", tone: "ok", headline: "", impact: "", chipLabel: "", showReconnect: false };
@@ -176,12 +189,25 @@ export function deriveBannerView(
       // When liveQuotes is undefined (legacy / unknown), fall back to "Kite live".
       if (liveQuotes !== undefined) {
         if (r.marketSession === "closed" || r.marketSession === "pre_open") {
+          // This chip is a claim about the SESSION, not about data coverage —
+          // hence it stays green for the expected after-hours case. But an
+          // integrity fault does not stop mattering because the market shut,
+          // so conflicted quotes and unresolved token rotations still warn.
+          const integrityFault =
+            coverage?.overallState === "CONFLICTED" ||
+            coverage?.overallState === "RECONCILIATION_PENDING";
           return {
             mode: "chip",
-            tone: "ok",
-            headline: "Kite session active — market closed",
-            impact: "Kite session is active. Market is closed — live ticks are not expected.",
-            chipLabel: "Kite — market closed",
+            tone: integrityFault ? "warn" : "ok",
+            headline: integrityFault
+              ? "Kite session active — data integrity issue"
+              : "Kite session active — market closed",
+            impact: integrityFault
+              ? `Market is closed, but market-data coverage reports ${coverage?.overallState}. Stored prices may be wrong or misattributed until this resolves.`
+              : coverage
+                ? `Kite session is active. Market is closed — live ticks are not expected. Coverage state: ${coverage.overallState} (${coverage.freshInstrumentCount}/${coverage.requiredInstrumentCount} configured instruments carry a current value).`
+                : "Kite session is active. Market is closed — live ticks are not expected.",
+            chipLabel: integrityFault ? "Kite — data integrity issue" : "Kite — market closed",
             showReconnect: false,
           };
         }
@@ -195,6 +221,19 @@ export function deriveBannerView(
             showReconnect: false,
           };
         }
+      }
+      // Phase 0.5B: a bare "Kite live" chip claims whole-market live coverage
+      // off nothing more than a non-zero quote count. When real coverage is
+      // available and is not LIVE_COMPLETE, say so — and say how much.
+      if (coverage && coverage.overallState !== "LIVE_COMPLETE") {
+        return {
+          mode: "chip",
+          tone: "info",
+          headline: "Kite live — partial coverage",
+          impact: `Live Kite ticks for ${coverage.freshInstrumentCount} of ${coverage.requiredInstrumentCount} configured instruments (${coverage.overallState}). This is not whole-market coverage.`,
+          chipLabel: `Kite live — ${coverage.freshInstrumentCount}/${coverage.requiredInstrumentCount}`,
+          showReconnect: false,
+        };
       }
       return { mode: "chip", tone: "ok", headline: "Kite live", impact: "Live Kite data streaming.", chipLabel: "Kite live", showReconnect: false };
     }
@@ -323,7 +362,11 @@ function useGlobalDataHealth(): GlobalDataHealthSummary | null {
 export function GlobalStatusBanner() {
   const full = useKiteReadinessFull();
   const globalHealth = useGlobalDataHealth();
-  const view = deriveBannerView(full?.readiness, full?.liveQuotes);
+  // Public coverage facts. Shares the banner's react-query key, so this adds
+  // no extra request. Non-owners get it too — the chip must be honest for
+  // everyone, not just the owner.
+  const coverage = useMarketCoverage();
+  const view = deriveBannerView(full?.readiness, full?.liveQuotes, coverage);
 
   // DATA_DEGRADED chip: shown when Kite session looks ok (green chip) but the
   // global backbone health reports that some modules are blocked.

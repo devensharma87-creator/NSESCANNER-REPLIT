@@ -1,0 +1,439 @@
+DATA FOUNDATION PHASE 0.5B — TRUTHFUL AGGREGATE LIVE STATUS, FRESHNESS AND COVERAGE
+
+CODER_EXECUTION_CONTRACT remains active.
+
+This is one bounded development task addressing only:
+
+AGGREGATE_LIVE_STATUS_NOT_FRESHNESS_OR_COVERAGE_AWARE
+
+Do not deploy, merge, push or begin subscription expansion.
+
+Work on the existing isolated branch:
+
+pack33c-p1-1-isolated
+
+Phase 0.5A checkpoint:
+
+3e4292c
+
+If Replit automatically commits source files during this task, stop immediately and report the commit SHA and exact file list before proceeding.
+
+BACKGROUND
+
+The current defect is:
+
+deriveQuoteStatus() returns LIVE_TICKS when quoteCount > 0.
+
+That proves only that at least one quote exists. It does not prove:
+
+- Required-universe coverage
+- Subscription coverage
+- Tick coverage
+- Per-instrument freshness
+- Missing instruments
+- Pending token reconciliation
+- Provider conflict
+- Market-open/market-closed correctness
+- Complete NSE/BSE/index coverage
+
+Today the feed subscribes to only approximately 50 equities and 8 distinct index tokens. The approved future target is approximately 7,890 mapped NSE/BSE/index tokens, but the authoritative runtime universe manifest is not implemented yet.
+
+The website must not describe partial legacy coverage as complete live-market coverage.
+
+OBJECTIVE
+
+Replace count-based aggregate LIVE status with one centralized, fail-closed, freshness-aware and coverage-aware health contract.
+
+Do not hardcode 7,890 as a permanent universe count. Listing counts change. Coverage must ultimately derive from a versioned, authoritative, reconciled subscription manifest.
+
+A. REPRODUCTION BEFORE MODIFICATION
+
+Create deterministic characterization tests against the current implementation showing:
+
+1. One fresh quote and thousands of missing required instruments still produces LIVE_TICKS.
+2. One stale quote with quoteCount > 0 can still produce LIVE_TICKS.
+3. Pending token reconciliation does not prevent the aggregate live label.
+4. A non-zero quote count does not prove subscription or tick coverage.
+5. Market-closed data is not distinguished correctly from market-open live data where applicable.
+
+Record the exact current functions, routes and UI consumers involved.
+
+Label this CHARACTERIZATION / OBSERVED / TESTED accurately. Do not claim untouched production runtime reproduction unless actually captured.
+
+B. ONE CENTRAL COVERAGE CONTRACT
+
+Create one centralized aggregate market-data health contract. No page or route may independently reinterpret quote count as live coverage.
+
+Required identity/version fields:
+
+- universeScopeId
+- universeGenerationId
+- universeGeneratedAt
+- coverageAuthority
+- universeReconciliationValid
+- requiredInstrumentCount
+- registeredInstrumentCount
+- subscriptionRequestedCount
+- subscribedInstrumentCount
+- tickedInstrumentCount
+- freshInstrumentCount
+- staleInstrumentCount
+- unavailableInstrumentCount
+- conflictedInstrumentCount
+- pendingReconciliationCount
+- marketState
+- checkedAt
+- freshnessBudgetSec
+- overallState
+- blockers
+
+coverageAuthority must distinguish at least:
+
+- AUTHORITATIVE_RECONCILED_UNIVERSE
+- LEGACY_PARTIAL_CONFIGURATION
+- UNIVERSE_NOT_CONFIGURED
+
+Do not fabricate an authoritative universe manifest in this task.
+
+Until the official NSE/BSE master is integrated and reconciled at runtime, current coverage must remain:
+
+LEGACY_PARTIAL_CONFIGURATION
+
+It must not qualify for LIVE_COMPLETE even if every currently configured legacy token is fresh.
+
+C. REQUIRED AGGREGATE STATES
+
+Use a closed, explicit state contract. At minimum:
+
+- INITIALIZING
+- UNIVERSE_NOT_CONFIGURED
+- LIVE_COMPLETE
+- LIVE_PARTIAL
+- RECONCILIATION_PENDING
+- CONFLICTED
+- STALE
+- UNAVAILABLE
+- MARKET_CLOSED_CURRENT
+- MARKET_CLOSED_PARTIAL
+
+Rules:
+
+LIVE_COMPLETE is allowed only when all conditions hold:
+
+1. Market is open.
+2. coverageAuthority = AUTHORITATIVE_RECONCILED_UNIVERSE.
+3. universeReconciliationValid = true.
+4. requiredInstrumentCount > 0.
+5. registeredInstrumentCount = requiredInstrumentCount.
+6. subscribedInstrumentCount = requiredInstrumentCount.
+7. freshInstrumentCount = requiredInstrumentCount.
+8. staleInstrumentCount = 0.
+9. unavailableInstrumentCount = 0.
+10. conflictedInstrumentCount = 0.
+11. pendingReconciliationCount = 0.
+12. Every required identity has exact exchange-qualified identity.
+13. No shard/provider health blocker exists.
+
+A non-zero quote count must never be sufficient for LIVE_COMPLETE.
+
+LIVE_PARTIAL means some authorized instruments have fresh ticks but complete authoritative coverage is not proven.
+
+RECONCILIATION_PENDING must be surfaced whenever pending token reconciliation exists. Do not hide it behind a generic LIVE label.
+
+CONFLICTED must fail closed for affected instruments and must be represented in aggregate blockers.
+
+STALE means data exists but no longer meets the existing approved freshness policy.
+
+UNAVAILABLE means no trustworthy current value is available.
+
+D. MARKET-CLOSED SEMANTICS
+
+Do not label a valid official closing value stale merely because the market is closed.
+
+Distinguish:
+
+- Market open + fresh tick
+- Market open + stale/missing tick
+- Market closed + verified current-session close
+- Market closed + previous-session/old data
+- Holiday/weekend with latest verified close
+- Unknown or stale market calendar
+
+MARKET_CLOSED_CURRENT requires:
+
+- A valid canonical closing value
+- Correct trading date/session
+- Valid timestamp
+- Exact identity
+- No unresolved conflict
+- Honest source/provenance
+
+If only part of the required universe has a verified closing value, use MARKET_CLOSED_PARTIAL.
+
+Do not change market-calendar rules or freshness thresholds in this task. Reuse the existing approved policies. If they cannot support the required distinction, stop and report the exact policy blocker.
+
+E. PER-INSTRUMENT STATUS
+
+Every stored quote’s status must be derivable from:
+
+- canonicalInstrumentId
+- exchange
+- provider
+- exchange timestamp where available
+- received timestamp
+- age
+- freshness budget
+- subscription state
+- reconciliation state
+- conflict state
+- market state
+
+Required per-instrument states:
+
+- LIVE
+- CURRENT_SNAPSHOT
+- LAST_KNOWN
+- STALE
+- UNAVAILABLE
+- CONFLICTED
+- MARKET_CLOSED_FINAL
+- TOKEN_RECONCILIATION_PENDING
+
+An instrument with pending reconciliation must not be eligible for LIVE.
+
+An identity-less quote must not contribute to any live-coverage count.
+
+A stale quote must not contribute to freshInstrumentCount.
+
+Multiple aliases for one canonical index must count as one required instrument and one fresh instrument.
+
+F. COVERAGE DENOMINATORS
+
+Report separately:
+
+1. Configured coverage:
+   coverage against the currently configured subscription list.
+
+2. Authoritative-universe coverage:
+   coverage against the approved, reconciled NSE/BSE/index universe manifest.
+
+Because the authoritative runtime manifest does not yet exist, authoritative-universe coverage must report:
+
+- coverageAuthority = LEGACY_PARTIAL_CONFIGURATION or UNIVERSE_NOT_CONFIGURED
+- universeReconciliationValid = false
+- LIVE_COMPLETE ineligible
+- exact blocker: AUTHORITATIVE_UNIVERSE_NOT_CONFIGURED
+
+Do not use the current 58-token configuration as if it were the complete website universe.
+
+Do not hardcode a false list of 7,890 identities merely to satisfy tests.
+
+G. AGGREGATION INVARIANTS
+
+For a configured/reconciled universe:
+
+requiredInstrumentCount
+= freshInstrumentCount
++ staleInstrumentCount
++ unavailableInstrumentCount
++ conflictedInstrumentCount
++ pending-only classification according to one documented mutually-exclusive policy
+
+Avoid double-counting. If pending reconciliation is represented both as a count and a state overlay, document that it is an overlay and exclude it from the partition equation.
+
+Also prove:
+
+- freshInstrumentCount <= tickedInstrumentCount
+- tickedInstrumentCount <= subscribedInstrumentCount where applicable
+- subscribedInstrumentCount <= subscriptionRequestedCount
+- registeredInstrumentCount <= requiredInstrumentCount for authoritative manifests
+- no negative counts
+- no percentage above 100%
+- index aliases do not inflate counts
+- NSE and BSE listings of the same company remain separate instruments
+
+H. ROUTES AND UI
+
+Inventory every consumer of:
+
+- deriveQuoteStatus
+- feedStatus
+- MarketDataHealth
+- LIVE_TICKS
+- live/connected/healthy badges
+- quoteCount-based status
+- Kite status
+- global data-health status
+- scanner/top-banner provider badges
+
+Migrate only the shared health/status surfaces required to remove the misleading LIVE_TICKS claim.
+
+Required UI behaviour:
+
+- Do not show LIVE_COMPLETE for the current legacy partial feed.
+- Show LIVE_PARTIAL or the exact blocker.
+- Display configured/subscribed/fresh/required counts.
+- Distinguish configured coverage from authoritative-universe coverage.
+- Show pending reconciliation count when non-zero.
+- Show stale/unavailable counts.
+- Do not expose owner-only token details publicly.
+- Do not convert unavailable counts to zero-valued market data.
+- Do not display Yahoo as an Indian-market fallback.
+
+If migration requires changing a large number of unrelated pages, stop and report:
+
+BLOCKED_STATUS_CONSUMER_MIGRATION_REQUIRES_SEPARATE_PHASE
+
+Do not silently leave contradictory badges elsewhere.
+
+I. API COMPATIBILITY
+
+Prefer additive fields where possible.
+
+If LIVE_TICKS is consumed externally:
+
+- Do not silently change its meaning.
+- Mark it deprecated.
+- Add the new structured status.
+- Migrate all internal consumers.
+- Report any external compatibility risk.
+
+Generated schemas/clients must be updated only if the affected endpoint is part of the generated API contract.
+
+Public responses must contain safe aggregate counts only.
+
+Owner-only diagnostics may contain canonical identity details but no credentials, access tokens, secrets or raw connection data.
+
+J. REQUIRED TESTS
+
+Targeted tests must cover at minimum:
+
+1. One fresh quote out of 1,000 required cannot produce LIVE_COMPLETE.
+2. All currently configured legacy tokens fresh still cannot produce LIVE_COMPLETE without authoritative-universe authority.
+3. Complete authoritative coverage produces LIVE_COMPLETE.
+4. One stale required instrument prevents LIVE_COMPLETE.
+5. One unavailable required instrument prevents LIVE_COMPLETE.
+6. One conflicted required instrument prevents LIVE_COMPLETE.
+7. One pending reconciliation prevents LIVE_COMPLETE.
+8. Identity-less ticks do not count.
+9. Index aliases count once.
+10. NSE/BSE same-symbol instruments count separately.
+11. Freshness expiry changes the aggregate state.
+12. Existing freshness threshold is reused unchanged.
+13. Market-open fresh state.
+14. Market-open stale state.
+15. Market-closed verified close state.
+16. Market-closed partial state.
+17. Holiday/weekend latest-close handling.
+18. Missing/unknown market-calendar state fails closed.
+19. Partition equation reconciles.
+20. Impossible counts are rejected.
+21. Public diagnostics expose no sensitive details.
+22. Owner diagnostics remain strictly authenticated.
+23. Pending token details remain owner-only.
+24. Current approximately 58-token legacy configuration reports partial/non-authoritative coverage.
+25. No safety lock changes.
+26. No subscription-count changes.
+27. No provider calls are introduced.
+28. No scheduler is introduced.
+29. No per-tick database writes are introduced.
+30. Frontend badge does not render LIVE_COMPLETE for legacy partial coverage.
+
+Use deterministic fixtures only. Fixtures must never enter production stores.
+
+K. COST AND EXECUTION CONTROL
+
+During implementation:
+
+- Run targeted tests.
+- Run relevant TypeScript checks.
+- Run git diff --check.
+- Run affected-package tests once only after targeted tests pass and only if production code materially changes.
+- Do not repeatedly run full suites.
+- Do not run production builds unless required by a material module-boundary change.
+- Do not restart the server unless genuinely required.
+- Do not call Kite, Upstox, IndianAPI, Yahoo or production APIs.
+- Do not write to any database.
+- Do not deploy.
+- Do not change Replit deployment type.
+
+L. PROHIBITIONS
+
+Do not:
+
+- Expand subscriptions.
+- Implement three WebSocket shards.
+- Modify the replay buffer.
+- Integrate the official full-universe manifest.
+- Implement historical candles or indicators.
+- Add EMA, RSI, SMC, FVG, BOS, volume profile or Fibonacci logic.
+- Integrate Upstox fallback.
+- Integrate IndianAPI.
+- Modify Yahoo policy.
+- Change freshness thresholds.
+- Enable warehouse/scanner/F&O/Swing locks.
+- Change scoring, confidence, signals or order behaviour.
+- Merge, push or deploy.
+
+M. AUTOMATIC-COMMIT STOP CONDITION
+
+Before starting, record:
+
+- Branch
+- HEAD
+- Git status
+- Main SHA
+
+If Replit automatically commits any source file during this task:
+
+1. Stop immediately.
+2. Report commit SHA.
+3. Report exact committed file list.
+4. Confirm whether it matches the authorized task.
+5. Do not reset, revert, squash, rebase or rewrite history.
+6. Wait for owner direction.
+
+N. FINAL RESPONSE
+
+Report:
+
+1. Characterized old failure.
+2. New aggregate status contract.
+3. State precedence rules.
+4. Per-instrument status contract.
+5. Coverage denominator and authority handling.
+6. Configured versus authoritative coverage.
+7. Market-open/closed behaviour.
+8. Complete consumer inventory.
+9. API compatibility.
+10. Changed files.
+11. Targeted test results.
+12. TypeScript and diff-check results.
+13. Subscription count before/after.
+14. Provider-query count before/after.
+15. Scheduler count before/after.
+16. Database-write count before/after.
+17. Four frozen safety-lock values.
+18. Remaining blockers.
+19. Git status and any automatic commits.
+
+Use only:
+
+- OBSERVED
+- TESTED
+- INFERRED
+- NOT_YET_VERIFIED
+
+Required verdict:
+
+AGGREGATE_MARKET_DATA_STATUS_VERIFIED_IN_DEVELOPMENT —
+NO_PARTIAL_COVERAGE_LABELLED_COMPLETE —
+NO_STALE_DATA_LABELLED_LIVE —
+INDEPENDENT_REVIEW_REQUIRED
+
+or:
+
+DATA_FOUNDATION_PHASE_0_5B_BLOCKED — [exact blocker]
+
+Do not commit unless separately authorized after independent review.
+Do not deploy, merge, push or begin the next phase.

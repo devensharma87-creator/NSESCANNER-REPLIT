@@ -18,13 +18,31 @@
  *   - Frontend global-status-banner.tsx (supplements /api/kite/status)
  */
 
-import { feedStatus } from "./kiteFeed";
+import { feedStatus, subscribedTokenSnapshot } from "./kiteFeed";
 import {
   publicTokenReconciliationStatus,
   type PublicTokenReconciliationStatus,
 } from "./providerTokenReconciliation";
 import { getKiteReadiness } from "./kiteReadiness";
+import { buildLiveAggregateCoverage } from "./marketData/aggregateCoverageLive";
+import {
+  toPublicAggregateCoverage,
+  type PublicAggregateCoverage,
+} from "./marketData/aggregateCoverage";
 
+/**
+ * @deprecated Phase 0.5B — `LIVE_TICKS` is NOT a coverage claim.
+ *
+ * It means only "at least one quote exists in the store". It says nothing
+ * about how much of the required universe is covered, whether any individual
+ * quote is fresh, whether subscriptions succeeded, or whether a provider-token
+ * reconciliation is outstanding.
+ *
+ * Its meaning is deliberately UNCHANGED here so existing consumers do not
+ * silently shift underneath them. New consumers must read
+ * `MarketDataHealth.coverage` instead, which carries the real per-instrument
+ * freshness and coverage accounting.
+ */
 export type QuoteStatus =
   | "LIVE_TICKS"
   | "CONNECTED_WAITING"
@@ -52,7 +70,15 @@ export interface MarketDataHealth {
     websocketStatus: "CONNECTED" | "DISCONNECTED" | "STOPPED";
     subscribedTokens: number;
     liveQuotesCount: number;
+    /**
+     * @deprecated Phase 0.5B — see the `QuoteStatus` note. A `LIVE_TICKS` value
+     * here does NOT mean the market is fully covered. Read `coverage` instead.
+     */
     quoteStatus: QuoteStatus;
+    /**
+     * @deprecated Phase 0.5B — derived from the deprecated `quoteStatus`, so it
+     * inherits the same blind spot. Use `coverage.overallState`.
+     */
     tradeGrade: boolean;
     explanation: string;
     /**
@@ -84,6 +110,20 @@ export interface MarketDataHealth {
     actionRequired: boolean;
     action: string | null;
   };
+
+  /**
+   * Phase 0.5B — the TRUTHFUL aggregate status. Additive: it does not change
+   * any existing field's meaning.
+   *
+   * This is the only field that carries real coverage and per-instrument
+   * freshness accounting. It reports coverage against the configured feed and
+   * against the (not-yet-configured) authoritative universe separately, so a
+   * partial legacy feed can never be presented as complete market coverage.
+   *
+   * PUBLIC-SAFE: aggregate counts and states only — no canonical identities,
+   * provider tokens, or credentials.
+   */
+  coverage: PublicAggregateCoverage;
 
   checkedAt: string;
 }
@@ -244,6 +284,19 @@ export async function buildMarketDataHealth(): Promise<MarketDataHealth> {
     liveQuotesCount,
   });
 
+  // Phase 0.5B: real coverage accounting. Reads in-process state only — no
+  // provider call, no DB access, no timer.
+  const coverage = toPublicAggregateCoverage(
+    buildLiveAggregateCoverage(
+      {
+        subscribedTokens: subscribedTokenSnapshot(),
+        connected: readiness.feedConnected,
+        running: readiness.feedRunning,
+      },
+      now.getTime(),
+    ),
+  );
+
   const scannerSourceStatus = deriveScannerSourceStatus(quoteStatus);
   const overall = deriveOverall(quoteStatus, readiness.sessionPresent);
   const tradeGrade = quoteStatus === "LIVE_TICKS";
@@ -297,6 +350,7 @@ export async function buildMarketDataHealth(): Promise<MarketDataHealth> {
     },
 
     overall,
+    coverage,
     checkedAt: now.toISOString(),
   };
 }

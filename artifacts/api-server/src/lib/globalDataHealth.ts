@@ -27,6 +27,7 @@ import type { ModuleDataHealth, ModuleStatus } from "./backboneHealth";
 import { getKiteReadiness } from "./kiteReadiness";
 import { getLastAlertRecord } from "./alerting";
 import type { QuoteStatus, FallbackLabel } from "./marketDataHealth";
+import type { PublicAggregateCoverage } from "./marketData/aggregateCoverage";
 
 // ── Public types ──────────────────────────────────────────────────────────────
 
@@ -99,6 +100,14 @@ export interface GlobalDataHealth {
    * fno | swing | optionChain | watchlist | portfolio | scanner | charting | home | prePost
    */
   modules: Record<string, ModuleHealth>;
+
+  /**
+   * Phase 0.5B — truthful coverage accounting (public-safe aggregate counts
+   * only). This is the field that says how much of the required universe is
+   * actually fresh; `kite.quoteStatus` and `kite.tradeGrade` are deprecated
+   * and cannot answer that.
+   */
+  coverage: PublicAggregateCoverage;
 
   fallback: {
     yahooActive: boolean;
@@ -209,6 +218,44 @@ export function deriveGlobalDataHealthStatus(
   return "UNAVAILABLE";
 }
 
+/**
+ * PURE (Phase 0.5B): downgrade a completeness claim that coverage cannot back.
+ *
+ * `deriveGlobalDataHealthStatus` reaches TRADE_GRADE_LIVE off the deprecated
+ * `LIVE_TICKS` quote status, which only proves that at least one quote exists.
+ * TRADE_GRADE_LIVE renders as a green "all good" banner, so leaving it
+ * ungated would describe a partial legacy feed as complete live coverage.
+ *
+ * The legacy deriver's own contract is deliberately left untouched; this gate
+ * is applied on top of it at the composition site.
+ */
+export function applyCoverageGate(
+  status: GlobalDataHealthStatus,
+  coverageComplete: boolean,
+  coverageState?: string,
+): GlobalDataHealthStatus {
+  if (status === "TRADE_GRADE_LIVE" && !coverageComplete) return "KITE_PARTIAL";
+
+  // SESSION_ACTIVE_MARKET_CLOSED also renders green. That label is a claim
+  // about the SESSION, not the data, and after close it is normally accurate.
+  // But an integrity fault does not become acceptable because the market shut:
+  // a conflicted quote or an unresolved token rotation means stored prices may
+  // be wrong or misattributed, and that must never sit behind a green badge.
+  //
+  // Deliberately NOT downgraded on coverage STALE: after close, every
+  // instrument degrades to LAST_KNOWN because no verified official close is
+  // available to this path yet. That is a known, separately-reported gap, and
+  // firing an amber badge every single evening for an expected condition would
+  // train the owner to ignore the badge.
+  if (
+    status === "SESSION_ACTIVE_MARKET_CLOSED" &&
+    (coverageState === "CONFLICTED" || coverageState === "RECONCILIATION_PENDING")
+  ) {
+    return "DEGRADED_DATA";
+  }
+  return status;
+}
+
 /** PURE: maps GlobalDataHealthStatus → severity tier. */
 export function deriveGlobalSeverity(status: GlobalDataHealthStatus): GlobalDataHealthSeverity {
   switch (status) {
@@ -293,11 +340,17 @@ export async function buildGlobalDataHealth(): Promise<GlobalDataHealth> {
   const anyBlocked = modules.some((m) => m.status === "BLOCKED");
   const anyDegraded = modules.some((m) => m.status === "DEGRADED");
 
-  const overallStatus = deriveGlobalDataHealthStatus(
-    health.kite.sessionStatus,
-    health.kite.quoteStatus,
-    anyBlocked,
-    anyDegraded,
+  // Phase 0.5B: a green "trade-grade live" claim now requires real coverage,
+  // not merely a non-zero quote count.
+  const overallStatus = applyCoverageGate(
+    deriveGlobalDataHealthStatus(
+      health.kite.sessionStatus,
+      health.kite.quoteStatus,
+      anyBlocked,
+      anyDegraded,
+    ),
+    health.coverage.overallState === "LIVE_COMPLETE",
+    health.coverage.overallState,
   );
   const severity = deriveGlobalSeverity(overallStatus);
   const { badge, headline } = deriveBadgeAndHeadline(overallStatus);
@@ -335,6 +388,8 @@ export async function buildGlobalDataHealth(): Promise<GlobalDataHealth> {
     },
 
     modules: moduleHealthMap,
+
+    coverage: health.coverage,
 
     fallback: {
       yahooActive: health.fallback.yahooActive,
