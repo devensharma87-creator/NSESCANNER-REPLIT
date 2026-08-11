@@ -1,7 +1,7 @@
 import { Router, type IRouter } from "express";
 import crypto from "node:crypto";
 import { buildLoginUrl, clearSession, completeLogin, forceRefreshInstruments, getActiveSession, getKiteCreds, storeImportedSession, exportInstrumentsCache, type ExportedSession } from "../lib/kiteAuth";
-import { addTickListener, feedStatus, getAllLiveQuotes, getLiveQuote, startTicker, stopTicker, subscribe } from "../lib/kiteFeed";
+import { addTickListener, feedStatus, getAllLiveQuotes, resolveLiveQuoteBySymbol, startTicker, stopTicker, subscribe } from "../lib/kiteFeed";
 import { getKiteReadiness } from "../lib/kiteReadiness";
 import { requireOwner, requireOwnerStrict } from "../lib/userAuth";
 import { triggerKiteWarmup } from "../lib/kiteWarmup";
@@ -310,9 +310,28 @@ router.get("/kite/quotes", (_req, res) => {
 
 router.get("/kite/quote/:symbol", (req, res) => {
   const sym = String(req.params["symbol"] ?? "").toUpperCase();
-  const q = getLiveQuote(sym);
-  if (!q) { res.status(404).json({ error: "no live quote for symbol" }); return; }
-  res.json(q);
+  const resolution = resolveLiveQuoteBySymbol(sym);
+  if (resolution.status === "AMBIGUOUS") {
+    // The symbol is listed on more than one exchange. Report the choice
+    // rather than defaulting to an exchange the caller did not ask for.
+    res.status(409).json({
+      error: "ambiguous symbol",
+      reason: "SYMBOL_RESOLVES_TO_MULTIPLE_EXCHANGES",
+      candidates: resolution.candidates.map(c => ({
+        canonicalInstrumentId: c.canonicalInstrumentId,
+        exchange: c.exchange,
+        segment: c.segment,
+        tradingSymbol: c.tradingSymbol,
+        instrumentToken: c.instrumentToken,
+      })),
+    });
+    return;
+  }
+  if (resolution.status === "NOT_FOUND") {
+    res.status(404).json({ error: "no live quote for symbol" });
+    return;
+  }
+  res.json(resolution.quote);
 });
 
 /** Server-Sent Events stream of every tick that arrives. */

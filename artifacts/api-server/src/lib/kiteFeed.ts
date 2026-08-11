@@ -15,18 +15,28 @@ import { getActiveSession, getRestClient, autoMirrorSession, autoMirrorInstrumen
 import { NIFTY50_SYMBOLS } from "./watchlistLists";
 import { KiteTicker } from "kiteconnect";
 import { tapPushTick, tapPushSystemEvent } from "./liveTapRing";
+import { instrumentRegistry } from "./canonicalInstrument";
+import {
+  upsertQuote,
+  getQuoteBySymbol,
+  allQuotes,
+  quoteCount,
+  clearQuotes,
+  evictQuote,
+  resolveQuoteBySymbol,
+  type LiveTick,
+  type QuoteResolution,
+} from "./liveQuoteStore";
 
-export interface LiveTick {
-  symbol: string;
-  instrumentToken: number;
-  ltp: number;
-  open?: number;
-  high?: number;
-  low?: number;
-  close?: number;
-  volume?: number;
-  changePercent?: number;
-  ts: number;
+export type { LiveTick, QuoteResolution };
+
+/**
+ * Explicit symbol/alias resolution. Unlike getLiveQuote(), this reports
+ * AMBIGUOUS when a symbol exists on more than one exchange so callers can
+ * surface the choice instead of silently receiving one exchange's price.
+ */
+export function resolveLiveQuoteBySymbol(symbol: string): QuoteResolution {
+  return resolveQuoteBySymbol(symbol);
 }
 
 interface InstrumentMeta {
@@ -48,8 +58,6 @@ let lastConnect: number | null = null;
 let lastDisconnect: number | null = null;
 let lastError: string | null = null;
 let subscribedTokens: Set<number> = new Set();
-const tokenToSymbol = new Map<number, string>();
-const liveQuotes = new Map<string, LiveTick>();
 const sseListeners = new Set<(tick: LiveTick) => void>();
 
 /** Refresh the NSE EQ instruments dump. */
@@ -76,31 +84,44 @@ async function loadInstruments(): Promise<Map<string, InstrumentMeta> | null> {
   }
 }
 
-/** Resolve a list of plain NSE symbols to Kite instrument tokens. */
-async function resolveTokens(symbols: string[]): Promise<{ token: number; symbol: string }[]> {
+/** Resolve plain NSE symbols to their full Kite instrument records. */
+async function resolveInstruments(symbols: string[]): Promise<InstrumentMeta[]> {
   const map = await loadInstruments();
   if (!map) return [];
-  const out: { token: number; symbol: string }[] = [];
+  const out: InstrumentMeta[] = [];
   for (const s of symbols) {
     const ins = map.get(s);
-    if (ins) out.push({ token: ins.instrument_token, symbol: s });
+    if (ins) out.push(ins);
   }
   return out;
+}
+
+/** Kite's CSV-backed dumps can yield numeric fields as strings. */
+function asToken(raw: unknown): number | null {
+  const n = Number(raw);
+  return Number.isInteger(n) && n > 0 ? n : null;
+}
+
+function asExchange(raw: unknown): "NSE" | "BSE" | null {
+  return raw === "NSE" || raw === "BSE" ? raw : null;
 }
 
 function handleTicks(ticks: any[]): void {
   const now = Date.now();
   for (const t of ticks) {
-    const tok = t.instrument_token as number;
-    const sym = tokenToSymbol.get(tok);
-    if (!sym) continue;
+    const tok = asToken(t.instrument_token);
+    if (tok == null) continue;
+    // Storage identity comes from the provider token via the canonical
+    // registry. The trading symbol never decides where a quote is stored.
+    const identity = instrumentRegistry.resolveByToken(tok);
+    if (!identity) continue;
     const ohlc = t.ohlc ?? {};
     const close = ohlc.close as number | undefined;
     const ltp = (t.last_price ?? t.ltp) as number | undefined;
     if (ltp == null || !Number.isFinite(ltp)) continue;
-    const tick: LiveTick = {
-      symbol: sym,
-      instrumentToken: tok,
+    const stored = upsertQuote({
+      providerInstrumentToken: tok,
+      provider: "KITE",
       ltp,
       open: ohlc.open,
       high: ohlc.high,
@@ -109,8 +130,9 @@ function handleTicks(ticks: any[]): void {
       volume: t.volume_traded ?? t.volume,
       changePercent: close && close > 0 ? +(((ltp - close) / close) * 100).toFixed(2) : undefined,
       ts: now,
-    };
-    liveQuotes.set(sym, tick);
+    });
+    if (!stored.ok) continue;
+    const tick = stored.tick;
     // R1-tail — replay recorder read-only tap. Wrapped in try/catch so
     // a buffer failure NEVER touches the trading path (spec §12.2). The
     // recorder endpoint /api/replay/record drains this into a fixture
@@ -119,7 +141,7 @@ function handleTicks(ticks: any[]): void {
       tapPushTick({
         receivedAtMs: now,
         instrumentToken: tok,
-        symbol: sym,
+        symbol: tick.symbol,
         ltp,
         ltq: (t.last_traded_quantity ?? null) as number | null,
         volume: (t.volume_traded ?? t.volume ?? null) as number | null,
@@ -208,7 +230,6 @@ export async function startTicker(session?: ActiveSession): Promise<boolean> {
     tickerStarted = false;
     ticker = null;
     subscribedTokens.clear();
-    tokenToSymbol.clear();
     scheduleTickerRestart(60_000);
   });
 
@@ -271,19 +292,49 @@ export function stopTicker(): void {
   ticker = null;
   tickerStarted = false;
   subscribedTokens.clear();
-  tokenToSymbol.clear();
-  liveQuotes.clear();
+  clearQuotes();
 }
 
 /** Subscribe to a list of symbols (additive). Returns the number actually added. */
 export async function subscribe(symbols: string[]): Promise<number> {
   if (!ticker || !tickerStarted) return 0;
-  const resolved = await resolveTokens(symbols);
+  const resolved = await resolveInstruments(symbols);
   const newTokens: number[] = [];
-  for (const { token, symbol } of resolved) {
+  for (const ins of resolved) {
+    const token = asToken(ins.instrument_token);
+    const exchange = asExchange(ins.exchange);
+    if (token == null || exchange == null) {
+      logger.warn(
+        { tradingsymbol: ins.tradingsymbol, token: ins.instrument_token, exchange: ins.exchange },
+        "Skipping instrument with unusable token/exchange",
+      );
+      continue;
+    }
     if (subscribedTokens.has(token)) continue;
+    const reg = instrumentRegistry.register({
+      exchange,
+      segment: "EQUITY",
+      tradingSymbol: ins.tradingsymbol,
+      providerInstrumentToken: token,
+      providerExchangeToken: asToken(ins.exchange_token),
+      // Fed from a freshly loaded Kite master, so this is authoritative.
+      allowTokenRebind: true,
+    });
+    if (!reg.ok) {
+      logger.warn(
+        { tradingsymbol: ins.tradingsymbol, token, reason: reg.reason, detail: reg.detail },
+        "Canonical identity rejected; instrument not subscribed",
+      );
+      continue;
+    }
+    if (reg.rebound) {
+      evictQuote(reg.identity.canonicalInstrumentId);
+      logger.warn(
+        { tradingsymbol: ins.tradingsymbol, previousToken: reg.previousToken, token },
+        "Provider instrument token rebound; stale quote evicted",
+      );
+    }
     subscribedTokens.add(token);
-    tokenToSymbol.set(token, symbol);
     newTokens.push(token);
   }
   if (newTokens.length > 0) {
@@ -302,7 +353,7 @@ export async function subscribe(symbols: string[]): Promise<number> {
 
 /** O(1) lookup of last tick for a symbol. */
 export function getLiveQuote(symbol: string): LiveTick | null {
-  return liveQuotes.get(symbol) ?? null;
+  return getQuoteBySymbol(symbol);
 }
 
 /**
@@ -318,14 +369,56 @@ export async function subscribeIndices(): Promise<number> {
   // Lazy import to avoid an init-time circular reference between
   // kiteFeed and kiteIntraday (kiteIntraday already imports
   // getInstrumentToken from this module).
-  const { getIndexTokenMap } = await import("./kiteIntraday");
-  const map = await getIndexTokenMap();
+  const { getIndexIdentityMap } = await import("./kiteIntraday");
+  const map = await getIndexIdentityMap();
   if (!map) return 0;
+  // Several Yahoo aliases can share one Kite token (e.g. "^CNXFIN" and
+  // "NIFTY_FIN_SERVICE.NS"). Group by token first so every alias resolves to
+  // the same canonical identity instead of the first alias winning and the
+  // rest becoming permanently unresolvable.
+  const byToken = new Map<number, { exchange: string; tradingSymbol: string; aliases: string[] }>();
+  for (const [alias, meta] of map) {
+    const token = asToken(meta.token);
+    if (token == null) continue;
+    const entry = byToken.get(token);
+    if (entry) {
+      if (!entry.aliases.includes(alias)) entry.aliases.push(alias);
+    } else {
+      byToken.set(token, { exchange: meta.exchange, tradingSymbol: meta.tradingSymbol, aliases: [alias] });
+    }
+  }
   const newTokens: number[] = [];
-  for (const [yahoo, token] of map) {
+  for (const [token, meta] of byToken) {
+    const exchange = asExchange(meta.exchange);
+    if (exchange == null) {
+      logger.warn({ tradingSymbol: meta.tradingSymbol, exchange: meta.exchange }, "Skipping index with unusable exchange");
+      continue;
+    }
+    const reg = instrumentRegistry.register({
+      exchange,
+      segment: "INDEX",
+      tradingSymbol: meta.tradingSymbol,
+      providerInstrumentToken: token,
+      securityClass: "INDEX",
+      aliases: meta.aliases,
+      allowTokenRebind: true,
+    });
+    if (!reg.ok) {
+      logger.warn(
+        { tradingSymbol: meta.tradingSymbol, token, reason: reg.reason, detail: reg.detail },
+        "Canonical index identity rejected; index not subscribed",
+      );
+      continue;
+    }
+    if (reg.rebound) {
+      evictQuote(reg.identity.canonicalInstrumentId);
+      logger.warn(
+        { tradingSymbol: meta.tradingSymbol, previousToken: reg.previousToken, token },
+        "Provider index token rebound; stale quote evicted",
+      );
+    }
     if (subscribedTokens.has(token)) continue;
     subscribedTokens.add(token);
-    tokenToSymbol.set(token, yahoo);
     newTokens.push(token);
   }
   if (newTokens.length > 0) {
@@ -355,9 +448,7 @@ export async function getInstrumentToken(symbol: string): Promise<number | null>
 }
 
 export function getAllLiveQuotes(): Record<string, LiveTick> {
-  const out: Record<string, LiveTick> = {};
-  for (const [k, v] of liveQuotes) out[k] = v;
-  return out;
+  return allQuotes();
 }
 
 export function feedStatus(): {
@@ -373,7 +464,7 @@ export function feedStatus(): {
     running: tickerStarted,
     connected: !!(ticker && typeof ticker.connected === "function" && ticker.connected()),
     subscribed: subscribedTokens.size,
-    liveQuotes: liveQuotes.size,
+    liveQuotes: quoteCount(),
     lastConnectAt: lastConnect ? new Date(lastConnect).toISOString() : null,
     lastDisconnectAt: lastDisconnect ? new Date(lastDisconnect).toISOString() : null,
     lastError,

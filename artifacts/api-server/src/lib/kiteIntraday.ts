@@ -99,6 +99,27 @@ export async function getIndexTokenMap(): Promise<Map<string, number> | null> {
   }
 }
 
+/**
+ * Phase 0.5A: same resolution as getIndexTokenMap, but carrying the exchange
+ * and the canonical exchange trading symbol alongside the token so callers can
+ * mint a canonical instrument identity instead of keying indices by their
+ * Yahoo-style alias. Iteration order follows INDEX_TABLE, so the first alias
+ * seen for a token is the one legacy consumers already use.
+ */
+export async function getIndexIdentityMap(): Promise<
+  Map<string, { token: number; exchange: string; tradingSymbol: string }> | null
+> {
+  const tokens = await getIndexTokenMap();
+  if (!tokens) return null;
+  const out = new Map<string, { token: number; exchange: string; tradingSymbol: string }>();
+  for (const e of INDEX_TABLE) {
+    const token = tokens.get(e.yahoo);
+    if (token == null) continue;
+    out.set(e.yahoo, { token, exchange: e.exchange, tradingSymbol: e.tradingSymbol });
+  }
+  return out;
+}
+
 async function ensureTokenMap(kc: { getInstruments: (e: string) => Promise<unknown> }): Promise<Map<string, number>> {
   const today = istDayKey();
   if (tokenMap && tokenMapDate === today) return tokenMap;

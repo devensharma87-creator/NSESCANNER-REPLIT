@@ -1,0 +1,201 @@
+DATA FOUNDATION PHASE 0.5A — EXCHANGE-SAFE CANONICAL INSTRUMENT IDENTITY
+
+CODER_EXECUTION_CONTRACT remains active.
+
+This is one bounded development task. Work only on eliminating NSE/BSE quote collisions and establishing the canonical instrument identity required by the future data foundation.
+
+Do not implement WebSocket expansion, three-shard subscriptions, Reserved VM changes, historical candles, indicators, fundamentals, charting tools or whole-site migration in this task.
+
+Do not deploy.
+
+BACKGROUND
+
+The verified intended live universe is:
+
+- NSE mapped live securities: 2,971
+- BSE mapped live securities: 4,710
+- All NSE/BSE indices: 209
+- Required Kite tokens: 7,890
+- Kite capacity: 9,000
+- Headroom: 1,110
+
+A P0 defect was identified:
+
+The current live quote store appears to use symbol alone as its key:
+
+liveQuotes.set(symbol, tick)
+
+For securities listed on both NSE and BSE, one exchange can overwrite the other. This violates the requirement that every exchange-listed security have a distinct canonical identity and can create cross-tab price discrepancies.
+
+OBJECTIVE
+
+Implement one exchange-qualified canonical instrument identity throughout the live-feed storage and retrieval path, while preserving current functionality and without increasing subscription count.
+
+A. REPRODUCTION BEFORE MODIFICATION
+
+Before changing code, produce a deterministic failing test showing:
+
+1. An NSE instrument and BSE instrument with the same trading symbol.
+2. Different instrument tokens and different prices.
+3. Both ticks entering the current quote-storage path.
+4. One overwriting the other or becoming indistinguishable under the current symbol-only key.
+5. The exact affected functions and consumers.
+
+Label this evidence TESTED.
+
+Do not use production provider calls or mutate production data.
+
+B. CANONICAL IDENTITY CONTRACT
+
+Define one centralized identity type/helper. Do not let individual modules invent their own key format.
+
+Minimum canonical identity fields:
+
+- canonicalInstrumentId
+- exchange
+- segment
+- tradingSymbol
+- providerInstrumentToken
+- providerExchangeToken
+- securityId
+- ISIN where available
+- securityClass
+- listingStatus
+
+Canonical key requirements:
+
+- NSE and BSE instruments with the same symbol must remain different.
+- Instrument token must resolve to exactly one canonical identity.
+- Exchange-qualified identity must be preserved through API and UI contracts.
+- Never use symbol alone as an identity key.
+- Never use symbol-only matching to join official masters with provider masters.
+- Do not silently deduplicate cross-listed companies by ISIN; NSE and BSE listings remain separate market instruments.
+- The design must support future Kite and Upstox token mappings without changing the canonical identity.
+- The design must support future canonical candles, EMA, RSI, SMC, FVG, BOS, volume profile and Fibonacci calculations without using provider-specific identity as the analytical primary key.
+
+Prefer an explicit canonical key such as an immutable internal ID derived from exchange-qualified authoritative identity. Explain the selected format and collision properties.
+
+C. LIVE QUOTE STORE
+
+Update the live quote path so that:
+
+- Quotes are stored by canonical instrument identity or provider instrument token mapped to canonical identity.
+- NSE and BSE versions of the same symbol cannot overwrite each other.
+- Index identities cannot collide with stock identities.
+- Existing symbol-search convenience may remain only as a secondary lookup returning one or more exact exchange-qualified matches.
+- Ambiguous symbol-only lookup must return an explicit ambiguity result, not silently choose an exchange.
+- Every quote retains exchange, token, timestamp, provider and canonicalInstrumentId.
+- Existing current subscriptions remain unchanged.
+
+Do not label data LIVE merely because it exists in the map. Preserve the current freshness behaviour; do not alter thresholds.
+
+D. CONSUMER AUDIT AND COMPATIBILITY
+
+Inventory every direct reader/writer of:
+
+- liveQuotes
+- tokenToSymbol
+- subscribedTokens
+- quote lookup by symbol
+- SSE tick payloads
+- scanner quote lookups
+- chart quote lookups
+- watchlist/portfolio lookups
+- index quote lookups
+- Telegram/alert consumers
+
+Classify each consumer:
+
+- migrated in this task
+- compatibility adapter required
+- deferred to canonical whole-site migration
+- unsafe blocker
+
+Do not broadly migrate unrelated pages. Make only the minimum changes necessary to prevent identity collision and preserve current behaviour.
+
+If a consumer cannot safely distinguish NSE from BSE without changing its public contract, stop and report:
+
+BLOCKED_CONSUMER_CONTRACT_REQUIRES_OWNER_REVIEW
+
+Do not silently default to NSE.
+
+E. REQUIRED TESTS
+
+Targeted tests must cover at minimum:
+
+1. Same symbol on NSE and BSE stored simultaneously.
+2. NSE quote cannot overwrite BSE quote.
+3. BSE quote cannot overwrite NSE quote.
+4. Different symbols with the same name remain distinct.
+5. Index and stock symbol collision remains distinct.
+6. Token resolves to one exact canonical identity.
+7. Duplicate provider token is rejected.
+8. Ambiguous symbol-only lookup does not silently choose.
+9. Existing unambiguous symbol lookup remains compatible where explicitly allowed.
+10. SSE payload contains canonicalInstrumentId and exchange.
+11. Restart/rehydration preserves canonical identity where applicable.
+12. No fixture/demo value can enter the production store as real data.
+13. No change to current subscription count.
+14. All four frozen safety locks remain false.
+
+Run only targeted tests and the relevant TypeScript check during implementation.
+
+After targeted tests pass:
+
+- Run affected-package tests once.
+- Run the full suite only if required by repository policy or immediately before a future release candidate.
+- Do not run repeated full suites.
+- Do not run production builds unless necessary to validate this bounded change.
+
+F. PROHIBITIONS
+
+Do not:
+
+- Expand from the current subscription universe to 7,890 tokens.
+- Create the three WebSocket shards.
+- Change deployment type.
+- Modify freshness thresholds.
+- Enable any scanner, F&O, Swing or warehouse lock.
+- Integrate Upstox fallback.
+- Integrate IndianAPI or Yahoo.
+- Build EMA/RSI/candle/SMC/FVG/BOS/volume-profile logic.
+- Change scoring, confidence, signals or trading behaviour.
+- Deploy.
+- Claim production verification from unit tests.
+- Fabricate runtime evidence.
+
+G. EVIDENCE AND FINAL RESPONSE
+
+Report:
+
+1. Exact reproduced collision.
+2. Root cause.
+3. Changed files.
+4. Canonical identity format and why it cannot collide.
+5. Complete consumer audit.
+6. Compatibility behaviour.
+7. Targeted test results.
+8. TypeScript result.
+9. Subscription count before and after.
+10. Four frozen safety-lock values.
+11. Remaining risks.
+12. Git status and commit, if a commit was created.
+
+Every statement must be labelled where applicable:
+
+- OBSERVED
+- TESTED
+- INFERRED
+- NOT_YET_VERIFIED
+
+Required verdict:
+
+CANONICAL_INSTRUMENT_IDENTITY_VERIFIED_IN_DEVELOPMENT —
+NSE_BSE_COLLISION_ELIMINATED —
+INDEPENDENT_REVIEW_REQUIRED
+
+or
+
+DATA_FOUNDATION_BLOCKED — [exact blocker]
+
+Do not authorize implementation of the next phase and do not authorize deployment.

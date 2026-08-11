@@ -56,14 +56,20 @@ export function runStalenessCheck(now: Date = new Date()): StalenessSnapshot {
     return snapshot;
   }
   const quotes = getAllLiveQuotes();
-  const symbols = Object.keys(quotes);
+  const entries = Object.entries(quotes);
   const nowMs = now.getTime();
   const stale: string[] = [];
-  for (const sym of symbols) {
-    const q = quotes[sym];
-    if (q && nowMs - q.ts > STALE_AGE_MS) stale.push(sym);
+  // subscribe() resolves plain NSE equity trading symbols only. Snapshot keys
+  // can be index aliases ("^NSEI") or exchange-qualified canonical ids for
+  // symbols listed on both exchanges, neither of which it can resolve — so the
+  // nudge is driven by the canonical trading symbol instead of the map key.
+  const staleNseEquitySymbols: string[] = [];
+  for (const [key, q] of entries) {
+    if (!q || nowMs - q.ts <= STALE_AGE_MS) continue;
+    stale.push(key);
+    if (q.segment === "EQUITY" && q.exchange === "NSE") staleNseEquitySymbols.push(q.tradingSymbol);
   }
-  const total = symbols.length;
+  const total = entries.length;
   const stalePct = total > 0 ? stale.length / total : 0;
   const degrade = total >= MIN_UNIVERSE_FOR_ALERT && stalePct > STALE_PCT_DEGRADE;
   snapshot = {
@@ -79,7 +85,7 @@ export function runStalenessCheck(now: Date = new Date()): StalenessSnapshot {
   if (stale.length > 0 && nowMs - lastNudgeAt > NUDGE_COOLDOWN_MS) {
     lastNudgeAt = nowMs;
     // Re-subscribe = Kite re-sends a fresh snapshot tick for those tokens.
-    void subscribe(stale).catch(() => {});
+    if (staleNseEquitySymbols.length > 0) void subscribe(staleNseEquitySymbols).catch(() => {});
     logger.warn({ staleCount: stale.length, total, sample: stale.slice(0, 5) },
       "staleness watchdog: nudged resubscribe for stale tokens (BUG-30)");
   }

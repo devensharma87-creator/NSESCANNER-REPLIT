@@ -66,6 +66,7 @@ vi.mock("../../lib/kiteFeed", () => ({
   addTickListener: vi.fn(),
   getAllLiveQuotes: () => ({}),
   getLiveQuote: () => null,
+  resolveLiveQuoteBySymbol: () => ({ status: "NOT_FOUND" }),
   startTicker: vi.fn(async () => {}),
   stopTicker: vi.fn(() => {}),
   subscribe: vi.fn(),
