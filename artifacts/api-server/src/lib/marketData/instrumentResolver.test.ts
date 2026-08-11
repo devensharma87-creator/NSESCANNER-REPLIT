@@ -1,5 +1,6 @@
-import { describe, it, expect, beforeAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import {
   resolveInstrument,
@@ -7,20 +8,70 @@ import {
   normalizeSymbol,
   isResolverReady,
   resetResolverCache,
+  getExchangeReadiness,
+  _forTesting_overrideCacheDir,
 } from "./instrumentResolver";
 
 /**
- * These tests run against the real on-disk Kite master dump
- * (`.cache/kite_instruments_{NSE,BSE}.json`). If the dump is absent (fresh
- * clone / wiped cache), the master-dependent assertions auto-skip so CI stays
- * green; the pure-function tests always run.
+ * Deterministic instrument fixtures.
+ *
+ * These replace reliance on the mutable live .cache files so the test suite
+ * is stable regardless of workspace BSE/NSE cache state (e.g. after an empty
+ * BSE cache is left behind by clearInstrumentsCooldown).
+ *
+ * The NSDL assertions are NOT weakened — they run against the BSE fixture row
+ * below, which provides the canonical scrip-code 544467 / symbol "NSDL" data.
  */
-const CACHE_DIR = path.resolve(process.cwd(), ".cache");
-const hasMaster =
-  fs.existsSync(path.join(CACHE_DIR, "kite_instruments_NSE.json")) &&
-  fs.existsSync(path.join(CACHE_DIR, "kite_instruments_BSE.json"));
+const DISK_VERSION = 1;
 
-beforeAll(() => resetResolverCache());
+const NSE_FIXTURE = [
+  { instrument_token: 1001, exchange_token: 1001, tradingsymbol: "TRIDENT",  name: "TRIDENT LTD",                        instrument_type: "EQ", segment: "NSE", exchange: "NSE" },
+  { instrument_token: 1002, exchange_token: 1002, tradingsymbol: "BDL",       name: "BHARAT DYNAMICS LTD",                 instrument_type: "EQ", segment: "NSE", exchange: "NSE" },
+  { instrument_token: 1003, exchange_token: 1003, tradingsymbol: "CDSL",      name: "CENTRAL DEPOSITORY SERVICES LTD",     instrument_type: "EQ", segment: "NSE", exchange: "NSE" },
+  { instrument_token: 1004, exchange_token: 1004, tradingsymbol: "INDHOTEL",  name: "INDIAN HOTELS COMPANY LTD",           instrument_type: "EQ", segment: "NSE", exchange: "NSE" },
+  { instrument_token: 1005, exchange_token: 1005, tradingsymbol: "BLS",       name: "BLS INTERNATIONAL SERVICES LTD",      instrument_type: "EQ", segment: "NSE", exchange: "NSE" },
+  { instrument_token: 1006, exchange_token: 1006, tradingsymbol: "TMPV",      name: "TATA MOTORS PREFERRED VOTING RIGHTS", instrument_type: "EQ", segment: "NSE", exchange: "NSE" },
+  { instrument_token: 1007, exchange_token: 1007, tradingsymbol: "ARE&M",     name: "AMARA RAJA ENERGY AND MOBILITY LTD",  instrument_type: "EQ", segment: "NSE", exchange: "NSE" },
+  { instrument_token: 1008, exchange_token: 1008, tradingsymbol: "CPSEETF",   name: "CPSE ETF",                            instrument_type: "EQ", segment: "NSE", exchange: "NSE" },
+  { instrument_token: 1009, exchange_token: 1009, tradingsymbol: "HDFCBANK",  name: "HDFC BANK LTD",                       instrument_type: "EQ", segment: "NSE", exchange: "NSE" },
+];
+
+/** BSE fixture — NSDL is the canonical BSE-only instrument used in tests. */
+const BSE_FIXTURE = [
+  {
+    instrument_token: 9001,
+    exchange_token: 544467,
+    tradingsymbol: "NSDL",
+    name: "NATIONAL SECURITIES DEPOSITORIES LTD",
+    instrument_type: "EQ",
+    segment: "BSE",
+    exchange: "BSE",
+  },
+];
+
+let tmpDir: string;
+
+beforeAll(() => {
+  tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "kite-resolver-test-"));
+  fs.writeFileSync(
+    path.join(tmpDir, "kite_instruments_NSE.json"),
+    JSON.stringify({ version: DISK_VERSION, ts: Date.now(), payload: NSE_FIXTURE }),
+  );
+  fs.writeFileSync(
+    path.join(tmpDir, "kite_instruments_BSE.json"),
+    JSON.stringify({ version: DISK_VERSION, ts: Date.now(), payload: BSE_FIXTURE }),
+  );
+  _forTesting_overrideCacheDir(tmpDir);
+  resetResolverCache();
+});
+
+afterAll(() => {
+  _forTesting_overrideCacheDir(null);
+  resetResolverCache();
+  try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch { /* ignore */ }
+});
+
+// ─── Pure-function tests (no cache dependency) ────────────────────────────────
 
 describe("normalizeSymbol (pure)", () => {
   it("strips suffixes/prefixes and preserves special chars", () => {
@@ -54,7 +105,9 @@ describe("resolveInstrument never fabricates", () => {
   });
 });
 
-(hasMaster ? describe : describe.skip)("resolveInstrument against the real Kite master", () => {
+// ─── Master-dependent tests — use deterministic fixture, not live .cache ──────
+
+describe("resolveInstrument against the deterministic fixture master", () => {
   beforeAll(() => {
     resetResolverCache();
     expect(isResolverReady()).toBe(true);
@@ -62,12 +115,12 @@ describe("resolveInstrument never fabricates", () => {
 
   it("resolves the 8 user-reported NSE/BSE symbols", () => {
     const cases: Array<[string, string, string]> = [
-      ["TRIDENT", "TRIDENT", "NSE"],
-      ["BDL", "BDL", "NSE"],
-      ["CDSL", "CDSL", "NSE"],
+      ["TRIDENT",  "TRIDENT",  "NSE"],
+      ["BDL",      "BDL",      "NSE"],
+      ["CDSL",     "CDSL",     "NSE"],
       ["INDHOTEL", "INDHOTEL", "NSE"],
-      ["BLS", "BLS", "NSE"],
-      ["TMPV", "TMPV", "NSE"],
+      ["BLS",      "BLS",      "NSE"],
+      ["TMPV",     "TMPV",     "NSE"],
     ];
     for (const [input, sym, ex] of cases) {
       const r = resolveInstrument(input);
@@ -145,5 +198,11 @@ describe("resolveInstrument never fabricates", () => {
 
   it("search returns [] for empty query", () => {
     expect(searchMaster("")).toEqual([]);
+  });
+
+  it("getExchangeReadiness reports both NSE and BSE as populated (fixture has both)", () => {
+    const r = getExchangeReadiness();
+    expect(r.NSE).toBe(true);
+    expect(r.BSE).toBe(true);
   });
 });

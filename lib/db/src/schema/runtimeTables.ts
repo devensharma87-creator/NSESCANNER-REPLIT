@@ -234,3 +234,54 @@ export const reconciliationReport = pgTable("reconciliation_report", {
     .notNull()
     .defaultNow(),
 });
+
+/**
+ * Pack 33C P1-1 declaration (2026-08-10).
+ *
+ * `full_nse_scan_snapshots` is created at runtime by `fullNseScanner.ts` via
+ * `CREATE TABLE IF NOT EXISTS` inside `ensureFullScanSnapshotSchema()`.
+ * Stores the latest 3 accepted full-NSE scan generations so that fresh
+ * autoscale replicas can warm-start from L2 (PostgreSQL) when the local
+ * disk cache (L1) is absent.
+ *
+ * Advisory lock key 7312847 serializes concurrent replica writes.
+ * Declared here so drizzle-kit push never offers to DROP it.
+ *
+ * Column types match the live DDL in ensureFullScanSnapshotSchema() exactly.
+ */
+export const fullNseScanSnapshots = pgTable(
+  "full_nse_scan_snapshots",
+  {
+    id:                                  bigint("id", { mode: "number" }).primaryKey().generatedAlwaysAsIdentity(),
+    savedAt:                             timestamp("saved_at", { withTimezone: true }).notNull().defaultNow(),
+    generationId:                        text("generation_id").notNull(),
+    generatedAt:                         timestamp("generated_at", { withTimezone: true }).notNull(),
+    sourceDate:                          text("source_date").notNull(),
+    nseRefSourceHash:                    text("nse_ref_source_hash").notNull(),
+    nseRefFetchedAt:                     timestamp("nse_ref_fetched_at", { withTimezone: true }).notNull(),
+    nseRefEffectiveDate:                 date("nse_ref_effective_date").notNull(),
+    nseRefTotalRecords:                  integer("nse_ref_total_records").notNull(),
+    referenceAuthoritativeAtGeneration:  text("reference_authoritative_at_generation").notNull(),
+    payloadSchemaVersion:                integer("payload_schema_version").notNull(),
+    eligibilityPolicyVersion:            integer("eligibility_policy_version").notNull(),
+    authoritativeEligibleSymbolHash:     text("authoritative_eligible_symbol_hash").notNull(),
+    finalRowSymbolHash:                  text("final_row_symbol_hash").notNull(),
+    eligibilityBreakdown:                jsonb("eligibility_breakdown").notNull(),
+    countReconciliation:                 jsonb("count_reconciliation").notNull(),
+    phaseA:                              text("phase_a").notNull(),
+    evaluationStateAtGeneration:         text("evaluation_state_at_generation").notNull(),
+    actionabilityAtGeneration:           text("actionability_at_generation").notNull(),
+    degraded:                            text("degraded").notNull(),
+    rowCount:                            integer("row_count").notNull(),
+    universeSize:                        integer("universe_size").notNull(),
+    scanMs:                              integer("scan_ms").notNull(),
+    payloadChecksum:                     text("payload_checksum").notNull(),
+    validationResult:                    text("validation_result").notNull().default("ACCEPTED"),
+    payload:                             jsonb("payload").notNull(),
+  },
+  (t) => [
+    index("full_nse_scan_snapshots_generated_at_idx").on(t.generatedAt),
+    index("full_nse_scan_snapshots_schema_version_idx").on(t.payloadSchemaVersion, t.validationResult, t.generatedAt),
+    unique("full_nse_scan_snapshots_generation_id_key").on(t.generationId),
+  ],
+);

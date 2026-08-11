@@ -34,6 +34,22 @@ const DISK_PREFIX = "kite_instruments_";
 const DISK_VERSION = 1;
 /** Exchanges we resolve cash equities/ETFs from, in preference order. */
 const EXCHANGES = ["NSE", "BSE"] as const;
+
+// ─── Test-only cache-dir override ────────────────────────────────────────────
+// Allows deterministic unit tests to inject fixture files without touching the
+// real workspace .cache directory. Never set this in production code.
+let _testCacheDirOverride: string | null = null;
+
+/** @internal — for unit tests only. Pass `null` to restore the real cache dir. */
+export function _forTesting_overrideCacheDir(dir: string | null): void {
+  _testCacheDirOverride = dir;
+  cachedIndex = null; // force rebuild on next access
+}
+
+function effectiveCacheDir(): string {
+  return _testCacheDirOverride ?? CACHE_DIR;
+}
+// ─────────────────────────────────────────────────────────────────────────────
 const EX_PRIORITY: Record<string, number> = { NSE: 0, BSE: 1 };
 
 interface RawInstrument {
@@ -147,8 +163,9 @@ function toCanonical(r: RawInstrument): CanonicalInstrument {
  */
 function diskSignature(): string {
   const parts: string[] = [];
+  const dir = effectiveCacheDir();
   for (const ex of EXCHANGES) {
-    const file = path.join(CACHE_DIR, `${DISK_PREFIX}${ex}.json`);
+    const file = path.join(dir, `${DISK_PREFIX}${ex}.json`);
     try {
       const st = fs.statSync(file);
       parts.push(`${ex}:${st.size}:${st.mtimeMs}`);
@@ -157,6 +174,30 @@ function diskSignature(): string {
     }
   }
   return parts.join("|");
+}
+
+/**
+ * Load raw instrument rows for one exchange from either the test-override
+ * directory or the real diskCache. Returns null on any error or empty payload.
+ */
+function loadInstrumentFile(ex: string): RawInstrument[] | null {
+  const override = _testCacheDirOverride;
+  if (override) {
+    // In test mode: read directly from the override directory.
+    const file = path.join(override, `${DISK_PREFIX}${ex}.json`);
+    try {
+      const raw = fs.readFileSync(file, "utf8");
+      const parsed = JSON.parse(raw) as { version: number; payload: RawInstrument[] };
+      if (parsed.version !== DISK_VERSION) return null;
+      return Array.isArray(parsed.payload) && parsed.payload.length > 0 ? parsed.payload : null;
+    } catch {
+      return null;
+    }
+  }
+  // Normal path: delegate to diskCache (uses the real CACHE_DIR).
+  const blob = loadBlob<RawInstrument[]>(`${DISK_PREFIX}${ex}`, DISK_VERSION);
+  if (!blob || !Array.isArray(blob.payload) || blob.payload.length === 0) return null;
+  return blob.payload;
 }
 
 function buildIndex(): ResolverIndex {
@@ -168,9 +209,9 @@ function buildIndex(): ResolverIndex {
   const diskSig = diskSignature();
 
   for (const ex of EXCHANGES) {
-    const blob = loadBlob<RawInstrument[]>(`${DISK_PREFIX}${ex}`, DISK_VERSION);
-    if (!blob || !Array.isArray(blob.payload)) continue;
-    for (const r of blob.payload) {
+    const rows = loadInstrumentFile(ex);
+    if (!rows) continue;
+    for (const r of rows) {
       // Cash equities + ETFs only — exclude indices and derivatives.
       if (r.instrument_type !== "EQ") continue;
       if (r.segment === "INDICES") continue;
@@ -213,6 +254,23 @@ export function resetResolverCache(): void {
 /** True when the on-disk master is present (resolver can do real work). */
 export function isResolverReady(): boolean {
   return getIndex().all.length > 0;
+}
+
+/**
+ * Per-exchange readiness: true when at least one instrument from that exchange
+ * is present in the built index.
+ *
+ * `isResolverReady()` returns `true` as long as ANY exchange has data; this
+ * function lets callers distinguish a fully-populated NSE+BSE master from one
+ * where BSE instruments are absent (e.g. after a BSE cache corruption).
+ */
+export function getExchangeReadiness(): Record<(typeof EXCHANGES)[number], boolean> {
+  const idx = getIndex();
+  const result = {} as Record<(typeof EXCHANGES)[number], boolean>;
+  for (const ex of EXCHANGES) {
+    result[ex] = idx.all.some((inst) => inst.exchange === ex);
+  }
+  return result;
 }
 
 export interface ResolveOptions {

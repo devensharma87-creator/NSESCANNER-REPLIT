@@ -27,6 +27,8 @@ interface FullNseResponse {
   sourceDate: string;
   /** ISO timestamp of when the cached rows were produced — drives the freshness pill. */
   lastUpdated?: string;
+  /** ISO timestamp of when the generation was originally produced (= lastUpdated, never refreshed on PG load). */
+  generatedAt?: string;
   scanMs: number;
   failures: number;
   rested: number;
@@ -73,6 +75,37 @@ interface FullNseResponse {
     status: string;
     canaryStatus: string;
   };
+
+  // ── SECTION 5: Cache source and display label (P1-1 durable last-good) ──
+  /**
+   * cacheSource: how the generation was loaded.
+   *   NEW_SCAN   — just completed by a fresh scan (authoritative)
+   *   DISK       — warm-started from local disk blob (L1 last-known)
+   *   POSTGRESQL — warm-started from PostgreSQL snapshot (L2 last-known)
+   */
+  cacheSource?: "NEW_SCAN" | "DISK" | "POSTGRESQL";
+  /**
+   * lastGoodLabel: client display label.
+   *   CURRENT    — fresh scan
+   *   LAST_KNOWN — loaded from L1/L2; within display-age limit
+   *   UNAVAILABLE — L1/L2 but exceeded display-age limit (0 rows served)
+   */
+  lastGoodLabel?: "CURRENT" | "LAST_KNOWN" | "STALE" | "UNAVAILABLE";
+  /**
+   * generationProvenance: generation-time NSE reference metadata.
+   * Immutable — never updated when the cache is loaded from L1/L2.
+   * Exposed SEPARATELY from live classifierProvenance.
+   */
+  generationProvenance?: {
+    nseRefSourceHashAtGeneration: string | null;
+    nseRefEffectiveDateAtGeneration: string | null;
+    nseRefTotalRecordsAtGeneration: number;
+    referenceAuthoritativeAtGeneration: boolean;
+    authoritativeEligibleSymbolHash: string;
+    finalRowSymbolHash: string;
+    payloadSchemaVersion: number;
+    eligibilityPolicyVersion: number;
+  } | null;
 }
 
 interface FullNseStatus {
@@ -119,6 +152,7 @@ function useFullNseStocks() {
       universeSize: q.data.universeSize,
       sourceDate: q.data.sourceDate,
       lastUpdated: q.data.lastUpdated,
+      generatedAt: q.data.generatedAt ?? q.data.lastUpdated,
       scanMs: q.data.scanMs,
       failures: q.data.failures,
       liveQuoteCount: q.data.liveQuoteCount,
@@ -133,6 +167,10 @@ function useFullNseStocks() {
       actionability: q.data.actionability,
       generationId: q.data.generationId,
       classifierProvenance: q.data.classifierProvenance,
+      // P1-1: durable last-good fields.
+      cacheSource:          q.data.cacheSource,
+      lastGoodLabel:        q.data.lastGoodLabel,
+      generationProvenance: q.data.generationProvenance,
     } : null,
   };
 }
@@ -739,6 +777,30 @@ export default function ScannerPage() {
                   {fullMeta.actionability.replace(/_/g, " ")}
                 </span>
               )}
+            </div>
+          )}
+          {/* P1-1: LAST KNOWN / STALE / POSTGRESQL banner.
+              Visible when the scanner is serving data from disk (L1) or PostgreSQL (L2)
+              rather than a fresh scan. Rows are display-only — no new scores/signals. */}
+          {fullMeta && (fullMeta.cacheSource === "DISK" || fullMeta.cacheSource === "POSTGRESQL") && (
+            <div
+              className="mt-1 inline-flex items-start gap-2 px-3 py-2 rounded-md border border-amber-500/50 bg-amber-500/10 text-amber-300 text-[11px] font-mono max-w-3xl"
+              data-testid="last-known-banner"
+              role="status"
+            >
+              <span className="font-bold uppercase tracking-wider shrink-0">
+                {fullMeta.lastGoodLabel === "UNAVAILABLE" ? "⛔ UNAVAILABLE" : "⏱ LAST KNOWN"}
+              </span>
+              <span className="text-amber-200/80">
+                {fullMeta.cacheSource === "POSTGRESQL" ? "— loaded from PostgreSQL snapshot (L2)" : "— loaded from disk cache (L1)"}
+                {fullMeta.generatedAt && (
+                  <> · originally generated <span className="font-semibold">{new Date(fullMeta.generatedAt).toLocaleString("en-IN", { timeZone: "Asia/Kolkata", hour12: false })}</span> IST</>
+                )}
+                {fullMeta.generationProvenance?.nseRefEffectiveDateAtGeneration && (
+                  <> · NSE ref date <span className="font-semibold">{fullMeta.generationProvenance.nseRefEffectiveDateAtGeneration}</span></>
+                )}
+                {" · "}fresh authoritative scan in progress.
+              </span>
             </div>
           )}
           {/* D-fix: Phase-A banner — visible when evaluation lock is active.

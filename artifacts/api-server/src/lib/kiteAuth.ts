@@ -433,6 +433,96 @@ const DISK_PREFIX = "kite_instruments_";
 const DISK_VERSION = 1;
 const FAIL_DISK_KEY = "kite_instruments_fail";
 
+// ─── Instrument-master validation ────────────────────────────────────────────
+
+/**
+ * Minimum acceptable row count per exchange — initial operational safeguards.
+ * Based on observed live counts: NSE=10022, NFO=34222, BFO=4337, BSE≥1000.
+ * Conservative floors catch catastrophic fetch failures while accepting any
+ * legitimately larger response.
+ */
+const MIN_INSTRUMENT_ROWS: Partial<Record<string, number>> = {
+  NSE:  5_000,
+  BSE:    500,
+  NFO: 15_000,
+  BFO:  2_000,
+};
+
+/**
+ * If a refresh returns fewer than this fraction of the previous valid count,
+ * treat it as an implausible collapse and preserve last-good instead.
+ */
+const COUNT_COLLAPSE_RATIO = 0.5;
+
+export type ExchangeStatus =
+  | "CURRENT"
+  | "LAST_KNOWN"
+  | "UNAVAILABLE"
+  | "INVALID_REFRESH_REJECTED";
+
+export type InstrumentRefreshReason =
+  | "EMPTY_MASTER_REJECTED"
+  | "MALFORMED_MASTER_REJECTED"
+  | "IMPLAUSIBLE_ROW_COUNT_REJECTED"
+  | "PROVIDER_FETCH_FAILED_LAST_GOOD_PRESERVED"
+  | "PROVIDER_FETCH_FAILED_NO_LAST_GOOD"
+  | "MASTER_REFRESH_COMMITTED";
+
+/** Per-exchange status tracking — survives the lifetime of the process. */
+const instrStatusByExchange = new Map<string, ExchangeStatus>();
+
+/**
+ * Validate a provider response before replacing the existing disk/memory cache.
+ *
+ * @param ex        Exchange identifier (NSE, BSE, NFO, BFO).
+ * @param rows      Raw response from the provider (any type).
+ * @param prevCount Previous valid row count (0 if no prior data).
+ */
+export function validateInstrumentRows(
+  ex: string,
+  rows: unknown,
+  prevCount = 0,
+): { ok: boolean; reason: InstrumentRefreshReason } {
+  if (!Array.isArray(rows)) {
+    return { ok: false, reason: "MALFORMED_MASTER_REJECTED" };
+  }
+  if (rows.length === 0) {
+    return { ok: false, reason: "EMPTY_MASTER_REJECTED" };
+  }
+  // Verify a sample of rows have the minimum required identity fields.
+  const sample = rows.slice(0, Math.min(5, rows.length));
+  const hasIdentity = sample.every(
+    (r) =>
+      r !== null &&
+      typeof r === "object" &&
+      "tradingsymbol" in r &&
+      "instrument_token" in r,
+  );
+  if (!hasIdentity) {
+    return { ok: false, reason: "MALFORMED_MASTER_REJECTED" };
+  }
+  // Absolute floor check (exchange-aware).
+  const minFloor = MIN_INSTRUMENT_ROWS[ex] ?? 100;
+  if (rows.length < minFloor) {
+    return { ok: false, reason: "IMPLAUSIBLE_ROW_COUNT_REJECTED" };
+  }
+  // Collapse check: new count < 50% of previous valid count indicates a
+  // catastrophic data loss that should preserve last-good.
+  if (prevCount > 0 && rows.length < prevCount * COUNT_COLLAPSE_RATIO) {
+    return { ok: false, reason: "IMPLAUSIBLE_ROW_COUNT_REJECTED" };
+  }
+  return { ok: true, reason: "MASTER_REFRESH_COMMITTED" };
+}
+
+/** Return a snapshot of per-exchange instrument-master status. */
+export function getInstrumentExchangeStatus(): Record<string, ExchangeStatus> {
+  const out: Record<string, ExchangeStatus> = {};
+  for (const [ex, status] of instrStatusByExchange) out[ex] = status;
+  return out;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 interface ExchangeCache { rows: any[]; ts: number }
 const instrCacheByExchange = new Map<string, ExchangeCache>();
 const instrInflight = new Map<string, Promise<any[]>>();
@@ -488,6 +578,7 @@ function hydrateExchangeFromDisk(ex: string): void {
   const blob = loadBlob<any[]>(`${DISK_PREFIX}${ex}`, DISK_VERSION);
   if (blob && Array.isArray(blob.payload) && blob.payload.length > 0 && Date.now() - blob.ts < INSTR_CACHE_TTL) {
     instrCacheByExchange.set(ex, { rows: blob.payload, ts: blob.ts });
+    instrStatusByExchange.set(ex, "LAST_KNOWN");
     logger.info(
       { exchange: ex, count: blob.payload.length, ageMin: Math.round((Date.now() - blob.ts) / 60_000) },
       "Kite instruments: warm-started from disk",
@@ -526,6 +617,7 @@ function wrapGetInstruments(kc: any): void {
           instrCacheByExchange.set(ex, { rows, ts: Date.now() });
           instrFailTs.delete(ex);
           instrFailCount.delete(ex);
+          instrStatusByExchange.set(ex, "CURRENT");
           saveBlob(`${DISK_PREFIX}${ex}`, DISK_VERSION, rows);
           persistFailCooldown();
         }
@@ -566,11 +658,16 @@ function wrapGetInstruments(kc: any): void {
 }
 
 /**
- * Force-clear all instruments cooldown / cache state. Bumps the generation
- * token so any in-flight wrapped getInstruments call cannot reintroduce
- * cooldown after we return. Also wipes the on-disk caches by overwriting
- * with empty arrays — `hydrateExchangeFromDisk` skips empty payloads, so
- * subsequent calls won't be served stale instruments.
+ * Force-clear all instruments cooldown / in-memory cache state. Bumps the
+ * generation token so any in-flight wrapped getInstruments call cannot
+ * reintroduce cooldown after we return.
+ *
+ * PRESERVE-FIRST: on-disk caches are intentionally NOT wiped. The existing
+ * populated disk entries serve as last-good data for `hydrateExchangeFromDisk`
+ * after the in-memory clear, and as the fallback if the subsequent
+ * `forceRefreshInstruments` fetch or validation fails for any exchange.
+ * Status for previously-populated exchanges is set to LAST_KNOWN to reflect
+ * that they are no longer serving live in-memory data.
  *
  * Returns a snapshot of what was cleared (for the API response).
  */
@@ -591,11 +688,10 @@ export function clearInstrumentsCooldown(): {
   instrFailCount.clear();
   instrInflight.clear();
   persistFailCooldown();
-  // Wipe disk too — a fresh process start (or any call that goes through
-  // hydrateExchangeFromDisk) should see no stale cache.
-  const exchangesToWipe = new Set([...cacheKeys, ...failKeys, "NSE", "NFO", "BFO"]);
-  for (const ex of exchangesToWipe) {
-    saveBlob(`${DISK_PREFIX}${ex}`, DISK_VERSION, []);
+  // Mark previously-populated exchanges as LAST_KNOWN (data is on disk,
+  // not in memory). Exchanges that were never populated remain unchanged.
+  for (const ex of cacheKeys) {
+    instrStatusByExchange.set(ex, "LAST_KNOWN");
   }
   return {
     clearedCacheExchanges: cacheKeys,
@@ -605,55 +701,208 @@ export function clearInstrumentsCooldown(): {
 }
 
 /**
- * Admin one-shot: clears cooldown/cache, then calls the raw Kite SDK
- * `getInstruments` directly via a request-scoped, NON-wrapped KiteConnect
- * instance. This sidesteps the wrapper's swallow-and-fall-back behaviour
- * so true upstream errors propagate, while having ZERO effect on any
- * concurrent normal `getInstruments()` calls in the rest of the process
- * (they continue to flow through their own wrapped clients with full
- * cache/cooldown semantics intact).
+ * Admin one-shot: clears in-memory cooldown/cache, then calls the raw Kite
+ * SDK `getInstruments` directly via a request-scoped, NON-wrapped KiteConnect
+ * instance. This sidesteps the wrapper's swallow-and-fall-back behaviour so
+ * true upstream errors propagate, while having ZERO effect on any concurrent
+ * normal `getInstruments()` calls in the rest of the process (they continue
+ * to flow through their own wrapped clients with full cache/cooldown semantics).
  *
- * On per-exchange success, seeds the shared wrapper cache + disk so the
- * rest of the app sees the fresh data on its next call.
+ * PRESERVE-FIRST: each exchange's response is validated before the existing
+ * disk/memory cache is replaced. On fetch failure or validation failure the
+ * existing last-good cache is preserved and restored into memory. BSE is
+ * included in the refresh alongside NSE, NFO, and BFO.
  *
  * Returns null if no Kite session is active. Otherwise returns per-exchange
- * `{count}` on success or `{error}` on failure.
+ * `{count, status}` on success or `{error, status}` on failure/rejection.
  */
 export async function forceRefreshInstruments(): Promise<{
   cleared: ReturnType<typeof clearInstrumentsCooldown>;
-  results: Record<string, { count: number } | { error: string }>;
+  results: Record<
+    string,
+    { count: number; status: ExchangeStatus } | { error: string; status: ExchangeStatus }
+  >;
 } | null> {
-  // Check session BEFORE the destructive clear — a 409 must be
-  // non-destructive (don't wipe a perfectly good warm cache just because
-  // the user has been logged out).
+  // Check session BEFORE the in-memory clear — a 409 must be non-destructive.
   const session = await getActiveSession();
   if (!session) return null;
   const cleared = clearInstrumentsCooldown();
-  // Deliberately NOT wrapped — we want the SDK's getInstruments to throw
-  // on upstream failure so the admin route can report a real error.
+  // Deliberately NOT wrapped — we want the SDK's getInstruments to throw on
+  // upstream failure so the admin route can report a real error.
   const rawKc = new KiteConnect({ api_key: session.apiKey, timeout: KITE_HTTP_TIMEOUT_MS });
   rawKc.setAccessToken(session.accessToken);
-  const results: Record<string, { count: number } | { error: string }> = {};
-  const exchanges = ["NSE", "NFO", "BFO"] as const;
+  const results: Record<
+    string,
+    { count: number; status: ExchangeStatus } | { error: string; status: ExchangeStatus }
+  > = {};
+  // BSE is now included so BSE-only instruments (e.g. NSDL) are always refreshed.
+  const exchanges = ["NSE", "BSE", "NFO", "BFO"] as const;
   await Promise.all(
     exchanges.map(async (ex) => {
+      // Snapshot the previous disk state BEFORE we attempt a refresh, so we
+      // can restore last-good on validation failure or fetch error.
+      const prevBlob = loadBlob<any[]>(`${DISK_PREFIX}${ex}`, DISK_VERSION);
+      const prevCount =
+        prevBlob && Array.isArray(prevBlob.payload) ? prevBlob.payload.length : 0;
+
+      const restoreLastGood = (): ExchangeStatus => {
+        if (prevBlob && Array.isArray(prevBlob.payload) && prevBlob.payload.length > 0) {
+          instrCacheByExchange.set(ex, { rows: prevBlob.payload, ts: prevBlob.ts });
+          instrStatusByExchange.set(ex, "LAST_KNOWN");
+          return "LAST_KNOWN";
+        }
+        instrStatusByExchange.set(ex, "UNAVAILABLE");
+        return "UNAVAILABLE";
+      };
+
       try {
         const rows = (await rawKc.getInstruments(ex)) as unknown[];
-        const count = Array.isArray(rows) ? rows.length : 0;
-        results[ex] = { count };
-        if (count > 0) {
-          // Seed the shared wrapper cache + disk so the rest of the app
-          // sees the fresh dump on its next call instead of treating the
-          // post-clear empty disk as cold.
-          instrCacheByExchange.set(ex, { rows: rows as any[], ts: Date.now() });
-          saveBlob(`${DISK_PREFIX}${ex}`, DISK_VERSION, rows);
+        const fetchedCount = Array.isArray(rows) ? rows.length : 0;
+        const validation = validateInstrumentRows(ex, rows, prevCount);
+
+        if (!validation.ok) {
+          const status = restoreLastGood();
+          logger.warn(
+            {
+              exchange: ex,
+              fetchedCount,
+              prevCount,
+              validationResult: validation.reason,
+              cacheAction: prevCount > 0 ? "LAST_GOOD_PRESERVED" : "NONE",
+              reason: validation.reason,
+            },
+            `Kite instruments: ${validation.reason}`,
+          );
+          instrStatusByExchange.set(ex, "INVALID_REFRESH_REJECTED");
+          results[ex] = { error: validation.reason, status: "INVALID_REFRESH_REJECTED" };
+          return;
         }
+
+        const rowsArr = rows as any[];
+        instrCacheByExchange.set(ex, { rows: rowsArr, ts: Date.now() });
+        instrFailTs.delete(ex);
+        instrFailCount.delete(ex);
+        instrStatusByExchange.set(ex, "CURRENT");
+        saveBlob(`${DISK_PREFIX}${ex}`, DISK_VERSION, rowsArr);
+        logger.info(
+          {
+            exchange: ex,
+            fetchedCount: rowsArr.length,
+            prevCount,
+            validationResult: "MASTER_REFRESH_COMMITTED",
+            cacheAction: "REPLACED",
+            reason: "MASTER_REFRESH_COMMITTED",
+          },
+          "Kite instruments: master refresh committed",
+        );
+        results[ex] = { count: rowsArr.length, status: "CURRENT" };
       } catch (err) {
-        results[ex] = { error: (err as Error).message };
+        const status = restoreLastGood();
+        const reason: InstrumentRefreshReason =
+          prevCount > 0
+            ? "PROVIDER_FETCH_FAILED_LAST_GOOD_PRESERVED"
+            : "PROVIDER_FETCH_FAILED_NO_LAST_GOOD";
+        logger.warn(
+          {
+            exchange: ex,
+            err: (err as Error).message,
+            prevCount,
+            validationResult: reason,
+            cacheAction: prevCount > 0 ? "PRESERVED" : "NONE",
+            reason,
+          },
+          `Kite getInstruments failed: ${reason}`,
+        );
+        results[ex] = { error: (err as Error).message, status };
       }
     }),
   );
   return { cleared, results };
+}
+
+/**
+ * Test-only: run the force-refresh exchange loop with an injected rawKc client,
+ * bypassing the session check. Use this in unit tests to control provider
+ * responses without a real Kite session or DB.
+ *
+ * @internal — do not call from production code.
+ */
+export async function _forTesting_forceRefreshWithClient(
+  rawKc: { getInstruments: (ex: string) => Promise<unknown[]> },
+): Promise<
+  Record<
+    string,
+    { count: number; status: ExchangeStatus } | { error: string; status: ExchangeStatus }
+  >
+> {
+  clearInstrumentsCooldown();
+  const exchanges = ["NSE", "BSE", "NFO", "BFO"] as const;
+  const results: Record<
+    string,
+    { count: number; status: ExchangeStatus } | { error: string; status: ExchangeStatus }
+  > = {};
+  await Promise.all(
+    exchanges.map(async (ex) => {
+      const prevBlob = loadBlob<any[]>(`${DISK_PREFIX}${ex}`, DISK_VERSION);
+      const prevCount =
+        prevBlob && Array.isArray(prevBlob.payload) ? prevBlob.payload.length : 0;
+
+      const restoreLastGood = (): ExchangeStatus => {
+        if (prevBlob && Array.isArray(prevBlob.payload) && prevBlob.payload.length > 0) {
+          instrCacheByExchange.set(ex, { rows: prevBlob.payload, ts: prevBlob.ts });
+          instrStatusByExchange.set(ex, "LAST_KNOWN");
+          return "LAST_KNOWN";
+        }
+        instrStatusByExchange.set(ex, "UNAVAILABLE");
+        return "UNAVAILABLE";
+      };
+
+      try {
+        const rows = await rawKc.getInstruments(ex);
+        const fetchedCount = Array.isArray(rows) ? rows.length : 0;
+        const validation = validateInstrumentRows(ex, rows, prevCount);
+
+        if (!validation.ok) {
+          restoreLastGood();
+          instrStatusByExchange.set(ex, "INVALID_REFRESH_REJECTED");
+          results[ex] = { error: validation.reason, status: "INVALID_REFRESH_REJECTED" };
+          return;
+        }
+
+        const rowsArr = rows as any[];
+        instrCacheByExchange.set(ex, { rows: rowsArr, ts: Date.now() });
+        instrFailTs.delete(ex);
+        instrFailCount.delete(ex);
+        instrStatusByExchange.set(ex, "CURRENT");
+        saveBlob(`${DISK_PREFIX}${ex}`, DISK_VERSION, rowsArr);
+        logger.info(
+          { exchange: ex, fetchedCount: rowsArr.length, prevCount, reason: "MASTER_REFRESH_COMMITTED" },
+          "Kite instruments [test]: master refresh committed",
+        );
+        results[ex] = { count: rowsArr.length, status: "CURRENT" };
+      } catch (err) {
+        const status = restoreLastGood();
+        results[ex] = { error: (err as Error).message, status };
+      }
+    }),
+  );
+  return results;
+}
+
+/**
+ * Test-only: reset all in-memory instrument state to a clean slate.
+ * Use in `beforeEach` / `afterEach` so tests start from a known state.
+ * @internal — do not call from production code.
+ */
+export function _forTesting_resetInstrumentState(): void {
+  instrCacheByExchange.clear();
+  instrStatusByExchange.clear();
+  instrFailTs.clear();
+  instrFailCount.clear();
+  instrInflight.clear();
+  instrGeneration++;
+  // Allow hydrateExchangeFromDisk to re-read the fail-cooldown blob.
+  failCooldownHydrated = false;
 }
 
 /** Build a KiteConnect REST client from the active session, or return null. */

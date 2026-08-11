@@ -79,6 +79,10 @@ import { buildAllSwingSignals } from "./swingSignals";
 import { runEquityPaperTradingTick } from "./paperTradingEq";
 import { EQUITY_RISK } from "./paperAccount";
 import { getLatestHeatmapCache } from "./oiLab";
+import { createHash } from "crypto";
+import { db } from "@workspace/db";
+import { sql } from "drizzle-orm";
+import { getMarketStatusDetail } from "./marketEvents";
 
 /**
  * Bridge between the scanner cycle and the equity paper-trading
@@ -183,6 +187,18 @@ const DISK_CACHE_NAME = "full-nse-scan";
 // Old v18 blobs carry ORDINARY_EQUITY_ELIGIBLE counts — invalidate.
 const DISK_CACHE_VERSION = 20;
 const DISK_CACHE_MAX_AGE_MS = 60 * 60_000;
+/** Payload schema version for full_nse_scan_snapshots rows. Bump when the persisted Cache shape changes incompatibly. */
+const FULL_NSE_SCAN_PAYLOAD_SCHEMA_VERSION = 1;
+/** Eligibility policy version. Bump when classifyInstrument rules change in a way that invalidates old universes. */
+const INSTRUMENT_ELIGIBILITY_POLICY_VERSION = 1;
+/** Advisory lock key for full_nse_scan_snapshots writes — distinct from NSE master snapshots (8274613). */
+const FULL_SCAN_DB_ADVISORY_LOCK_KEY = 7312847;
+/** Maximum persisted snapshots to retain (keep-3). */
+const FULL_SCAN_DB_MAX_SNAPSHOTS = 3;
+/** Market-open display age limit for L1/L2-loaded last-good generations (24h). */
+const FULL_SCAN_DISPLAY_AGE_MARKET_OPEN_MS  = 24 * 3600_000;
+/** Market-closed display age limit for L1/L2-loaded last-good generations (96h). */
+const FULL_SCAN_DISPLAY_AGE_MARKET_CLOSED_MS = 96 * 3600_000;
 
 /**
  * Exact count reconciliation for one completed scan generation.
@@ -572,6 +588,124 @@ function newGenerationId(): string {
   return `gen-${Date.now()}-${++generationCounter}`;
 }
 
+// ── DURABLE SNAPSHOT TYPES ───────────────────────────────────────────────────
+
+/**
+ * Generation-time NSE reference provenance — stored immutably in the PG snapshot.
+ * Exposed separately from the live `classifierProvenance` so consumers can compare
+ * what the reference looked like when the generation was built vs. today.
+ */
+interface FullScanGenerationProvenance {
+  nseRefSourceHashAtGeneration: string | null;
+  nseRefFetchedAtGeneration: string | null;
+  nseRefEffectiveDateAtGeneration: string | null;
+  nseRefTotalRecordsAtGeneration: number;
+  /** Was nseRefMeta.canAuthorizeUniverse=true when performFullScan() ran? */
+  referenceAuthoritativeAtGeneration: boolean;
+  eligibilityPolicyVersion: number;   // INSTRUMENT_ELIGIBILITY_POLICY_VERSION
+  payloadSchemaVersion: number;        // FULL_NSE_SCAN_PAYLOAD_SCHEMA_VERSION
+  /** Full 64-char SHA-256 of sorted(symbolList after dedup).join(',') */
+  authoritativeEligibleSymbolHash: string;
+  /** Full 64-char SHA-256 of sorted(rows.map(r=>r.symbol)).join(',') */
+  finalRowSymbolHash: string;
+  /** SHA-256 of the full Cache payload with keys recursively sorted, generationProvenance.payloadChecksum excluded. */
+  payloadChecksum: string;
+}
+
+/** All 10 gates that must pass for a generation to be written to PostgreSQL. */
+interface DurableWriteValidation {
+  referenceAuthoritativeAtGeneration: boolean;
+  reconciliationAllValid: boolean;
+  rowsEqualsUniverse: boolean;
+  noProvisionalRows: boolean;
+  generationNotDegraded: boolean;
+  symbolHashesMatch: boolean;        // authoritativeEligibleSymbolHash === finalRowSymbolHash
+  payloadSchemaCompatible: boolean;
+  payloadChecksumValid: boolean;
+  notZeroRows: boolean;
+  rowCountAboveFloor: boolean;
+  allValid: boolean;
+}
+
+/** Outcome of a durable write attempt. */
+interface SnapshotPersistenceResult {
+  ok: boolean;
+  reasonCode?: string;
+  errorClass?: string;
+  snapshotId?: string;
+  committedAt?: string;
+  skippedReason?: string;
+  durablyCommitted: boolean;
+}
+
+// ── SYMBOL HASH HELPERS ───────────────────────────────────────────────────────
+
+/** Full 64-char SHA-256 of sorted(symbols).join(',') — order-independent. */
+function computeSymbolHash(symbols: string[]): string {
+  return createHash("sha256").update([...symbols].sort().join(",")).digest("hex");
+}
+
+/**
+ * Recursively sort all object keys (deterministic canonical form).
+ * Arrays preserve element order — only object keys are sorted.
+ * Safe on any JSON-serialisable value including null and primitives.
+ */
+function sortKeysDeep(val: unknown): unknown {
+  if (Array.isArray(val)) return val.map(sortKeysDeep);
+  if (val !== null && typeof val === "object") {
+    return Object.fromEntries(
+      Object.keys(val as Record<string, unknown>)
+        .sort()
+        .map(k => [k, sortKeysDeep((val as Record<string, unknown>)[k])]),
+    );
+  }
+  return val;
+}
+
+/**
+ * Full canonical payload checksum: SHA-256 of the entire Cache object with all
+ * object keys recursively sorted and array order preserved.
+ *
+ * The `generationProvenance.payloadChecksum` field is excluded from the input
+ * to avoid circular calculation — all other Cache fields are covered including
+ * every row, quote price, OHLC, volume, symbol, eligibilityBreakdown,
+ * countReconciliation, phaseA, generatedAt, sourceDate, and provenance.
+ *
+ * Key sorting makes the checksum stable across PostgreSQL JSONB round-trips
+ * (which do not guarantee object key order).
+ *
+ * DETERMINISM CONTRACT: A JSON.parse(JSON.stringify(…)) normalisation pass
+ * runs FIRST so that JavaScript Date objects (which have no enumerable own
+ * properties and would appear as `{}` under sortKeysDeep) are converted to
+ * ISO-8601 strings before sorting — exactly as they appear when loaded back
+ * from JSONB.  Without this step, Date fields in live objects produce a
+ * different canonical form than their string representation in the database,
+ * causing a false checksum mismatch on every PG load.
+ */
+function computeCanonicalPayloadChecksum(cache: Cache | Record<string, unknown>): string {
+  // Step 1: JSON round-trip → normalises live JS types to their JSON forms:
+  //   Date  → ISO-8601 string (matches JSONB load)
+  //   undefined fields → removed (matches JSON.stringify omission)
+  //   Infinity / NaN → null (JSON-spec compliant)
+  const normalised = JSON.parse(
+    JSON.stringify(cache as Record<string, unknown>),
+  ) as Record<string, unknown>;
+
+  // Step 2: Exclude generationProvenance.payloadChecksum to avoid circularity.
+  if (normalised["generationProvenance"] && typeof normalised["generationProvenance"] === "object") {
+    const prov = { ...(normalised["generationProvenance"] as Record<string, unknown>) };
+    delete prov["payloadChecksum"];
+    normalised["generationProvenance"] = prov;
+  }
+
+  // Step 3: Sort all keys recursively and produce the canonical SHA-256.
+  return createHash("sha256")
+    .update(JSON.stringify(sortKeysDeep(normalised)), "utf8")
+    .digest("hex");
+}
+
+// ── CACHE INTERFACE ───────────────────────────────────────────────────────────
+
 interface Cache {
   rows: StockRow[];
   lastUpdated: number;
@@ -602,6 +736,12 @@ interface Cache {
   generationId: string;
   /** Exact count reconciliation. allValid=false prevents generation publication. */
   countReconciliation: ScanCountReconciliation;
+  /** How this Cache was populated: NEW_SCAN from a fresh scan; DISK from local blob; POSTGRESQL from L2. */
+  cacheSource?: "NEW_SCAN" | "DISK" | "POSTGRESQL";
+  /** Display label for the client — CURRENT when data is fresh; LAST_KNOWN when from L1/L2; UNAVAILABLE when age limit exceeded. */
+  lastGoodLabel?: "CURRENT" | "LAST_KNOWN" | "STALE" | "UNAVAILABLE";
+  /** Immutable generation-time NSE reference provenance. Stored in PG snapshot; exposed separately from live classifierProvenance. */
+  generationProvenance?: FullScanGenerationProvenance;
 }
 
 interface Progress {
@@ -617,6 +757,8 @@ const progress: Progress = { scanned: 0, total: 0, startedAt: null, running: fal
 let cache: Cache | null = null;
 let scanInFlight: Promise<Cache> | null = null;
 let timer: NodeJS.Timeout | null = null;
+/** Tracks the one-shot 500 ms warm-up setTimeout so _resetTestHooks can cancel it. */
+let _initialScanTimeout: NodeJS.Timeout | null = null;
 
 // ── TEST-ONLY LIFECYCLE HOOKS ──────────────────────────────────────────────
 // These hooks exist exclusively for `p33b.generationTrace.test.ts`.
@@ -662,6 +804,9 @@ export function _clearTestFactories(): void {
   _testPauseBeforeCommit = null;
 }
 /** TEST ONLY: full module-state reset between test cases (use in afterEach).
+ *  Also cancels any running background interval and the initial 500 ms scan
+ *  timeout so a background scan started by another test file (e.g. via the
+ *  scanner-route module import) cannot interfere with generation lifecycle tests.
  *  Throws outside NODE_ENV==="test". */
 export function _resetTestHooks(): void {
   if (process.env.NODE_ENV !== "test") {
@@ -671,11 +816,447 @@ export function _resetTestHooks(): void {
   _testPauseBeforeCommit = null;
   cache = null;
   scanInFlight = null;
+  _schemaEnsured = false;
   progress.inProgressGenerationId = null;
   progress.running = false;
   progress.scanned = 0;
   progress.total = 0;
   progress.startedAt = null;
+  // Stop the background periodic timer (if any test file imported the scanner route
+  // which calls startFullNseScannerBackground() at module load).
+  if (_initialScanTimeout !== null) {
+    clearTimeout(_initialScanTimeout);
+    _initialScanTimeout = null;
+  }
+  if (timer !== null) {
+    clearInterval(timer);
+    timer = null;
+  }
+}
+
+/** TEST ONLY: returns true when any background timer is active.
+ *  Use in regression tests to assert that _resetTestHooks clears all timers. */
+export function _getBackgroundTimerActiveForTest(): boolean {
+  if (process.env.NODE_ENV !== "test") {
+    throw new Error("_getBackgroundTimerActiveForTest is not available outside NODE_ENV=test");
+  }
+  return timer !== null || _initialScanTimeout !== null;
+}
+
+// ── PG SNAPSHOT: SCHEMA ───────────────────────────────────────────────────────
+
+let _schemaEnsured = false;
+
+/**
+ * Idempotent CREATE TABLE / INDEX IF NOT EXISTS for full_nse_scan_snapshots.
+ * Called lazily before every PG read or write — no-op after first successful call.
+ * Declared in lib/db/src/schema/runtimeTables.ts so drizzle-kit push never
+ * schedules a DROP.
+ */
+async function ensureFullScanSnapshotSchema(): Promise<void> {
+  if (_schemaEnsured) return;
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS full_nse_scan_snapshots (
+      id                                  BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+      saved_at                            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      generation_id                       TEXT NOT NULL,
+      generated_at                        TIMESTAMPTZ NOT NULL,
+      source_date                         TEXT NOT NULL,
+      nse_ref_source_hash                 TEXT NOT NULL,
+      nse_ref_fetched_at                  TIMESTAMPTZ NOT NULL,
+      nse_ref_effective_date              DATE NOT NULL,
+      nse_ref_total_records               INTEGER NOT NULL,
+      reference_authoritative_at_generation  TEXT NOT NULL,
+      payload_schema_version              INTEGER NOT NULL,
+      eligibility_policy_version          INTEGER NOT NULL,
+      authoritative_eligible_symbol_hash  TEXT NOT NULL,
+      final_row_symbol_hash               TEXT NOT NULL,
+      eligibility_breakdown               JSONB NOT NULL,
+      count_reconciliation                JSONB NOT NULL,
+      phase_a                             TEXT NOT NULL,
+      evaluation_state_at_generation      TEXT NOT NULL,
+      actionability_at_generation         TEXT NOT NULL,
+      degraded                            TEXT NOT NULL,
+      row_count                           INTEGER NOT NULL,
+      universe_size                       INTEGER NOT NULL,
+      scan_ms                             INTEGER NOT NULL,
+      payload_checksum                    TEXT NOT NULL,
+      validation_result                   TEXT NOT NULL DEFAULT 'ACCEPTED',
+      payload                             JSONB NOT NULL,
+      CONSTRAINT full_nse_scan_snapshots_generation_id_key UNIQUE (generation_id)
+    )
+  `);
+  await db.execute(sql`
+    CREATE INDEX IF NOT EXISTS full_nse_scan_snapshots_generated_at_idx
+      ON full_nse_scan_snapshots (generated_at DESC)
+  `);
+  await db.execute(sql`
+    CREATE INDEX IF NOT EXISTS full_nse_scan_snapshots_schema_version_idx
+      ON full_nse_scan_snapshots (payload_schema_version, validation_result, generated_at DESC)
+  `);
+  _schemaEnsured = true;
+}
+
+// ── PG SNAPSHOT: WRITE ────────────────────────────────────────────────────────
+
+/**
+ * Persist a validated full-NSE scan generation to PostgreSQL.
+ *
+ * Guarantees:
+ *   - All 10 validation gates must pass before any DB round-trip.
+ *   - pg_advisory_xact_lock(7312847) serializes concurrent replica writes.
+ *   - PG-backed 30-minute throttle checked INSIDE the same transaction — safe across replicas.
+ *   - Atomic INSERT + bounded retention (keep-3) in one transaction.
+ *   - ON CONFLICT DO NOTHING (unique generation_id) prevents duplicate rows.
+ *   - Failure is non-fatal: previous snapshot preserved; disk cache (L1) remains intact.
+ *
+ * EXPORTED for test mocking via vi.spyOn.
+ */
+export async function _saveFullScanSnapshotToDb(next: Cache): Promise<SnapshotPersistenceResult> {
+  const prov = next.generationProvenance;
+  if (!prov) {
+    return { ok: false, reasonCode: "NO_GENERATION_PROVENANCE", durablyCommitted: false };
+  }
+
+  // ── All 10 validation gates ───────────────────────────────────────────────────
+  const recomputedChecksum = computeCanonicalPayloadChecksum(next);
+  const validation: DurableWriteValidation = {
+    referenceAuthoritativeAtGeneration:  prov.referenceAuthoritativeAtGeneration === true,
+    reconciliationAllValid:              next.countReconciliation.allValid === true,
+    rowsEqualsUniverse:
+      next.rows.length === next.total &&
+      next.rows.length === next.countReconciliation.authoritativelyVerifiedOrdinaryEquityCount,
+    noProvisionalRows:                   next.countReconciliation.provisionallyClassifiedCount === 0,
+    generationNotDegraded:               next.degraded !== true,
+    symbolHashesMatch:                   prov.authoritativeEligibleSymbolHash === prov.finalRowSymbolHash,
+    payloadSchemaCompatible:             prov.payloadSchemaVersion === FULL_NSE_SCAN_PAYLOAD_SCHEMA_VERSION,
+    payloadChecksumValid:                recomputedChecksum === prov.payloadChecksum,
+    notZeroRows:                         next.rows.length > 0,
+    rowCountAboveFloor:                  next.rows.length >= 1000,
+    allValid:                            false,
+  };
+  const gates = Object.entries(validation).filter(([k]) => k !== "allValid");
+  validation.allValid = gates.every(([, v]) => v === true);
+
+  if (!validation.allValid) {
+    const failedGates = gates.filter(([, v]) => !v).map(([k]) => k);
+    logger.warn(
+      { generationId: next.generationId, failedGates, validation,
+        diagnosticEvent: "FULL_SCAN_PERSISTENCE_SKIPPED" },
+      "Full NSE scan: durable write skipped — validation gates failed",
+    );
+    return { ok: false, reasonCode: "VALIDATION_GATES_FAILED",
+      skippedReason: failedGates.join(","), durablyCommitted: false };
+  }
+
+  try {
+    await ensureFullScanSnapshotSchema();
+    const generatedAt   = new Date(next.lastUpdated).toISOString();
+    const nseRefFetched = prov.nseRefFetchedAtGeneration ?? generatedAt;
+    const nseRefDate    = prov.nseRefEffectiveDateAtGeneration ??
+      new Date(next.lastUpdated).toISOString().slice(0, 10);
+    const evaluationState = next.phaseA ? "PHASE_A_POPULATION_ONLY" : "AUTHORIZED";
+    const actionability   = next.phaseA ? "NOT_ACTIONABLE"          : "TRADE_GRADE";
+    const payloadJson = JSON.stringify(next);
+
+    type TxResult =
+      | { throttled: true; sinceLastWriteMs: number }
+      | { rows: Array<{ id: string; saved_at: string | Date }> };
+
+    const txResult = await db.transaction(async (tx): Promise<TxResult> => {
+      // Transaction-scoped advisory lock: blocking, auto-released on commit/rollback.
+      // Serializes concurrent snapshot writes from multiple replicas on pooled connections.
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(${FULL_SCAN_DB_ADVISORY_LOCK_KEY})`);
+
+      // ── PG-backed throttle (replica-safe) ──────────────────────────────────
+      // Must be checked INSIDE the same transaction after acquiring the lock so
+      // all replicas see a consistent saved_at value at commit time.
+      const throttleRows = (
+        await tx.execute(sql`
+          SELECT saved_at FROM full_nse_scan_snapshots
+          WHERE validation_result = 'ACCEPTED'
+          ORDER BY saved_at DESC LIMIT 1
+        `)
+      ).rows as Array<{ saved_at: string | Date }>;
+      if (throttleRows.length > 0) {
+        const latestMs = typeof throttleRows[0]!.saved_at === "string"
+          ? new Date(throttleRows[0]!.saved_at).getTime()
+          : (throttleRows[0]!.saved_at as Date).getTime();
+        const sinceLastWriteMs = Date.now() - latestMs;
+        if (sinceLastWriteMs < 30 * 60_000) {
+          return { throttled: true, sinceLastWriteMs };
+        }
+      }
+
+      // ── INSERT ──────────────────────────────────────────────────────────────
+      const insertResult = await tx.execute(sql`
+        INSERT INTO full_nse_scan_snapshots (
+          generation_id, generated_at, source_date,
+          nse_ref_source_hash, nse_ref_fetched_at, nse_ref_effective_date, nse_ref_total_records,
+          reference_authoritative_at_generation,
+          payload_schema_version, eligibility_policy_version,
+          authoritative_eligible_symbol_hash, final_row_symbol_hash,
+          eligibility_breakdown, count_reconciliation,
+          phase_a, evaluation_state_at_generation, actionability_at_generation,
+          degraded, row_count, universe_size, scan_ms,
+          payload_checksum, validation_result, payload
+        ) VALUES (
+          ${next.generationId}, ${generatedAt}::timestamptz, ${next.sourceDate},
+          ${prov.nseRefSourceHashAtGeneration ?? "UNKNOWN"},
+          ${nseRefFetched}::timestamptz,
+          ${nseRefDate}::date,
+          ${prov.nseRefTotalRecordsAtGeneration},
+          ${"true"},
+          ${FULL_NSE_SCAN_PAYLOAD_SCHEMA_VERSION},
+          ${INSTRUMENT_ELIGIBILITY_POLICY_VERSION},
+          ${prov.authoritativeEligibleSymbolHash},
+          ${prov.finalRowSymbolHash},
+          ${JSON.stringify(next.eligibilityBreakdown)}::jsonb,
+          ${JSON.stringify(next.countReconciliation)}::jsonb,
+          ${String(next.phaseA)},
+          ${evaluationState},
+          ${actionability},
+          ${String(next.degraded ?? false)},
+          ${next.rows.length},
+          ${next.total},
+          ${next.scanMs},
+          ${prov.payloadChecksum},
+          ${"ACCEPTED"},
+          ${payloadJson}::jsonb
+        )
+        ON CONFLICT (generation_id) DO NOTHING
+        RETURNING id::text AS id, saved_at
+      `);
+
+      // ── Bounded retention: keep FULL_SCAN_DB_MAX_SNAPSHOTS most recent ─────
+      await tx.execute(sql`
+        DELETE FROM full_nse_scan_snapshots
+        WHERE id NOT IN (
+          SELECT id FROM full_nse_scan_snapshots
+          ORDER BY generated_at DESC
+          LIMIT ${FULL_SCAN_DB_MAX_SNAPSHOTS}
+        )
+      `);
+
+      return { rows: (insertResult.rows ?? []) as Array<{ id: string; saved_at: string | Date }> };
+    });
+
+    if ("throttled" in txResult && txResult.throttled) {
+      logger.info(
+        { generationId: next.generationId, sinceLastWriteMs: txResult.sinceLastWriteMs,
+          diagnosticEvent: "FULL_SCAN_PERSISTENCE_THROTTLED" },
+        "Full NSE scan: durable write throttled — last accepted snapshot < 30 min ago (replica-safe PG check)",
+      );
+      return { ok: true, skippedReason: "THROTTLED_30MIN", durablyCommitted: false };
+    }
+
+    const resultRows = (txResult as { rows: Array<{ id: string; saved_at: string | Date }> }).rows;
+    if (!resultRows.length) {
+      logger.info(
+        { generationId: next.generationId },
+        "Full NSE scan: snapshot already exists (ON CONFLICT DO NOTHING) — previous PG snapshot preserved",
+      );
+      return { ok: true, skippedReason: "DUPLICATE_GENERATION_ID", durablyCommitted: false };
+    }
+    const row = resultRows[0]!;
+    const committedAt = typeof row.saved_at === "string"
+      ? row.saved_at : new Date(row.saved_at).toISOString();
+    logger.info(
+      { generationId: next.generationId, snapshotId: row.id, committedAt, rows: next.rows.length,
+        diagnosticEvent: "FULL_SCAN_PERSISTENCE_SUCCESS" },
+      "Full NSE scan: generation persisted to PostgreSQL (L2) — FULL_SCAN_PERSISTENCE_SUCCESS",
+    );
+    return { ok: true, snapshotId: row.id, committedAt, durablyCommitted: true };
+  } catch (err) {
+    const reasonCode   = (err instanceof Error ? err.message : String(err)).slice(0, 200);
+    const errorClass   = err instanceof Error ? err.constructor.name : "Error";
+    logger.warn(
+      { err, reasonCode, errorClass, generationId: next.generationId,
+        diagnosticEvent: "FULL_SCAN_PERSISTENCE_FAILURE" },
+      "Full NSE scan: _saveFullScanSnapshotToDb failed (non-fatal) — previous PG snapshot preserved",
+    );
+    return { ok: false, reasonCode, errorClass, durablyCommitted: false };
+  }
+}
+
+// ── PG SNAPSHOT: READ ─────────────────────────────────────────────────────────
+
+/**
+ * Load the latest validated full-NSE scan generation from PostgreSQL.
+ * Returns null on any error (non-fatal — caller falls through to cold scan).
+ *
+ * Verifications on load:
+ *   1. payload_schema_version === FULL_NSE_SCAN_PAYLOAD_SCHEMA_VERSION
+ *   2. eligibility_policy_version === INSTRUMENT_ELIGIBILITY_POLICY_VERSION
+ *   3. row_count >= 1000
+ *   4. final_row_symbol_hash verified by recomputing from loaded rows
+ *   5. payload_checksum verified via computePayloadChecksum()
+ *
+ * Corrupt/incompatible snapshots are rejected, logged with CORRUPT_SNAPSHOT_REJECTED
+ * or INCOMPATIBLE_SCHEMA_VERSION, and preserved in the DB for operator inspection.
+ *
+ * EXPORTED for test mocking via vi.spyOn.
+ */
+export async function _loadLatestFullScanSnapshotFromDb(reason: string): Promise<Cache | null> {
+  try {
+    await ensureFullScanSnapshotSchema();
+    type SnapshotRow = {
+      generation_id:                      string;
+      generated_at:                       string | Date;
+      source_date:                        string;
+      nse_ref_source_hash:                string;
+      nse_ref_fetched_at:                 string | Date;
+      nse_ref_effective_date:             string;
+      nse_ref_total_records:              number;
+      payload_schema_version:             number;
+      eligibility_policy_version:         number;
+      authoritative_eligible_symbol_hash: string;
+      final_row_symbol_hash:              string;
+      eligibility_breakdown:              Record<string, number>;
+      count_reconciliation:               unknown;
+      phase_a:                            string;
+      row_count:                          number;
+      universe_size:                      number;
+      scan_ms:                            number;
+      payload_checksum:                   string;
+      payload:                            unknown;
+    };
+    const result = await db.execute(sql`
+      SELECT
+        generation_id, generated_at, source_date,
+        nse_ref_source_hash, nse_ref_fetched_at, nse_ref_effective_date, nse_ref_total_records,
+        payload_schema_version, eligibility_policy_version,
+        authoritative_eligible_symbol_hash, final_row_symbol_hash,
+        eligibility_breakdown, count_reconciliation,
+        phase_a, row_count, universe_size, scan_ms,
+        payload_checksum, payload
+      FROM full_nse_scan_snapshots
+      WHERE payload_schema_version = ${FULL_NSE_SCAN_PAYLOAD_SCHEMA_VERSION}
+        AND eligibility_policy_version = ${INSTRUMENT_ELIGIBILITY_POLICY_VERSION}
+        AND validation_result = 'ACCEPTED'
+        AND reference_authoritative_at_generation = 'true'
+        AND row_count >= 1000
+      ORDER BY generated_at DESC
+      LIMIT 1
+    `);
+    const rows = result.rows as SnapshotRow[];
+    if (!rows.length) {
+      logger.info({ reason }, "Full NSE scan: no valid PG snapshot found (L2 miss)");
+      return null;
+    }
+    const row = rows[0]!;
+
+    // ── Schema/policy version guard ─────────────────────────────────────────
+    if (Number(row.payload_schema_version)   !== FULL_NSE_SCAN_PAYLOAD_SCHEMA_VERSION ||
+        Number(row.eligibility_policy_version) !== INSTRUMENT_ELIGIBILITY_POLICY_VERSION) {
+      logger.warn(
+        { stored: { pv: row.payload_schema_version, ev: row.eligibility_policy_version },
+          expected: { pv: FULL_NSE_SCAN_PAYLOAD_SCHEMA_VERSION, ev: INSTRUMENT_ELIGIBILITY_POLICY_VERSION },
+          reason, diagnosticEvent: "INCOMPATIBLE_SCHEMA_VERSION" },
+        "Full NSE scan: PG snapshot schema/policy version mismatch — INCOMPATIBLE_SCHEMA_VERSION; row preserved for inspection",
+      );
+      return null;
+    }
+
+    // ── Payload extraction ──────────────────────────────────────────────────
+    const payloadObj = row.payload as Record<string, unknown>;
+    if (typeof payloadObj !== "object" || !payloadObj) {
+      logger.warn({ reason, diagnosticEvent: "CORRUPT_SNAPSHOT_REJECTED" },
+        "Full NSE scan: PG snapshot payload is not an object — CORRUPT_SNAPSHOT_REJECTED");
+      return null;
+    }
+    const loadedRows: StockRow[] = Array.isArray(payloadObj["rows"])
+      ? (payloadObj["rows"] as StockRow[]) : [];
+    if (loadedRows.length < 1000) {
+      logger.warn({ reason, loadedRows: loadedRows.length, diagnosticEvent: "CORRUPT_SNAPSHOT_REJECTED" },
+        "Full NSE scan: PG snapshot has < 1000 rows — CORRUPT_SNAPSHOT_REJECTED");
+      return null;
+    }
+
+    // ── Final-row symbol hash verification ─────────────────────────────────
+    const recomputedFinalHash = computeSymbolHash(loadedRows.map(r => r.symbol));
+    if (recomputedFinalHash !== row.final_row_symbol_hash) {
+      logger.warn(
+        { reason, recomputed: recomputedFinalHash, stored: row.final_row_symbol_hash,
+          diagnosticEvent: "CORRUPT_SNAPSHOT_REJECTED" },
+        "Full NSE scan: PG snapshot final-row symbol hash mismatch — CORRUPT_SNAPSHOT_REJECTED; row preserved for inspection",
+      );
+      return null;
+    }
+
+    // ── Payload checksum verification ───────────────────────────────────────
+    // Re-canonicalise the full JSONB payload (PG may reorder object keys) and
+    // recompute the SHA-256.  computeCanonicalPayloadChecksum sorts keys
+    // recursively before hashing, so JSONB key reordering never causes a
+    // false mismatch.
+    const expectedChecksum = computeCanonicalPayloadChecksum(payloadObj);
+    if (expectedChecksum !== row.payload_checksum) {
+      logger.warn(
+        { reason, expected: expectedChecksum, stored: row.payload_checksum,
+          diagnosticEvent: "CORRUPT_SNAPSHOT_REJECTED" },
+        "Full NSE scan: PG snapshot payload checksum mismatch — CORRUPT_SNAPSHOT_REJECTED; row preserved for inspection",
+      );
+      return null;
+    }
+
+    const generatedAtMs = typeof row.generated_at === "string"
+      ? new Date(row.generated_at).getTime()
+      : (row.generated_at as Date).getTime();
+    const nseRefFetchedAtStr = typeof row.nse_ref_fetched_at === "string"
+      ? row.nse_ref_fetched_at
+      : new Date(row.nse_ref_fetched_at as Date).toISOString();
+    const nseRefEffectiveDateStr = typeof row.nse_ref_effective_date === "string"
+      ? row.nse_ref_effective_date.slice(0, 10)
+      : String(row.nse_ref_effective_date);
+
+    const generationProvenance: FullScanGenerationProvenance = {
+      nseRefSourceHashAtGeneration:        row.nse_ref_source_hash,
+      nseRefFetchedAtGeneration:           nseRefFetchedAtStr,
+      nseRefEffectiveDateAtGeneration:     nseRefEffectiveDateStr,
+      nseRefTotalRecordsAtGeneration:      Number(row.nse_ref_total_records),
+      referenceAuthoritativeAtGeneration:  true,          // guaranteed by WHERE clause
+      eligibilityPolicyVersion:            Number(row.eligibility_policy_version),
+      payloadSchemaVersion:                Number(row.payload_schema_version),
+      authoritativeEligibleSymbolHash:     row.authoritative_eligible_symbol_hash,
+      finalRowSymbolHash:                  row.final_row_symbol_hash,
+      payloadChecksum:                     row.payload_checksum,
+    };
+
+    const restoredCache: Cache = {
+      rows:                 loadedRows,
+      lastUpdated:          generatedAtMs,     // ORIGINAL generated_at — never refreshed on load
+      sourceDate:           row.source_date,
+      total:                Number(row.universe_size),
+      scanMs:               Number(row.scan_ms),
+      failures:             Number((payloadObj["failures"] as number | undefined) ?? 0),
+      liveQuoteCount:       Number((payloadObj["liveQuoteCount"] as number | undefined) ?? loadedRows.length),
+      rested:               Number((payloadObj["rested"] as number | undefined) ?? 0),
+      enriched:             Number((payloadObj["enriched"] as number | undefined) ?? 0),
+      degraded:             false,             // only ACCEPTED non-degraded snapshots are stored
+      kiteOffline:          Boolean(payloadObj["kiteOffline"] ?? false),
+      eligibilityBreakdown: (row.eligibility_breakdown as Record<string, number>) ?? {},
+      phaseA:               row.phase_a === "true",
+      generationId:         row.generation_id,   // ORIGINAL — never re-generated
+      countReconciliation:  (row.count_reconciliation as ScanCountReconciliation),
+      cacheSource:          "POSTGRESQL",
+      lastGoodLabel:        "LAST_KNOWN",
+      generationProvenance,
+    };
+
+    logger.info(
+      { generationId: restoredCache.generationId, rows: restoredCache.rows.length,
+        generatedAt: new Date(restoredCache.lastUpdated).toISOString(),
+        cacheSource: "POSTGRESQL", reason },
+      "Full NSE scan: warm-started from PostgreSQL (L2) — FULL_SCAN_WARM_STARTED_FROM_POSTGRESQL",
+    );
+    return restoredCache;
+  } catch (err) {
+    logger.warn(
+      { err, reason, diagnosticEvent: "FULL_SCAN_POSTGRESQL_LOAD_FAILED" },
+      "Full NSE scan: _loadLatestFullScanSnapshotFromDb failed (non-fatal)",
+    );
+    return null;
+  }
 }
 
 /**
@@ -1189,6 +1770,11 @@ async function performFullScan(): Promise<Cache> {
   // fail-closed for new universe generation. This prevents silently using a very stale
   // reference that may no longer reflect current NSE listings.
   if (!nseRefMeta.canAuthorizeUniverse) {
+    // Governance: if reference cannot authorize the universe (isLastGood=true or age ≥ 48h),
+    // do NOT scan. Return BLOCKED and let the caller serve the existing disk/memory cache
+    // as degraded/last-known. If no prior cache exists, fail closed. This preserves the
+    // 48h NSE-reference governance and prevents a contaminated or last-good reference from
+    // driving the universe.
     logger.warn(
       {
         generationId,
@@ -1268,6 +1854,12 @@ async function performFullScan(): Promise<Cache> {
   });
 
   progress.total = symbolList.length;
+
+  // ── Generation-time eligible symbol hash ──────────────────────────────────
+  // Computed from the final deduplicated symbolList — the exact universe that will drive
+  // this scan. Full 64-char SHA-256 (contract requirement). Stored in the PG snapshot
+  // and verified on load to detect corruption or universe drift.
+  const authoritativeEligibleSymbolHash = computeSymbolHash(symbolList);
 
   // ── 2. KITE QUOTES (primary price source) ──────────────────────────
   const kiteQuotes = await centralBatchEquityQuotes(symbolList);
@@ -1684,9 +2276,28 @@ async function performFullScan(): Promise<Cache> {
     kiteOffline: !kiteQuotes,
   }, "Full NSE scan complete");
 
-  return {
+  const finalRowSymbolHash = computeSymbolHash(rows.map(r => r.symbol));
+  const lastUpdated = Date.now();
+
+  // Build the full generationProvenance with a placeholder checksum first.
+  // computeCanonicalPayloadChecksum excludes generationProvenance.payloadChecksum
+  // from its input, so any placeholder value is fine — it is overwritten below.
+  const generationProvenance: FullScanGenerationProvenance = {
+    nseRefSourceHashAtGeneration:       (nseRefMeta as { sourceHash?: string | null }).sourceHash ?? null,
+    nseRefFetchedAtGeneration:          (nseRefMeta as { fetchedAt?: string | null }).fetchedAt ?? null,
+    nseRefEffectiveDateAtGeneration:    (nseRefMeta as { snapshotDate?: string | null }).snapshotDate ?? null,
+    nseRefTotalRecordsAtGeneration:     (nseRefMeta as { totalRecords?: number }).totalRecords ?? 0,
+    referenceAuthoritativeAtGeneration: (nseRefMeta as { canAuthorizeUniverse?: boolean }).canAuthorizeUniverse === true,
+    eligibilityPolicyVersion:           INSTRUMENT_ELIGIBILITY_POLICY_VERSION,
+    payloadSchemaVersion:               FULL_NSE_SCAN_PAYLOAD_SCHEMA_VERSION,
+    authoritativeEligibleSymbolHash,
+    finalRowSymbolHash,
+    payloadChecksum: "",                // placeholder — overwritten immediately below
+  };
+
+  const scanResult: Cache = {
     rows,
-    lastUpdated: Date.now(),
+    lastUpdated,
     sourceDate,
     total: symbolList.length,           // ordinary-equity-eligible count
     scanMs,
@@ -1700,7 +2311,16 @@ async function performFullScan(): Promise<Cache> {
     phaseA: !SCANNER_KITE_CANDLE_EVALUATION_AUTHORIZED,
     generationId,
     countReconciliation,
+    cacheSource: "NEW_SCAN" as const,
+    lastGoodLabel: "CURRENT" as const,
+    generationProvenance,
   };
+
+  // Full-payload canonical checksum — covers every field (rows, quotes, OHLC, symbols,
+  // eligibilityBreakdown, countReconciliation, phaseA, generatedAt, provenance…)
+  // except generationProvenance.payloadChecksum itself (circular exclusion).
+  generationProvenance.payloadChecksum = computeCanonicalPayloadChecksum(scanResult);
+  return scanResult;
 }
 
 export async function scanFullNse(opts?: { force?: boolean }): Promise<Cache> {
@@ -1749,6 +2369,24 @@ export async function scanFullNse(opts?: { force?: boolean }): Promise<Cache> {
           if (!downgrading && !reconciliationFailed) cache = next;
           if (!next.degraded) {
             try { saveBlob(DISK_CACHE_NAME, DISK_CACHE_VERSION, next); } catch { /* logged inside */ }
+            // Awaited PG persistence (non-fatal — disk cache already committed).
+            // Failure leaves the previous PG snapshot intact; disk (L1) remains the hot fallback.
+            //
+            // Skip PG persistence when a deterministic test-result factory is active.
+            // The factory is ALWAYS null in production; it is only set inside
+            // p33b.generationTrace.test.ts so that generation-lifecycle tests can inject
+            // controlled scan results.  Skipping here keeps the scanInFlight promise
+            // synchronous-ish so that the stale-while-revalidate return path in
+            // scanFullNse() and `await scanPromise` complete before the test's assertion.
+            // _saveFullScanSnapshotToDb is tested directly in p33c.p1_1.durableStore.test.ts.
+            if (!_testScanResultFactory) {
+              const persistResult = await _saveFullScanSnapshotToDb(next);
+              logger.info(
+                { generationId: next.generationId, persistResult,
+                  diagnosticEvent: "FULL_SCAN_PERSISTENCE_RESULT" },
+                "Full NSE scan: PG persistence result",
+              );
+            }
           }
           // After every successful (non-degraded-only) scan, run the
           // swing-equity paper trading tick: open new STRONG_BUY paper
@@ -1793,7 +2431,35 @@ export async function scanFullNse(opts?: { force?: boolean }): Promise<Cache> {
   // payload. This is what stops the Scanner page from feeling "stuck"
   // for 7-12s on every server restart — the disk warm-start cache is
   // good enough to render instantly.
-  if (cache && cache.rows.length > 0) return cache;
+  if (cache && cache.rows.length > 0) {
+    // ── Display-age policy (owner-approved contract) ────────────────────────
+    // L1/L2-loaded last-good generations have a finite serve window:
+    //   Market open:   ≤ 24h (FULL_SCAN_DISPLAY_AGE_MARKET_OPEN_MS)
+    //   Market closed: ≤ 96h (FULL_SCAN_DISPLAY_AGE_MARKET_CLOSED_MS)
+    // NEW_SCAN caches are governed only by REFRESH_MS (60s) — not this gate.
+    // Background scan is already queued; UNAVAILABLE clears as soon as a
+    // fresh authoritative generation commits.
+    if (cache.cacheSource === "DISK" || cache.cacheSource === "POSTGRESQL") {
+      const { marketOpen } = getMarketStatusDetail(new Date());
+      const maxAgeMs  = marketOpen ? FULL_SCAN_DISPLAY_AGE_MARKET_OPEN_MS : FULL_SCAN_DISPLAY_AGE_MARKET_CLOSED_MS;
+      const cacheAgeMs = Date.now() - cache.lastUpdated;
+      if (cacheAgeMs > maxAgeMs) {
+        logger.warn(
+          { generationId: cache.generationId, cacheSource: cache.cacheSource,
+            cacheAgeMs, maxAgeMs, marketOpen,
+            diagnosticEvent: "FULL_SCAN_LAST_GOOD_AGE_EXCEEDED" },
+          "Full NSE scan: last-good cache exceeded display-age limit — serving UNAVAILABLE until fresh scan completes",
+        );
+        return {
+          ...buildBlockedScanResult(cache.generationId + "-expired", Date.now(),
+            cache.countReconciliation.rawKiteNseInstrumentCount ?? 0),
+          sourceDate: "UNAVAILABLE_LAST_KNOWN_AGE_LIMIT_EXCEEDED",
+          lastGoodLabel: "UNAVAILABLE" as const,
+        };
+      }
+    }
+    return cache;
+  }
 
   // Truly cold cache (first deploy, disk wiped) — must wait.
   return scanInFlight;
@@ -1809,17 +2475,47 @@ export function startFullNseScannerBackground(): void {
 
   // Warm-start from disk cache so the first request returns immediately
   // even before the cold scan finishes.
+  // ── L1: Disk warm-start ─────────────────────────────────────────────────────
   const blob = loadBlob<Cache>(DISK_CACHE_NAME, DISK_CACHE_VERSION);
   if (blob && blob.payload && blob.payload.rows && blob.payload.rows.length > 0) {
-    cache = blob.payload;
+    cache = { ...blob.payload, cacheSource: "DISK", lastGoodLabel: "LAST_KNOWN" };
     const ageMin = Math.round((Date.now() - blob.ts) / 60_000);
-    logger.info({ rows: cache.rows.length, total: cache.total, ageMin }, "Full NSE: warm-started from disk cache");
+    logger.info({ rows: cache.rows.length, total: cache.total, ageMin, cacheSource: "DISK" },
+      "Full NSE: warm-started from disk cache (L1)");
+  }
+
+  // ── L2: PostgreSQL warm-start (disk miss only) ───────────────────────────────
+  // Runs as a detached async operation because startFullNseScannerBackground() is synchronous.
+  // Sets cache only if not already populated by the disk load or a concurrent first scan.
+  // Background scan at t+500ms will queue regardless — this just provides a fast first-serve
+  // so the Scanner page shows data before the 60–70s Kite scan completes.
+  if (!cache) {
+    void (async () => {
+      try {
+        const pgCache = await _loadLatestFullScanSnapshotFromDb("STARTUP_L2_FALLBACK");
+        if (pgCache && !cache) {
+          cache = pgCache;
+          logger.info(
+            { rows: cache.rows.length, generationId: cache.generationId,
+              generatedAt: new Date(cache.lastUpdated).toISOString(), cacheSource: "POSTGRESQL" },
+            "Full NSE: warm-started from PostgreSQL (L2) — FULL_SCAN_WARM_STARTED_FROM_POSTGRESQL",
+          );
+        } else if (pgCache && cache) {
+          logger.info({ generationId: pgCache.generationId },
+            "Full NSE: PG snapshot loaded but cache already set — discarding PG result (race with disk/scan)");
+        }
+      } catch (err) {
+        logger.warn({ err: (err as Error).message, diagnosticEvent: "FULL_SCAN_POSTGRESQL_LOAD_FAILED" },
+          "Full NSE: PG warm-start failed (non-fatal)");
+      }
+    })();
   }
 
   // Pre-warm the bhavcopy in the background (used as fallback for
   // delivery%), then kick the first scan. We don't wait for bhavcopy
   // because Kite is the primary source now.
-  setTimeout(() => {
+  _initialScanTimeout = setTimeout(() => {
+    _initialScanTimeout = null;
     void getDeliveryMap()
       .then(m => { logger.info({ ok: !!m, count: m?.map.size ?? 0 }, "Bhavcopy pre-warm (delivery% fallback)"); })
       .catch(() => { /* fine — Kite quotes don't need bhavcopy */ });
@@ -1857,6 +2553,10 @@ export function getFullNseStatus(): {
   displayedGenerationId: string | null;
   /** generationId of the scan currently in progress (null when idle). */
   inProgressGenerationId: string | null;
+  /** How the current cache was populated. */
+  cacheSource: "NEW_SCAN" | "DISK" | "POSTGRESQL" | null;
+  /** Display label for the client — CURRENT when fresh, LAST_KNOWN when from L1/L2. */
+  lastGoodLabel: "CURRENT" | "LAST_KNOWN" | "STALE" | "UNAVAILABLE" | null;
 } {
   const ageMs = cache ? Date.now() - cache.lastUpdated : null;
   const stale = ageMs != null && ageMs > DISK_CACHE_MAX_AGE_MS;
@@ -1866,6 +2566,7 @@ export function getFullNseStatus(): {
     hasCache: false, lastUpdated: null, total: 0, rows: 0, failures: 0, rested: 0,
     sourceDate: null, scanMs: null, progress: prog, ageMs: null, stale: false,
     universeEstimate, displayedGenerationId: null, inProgressGenerationId: progress.inProgressGenerationId,
+    cacheSource: null, lastGoodLabel: null,
   };
   return {
     hasCache: true,
@@ -1882,5 +2583,7 @@ export function getFullNseStatus(): {
     universeEstimate,
     displayedGenerationId: cache.generationId,
     inProgressGenerationId: progress.inProgressGenerationId,
+    cacheSource: cache.cacheSource ?? null,
+    lastGoodLabel: cache.lastGoodLabel ?? null,
   };
 }

@@ -1412,6 +1412,20 @@ router.get("/scan/full-nse", async (req, res, next) => {
       countReconciliation: data.countReconciliation,
       // Eligibility breakdown: raw Kite universe split by classifier class.
       eligibilityBreakdown: data.eligibilityBreakdown,
+      // ── SECTION 5: Cache source and display label ─────────────────────────
+      // cacheSource: how this generation was loaded into memory.
+      //   NEW_SCAN   — just completed by performFullScan() (authoritative)
+      //   DISK       — warm-started from local disk blob (last-known, display only)
+      //   POSTGRESQL — warm-started from L2 PG snapshot (last-known, display only)
+      // lastGoodLabel: CURRENT when fresh; LAST_KNOWN when from L1/L2; UNAVAILABLE when age limit exceeded.
+      // generatedAt: original ISO timestamp from the generation (never refreshed on load).
+      // generationProvenance: generation-time NSE reference metadata (immutable).
+      //   Exposed SEPARATELY from live classifierProvenance so the client can compare
+      //   what the reference looked like at generation time vs. today.
+      cacheSource:           data.cacheSource   ?? "NEW_SCAN",
+      lastGoodLabel:         data.lastGoodLabel ?? "CURRENT",
+      generatedAt:           new Date(data.lastUpdated).toISOString(),
+      generationProvenance:  data.generationProvenance ?? null,
     });
   } catch (err) { next(err); }
 });

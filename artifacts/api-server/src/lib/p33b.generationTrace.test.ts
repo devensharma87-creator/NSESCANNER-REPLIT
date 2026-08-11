@@ -36,7 +36,7 @@
  * gen-new construction and gen-new's data after successful swap.
  */
 
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
 import type { ScanCountReconciliation } from "./fullNseScanner";
 import {
   scanFullNse,
@@ -46,6 +46,8 @@ import {
   _setTestPauseBeforeCommit,
   _clearTestFactories,
   _resetTestHooks,
+  startFullNseScannerBackground,
+  _getBackgroundTimerActiveForTest,
 } from "./fullNseScanner";
 
 // ── helpers ───────────────────────────────────────────────────────────────────
@@ -399,5 +401,63 @@ describe("T-ATOMIC: Concurrent status reads observe only complete generations", 
     const after = getFullNseStatus();
     expect(after.displayedGenerationId,  "T-ATOMIC after — gen-F published").toBe(genF);
     expect(after.inProgressGenerationId, "T-ATOMIC after — in-progress null").toBeNull();
+  });
+});
+
+// ── T-TIMER-RESET: Background timer isolation regression ──────────────────────
+//
+// Root cause of the pre-existing p33b.generationTrace failures:
+//   scanner.ts imports fullNseScanner and calls startFullNseScannerBackground()
+//   at module load.  When the full test suite runs in a shared worker thread,
+//   the background setInterval persists across test files.  At t≥60s the timer
+//   fires a real scan which sets inProgressGenerationId, racing with a test's
+//   post-scan assertion that expects null.
+//
+// Fix: _resetTestHooks() now clears both the periodic interval (`timer`) and
+//   the one-shot initial scan timeout (`_initialScanTimeout`).
+//
+// These tests regression-pin that fix:
+//   T-TIMER-1: startFullNseScannerBackground() + _resetTestHooks() → timer null
+//   T-TIMER-2: after reset + fake-time advance → no generation starts
+
+describe("T-TIMER-RESET: _resetTestHooks clears background timer (regression)", () => {
+  it("T-TIMER-1: after startFullNseScannerBackground() + _resetTestHooks(), no timer is active", () => {
+    // startFullNseScannerBackground() sets both the initial 500ms timeout
+    // and the 60s periodic interval. _resetTestHooks() must clear both.
+    _setTestScanResultFactory(async (genId) => makeTestCache(genId, "T") as ReturnType<typeof makeTestCache>);
+    startFullNseScannerBackground();
+    // Confirm a timer is active
+    expect(_getBackgroundTimerActiveForTest()).toBe(true);
+    // _resetTestHooks() is called by afterEach, but call it explicitly here
+    // to test the invariant directly.
+    _resetTestHooks();
+    expect(_getBackgroundTimerActiveForTest()).toBe(false);
+    expect(getFullNseStatus().inProgressGenerationId).toBeNull();
+  });
+
+  it("T-TIMER-2: after reset, advancing fake time past REFRESH_MS starts no background scan", async () => {
+    vi.useFakeTimers();
+    try {
+      _setTestScanResultFactory(async (genId) => makeTestCache(genId, "T") as ReturnType<typeof makeTestCache>);
+      startFullNseScannerBackground();
+      _resetTestHooks();
+      // Advance 2× REFRESH_MS (60 000 ms) — if the timer were still active, a scan would start.
+      vi.advanceTimersByTime(120_000);
+      await vi.runAllTimersAsync();
+      // inProgressGenerationId must still be null — no scan was triggered.
+      expect(getFullNseStatus().inProgressGenerationId).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("T-TIMER-3: inProgressGenerationId stays null after tested scan completes + afterEach reset", async () => {
+    // Seed a generation using the test factory.
+    _setTestScanResultFactory(async (genId) => makeTestCache(genId, "U") as ReturnType<typeof makeTestCache>);
+    const result = await scanFullNse({ force: true });
+    // After scan completes (inFlight resolved), inProgressGenerationId must be null.
+    expect(getFullNseStatus().inProgressGenerationId).toBeNull();
+    expect(result.generationId).toMatch(/^gen-\d{13}-\d+$/);
+    // afterEach will call _resetTestHooks() — timer (if any) will be cleared.
   });
 });
