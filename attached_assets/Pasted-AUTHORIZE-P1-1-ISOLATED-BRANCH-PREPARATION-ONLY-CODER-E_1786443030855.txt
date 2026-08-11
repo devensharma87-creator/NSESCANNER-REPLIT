@@ -1,0 +1,183 @@
+AUTHORIZE P1-1 ISOLATED BRANCH PREPARATION ONLY
+
+CODER_EXECUTION_CONTRACT remains active.
+
+Authorization is granted only to prepare and verify an isolated P1-1 deployment
+branch.
+
+This is NOT deployment authorization.
+
+Do not modify, reset, rebase, force-push, or rewrite main.
+Do not delete the existing Pack 33C work.
+Do not deploy.
+Do not include P1-2 through P1-8 changes.
+
+BASE COMMIT
+
+Create a new branch from the verified production commit:
+
+6bf25a7f4aade8524f0120db10a847f5d39e2f00
+
+Suggested branch name:
+
+pack33c-p1-1-isolated
+
+SCOPE TO INCLUDE
+
+Include only the exact required hunks for:
+
+P1-1 scanner durability:
+
+- artifacts/api-server/src/lib/fullNseScanner.ts
+- artifacts/api-server/src/routes/scanner.ts
+- artifacts/scanner/src/pages/scanner.tsx
+- lib/db/src/schema/runtimeTables.ts
+
+BSE prerequisite fix:
+
+- artifacts/api-server/src/lib/kiteAuth.ts
+- artifacts/api-server/src/lib/marketData/instrumentResolver.ts
+- artifacts/api-server/src/lib/marketData/instrumentResolver.test.ts
+- artifacts/api-server/src/lib/p33c.bseMasterFix.test.ts
+
+P1-1 tests required for this isolated implementation:
+
+- artifacts/api-server/src/lib/p33c.p1_1.durableStore.test.ts
+- artifacts/api-server/src/lib/p33b.generationTrace.test.ts
+- artifacts/scanner/src/pages/p33c.p1_1.lastKnownBanner.test.tsx
+
+Dependency files only if actually required by the retained tests:
+
+- artifacts/scanner/package.json
+- pnpm-lock.yaml
+
+IMPORTANT:
+Use hunk-level isolation where a file contains changes unrelated to P1-1.
+Do not copy an entire file blindly if its production-to-HEAD diff contains
+unrelated modifications.
+
+EXCLUDE
+
+Do not include:
+
+- artifacts/api-server/src/app.ts
+- artifacts/api-server/src/lib/kiteFeed.ts
+- artifacts/api-server/src/lib/kiteWarmup.ts
+- artifacts/api-server/src/lib/marketData/instrumentsIntegrity.ts
+- artifacts/api-server/src/routes/kite.ts
+- artifacts/api-server/src/routes/dailyAnalysis.ts
+- artifacts/scanner/src/components/indian-strip.tsx
+- artifacts/scanner/src/components/trend-card.tsx
+- artifacts/scanner/src/pages/deep-scan.tsx
+- artifacts/api-server/src/lib/p33c.p1Fixes.test.ts
+- lib/api-client-react/src/generated/api.schemas.ts
+- lib/api-zod/src/generated/api.ts
+- memory files
+- screenshots
+- attached_assets
+
+The breadth-nullability schema/type changes are P1-2 and must not be classified
+or shipped as P1-1.
+
+DEPENDENCY AUDIT
+
+Before applying changes:
+
+1. Identify every import/export/type/schema dependency introduced by the retained
+   P1-1 and BSE hunks.
+
+2. Prove each dependency already exists in production or is included in the
+   isolated branch.
+
+3. If a required dependency belongs to another P1 blocker, stop:
+
+P1_1_ISOLATION_BLOCKED — CROSS_BLOCKER_DEPENDENCY
+
+Do not silently include it.
+
+SCHEMA ISOLATION
+
+In runtimeTables.ts include only the full_nse_scan_snapshots declaration and
+its required indexes.
+
+Prove no other table, enum, column, index, or schema declaration differs from
+production.
+
+SCANNER ROUTE/UI ISOLATION
+
+Include only:
+
+- cacheSource;
+- lastGoodLabel;
+- original generatedAt/provenance fields required by P1-1;
+- LAST KNOWN/UNAVAILABLE banner.
+
+Do not include breadth-nullability, scoring, filtering, signal, or unrelated UI
+changes.
+
+BSE FLOOR EVIDENCE
+
+Before deployment readiness can pass, document the operational basis for:
+
+- NSE 5000
+- BSE 500
+- NFO 15000
+- BFO 2000
+
+Report current/available valid counts and percentage margins.
+
+If any threshold lacks defensible evidence, stop:
+
+BSE_MASTER_FIX_BLOCKED — UNSUPPORTED_VALIDATION_THRESHOLD
+
+Do not silently alter it.
+
+ISOLATED BRANCH VERIFICATION
+
+After preparing the branch:
+
+1. Show:
+   - branch name;
+   - base commit;
+   - isolated HEAD;
+   - exact changed-file list;
+   - diff stat;
+   - git status;
+   - confirmation that main remains unchanged.
+
+2. Run:
+   - BSE master tests;
+   - instrumentResolver tests twice;
+   - P1-1 durable-store tests;
+   - generation-trace tests;
+   - banner tests;
+   - complete api-server suite twice;
+   - complete scanner suite;
+   - four-package TypeScript;
+   - api-server production build;
+   - scanner production build;
+   - git diff --check;
+   - skip/only audit;
+   - destructive-SQL audit;
+   - secret scan;
+   - four safety-lock verification.
+
+3. Compare production commit → isolated HEAD and prove:
+   - only authorized files/hunks are present;
+   - no unrelated runtime changes;
+   - no breadth P1-2 changes;
+   - no P1-3 through P1-8 changes;
+   - no debug/test-only behaviour in production paths.
+
+4. Do not request deployment authorization if any test fails.
+
+Required passing verdict:
+
+P1_1_ISOLATED_BRANCH_PREDEPLOY_VERIFIED —
+OWNER_DEPLOYMENT_AUTHORIZATION_REQUIRED
+
+Otherwise:
+
+P1_1_ISOLATION_BLOCKED — <exact reason>
+
+Stop after the report. Do not deploy.
