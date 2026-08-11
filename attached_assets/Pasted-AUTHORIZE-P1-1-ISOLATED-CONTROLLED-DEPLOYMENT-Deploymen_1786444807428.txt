@@ -1,0 +1,171 @@
+AUTHORIZE P1-1 ISOLATED CONTROLLED DEPLOYMENT
+
+Deployment authorization is granted only for:
+
+Branch:
+pack33c-p1-1-isolated
+
+Commit:
+f2805b1
+
+Verified production base / rollback target:
+6bf25a7f4aade8524f0120db10a847f5d39e2f00
+
+Do not deploy main.
+Do not merge unrelated Pack 33C work.
+Do not modify code before publishing.
+Do not change any safety lock.
+Do not activate warehouse population, candle evaluation, F&O V2, Swing V2,
+paper auto-open, or live broker execution.
+
+PRE-PUBLISH IDENTITY CHECK
+
+Immediately before publishing, confirm:
+
+- current branch = pack33c-p1-1-isolated
+- HEAD = f2805b1
+- tracked diff from HEAD = empty
+- only the disclosed inert uploaded brief is untracked
+- production base remains 6bf25a7f
+
+If branch or HEAD differs, stop:
+
+BLOCKED_DEPLOYMENT_IDENTITY_MISMATCH
+
+DEPLOYMENT
+
+Publish commit f2805b1 only.
+
+POSTDEPLOY STOP CONDITION
+
+First query production /api/build-info.
+
+The deployed functional commit must be f2805b1.
+
+If a later commit appears, proceed only if every intervening commit contains
+inert attached_assets or screenshot files and zero runtime/schema/dependency
+changes.
+
+Otherwise stop:
+
+BLOCKED_DEPLOYMENT_COMMIT_MISMATCH
+
+POSTDEPLOY VERIFICATION
+
+1. Boot and schema
+
+Confirm:
+
+- API boots without crash;
+- full_nse_scan_snapshots table/index creation succeeds;
+- no schema DROP or destructive migration;
+- existing data remains intact;
+- all four safety locks remain false.
+
+2. Scanner durability
+
+Verify production API:
+
+- /api/scan/full-nse returns HTTP 200;
+- rows.length >= 1000;
+- expected ordinary-equity universe is approximately 2,076 rows;
+- generationId and generatedAt are present;
+- reconciliation remains valid;
+- phase = PHASE_A_POPULATION_ONLY;
+- actionability = NOT_ACTIONABLE.
+
+3. PostgreSQL L2 lifecycle
+
+Verify:
+
+- one accepted current generation is durably stored;
+- row_count matches API rows;
+- payload checksum validates;
+- retention never exceeds three accepted generations;
+- no zero-row or invalid generation is committed.
+
+Do not delete a valid production cache solely to manufacture evidence.
+
+Use a natural restart/cold-start opportunity where available. If L2 cold-start
+cannot safely be forced, mark it:
+
+POSTDEPLOY_L2_RESTART_PROOF_PENDING
+
+Do not perform destructive production testing.
+
+4. Scanner UI
+
+Using an authenticated real browser, confirm:
+
+- Scanner page loads;
+- rows are visible;
+- rows remain NOT_EVALUATED and non-actionable;
+- NEW_SCAN shows CURRENT and no LAST KNOWN banner;
+- DISK/POSTGRESQL state, if naturally observed, shows LAST KNOWN with original
+  timestamp and source;
+- no contradictory status labels;
+- no crash or empty page.
+
+5. BSE master
+
+Confirm production per-exchange counts are plausible and non-zero.
+
+Required:
+
+- BSE count >= 500;
+- NSE count >= 5000;
+- NFO count >= 15000;
+- BFO count >= 2000;
+- NSDL resolves by symbol;
+- 544467 resolves as NSDL;
+- resolver readiness does not conceal BSE unavailability.
+
+If a valid authenticated Kite session exists, run one controlled owner-authorized
+force refresh and confirm:
+
+- all four exchanges are requested;
+- BSE remains populated;
+- no payload=[] is written;
+- failed refresh preserves last-good;
+- structured diagnostic reports the result.
+
+If the session is unavailable, do not force it. Report:
+
+BSE_RUNTIME_FORCE_REFRESH_PENDING — KITE_SESSION_UNAVAILABLE
+
+6. Safety
+
+Confirm:
+
+- no warehouse population;
+- no candle evaluation;
+- no F&O/Swing V2 activation;
+- no paper auto-opens;
+- no broker order;
+- no new recurring scheduler/query load beyond the approved implementation.
+
+ROLLBACK
+
+Rollback immediately to 6bf25a7f if any of these occur:
+
+- API boot failure;
+- schema creation failure;
+- scanner returns zero rows without valid last-good fallback;
+- invalid/corrupt PostgreSQL snapshot is served;
+- BSE cache becomes empty;
+- NSDL/544467 fails after a successful BSE refresh;
+- safety lock changes;
+- unrelated runtime code is detected.
+
+FINAL VERDICT
+
+If all mandatory production checks pass:
+
+P1_1_DEPLOYED_AND_POSTDEPLOY_VERIFIED —
+BSE_MASTER_LAST_GOOD_PROTECTION_ACTIVE
+
+If a mandatory check fails:
+
+P1_1_POSTDEPLOY_BLOCKED — <exact defect and rollback status>
+
+Do not begin P1-2.
