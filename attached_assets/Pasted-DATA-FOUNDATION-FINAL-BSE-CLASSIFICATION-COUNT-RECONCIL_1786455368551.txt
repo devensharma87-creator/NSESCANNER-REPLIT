@@ -1,0 +1,134 @@
+DATA FOUNDATION — FINAL BSE CLASSIFICATION, COUNT RECONCILIATION AND RESERVED-VM COST GATE
+
+CODER_EXECUTION_CONTRACT remains active.
+
+This is one bounded read-only task. Do not modify code, schema, configuration, tests or documentation. Do not run builds, full test suites, browser sessions, services, restarts or deployments. Do not make broker or paid-provider calls.
+
+Do not begin canonical-pipeline implementation.
+
+OBJECTIVE
+
+Resolve the final BSE classification and arithmetic contradictions, then verify the cost and operational implications of moving the live-feed owner from Replit Autoscale to a single Reserved VM.
+
+A. AUTHORITATIVE BSE CLASSIFICATION
+
+Obtain and cite BSE’s official documentation or official dataset defining the relevant security classifications/groups.
+
+Resolve all 64 disputed active records:
+
+- P = 56
+- R = 3
+- IP = 3
+- Y = 2
+
+For every record provide:
+
+- SCRIP_CD
+- trading symbol
+- security name
+- ISIN, if available
+- BSE group
+- BSE status
+- exact Kite exchange_token
+- exact Kite instrument_token
+- authoritative security class
+- proposed tier: LIVE / SNAPSHOT / UNAVAILABLE / UNRESOLVED
+- authoritative source
+- mapping result
+- reason
+
+Do not infer that:
+- P means preference
+- R means ordinary equity
+- IP means REIT/InvIT
+- Y means ordinary equity
+
+If BSE does not provide enough evidence for a record, classify it as UNRESOLVED. Do not guess and do not use symbol-only identity matching.
+
+Rights entitlements are not ordinary shares unless authoritative evidence proves otherwise.
+
+B. EXACT ZERO-REMAINDER RECONCILIATION
+
+Resolve these conflicting figures:
+
+- 4,718 BSE records in the newly approved scope
+- 4,714 mapped in the earlier explanation
+- 4,712 used in the capacity table
+- 4,718 used as the sensitivity maximum
+- Four recent BSE instruments reported absent from Kite
+
+Produce one exact equation:
+
+BSE official applicable records
+= LIVE mapped
++ SNAPSHOT mapped
++ UNAVAILABLE
++ UNRESOLVED
++ unmapped
++ excluded
+with zero unexplained remainder.
+
+List every unmapped instrument individually.
+
+Then produce the final capacity equation:
+
+NSE mapped LIVE
++ BSE mapped LIVE
++ all 209 indices
+= exact required Kite tokens
+
+State:
+- number of tokens on each of three shards
+- maximum tokens per shard
+- remaining headroom below 9,000
+- treatment of every unmapped/unresolved security
+- whether capacity still fits without assumptions
+
+C. RESERVED VM COST AND OPERATIONAL GATE
+
+Using current official Replit documentation/account-visible deployment information, verify:
+
+- Available Reserved VM sizes
+- CPU and RAM for each relevant size
+- Current pricing or estimated monthly charge
+- Current Autoscale deployment cost model, where available
+- Expected incremental monthly cost of moving to Reserved VM
+- Whether the current plan permits the selected deployment
+- Whether only one instance/process will run
+- Restart and redeployment behaviour
+- Persistent uptime behaviour
+- Whether a single deployment structurally guarantees one Kite feed owner
+
+Do not invent pricing. If an amount cannot be verified, state NOT_YET_VERIFIED.
+
+D. LOAD FEASIBILITY — DESIGN EVIDENCE ONLY
+
+Without starting the implementation or making provider calls, identify:
+
+- Existing quote-processing work performed per tick
+- Whether every tick triggers database writes
+- Whether every tick triggers expensive recalculation
+- Existing memory structure used for live quotes
+- Any obvious O(n) full-universe operation executed per tick
+- Likely CPU/memory risks for approximately 7,900 subscriptions
+- What must be measured during a future controlled development proof
+
+Do not claim the Reserved VM is sufficient until load is measured.
+
+E. REQUIRED DECISION
+
+Recommend one of:
+
+1. RESERVED_VM_PROVISIONALLY_SELECTED — COST_VERIFIED — LOAD_TEST_REQUIRED
+2. RESERVED_VM_BLOCKED — COST_OR_PLAN_UNVERIFIED
+3. DATA_FOUNDATION_BLOCKED — BSE_CLASSIFICATION_OR_COUNT_UNRESOLVED
+
+Required evidence labels:
+- OBSERVED
+- TESTED
+- INFERRED
+- NOT_YET_VERIFIED
+
+Do not present source inspection as runtime proof.
+Do not self-authorize implementation or deployment.
+Stop after this report.
