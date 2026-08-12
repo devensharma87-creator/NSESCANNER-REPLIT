@@ -1,5 +1,10 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, it, expect } from "vitest";
 import {
+  applyCoverageToOverall,
+  coverageBacksLiveClaim,
+  deriveTradeGrade,
   deriveQuoteStatus,
   deriveScannerSourceStatus,
   deriveOverall,
@@ -99,12 +104,29 @@ describe("deriveOverall", () => {
     expect(o.action).toBeNull();
   });
 
-  it("MARKET_CLOSED_SESSION_ACTIVE → green, badge contains MARKET CLOSED, no action", () => {
+  // Phase 0.5B final: this case is deliberately NO LONGER green. "Market is
+  // closed" describes the session, not the health of the data, and this path
+  // has no verified official close behind it.
+  it("MARKET_CLOSED_SESSION_ACTIVE → neutral LAST KNOWN, never green, no action", () => {
     const o = deriveOverall("MARKET_CLOSED_SESSION_ACTIVE", true);
-    expect(o.severity).toBe("green");
+    expect(o.severity).toBe("neutral");
+    expect(o.severity).not.toBe("green");
     expect(o.badge).toContain("MARKET CLOSED");
+    expect(o.badge).toContain("LAST KNOWN");
     expect(o.actionRequired).toBe(false);
     expect(o.action).toBeNull();
+  });
+
+  it("MARKET_CLOSED_SESSION_ACTIVE stamps the observation time when one exists", () => {
+    const o = deriveOverall("MARKET_CLOSED_SESSION_ACTIVE", true, "2026-08-12T10:00:00.000Z");
+    expect(o.userMessage).toContain("2026-08-12T10:00:00.000Z");
+    // ...and must not claim it is an official close.
+    expect(o.userMessage).toContain("not verified official session closes");
+  });
+
+  it("MARKET_CLOSED_SESSION_ACTIVE omits the timestamp rather than inventing one", () => {
+    const o = deriveOverall("MARKET_CLOSED_SESSION_ACTIVE", true, null);
+    expect(o.userMessage).not.toContain("as of");
   });
 
   it("STALE → orange, badge contains STALE, no action required", () => {
@@ -174,8 +196,12 @@ describe("deriveKiteExplanation", () => {
 // ─────────────────────────────────────────────
 
 describe("deriveScannerExplanation", () => {
-  it("KITE_LIVE → trade-grade", () => {
-    expect(deriveScannerExplanation("KITE_LIVE").toLowerCase()).toContain("trade-grade");
+  // Phase 0.5B final: the scanner explanation must NOT assert trade-grade off
+  // the legacy source status. Trade-grade is a coverage-gated claim now.
+  it("KITE_LIVE → names live Kite data but never claims trade-grade", () => {
+    const s = deriveScannerExplanation("KITE_LIVE").toLowerCase();
+    expect(s).toContain("live kite");
+    expect(s).not.toContain("trade-grade");
   });
 
   it("KITE_MARKET_CLOSED → market is closed, session ready", () => {
@@ -205,5 +231,101 @@ describe("no secrets in pure deriver outputs", () => {
       expect(serialized).not.toMatch(/secret/i);
       expect(serialized).not.toMatch(/chat_id/i);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// P0.5B-FINAL — legacy LIVE_TICKS can no longer create a live/trade-grade claim
+// ---------------------------------------------------------------------------
+
+/**
+ * These are the regression tests required by the final correction round:
+ * a stale or partial legacy quote population must not be able to produce ANY
+ * internal live / green / trade-grade state.
+ */
+describe("P0.5B-FINAL-K — LIVE_TICKS is non-authoritative", () => {
+  /** Every coverage state that is NOT a complete-live claim. */
+  const NON_LIVE_STATES = [
+    "INITIALIZING",
+    "UNIVERSE_NOT_CONFIGURED",
+    "LIVE_PARTIAL",
+    "RECONCILIATION_PENDING",
+    "CONFLICTED",
+    "STALE",
+    "UNAVAILABLE",
+    "MARKET_CLOSED_CURRENT",
+    "MARKET_CLOSED_PARTIAL",
+  ] as const;
+
+  function cov(overallState: string, over: Record<string, unknown> = {}) {
+    return {
+      overallState,
+      freshInstrumentCount: 1,
+      requiredInstrumentCount: 58,
+      ...over,
+    } as unknown as Parameters<typeof applyCoverageToOverall>[2];
+  }
+
+  it("K01: coverageBacksLiveClaim is true ONLY for LIVE_COMPLETE", () => {
+    expect(coverageBacksLiveClaim(cov("LIVE_COMPLETE"))).toBe(true);
+    for (const s of NON_LIVE_STATES) {
+      expect(coverageBacksLiveClaim(cov(s))).toBe(false);
+    }
+  });
+
+  it("K02: LIVE_TICKS + any non-complete coverage is NOT trade-grade", () => {
+    for (const s of NON_LIVE_STATES) {
+      expect(deriveTradeGrade("LIVE_TICKS", cov(s))).toBe(false);
+    }
+  });
+
+  it("K03: trade-grade requires BOTH live ticks and complete coverage", () => {
+    expect(deriveTradeGrade("LIVE_TICKS", cov("LIVE_COMPLETE"))).toBe(true);
+    // Complete coverage alone, without live ticks, is still not trade-grade.
+    for (const q of ["CONNECTED_WAITING", "MARKET_CLOSED_SESSION_ACTIVE", "STALE", "UNAVAILABLE"] as const) {
+      expect(deriveTradeGrade(q, cov("LIVE_COMPLETE"))).toBe(false);
+    }
+  });
+
+  it("K04: a green KITE LIVE badge is downgraded when coverage cannot back it", () => {
+    const green = deriveOverall("LIVE_TICKS", true);
+    expect(green.severity).toBe("green");
+
+    for (const s of NON_LIVE_STATES) {
+      const gated = applyCoverageToOverall(green, "LIVE_TICKS", cov(s));
+      expect(gated.severity).not.toBe("green");
+      expect(gated.severity).toBe("yellow");
+      expect(gated.badge).toContain("PARTIAL COVERAGE");
+      // The downgrade must state the real numbers, not just hedge.
+      expect(gated.userMessage).toContain("1 of 58");
+      expect(gated.userMessage).toContain("not trade-grade");
+    }
+  });
+
+  it("K05: a genuinely complete coverage state keeps the green badge", () => {
+    const green = deriveOverall("LIVE_TICKS", true);
+    const gated = applyCoverageToOverall(green, "LIVE_TICKS", cov("LIVE_COMPLETE"));
+    expect(gated).toEqual(green);
+  });
+
+  it("K06: the gate does not touch non-LIVE_TICKS statuses", () => {
+    for (const q of ["CONNECTED_WAITING", "MARKET_CLOSED_SESSION_ACTIVE", "STALE", "UNAVAILABLE"] as const) {
+      const base = deriveOverall(q, true);
+      expect(applyCoverageToOverall(base, q, cov("LIVE_PARTIAL"))).toEqual(base);
+    }
+  });
+
+  it("K07: a stale legacy population (1 fresh of 58) never yields a green or trade-grade state", () => {
+    const c = cov("STALE", { freshInstrumentCount: 0, requiredInstrumentCount: 58 });
+    expect(deriveTradeGrade("LIVE_TICKS", c)).toBe(false);
+    expect(applyCoverageToOverall(deriveOverall("LIVE_TICKS", true), "LIVE_TICKS", c).severity)
+      .not.toBe("green");
+  });
+
+  it("K08: no code path in this module derives trade-grade from quoteStatus alone", () => {
+    const src = readFileSync(join(__dirname, "marketDataHealth.ts"), "utf8");
+    // The old composition was `const tradeGrade = quoteStatus === "LIVE_TICKS";`
+    expect(src).not.toMatch(/tradeGrade\s*=\s*quoteStatus\s*===\s*"LIVE_TICKS"\s*;/);
+    expect(src).toMatch(/deriveTradeGrade\(quoteStatus,\s*coverage\)/);
   });
 });

@@ -22,6 +22,7 @@ import {
   toPublicAggregateCoverage,
   validateCoverageCounts,
   type AggregateMarketDataHealth,
+  type ConflictObservationStatus,
   type ClassificationContext,
   type InstrumentObservation,
   type MarketPhase,
@@ -106,6 +107,7 @@ function aggregate(input: {
   registeredInstrumentCount?: number;
   providerFeedHealthy?: boolean;
   currentTradingDate?: string | null;
+  conflictObservation?: ConflictObservationStatus;
 }): AggregateMarketDataHealth {
   const phase = input.phase ?? "OPEN";
   const subscribedTokens = new Set(
@@ -136,6 +138,7 @@ function aggregate(input: {
     freshnessBudgetSec: BUDGET,
     nowMs: NOW_MS,
     providerFeedHealthy: input.providerFeedHealthy ?? true,
+    conflictObservation: input.conflictObservation ?? "CHECKED_NO_CONFLICT",
   });
 }
 
@@ -627,6 +630,7 @@ describe("P0.5B-J — required tests 1–30", () => {
       freshnessBudgetSec: BUDGET,
       nowMs: NOW_MS,
       providerFeedHealthy: true,
+      conflictObservation: "CHECKED_NO_CONFLICT",
     });
     expect(h.overallState).toBe("UNAVAILABLE");
     expect(h.blockers).toContain("IMPOSSIBLE_COUNTS");
@@ -900,6 +904,7 @@ describe("P0.5B — supporting invariants", () => {
       freshnessBudgetSec: BUDGET,
       nowMs: NOW_MS,
       providerFeedHealthy: true,
+      conflictObservation: "CHECKED_NO_CONFLICT",
     });
     expect(h.overallState).toBe("UNIVERSE_NOT_CONFIGURED");
     expect(h.blockers).toContain("REQUIRED_UNIVERSE_EMPTY");
@@ -923,6 +928,7 @@ describe("P0.5B — supporting invariants", () => {
       quotes: { "NSE:EQUITY:A": freshTick() },
       manifest: manifest(["NSE:EQUITY:A"]),
       providerFeedHealthy: false,
+      conflictObservation: "CHECKED_NO_CONFLICT",
     });
     expect(h.overallState).toBe("LIVE_PARTIAL");
     expect(h.blockers).toContain("PROVIDER_FEED_UNHEALTHY");
@@ -1047,6 +1053,7 @@ describe("R: the observation set itself must have integrity", () => {
       freshnessBudgetSec: BUDGET,
       nowMs: NOW_MS,
       providerFeedHealthy: true,
+      conflictObservation: "CHECKED_NO_CONFLICT",
     });
 
     expect(h.overallState).toBe("UNAVAILABLE");
@@ -1077,6 +1084,7 @@ describe("R: the observation set itself must have integrity", () => {
       freshnessBudgetSec: BUDGET,
       nowMs: NOW_MS,
       providerFeedHealthy: true,
+      conflictObservation: "CHECKED_NO_CONFLICT",
     });
 
     expect(h.overallState).toBe("UNAVAILABLE");
@@ -1094,6 +1102,7 @@ describe("R: liveness requires a live connection, not merely recent cache", () =
       manifest: m,
       authoritativeManifest: m,
       providerFeedHealthy: false,
+      conflictObservation: "CHECKED_NO_CONFLICT",
     });
     expect(h.overallState).not.toBe("LIVE_COMPLETE");
     expect(h.blockers).toContain("PROVIDER_FEED_UNHEALTHY");
@@ -1139,5 +1148,213 @@ describe("R: the pending overlay states its bucket rule truthfully", () => {
     // when the instrument is also conflicted. Pin the corrected wording.
     expect(src).toContain("`conflicted` when that same instrument is also conflicted");
     expect(src).not.toMatch(/exactly one bucket \(always `unavailable`/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// P0.5B-FINAL — independent correction round
+// ---------------------------------------------------------------------------
+
+describe("P0.5B-FINAL-F — provider conflict observation is explicit", () => {
+  const NON_COMPLETE_SENTINEL = "LIVE_COMPLETE";
+
+  it("F01: NOT_CHECKED emits PROVIDER_CONFLICT_NOT_CHECKED even with zero conflicts", () => {
+    const h = aggregate({
+      identities: [ident("NSE:EQUITY:A", 1)],
+      quotes: { "NSE:EQUITY:A": freshTick() },
+      manifest: manifest(["NSE:EQUITY:A"]),
+      conflictObservation: "NOT_CHECKED",
+    });
+    expect(h.conflictedInstrumentCount).toBe(0);
+    // The zero is meaningless: nobody looked. It must be stated, not implied.
+    expect(h.blockers).toContain("PROVIDER_CONFLICT_NOT_CHECKED");
+    expect(h.conflictObservation).toBe("NOT_CHECKED");
+  });
+
+  it("F02: NOT_CHECKED blocks LIVE_COMPLETE in an otherwise perfect universe", () => {
+    const complete = healthyUniverse(5);
+    expect(complete.overallState).toBe(NON_COMPLETE_SENTINEL);
+
+    const identities = Array.from({ length: 5 }, (_, i) => ident(`NSE:EQUITY:SYM${i}`, 1000 + i));
+    const quotes: Record<string, ObservationTick> = {};
+    for (const idt of identities) quotes[idt.canonicalInstrumentId] = freshTick();
+    const unchecked = aggregate({
+      identities,
+      quotes,
+      manifest: manifest(identities.map(i => i.canonicalInstrumentId)),
+      conflictObservation: "NOT_CHECKED",
+    });
+
+    // Identical inputs in every other respect — only the observation status
+    // differs, and that alone must remove the completeness claim.
+    expect(unchecked.overallState).not.toBe("LIVE_COMPLETE");
+    expect(unchecked.blockers).toContain("PROVIDER_CONFLICT_NOT_CHECKED");
+  });
+
+  it("F03: CHECKED_NO_CONFLICT with zero conflicts does not emit the blocker", () => {
+    const h = healthyUniverse(5);
+    expect(h.conflictObservation).toBe("CHECKED_NO_CONFLICT");
+    expect(h.blockers).not.toContain("PROVIDER_CONFLICT_NOT_CHECKED");
+  });
+
+  it("F04: CONFLICT_DETECTED fails closed even if the conflicted count is zero", () => {
+    const h = aggregate({
+      identities: [ident("NSE:EQUITY:A", 1)],
+      quotes: { "NSE:EQUITY:A": freshTick() },
+      manifest: manifest(["NSE:EQUITY:A"]),
+      conflictObservation: "CONFLICT_DETECTED",
+    });
+    expect(h.blockers).toContain("CONFLICTED_INSTRUMENTS_PRESENT");
+    expect(h.overallState).not.toBe("LIVE_COMPLETE");
+  });
+
+  it("F05: conflictObservation survives the public projection", () => {
+    const pub = toPublicAggregateCoverage(
+      aggregate({
+        identities: [ident("NSE:EQUITY:A", 1)],
+        quotes: { "NSE:EQUITY:A": freshTick() },
+        manifest: manifest(["NSE:EQUITY:A"]),
+        conflictObservation: "NOT_CHECKED",
+      }),
+    );
+    expect(pub.conflictObservation).toBe("NOT_CHECKED");
+    expect(pub.blockers).toContain("PROVIDER_CONFLICT_NOT_CHECKED");
+  });
+
+  it("F06: the LIVE production edge reports NOT_CHECKED (Upstox comparison absent)", () => {
+    const src = readFileSync(join(SRC, "marketData/aggregateCoverageLive.ts"), "utf8");
+    expect(src).toMatch(/conflictObservation:\s*"NOT_CHECKED"/);
+    expect(src).not.toMatch(/conflictObservation:\s*"CHECKED_NO_CONFLICT"/);
+  });
+});
+
+describe("P0.5B-FINAL-G — pending/conflict overlay when authority is not configured", () => {
+  /** Authority absent, AND both overlays populated at the same time. */
+  function bothOverlays() {
+    const identities = Array.from({ length: 6 }, (_, i) => ident(`NSE:EQUITY:O${i}`, 700 + i));
+    const quotes: Record<string, ObservationTick> = {};
+    for (const idt of identities) quotes[idt.canonicalInstrumentId] = freshTick();
+    const legacy = manifest(identities.map(i => i.canonicalInstrumentId), {
+      universeScopeId: "LEGACY_CONFIGURED_FEED",
+      universeGenerationId: null,
+      universeGeneratedAt: null,
+      coverageAuthority: "LEGACY_PARTIAL_CONFIGURATION",
+    });
+    return aggregate({
+      identities,
+      quotes,
+      manifest: legacy,
+      authoritativeManifest: AUTHORITATIVE_UNIVERSE_NOT_CONFIGURED,
+      pending: new Set(["NSE:EQUITY:O0", "NSE:EQUITY:O1"]),
+      conflicted: new Set(["NSE:EQUITY:O2"]),
+      conflictObservation: "CONFLICT_DETECTED",
+    });
+  }
+
+  it("G01: both overlay blockers remain visible SIMULTANEOUSLY", () => {
+    const h = bothOverlays();
+    expect(h.blockers).toContain("TOKEN_RECONCILIATION_PENDING");
+    expect(h.blockers).toContain("CONFLICTED_INSTRUMENTS_PRESENT");
+  });
+
+  it("G02: both overlay COUNTS are non-zero and exposed", () => {
+    const h = bothOverlays();
+    expect(h.pendingReconciliationCount).toBe(2);
+    expect(h.conflictedInstrumentCount).toBe(1);
+    const pub = toPublicAggregateCoverage(h);
+    expect(pub.pendingReconciliationCount).toBe(2);
+    expect(pub.conflictedInstrumentCount).toBe(1);
+  });
+
+  it("G03: state precedence cannot hide the overlays (legacy authority)", () => {
+    const h = bothOverlays();
+    // The single headline collapses to the most severe overlay...
+    expect(h.overallState).toBe("CONFLICTED");
+    // ...but a single headline must NEVER swallow the evidence underneath it.
+    // All three problems stay independently visible and independently counted.
+    expect(h.blockers).toContain("TOKEN_RECONCILIATION_PENDING");
+    expect(h.blockers).toContain("CONFLICTED_INSTRUMENTS_PRESENT");
+    expect(h.blockers).toContain("AUTHORITATIVE_UNIVERSE_NOT_CONFIGURED");
+  });
+
+  it("G03b: overlays survive the UNIVERSE_NOT_CONFIGURED precedence branch too", () => {
+    // Authority is not merely legacy — the configured manifest itself declares
+    // no authority, which is the branch that short-circuits the state machine
+    // earliest. The overlays must still be reported.
+    const identities = Array.from({ length: 4 }, (_, i) => ident(`NSE:EQUITY:U${i}`, 800 + i));
+    const quotes: Record<string, ObservationTick> = {};
+    for (const idt of identities) quotes[idt.canonicalInstrumentId] = freshTick();
+    const h = aggregate({
+      identities,
+      quotes,
+      manifest: manifest(identities.map(i => i.canonicalInstrumentId), {
+        coverageAuthority: "UNIVERSE_NOT_CONFIGURED",
+        universeGenerationId: null,
+      }),
+      authoritativeManifest: AUTHORITATIVE_UNIVERSE_NOT_CONFIGURED,
+      pending: new Set(["NSE:EQUITY:U0"]),
+      conflicted: new Set(["NSE:EQUITY:U1"]),
+      conflictObservation: "CONFLICT_DETECTED",
+    });
+
+    expect(h.overallState).toBe("UNIVERSE_NOT_CONFIGURED");
+    expect(h.blockers).toContain("TOKEN_RECONCILIATION_PENDING");
+    expect(h.blockers).toContain("CONFLICTED_INSTRUMENTS_PRESENT");
+    expect(h.pendingReconciliationCount).toBe(1);
+    expect(h.conflictedInstrumentCount).toBe(1);
+  });
+
+  it("G04: affected instruments fail closed — never counted fresh", () => {
+    const h = bothOverlays();
+    // 6 instruments, all with a fresh tick, but 3 are overlay-affected.
+    expect(h.requiredInstrumentCount).toBe(6);
+    expect(h.freshInstrumentCount).toBe(3);
+    expect(h.conflictedInstrumentCount + h.unavailableInstrumentCount).toBe(3);
+  });
+
+  it("G05: no green state is reachable while either overlay is populated", () => {
+    const h = bothOverlays();
+    expect(h.overallState).not.toBe("LIVE_COMPLETE");
+    expect(h.overallState).not.toBe("MARKET_CLOSED_CURRENT");
+  });
+
+  it("G06: pending alone (no conflict) still blocks and still reports its count", () => {
+    const identities = [ident("NSE:EQUITY:P0", 1), ident("NSE:EQUITY:P1", 2)];
+    const h = aggregate({
+      identities,
+      quotes: { "NSE:EQUITY:P0": freshTick(), "NSE:EQUITY:P1": freshTick() },
+      manifest: manifest(identities.map(i => i.canonicalInstrumentId)),
+      pending: new Set(["NSE:EQUITY:P0"]),
+    });
+    expect(h.pendingReconciliationCount).toBe(1);
+    expect(h.blockers).toContain("TOKEN_RECONCILIATION_PENDING");
+    expect(h.overallState).toBe("RECONCILIATION_PENDING");
+  });
+});
+
+describe("P0.5B-FINAL-H — newestObservationAt is an observation time, not a close", () => {
+  it("H01: null when nothing has been observed", () => {
+    const identities = [ident("NSE:EQUITY:A", 1)];
+    const h = aggregate({
+      identities,
+      quotes: {},
+      manifest: manifest(["NSE:EQUITY:A"]),
+    });
+    expect(h.newestObservationAt).toBeNull();
+  });
+
+  it("H02: reports the NEWEST observation, not the oldest", () => {
+    const identities = [ident("NSE:EQUITY:A", 1), ident("NSE:EQUITY:B", 2)];
+    const h = aggregate({
+      identities,
+      quotes: { "NSE:EQUITY:A": freshTick(60), "NSE:EQUITY:B": freshTick(5) },
+      manifest: manifest(identities.map(i => i.canonicalInstrumentId)),
+    });
+    expect(h.newestObservationAt).toBe(new Date(NOW_MS - 5000).toISOString());
+  });
+
+  it("H03: survives the public projection", () => {
+    const pub = toPublicAggregateCoverage(healthyUniverse(3));
+    expect(pub.newestObservationAt).not.toBeNull();
   });
 });

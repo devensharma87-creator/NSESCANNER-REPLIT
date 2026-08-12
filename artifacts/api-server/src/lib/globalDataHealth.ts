@@ -260,7 +260,10 @@ export function applyCoverageGate(
 export function deriveGlobalSeverity(status: GlobalDataHealthStatus): GlobalDataHealthSeverity {
   switch (status) {
     case "TRADE_GRADE_LIVE":              return "ok";
-    case "SESSION_ACTIVE_MARKET_CLOSED":  return "ok";
+    // Phase 0.5B final: NEUTRAL, not "ok". "Market closed" describes the
+    // session, not the health of the data. With no verified official close
+    // available to this path, the only supportable claim is "last known".
+    case "SESSION_ACTIVE_MARKET_CLOSED":  return "info";
     case "KITE_PARTIAL":                  return "warn";
     case "DEGRADED_DATA":                 return "orange";
     case "KITE_FEED_DISCONNECTED":        return "orange";
@@ -280,8 +283,9 @@ export function deriveBadgeAndHeadline(status: GlobalDataHealthStatus): { badge:
       };
     case "SESSION_ACTIVE_MARKET_CLOSED":
       return {
-        badge: "KITE ACTIVE — MARKET CLOSED",
-        headline: "Kite session is active. Market is closed — data shown is from the last session.",
+        badge: "MARKET CLOSED — LAST KNOWN",
+        headline:
+          "Market is closed. Values shown are the last known observations, not verified official session closes. Kite session is active and ready for the next open.",
       };
     case "KITE_PARTIAL":
       return {

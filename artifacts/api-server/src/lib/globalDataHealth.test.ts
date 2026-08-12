@@ -185,7 +185,8 @@ describe("deriveGlobalDataHealthStatus", () => {
 describe("deriveGlobalSeverity", () => {
   const cases: [GlobalDataHealthStatus, string][] = [
     ["TRADE_GRADE_LIVE",             "ok"],
-    ["SESSION_ACTIVE_MARKET_CLOSED", "ok"],
+    // Phase 0.5B final: neutral, not green — see deriveGlobalSeverity.
+    ["SESSION_ACTIVE_MARKET_CLOSED", "info"],
     ["KITE_PARTIAL",                 "warn"],
     ["DEGRADED_DATA",                "orange"],
     ["KITE_FEED_DISCONNECTED",       "orange"],

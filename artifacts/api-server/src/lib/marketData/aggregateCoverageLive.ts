@@ -157,5 +157,10 @@ export function buildLiveAggregateCoverage(
     // satisfy every freshness check and a completeness claim could be made
     // over a dead connection. Live completeness requires a live socket.
     providerFeedHealthy: feed.connected === true,
+    // NOT_CHECKED, and it must stay that way until a real cross-provider
+    // comparison exists. The Upstox comparison is not implemented, so the
+    // conflicted set above is empty because NOBODY LOOKED — never because
+    // providers were observed to agree.
+    conflictObservation: "NOT_CHECKED",
   });
 }

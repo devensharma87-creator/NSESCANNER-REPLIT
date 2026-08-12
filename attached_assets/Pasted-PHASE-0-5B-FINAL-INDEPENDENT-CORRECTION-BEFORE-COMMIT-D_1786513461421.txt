@@ -1,0 +1,71 @@
+PHASE 0.5B — FINAL INDEPENDENT CORRECTION BEFORE COMMIT
+
+Do not commit or deploy. Do not broaden the task.
+
+1. Verify and report the exact four frozen constants:
+
+FULL_NSE_WAREHOUSE_POPULATION_AUTHORIZED
+SCANNER_KITE_CANDLE_EVALUATION_AUTHORIZED
+FNO_PAPER_V2_RUNTIME_AUTHORIZED
+SWING_PAPER_V2_RUNTIME_AUTHORIZED
+
+All must remain `false as boolean`.
+
+2. Audit every remaining consumer and serialized occurrence of LIVE_TICKS.
+
+Required:
+- All internal UI/health/action consumers use the new structured coverage contract.
+- LIVE_TICKS may remain only as an explicitly deprecated legacy quote-presence field.
+- It must not drive green/live/trade-grade UI, scores, signals, orders or safety decisions.
+- Report every remaining route exposing it and its compatibility risk.
+- Add regression tests proving stale or partial legacy quotes cannot cause any internal live/trade-grade state.
+
+3. Prove pending/conflict overlay behaviour when authority is not configured:
+
+- overallState may remain UNIVERSE_NOT_CONFIGURED
+- RECONCILIATION_PENDING must remain an explicit blocker with count
+- CONFLICTED must remain an explicit blocker with count
+- both must remain visible simultaneously when both exist
+- affected instruments fail closed
+- neither can be hidden by state precedence or a green badge
+
+4. Add an explicit validation/conflict-observation status:
+
+- NOT_CHECKED
+- CHECKED_NO_CONFLICT
+- CONFLICT_DETECTED
+
+Current state must be NOT_CHECKED because Upstox comparison is not implemented.
+An empty conflicted set must never mean provider agreement was verified.
+Do not integrate Upstox in this task.
+
+5. Correct market-closed presentation:
+
+- Do not use a green live/healthy badge merely because the session is closed.
+- MARKET_CLOSED_CURRENT may use a positive current-state presentation only when a verified current-session close exists.
+- The present production path has no verified session-close input; therefore render a neutral LAST_KNOWN / MARKET_CLOSED status with timestamp, not green live.
+- Do not change calendar or freshness thresholds.
+
+6. Run targeted tests, relevant TypeScript checks and git diff --check only.
+Do not repeat full package suites unless a material production correction requires repository-policy verification.
+
+7. Report:
+- exact changed files
+- exact LIVE_TICKS consumer inventory
+- overlay precedence evidence
+- conflict-observation state
+- market-closed UI result
+- exact four safety locks
+- tests and TypeScript results
+- git status
+- any automatic commit
+
+Required verdict:
+
+AGGREGATE_MARKET_DATA_STATUS_ACCEPTED_IN_DEVELOPMENT —
+LEGACY_LIVE_TICKS_NON_AUTHORITATIVE —
+PENDING_AND_CONFLICTS_VISIBLE —
+PROVIDER_CONFLICT_NOT_CHECKED_HONESTLY —
+INDEPENDENT_COMMIT_AUTHORIZATION_REQUIRED
+
+Do not commit, deploy, merge, push or begin the next phase.

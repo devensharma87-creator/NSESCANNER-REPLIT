@@ -68,6 +68,18 @@ export type MarketCoverage = {
   pendingReconciliationCount: number;
   coveragePct: number;
   blockers: string[];
+  /**
+   * Newest observation time behind these counts — an observation timestamp,
+   * NOT a verified official close. Optional so the page still renders against
+   * an older server build.
+   */
+  newestObservationAt?: string | null;
+  /**
+   * Whether cross-provider agreement was actually checked. Without this,
+   * `conflictedInstrumentCount: 0` reads as "providers agree" when the truth
+   * is "nobody looked".
+   */
+  conflictObservation?: "NOT_CHECKED" | "CHECKED_NO_CONFLICT" | "CONFLICT_DETECTED";
   authoritative: {
     coverageAuthority: string;
     requiredInstrumentCount: number;
@@ -85,7 +97,7 @@ type MarketDataHealthPublic = {
   };
   overall: {
     badge: string;
-    severity: "green" | "yellow" | "orange" | "red";
+    severity: "neutral" | "green" | "yellow" | "orange" | "red";
     userMessage: string;
     actionRequired: boolean;
     action: string | null;
@@ -267,9 +279,32 @@ export function MarketCoverageNote(): React.JSX.Element | null {
   );
 }
 
-/** Returns true if the banner should be shown for this quoteStatus. */
-function shouldShowBanner(quoteStatus: QuoteStatus): boolean {
-  return quoteStatus === "UNAVAILABLE" || quoteStatus === "STALE" || quoteStatus === "CONNECTED_WAITING";
+/**
+ * Returns true if the banner should be shown.
+ *
+ * Phase 0.5B final: a LIVE_TICKS status no longer silently hides this banner.
+ * Hiding it is itself an "everything is fine" claim, and LIVE_TICKS proves
+ * only that at least one quote exists. When coverage cannot back the live
+ * claim, the banner stays up and says so.
+ *
+ * MARKET_CLOSED_SESSION_ACTIVE still hides: after 15:30 IST that is the
+ * expected state, and the neutral market-closed chip in the global status
+ * banner already carries the honest last-known label.
+ */
+export function shouldShowBanner(
+  quoteStatus: QuoteStatus,
+  coverage?: Pick<MarketCoverage, "overallState"> | null,
+): boolean {
+  if (quoteStatus === "UNAVAILABLE" || quoteStatus === "STALE" || quoteStatus === "CONNECTED_WAITING") {
+    return true;
+  }
+  if (quoteStatus === "LIVE_TICKS") {
+    // No coverage payload at all (older server build) → cannot verify the
+    // live claim, so do not suppress the banner on the strength of it.
+    if (!coverage) return true;
+    return coverage.overallState !== "LIVE_COMPLETE";
+  }
+  return false;
 }
 
 /**
@@ -285,10 +320,10 @@ export function KiteOfflineBanner() {
   const { data, isLoading, isError } = useMarketDataHealth(60_000);
 
   if (isLoading || isError || !data) return null;
-  if (!shouldShowBanner(data.kite.quoteStatus)) return null;
+  if (!shouldShowBanner(data.kite.quoteStatus, data.coverage)) return null;
 
   const quoteStatus = data.kite.quoteStatus;
-  const isInfo = quoteStatus === "CONNECTED_WAITING";
+  const isInfo = quoteStatus === "CONNECTED_WAITING" || quoteStatus === "LIVE_TICKS";
   const Icon = isInfo ? Info : AlertTriangle;
   const borderCls = isInfo
     ? "border-blue-500/40 bg-blue-500/10 text-blue-100"
@@ -305,14 +340,18 @@ export function KiteOfflineBanner() {
           : "Live Zerodha feed unavailable"
       : quoteStatus === "STALE"
         ? "Kite WebSocket feed stopped — reconnecting"
-        : "Kite session active — waiting for first tick";
+        : quoteStatus === "LIVE_TICKS"
+          ? "Live ticks arriving — partial market coverage"
+          : "Kite session active — waiting for first tick";
 
   const body =
     quoteStatus === "UNAVAILABLE"
       ? "Scanner is using delayed Yahoo Finance data (~15 min delayed). Not trade-grade — signals and paper trading are blocked. Reconnect to restore live data."
       : quoteStatus === "STALE"
         ? "Kite session is valid but the WebSocket feed has disconnected. Data may be stale. Feed will attempt to reconnect automatically."
-        : "Kite session and WebSocket are connected. The scanner will switch to live Kite data as soon as the first ticks arrive. Previously cached data is shown in the meantime.";
+        : quoteStatus === "LIVE_TICKS"
+          ? "Live Kite ticks are arriving, but they do not cover the whole market. The legacy quote count says only that at least one quote exists — it is not a coverage or trade-grade claim. See the coverage line below for the real numbers."
+          : "Kite session and WebSocket are connected. The scanner will switch to live Kite data as soon as the first ticks arrive. Previously cached data is shown in the meantime.";
 
   return (
     <div

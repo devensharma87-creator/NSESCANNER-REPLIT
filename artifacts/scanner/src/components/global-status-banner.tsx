@@ -162,6 +162,11 @@ export interface BannerCoverage {
   overallState: string;
   freshInstrumentCount: number;
   requiredInstrumentCount: number;
+  /**
+   * Newest observation time behind the counts. An observation timestamp, NOT
+   * a verified official close. Optional so legacy callers keep compiling.
+   */
+  newestObservationAt?: string | null;
 }
 
 export function deriveBannerView(
@@ -196,18 +201,22 @@ export function deriveBannerView(
           const integrityFault =
             coverage?.overallState === "CONFLICTED" ||
             coverage?.overallState === "RECONCILIATION_PENDING";
+          // Phase 0.5B final: the non-fault closed state is NEUTRAL ("info"),
+          // never the green "ok" tick. This path has no verified official
+          // session close, so the honest claim is "last known", and a green
+          // all-good chip would overstate it every evening.
           return {
             mode: "chip",
-            tone: integrityFault ? "warn" : "ok",
+            tone: integrityFault ? "warn" : "info",
             headline: integrityFault
               ? "Kite session active — data integrity issue"
-              : "Kite session active — market closed",
+              : "Market closed — last known values",
             impact: integrityFault
               ? `Market is closed, but market-data coverage reports ${coverage?.overallState}. Stored prices may be wrong or misattributed until this resolves.`
               : coverage
-                ? `Kite session is active. Market is closed — live ticks are not expected. Coverage state: ${coverage.overallState} (${coverage.freshInstrumentCount}/${coverage.requiredInstrumentCount} configured instruments carry a current value).`
-                : "Kite session is active. Market is closed — live ticks are not expected.",
-            chipLabel: integrityFault ? "Kite — data integrity issue" : "Kite — market closed",
+                ? `Market is closed. Showing last known values${coverage.newestObservationAt ? ` (as of ${coverage.newestObservationAt})` : ""} — not verified official closes. Coverage state: ${coverage.overallState} (${coverage.freshInstrumentCount}/${coverage.requiredInstrumentCount} configured instruments carry a current value).`
+                : "Market is closed. Showing last known values — not verified official closes.",
+            chipLabel: integrityFault ? "Kite — data integrity issue" : "Market closed — last known",
             showReconnect: false,
           };
         }
@@ -372,10 +381,13 @@ export function GlobalStatusBanner() {
   // global backbone health reports that some modules are blocked.
   // Suppressed whenever the Kite state already shows a more specific warning/critical
   // (the Kite banner already tells the owner something is wrong in those cases).
+  // "info" is included alongside "ok": the market-closed chip is neutral-toned
+  // now, and a blocked-module warning must not disappear just because the
+  // closed state stopped rendering green.
   const showDegradedChip =
     globalHealth?.overallStatus === "DEGRADED_DATA" &&
     view.mode === "chip" &&
-    view.tone === "ok";
+    (view.tone === "ok" || view.tone === "info");
 
   if (!full?.readiness || view.mode === "hidden") return null;
 

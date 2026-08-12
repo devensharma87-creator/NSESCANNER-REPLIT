@@ -116,26 +116,33 @@ describe("deriveBannerView", () => {
     expect(v.showReconnect).toBe(false);
   });
 
-  it("KITE_READY + market closed + liveQuotes = 0 → ok chip 'Kite — market closed'", () => {
+  // Phase 0.5B final: the closed chip is NEUTRAL ("info"), not the green "ok"
+  // tick. There is no verified official session close behind this path, so the
+  // honest claim is "last known", not "all good".
+  it("KITE_READY + market closed + liveQuotes = 0 → neutral chip 'Market closed — last known'", () => {
     const v = deriveBannerView(mkReadiness("KITE_READY", { marketSession: "closed" }), 0);
     expect(v.mode).toBe("chip");
-    expect(v.tone).toBe("ok");
-    expect(v.chipLabel).toBe("Kite — market closed");
+    expect(v.tone).toBe("info");
+    expect(v.tone).not.toBe("ok");
+    expect(v.chipLabel).toBe("Market closed — last known");
     expect(v.showReconnect).toBe(false);
   });
 
-  it("KITE_READY + market pre_open + liveQuotes = 0 → ok chip 'Kite — market closed'", () => {
+  it("KITE_READY + market pre_open + liveQuotes = 0 → neutral chip 'Market closed — last known'", () => {
     const v = deriveBannerView(mkReadiness("KITE_READY", { marketSession: "pre_open" }), 0);
     expect(v.mode).toBe("chip");
-    expect(v.tone).toBe("ok");
-    expect(v.chipLabel).toBe("Kite — market closed");
+    expect(v.tone).toBe("info");
+    expect(v.chipLabel).toBe("Market closed — last known");
   });
 
-  it("market-closed chip is NOT warn (was the contradiction: green topbar vs amber scanner)", () => {
+  // Still not an alarm (the original contradiction this test guarded against),
+  // but no longer a green all-good claim either.
+  it("market-closed chip is neither an alarm nor a green all-good claim", () => {
     const v = deriveBannerView(mkReadiness("KITE_READY", { marketSession: "closed" }), 0);
     expect(v.tone).not.toBe("warn");
     expect(v.tone).not.toBe("critical");
-    expect(v.tone).toBe("ok");
+    expect(v.tone).not.toBe("ok");
+    expect(v.tone).toBe("info");
   });
 
   it("waiting-for-ticks chip IS warn (scanner may show delayed data)", () => {

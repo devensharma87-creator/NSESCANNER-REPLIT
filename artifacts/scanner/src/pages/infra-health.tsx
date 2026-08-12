@@ -2946,6 +2946,10 @@ interface GlobalDataHealthResp {
     pendingReconciliationCount: number;
     coveragePct: number;
     blockers: string[];
+    /** Observation timestamp, NOT a verified official close. */
+    newestObservationAt?: string | null;
+    /** Whether provider agreement was actually checked. */
+    conflictObservation?: "NOT_CHECKED" | "CHECKED_NO_CONFLICT" | "CONFLICT_DETECTED";
     authoritative: {
       coverageAuthority: string;
       universeReconciliationValid: boolean;
@@ -3027,7 +3031,19 @@ function GlobalHealthSection({ data, error, loading }: FetchState<GlobalDataHeal
                     { label: "Coverage", value: `${data.coverage.coveragePct}%`, green: data.coverage.coveragePct === 100 },
                     { label: "Stale", value: String(data.coverage.staleInstrumentCount), green: data.coverage.staleInstrumentCount === 0 },
                     { label: "Unavailable", value: String(data.coverage.unavailableInstrumentCount), green: data.coverage.unavailableInstrumentCount === 0 },
-                    { label: "Conflicted", value: String(data.coverage.conflictedInstrumentCount), green: data.coverage.conflictedInstrumentCount === 0 },
+                    // A zero here is only reassuring if a comparison actually
+                    // ran. NOT_CHECKED means nobody looked, so it must never
+                    // render as a green "0 conflicts" tick.
+                    {
+                      label: "Conflicted",
+                      value:
+                        data.coverage.conflictObservation === "NOT_CHECKED"
+                          ? "NOT CHECKED"
+                          : String(data.coverage.conflictedInstrumentCount),
+                      green:
+                        data.coverage.conflictObservation === "CHECKED_NO_CONFLICT" &&
+                        data.coverage.conflictedInstrumentCount === 0,
+                    },
                     { label: "Pending recon.", value: String(data.coverage.pendingReconciliationCount), green: data.coverage.pendingReconciliationCount === 0 },
                   ] as const
                 ).map((r) => (
@@ -3049,6 +3065,22 @@ function GlobalHealthSection({ data, error, loading }: FetchState<GlobalDataHeal
                 </div>
                 <div className="text-muted-foreground">
                   Market {data.coverage.marketState} · freshness budget {data.coverage.freshnessBudgetSec}s
+                  {data.coverage.newestObservationAt
+                    ? ` · newest observation ${data.coverage.newestObservationAt} (observation time, not a verified official close)`
+                    : " · no observation recorded"}
+                </div>
+                <div
+                  className={
+                    data.coverage.conflictObservation === "CHECKED_NO_CONFLICT"
+                      ? "text-emerald-400"
+                      : "text-amber-400"
+                  }
+                  data-testid="coverage-conflict-observation"
+                  data-conflict-observation={data.coverage.conflictObservation ?? "UNKNOWN"}
+                >
+                  Provider conflict check: {data.coverage.conflictObservation ?? "UNKNOWN"}
+                  {data.coverage.conflictObservation === "NOT_CHECKED" &&
+                    " — no cross-provider comparison has run, so provider agreement is UNKNOWN. A conflicted count of 0 does NOT mean providers agree."}
                 </div>
                 {data.coverage.blockers.length > 0 && (
                   <div className="text-amber-400 mt-1" data-testid="coverage-blockers">

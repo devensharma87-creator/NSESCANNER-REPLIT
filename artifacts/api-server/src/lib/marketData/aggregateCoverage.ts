@@ -84,6 +84,12 @@ export type PerInstrumentStatus =
 export type CoverageBlocker =
   | "AUTHORITATIVE_UNIVERSE_NOT_CONFIGURED"
   /**
+   * No cross-provider comparison has run, so provider agreement is UNKNOWN.
+   * Emitted whenever conflictObservation is NOT_CHECKED, precisely so an empty
+   * conflicted set can never be mistaken for verified agreement.
+   */
+  | "PROVIDER_CONFLICT_NOT_CHECKED"
+  /**
    * An authoritative universe IS configured, but it is not fully fresh — or
    * the observed/configured denominator is not the authoritative one. Blocks
    * every completeness claim.
@@ -191,6 +197,20 @@ export interface CoverageCounts {
   pendingReconciliationCount: number;
 }
 
+/**
+ * Did anyone actually CHECK for cross-provider disagreement?
+ *
+ * An empty conflicted set is not evidence of agreement. Without this field the
+ * contract cannot distinguish "we compared providers and they agree" from
+ * "no comparison has ever run", and the second would silently read as the
+ * first. Today the production value is always NOT_CHECKED: the Upstox
+ * comparison is not implemented, and integrating it is a separate phase.
+ */
+export type ConflictObservationStatus =
+  | "NOT_CHECKED"
+  | "CHECKED_NO_CONFLICT"
+  | "CONFLICT_DETECTED";
+
 /** Identity/version of a coverage denominator. */
 export interface UniverseManifest {
   universeScopeId: string;
@@ -237,6 +257,19 @@ export interface AggregateMarketDataHealth {
   freshnessBudgetSec: number;
   overallState: AggregateMarketDataState;
   blockers: CoverageBlocker[];
+  /**
+   * Timestamp of the NEWEST observation behind these counts, or null when
+   * nothing has been observed at all. This is what a "last known" presentation
+   * must be stamped with: it is an observation time, NOT a verified official
+   * session close, and it must never be labelled as one.
+   */
+  newestObservationAt: string | null;
+  /**
+   * Whether provider agreement was actually checked. NOT_CHECKED today.
+   * `conflictedInstrumentCount === 0` means nothing unless this is
+   * CHECKED_NO_CONFLICT.
+   */
+  conflictObservation: ConflictObservationStatus;
 
   /** Coverage against the currently configured subscription list. */
   configured: CoverageView;
@@ -527,6 +560,12 @@ export interface DeriveAggregateInput {
   nowMs: number;
   /** Is the provider feed itself healthy (connected / running)? */
   providerFeedHealthy: boolean;
+  /**
+   * Has a cross-provider comparison actually RUN? An empty conflicted set is
+   * meaningless without this: "no conflicts found" and "nobody looked" are
+   * completely different claims and must never render identically.
+   */
+  conflictObservation: ConflictObservationStatus;
 }
 
 function countsFrom(
@@ -598,7 +637,7 @@ export function deriveAggregateCoverage(
   const {
     manifest, authoritativeManifest, classifications,
     registeredInstrumentCount, pendingReconciliationCount,
-    marketPhase, freshnessBudgetSec, nowMs, providerFeedHealthy,
+    marketPhase, freshnessBudgetSec, nowMs, providerFeedHealthy, conflictObservation,
   } = input;
 
   const counts = countsFrom(
@@ -716,6 +755,10 @@ export function deriveAggregateCoverage(
   if (counts.pendingReconciliationCount > 0) blockers.add("TOKEN_RECONCILIATION_PENDING");
   if (marketPhase !== "OPEN") blockers.add("MARKET_NOT_OPEN");
   if (!providerFeedHealthy) blockers.add("PROVIDER_FEED_UNHEALTHY");
+  // Unconditional: emitted even when conflictedInstrumentCount is 0, because
+  // that zero is exactly what NOT_CHECKED makes meaningless.
+  if (conflictObservation === "NOT_CHECKED") blockers.add("PROVIDER_CONFLICT_NOT_CHECKED");
+  if (conflictObservation === "CONFLICT_DETECTED") blockers.add("CONFLICTED_INSTRUMENTS_PRESENT");
 
   const overallState = ((): AggregateMarketDataState => {
     // A corrupted observation set cannot support ANY positive claim.
@@ -755,7 +798,10 @@ export function deriveAggregateCoverage(
       // small configured feed that is internally consistent could be reported
       // as complete market coverage.
       authoritativeFullyCovered &&
-      counts.requiredInstrumentCount === authoritativeCounts.requiredInstrumentCount;
+      counts.requiredInstrumentCount === authoritativeCounts.requiredInstrumentCount &&
+      // Provider agreement must have been CHECKED, not merely un-contradicted.
+      // NOT_CHECKED means nobody looked, which cannot support a complete claim.
+      conflictObservation === "CHECKED_NO_CONFLICT";
 
     if (marketPhase === "OPEN") {
       if (complete) return "LIVE_COMPLETE";
@@ -788,6 +834,14 @@ export function deriveAggregateCoverage(
     freshnessBudgetSec,
     overallState,
     blockers: [...blockers].sort(),
+    newestObservationAt: ((): string | null => {
+      const ages = classifications
+        .map((c) => c.ageSec)
+        .filter((a): a is number => a != null && Number.isFinite(a) && a >= 0);
+      if (ages.length === 0) return null;
+      return new Date(nowMs - Math.min(...ages) * 1000).toISOString();
+    })(),
+    conflictObservation,
 
     configured: viewFrom(manifest, counts),
     authoritative: viewFrom(authoritativeManifest, authoritativeCounts),
@@ -819,6 +873,16 @@ export interface PublicAggregateCoverage {
   pendingReconciliationCount: number;
   coveragePct: number;
   blockers: CoverageBlocker[];
+  /**
+   * Newest observation time behind these counts. An observation timestamp,
+   * NOT a verified official close. Null when nothing has been observed.
+   */
+  newestObservationAt: string | null;
+  /**
+   * Whether provider agreement was actually checked. Public because
+   * `conflictedInstrumentCount: 0` is misleading without it.
+   */
+  conflictObservation: ConflictObservationStatus;
   authoritative: {
     coverageAuthority: CoverageAuthority;
     universeReconciliationValid: boolean;
@@ -849,6 +913,8 @@ export function toPublicAggregateCoverage(
     pendingReconciliationCount: h.pendingReconciliationCount,
     coveragePct: h.configured.coveragePct,
     blockers: h.blockers,
+    newestObservationAt: h.newestObservationAt,
+    conflictObservation: h.conflictObservation,
     authoritative: {
       coverageAuthority: h.authoritative.coverageAuthority,
       universeReconciliationValid: h.authoritative.universeReconciliationValid,

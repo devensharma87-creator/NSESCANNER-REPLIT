@@ -16,7 +16,7 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { deriveBannerView, type BannerCoverage } from "./global-status-banner";
-import { coverageSummaryLine, type MarketCoverage } from "./kite-offline-banner";
+import { coverageSummaryLine, shouldShowBanner, type MarketCoverage } from "./kite-offline-banner";
 
 const HERE = __dirname;
 
@@ -194,11 +194,12 @@ describe("J30: no owner-only detail and no Yahoo-as-Indian-fallback in coverage 
 describe("J30: the market-closed chip is session-scoped, and still warns on integrity faults", () => {
   const CLOSED = { state: "KITE_READY", marketSession: "closed" } as unknown as Parameters<typeof deriveBannerView>[0];
 
-  it("stays green for the expected after-hours case but names the coverage state", () => {
+  // Phase 0.5B final: the expected after-hours case is NEUTRAL, not green.
+  it("renders neutral last-known for the expected after-hours case and names the coverage state", () => {
     const view = deriveBannerView(CLOSED, 0, { ...LEGACY_PARTIAL, overallState: "STALE" });
-    expect(view.tone).toBe("ok");
-    // The green label must be about the SESSION, never a data claim.
-    expect(view.chipLabel).toBe("Kite — market closed");
+    expect(view.tone).toBe("info");
+    expect(view.tone).not.toBe("ok");
+    expect(view.chipLabel).toBe("Market closed — last known");
     expect(view.impact).toContain("STALE");
     expect(view.impact).toContain("configured instruments");
   });
@@ -214,7 +215,43 @@ describe("J30: the market-closed chip is session-scoped, and still warns on inte
 
   it("does not fabricate coverage wording when coverage is unavailable", () => {
     const view = deriveBannerView(CLOSED, 0);
-    expect(view.tone).toBe("ok");
+    expect(view.tone).toBe("info");
     expect(view.impact).not.toContain("Coverage state");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// P0.5B-FINAL — the offline banner is no longer silenced by LIVE_TICKS alone
+// ---------------------------------------------------------------------------
+
+describe("P0.5B-FINAL — shouldShowBanner is coverage-gated", () => {
+  const COMPLETE = { overallState: "LIVE_COMPLETE" } as const;
+
+  it("hides only when live ticks are backed by complete coverage", () => {
+    expect(shouldShowBanner("LIVE_TICKS", COMPLETE)).toBe(false);
+  });
+
+  it("stays visible when live ticks exist but coverage is partial", () => {
+    for (const s of ["LIVE_PARTIAL", "STALE", "CONFLICTED", "RECONCILIATION_PENDING", "UNIVERSE_NOT_CONFIGURED"]) {
+      expect(shouldShowBanner("LIVE_TICKS", { overallState: s })).toBe(true);
+    }
+  });
+
+  it("stays visible when the server sends no coverage at all", () => {
+    // An older server build cannot substantiate the live claim, so the banner
+    // must not be suppressed on the strength of the legacy status alone.
+    expect(shouldShowBanner("LIVE_TICKS", undefined)).toBe(true);
+    expect(shouldShowBanner("LIVE_TICKS", null)).toBe(true);
+  });
+
+  it("still hides for the expected market-closed state", () => {
+    expect(shouldShowBanner("MARKET_CLOSED_SESSION_ACTIVE", COMPLETE)).toBe(false);
+    expect(shouldShowBanner("MARKET_CLOSED_SESSION_ACTIVE", undefined)).toBe(false);
+  });
+
+  it("still shows for the unambiguous failure states", () => {
+    for (const q of ["UNAVAILABLE", "STALE", "CONNECTED_WAITING"] as const) {
+      expect(shouldShowBanner(q, COMPLETE)).toBe(true);
+    }
   });
 });

@@ -59,7 +59,12 @@ export type ScannerSourceStatus =
 
 export type FallbackLabel = "NOT_USED" | "INFO_ONLY_DELAYED" | "STALE";
 
-export type OverallSeverity = "green" | "yellow" | "orange" | "red";
+/**
+ * `neutral` (Phase 0.5B final) is NOT a health claim. It means "no live claim
+ * is being made" — used for the market-closed last-known presentation, which
+ * must not render as a green all-good badge.
+ */
+export type OverallSeverity = "neutral" | "green" | "yellow" | "orange" | "red";
 
 export interface MarketDataHealth {
   environment: "production" | "development";
@@ -170,6 +175,7 @@ export function deriveScannerSourceStatus(quoteStatus: QuoteStatus): ScannerSour
 export function deriveOverall(
   quoteStatus: QuoteStatus,
   sessionPresent: boolean,
+  lastKnownAsOf?: string | null,
 ): MarketDataHealth["overall"] {
   switch (quoteStatus) {
     case "LIVE_TICKS":
@@ -190,11 +196,19 @@ export function deriveOverall(
         action: null,
       };
     case "MARKET_CLOSED_SESSION_ACTIVE":
+      // Phase 0.5B final: NOT green. "Market is closed" is a statement about
+      // the session, not a health claim about the data. This path has no
+      // verified official session close available to it, so the only honest
+      // presentation is neutral LAST KNOWN, stamped with the observation time.
+      // A green badge here would assert current, complete, correct data at
+      // exactly the moment the system can least support that claim.
       return {
-        badge: "KITE SESSION ACTIVE — MARKET CLOSED",
-        severity: "green",
+        badge: "MARKET CLOSED — LAST KNOWN",
+        severity: "neutral",
         userMessage:
-          "Kite session is active. Market is closed — live ticks are not expected. Data shown is from the last market session.",
+          "Market is closed. Values shown are the last known observations" +
+          (lastKnownAsOf ? ` (as of ${lastKnownAsOf})` : "") +
+          ", not verified official session closes. Kite session is active and ready for the next open.",
         actionRequired: false,
         action: null,
       };
@@ -220,6 +234,55 @@ export function deriveOverall(
   }
 }
 
+/**
+ * PURE (Phase 0.5B final): does real coverage back a LIVE / trade-grade claim?
+ *
+ * `LIVE_TICKS` proves only that at least one quote exists in the store. It is
+ * therefore never sufficient on its own. Every green / live / trade-grade
+ * surface must pass through this gate.
+ */
+export function coverageBacksLiveClaim(
+  coverage: Pick<PublicAggregateCoverage, "overallState">,
+): boolean {
+  return coverage.overallState === "LIVE_COMPLETE";
+}
+
+/**
+ * PURE (Phase 0.5B final): downgrade a green LIVE badge that coverage cannot
+ * support. Applied at the composition site so the legacy deriver's own
+ * contract stays untouched for existing callers.
+ */
+export function applyCoverageToOverall(
+  overall: MarketDataHealth["overall"],
+  quoteStatus: QuoteStatus,
+  coverage: PublicAggregateCoverage,
+): MarketDataHealth["overall"] {
+  if (quoteStatus !== "LIVE_TICKS") return overall;
+  if (coverageBacksLiveClaim(coverage)) return overall;
+  return {
+    badge: "KITE LIVE — PARTIAL COVERAGE",
+    severity: "yellow",
+    userMessage:
+      `Live Kite ticks are arriving, but only ${coverage.freshInstrumentCount} of ` +
+      `${coverage.requiredInstrumentCount} configured instruments carry a current value ` +
+      `(coverage state ${coverage.overallState}). This is not whole-market coverage and ` +
+      `is not trade-grade.`,
+    actionRequired: false,
+    action: null,
+  };
+}
+
+/**
+ * PURE (Phase 0.5B final): a trade-grade claim requires BOTH a live quote
+ * status and coverage that can back it. Legacy `LIVE_TICKS` alone cannot.
+ */
+export function deriveTradeGrade(
+  quoteStatus: QuoteStatus,
+  coverage: Pick<PublicAggregateCoverage, "overallState">,
+): boolean {
+  return quoteStatus === "LIVE_TICKS" && coverageBacksLiveClaim(coverage);
+}
+
 /** PURE: derives the kite.explanation string. */
 export function deriveKiteExplanation(
   quoteStatus: QuoteStatus,
@@ -238,7 +301,7 @@ export function deriveKiteExplanation(
     case "CONNECTED_WAITING":
       return "Session active, WebSocket connected — waiting for the first tick of the session.";
     case "MARKET_CLOSED_SESSION_ACTIVE":
-      return "Session active. Market is closed — ticks resume at the next trading session.";
+      return "Session active. Market is closed — last known values only, not verified official closes. Ticks resume at the next trading session.";
     case "STALE":
       return "Session active but WebSocket feed has stopped. Feed will attempt to reconnect.";
     default:
@@ -250,9 +313,9 @@ export function deriveKiteExplanation(
 export function deriveScannerExplanation(sourceStatus: ScannerSourceStatus): string {
   switch (sourceStatus) {
     case "KITE_LIVE":
-      return "Scanner results are sourced from live Kite data — trade-grade.";
+      return "Scanner results are sourced from live Kite data.";
     case "KITE_MARKET_CLOSED":
-      return "Market is closed. Scanner shows data from the last active session. Kite session is active and ready for the next open.";
+      return "Market is closed. Scanner shows the last known values from the previous session — not verified official closes. Kite session is active and ready for the next open.";
     case "KITE_WAITING":
       return "Kite session is connected but ticks have not arrived yet. Scanner may show cached data from the previous cycle.";
     case "STALE_CACHE":
@@ -298,8 +361,16 @@ export async function buildMarketDataHealth(): Promise<MarketDataHealth> {
   );
 
   const scannerSourceStatus = deriveScannerSourceStatus(quoteStatus);
-  const overall = deriveOverall(quoteStatus, readiness.sessionPresent);
-  const tradeGrade = quoteStatus === "LIVE_TICKS";
+
+  // Phase 0.5B final: every LIVE / green / trade-grade claim below is gated on
+  // real coverage. The deprecated LIVE_TICKS status can no longer, on its own,
+  // produce a green badge or a trade-grade flag anywhere in this payload.
+  const overall = applyCoverageToOverall(
+    deriveOverall(quoteStatus, readiness.sessionPresent, coverage.newestObservationAt),
+    quoteStatus,
+    coverage,
+  );
+  const tradeGrade = deriveTradeGrade(quoteStatus, coverage);
   const yahooActive = quoteStatus === "UNAVAILABLE";
 
   const kiteSessionStatus: "ACTIVE" | "EXPIRED" | "MISSING" = readiness.sessionValid
