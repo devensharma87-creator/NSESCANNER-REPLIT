@@ -285,3 +285,47 @@ export const fullNseScanSnapshots = pgTable(
     unique("full_nse_scan_snapshots_generation_id_key").on(t.generationId),
   ],
 );
+
+/**
+ * Data Foundation Phase 0.6 — authoritative instrument universe manifests.
+ *
+ * Created at runtime by `ensureRegistrySchema()` in
+ * `artifacts/api-server/src/lib/registry/manifestStore.ts`. Declared here ONLY
+ * so drizzle-kit push sees a zero diff; without this declaration push would
+ * schedule a DROP of a live table. Column types must match that DDL exactly.
+ */
+export const instrumentUniverseManifests = pgTable(
+  "instrument_universe_manifests",
+  {
+    id:                        bigint("id", { mode: "number" }).primaryKey().generatedAlwaysAsIdentity(),
+    savedAt:                   timestamp("saved_at", { withTimezone: true }).notNull().defaultNow(),
+    registryGenerationId:      text("registry_generation_id").notNull(),
+    manifestVersion:           integer("manifest_version").notNull(),
+    generatedAt:               timestamp("generated_at", { withTimezone: true }).notNull(),
+    effectiveDate:             date("effective_date").notNull(),
+    schemaVersion:             integer("schema_version").notNull(),
+    policyVersion:             integer("policy_version").notNull(),
+    manifestChecksum:          text("manifest_checksum").notNull(),
+    eligibleLiveSetHash:       text("eligible_live_set_hash").notNull(),
+    classificationPolicyHash:  text("classification_policy_hash").notNull(),
+    acceptanceStatus:          text("acceptance_status").notNull(),
+    totalOfficialRecords:      integer("total_official_records").notNull(),
+    liveRequiredCount:         integer("live_required_count").notNull(),
+    indexCount:                integer("index_count").notNull(),
+    unmappedLiveCount:         integer("unmapped_live_count").notNull(),
+    unresolvedCount:           integer("unresolved_count").notNull(),
+    recordCount:               integer("record_count").notNull(),
+    manifest:                  jsonb("manifest").notNull(),
+    records:                   jsonb("records").notNull(),
+  },
+  (t) => [
+    index("instrument_universe_manifests_generated_at_idx").on(t.generatedAt),
+    index("instrument_universe_manifests_version_idx").on(
+      t.schemaVersion,
+      t.policyVersion,
+      t.acceptanceStatus,
+      t.generatedAt,
+    ),
+    unique("instrument_universe_manifests_generation_id_key").on(t.registryGenerationId),
+  ],
+);

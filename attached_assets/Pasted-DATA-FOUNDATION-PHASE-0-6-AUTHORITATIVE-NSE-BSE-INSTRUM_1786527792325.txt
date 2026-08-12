@@ -1,0 +1,723 @@
+DATA FOUNDATION PHASE 0.6 — AUTHORITATIVE NSE/BSE INSTRUMENT REGISTRY AND VERSIONED UNIVERSE MANIFEST
+
+CODER_EXECUTION_CONTRACT and COST/ACCURACY DIRECTIVE remain binding.
+
+OBJECTIVE
+
+Build the authoritative instrument registry that will become the single identity and classification foundation for:
+
+- Live Kite subscriptions
+- Future Upstox validation/fallback
+- Scanner and Deep Scan
+- Watchlist and Portfolio
+- Charts and historical candles
+- EMA, RSI, VWAP, MACD, ATR, ADX and 52-week calculations
+- Future SMC, FVG, BOS, order blocks, Fibonacci and volume profile
+- F&O, Swing, reports, alerts and analysis
+
+This phase must produce a fully reconciled, versioned manifest. It must not expand subscriptions or deploy anything.
+
+Work only on:
+
+pack33c-p1-1-isolated
+
+Accepted development checkpoints include:
+
+- Phase 0.5A — exchange-qualified runtime identity
+- Phase 0.5B — truthful aggregate freshness/coverage
+- Phase 0.5C — O(1), immutable replay buffer
+- Current accepted checkpoint: 59fac662
+
+Do not deploy, merge, push or enable any safety lock.
+
+FIRST-PASS COMPLETION REQUIREMENT
+
+Before editing:
+
+1. Read this entire prompt.
+2. Build an internal requirement checklist.
+3. Map each requirement to implementation, test and evidence.
+4. Inventory existing identity/master/cache/persistence consumers.
+5. Complete the entire authorized scope before running broad suites.
+6. Self-review the final diff against every numbered requirement.
+7. Do not return VERIFIED if any acceptance invariant remains unmet.
+
+Maximum accuracy with minimum necessary compute. Avoid correction cycles caused by overlooking explicit requirements.
+
+A. PREFLIGHT
+
+Record before modification:
+
+- Branch
+- HEAD
+- `main` SHA
+- Git status
+- Existing automatic commits
+- Current identity-related files
+- Current authoritative-master files
+- Current database/schema declarations
+- Current Kite instrument-cache implementation
+- Every direct instrument resolver and symbol-only lookup
+- Every existing universe/eligibility classifier
+- Every existing manifest, hash, generation and persistence mechanism
+
+Do not repeatedly reread unchanged files. Build one consumer inventory and reuse it.
+
+AUTOMATIC COMMIT RULE
+
+Replit automatic checkpoints are known behaviour.
+
+If an automatic commit contains only:
+
+- Current authorized Phase 0.6 files
+- Tests
+- Inert memory/directive files
+
+record the SHA and file list and continue.
+
+If it contains unrelated runtime or configuration files:
+
+- Stop
+- Report exact diff
+- Do not reset, revert, rebase, squash or rewrite history
+
+B. AUTHORITATIVE SOURCE CONTRACT
+
+Use only official exchange sources for security classification.
+
+NSE sources, as applicable:
+
+- EQUITY_L.csv
+- SME_EQUITY_L.csv
+- Official full bhavcopy/UDiFF or equivalent official daily security file
+- Official ETF list
+- Official suspended/delisted information where available
+
+BSE sources, as applicable:
+
+- Official BSE List of Scrips
+- Official BSE Suspended Scrips dataset
+- Official BSE UDiFF/Common Bhavcopy
+- Other official BSE security-status dataset only when necessary
+
+Provider masters:
+
+- Kite instrument master supplies provider tokens and exchange tokens.
+- It does not independently authorize security class.
+- Future Upstox identifiers remain null unless exact mapping is genuinely available and authorized in scope.
+
+Do not use:
+
+- Yahoo
+- Symbol-only joins
+- Search-engine snippets
+- Unofficial classifications
+- Name similarity
+- Heuristic group-letter assumptions
+- Fixtures as production records
+- Reconstructed ISINs
+- Inferred listing status presented as authoritative
+
+Every source must retain:
+
+- sourceName
+- sourceUrl or official source identifier
+- retrievedAt
+- effectiveDate/tradingDate
+- content hash
+- row count
+- validation result
+- freshness state
+
+If an official source is missing, malformed, below its validated floor or internally inconsistent, fail closed and preserve the previous accepted manifest. Never replace it with a partial generation.
+
+C. FINAL AUTHORITATIVE IDENTITY CONTRACT
+
+Enrich the accepted Phase 0.5A runtime identity. Do not discard exchange-qualified separation.
+
+Each registry record must contain at minimum:
+
+- canonicalInstrumentId
+- authoritativeSecurityId
+- exchange
+- segment
+- tradingSymbol
+- normalizedTradingSymbol
+- officialSymbol/securityCode
+- series/group
+- ISIN where officially available
+- securityClass
+- listingStatus
+- eligibilityTier
+- Kite instrumentToken
+- Kite exchangeToken
+- Kite segment/exchange
+- Upstox instrument identifier, nullable
+- primaryQuoteProvider
+- validationProviderStatus
+- source provenance
+- effectiveDate
+- registryGenerationId
+- mappingStatus
+- mappingReason
+- conflictStatus
+- aliases
+- firstSeenAt where available
+- lastConfirmedAt
+
+Rules:
+
+1. NSE and BSE listings of the same company remain separate instruments.
+2. Do not deduplicate exchange listings by ISIN.
+3. Symbol alone is never an authoritative identity.
+4. BSE mapping must use exact `SCRIP_CD = Kite exchange_token`.
+5. NSE non-EQ series must use the documented deterministic Kite form, including suffixes such as `-BE`, `-BZ`, `-SM`, `-ST`, where applicable.
+6. Exact series-qualified mapping must be proven unique.
+7. An ambiguous mapping is rejected.
+8. A duplicate provider token is rejected.
+9. One provider token cannot authorize multiple canonical instruments.
+10. Trading-symbol changes must be represented through aliases/history, not silent identity replacement.
+11. Missing ISIN must remain null.
+12. Missing security class must remain `UNRESOLVED`.
+13. Unsupported records must remain visible in reconciliation; they must not disappear.
+14. Upstox identifiers must not be fabricated.
+15. Runtime quote identity must resolve to exactly one accepted registry record before future full-universe subscription.
+
+D. CLOSED SECURITY CLASSIFICATION
+
+Use a closed classification set, including at least:
+
+- NSE_ORDINARY_EQUITY_EQ
+- NSE_TRADE_TO_TRADE_BE
+- NSE_SURVEILLANCE_BZ
+- NSE_SME_SM
+- NSE_SME_ST
+- NSE_SME_SZ
+- NSE_REIT_RR
+- NSE_INVIT_IV
+- NSE_PARTLY_PAID_E1
+- BSE_ORDINARY_EQUITY
+- BSE_TRADE_TO_TRADE
+- BSE_SME
+- BSE_EQUITY_SERIES_P
+- RIGHTS_ENTITLEMENT
+- ETF_OR_FUND
+- PREFERENCE_SHARE only when authoritative evidence proves it
+- REIT
+- INVIT
+- GOVERNMENT_SECURITY
+- SOVEREIGN_GOLD_BOND
+- CORPORATE_DEBT
+- SUSPENDED
+- DELISTED
+- INDEX
+- UNRESOLVED
+
+Do not classify:
+
+- BSE group `P` as preference merely because of the letter
+- BSE group `IP` as REIT/InvIT merely because of the letters
+- Rights entitlements as ordinary shares
+- Kite `instrument_type = EQ` as proof that a record is company equity
+
+E. ELIGIBILITY TIERS
+
+Each record must belong to exactly one primary tier:
+
+- LIVE_REQUIRED
+- SNAPSHOT_ONLY
+- UNAVAILABLE
+- EXCLUDED_NON_STOCK
+- UNRESOLVED
+
+Current owner-approved policy:
+
+LIVE_REQUIRED:
+
+- NSE ordinary equity
+- NSE BE/BZ
+- NSE SME
+- NSE REIT/InvIT
+- NSE partly-paid equities where officially classified
+- BSE ordinary equity
+- BSE trade-to-trade/restricted
+- BSE SME
+- BSE series-P equity when officially classified as equity
+- All approved NSE/BSE indices
+
+SNAPSHOT_ONLY:
+
+- ETFs and funds initially
+
+UNAVAILABLE:
+
+- Suspended securities
+- Valid securities absent from the provider master
+- Securities lacking a usable authorized quote token
+- Rights entitlements unless separately authorized
+- Records whose identity cannot be established
+
+EXCLUDED_NON_STOCK:
+
+- Government securities
+- Sovereign gold bonds
+- Corporate debt
+- Other non-equity cash-segment instruments
+
+UNRESOLVED:
+
+- Records for which authoritative identity/classification is incomplete
+
+No unresolved or unavailable record may enter LIVE_REQUIRED.
+
+F. ZERO-REMAINDER RECONCILIATION
+
+Produce independent reconciliation for NSE and BSE.
+
+Required equations:
+
+NSE official records
+= LIVE_REQUIRED
++ SNAPSHOT_ONLY
++ UNAVAILABLE
++ EXCLUDED_NON_STOCK
++ UNRESOLVED
+
+BSE active records
+= LIVE_REQUIRED
++ SNAPSHOT_ONLY
++ UNAVAILABLE
++ EXCLUDED_NON_STOCK
++ UNRESOLVED
+
+BSE total official records
+= active records
++ suspended/delisted records according to official datasets
+
+For provider mapping:
+
+LIVE_REQUIRED official
+= mapped LIVE_REQUIRED
++ unmapped LIVE_REQUIRED
+
+Required invariants:
+
+- Remainder = 0
+- Duplicate canonical identity count = 0
+- Duplicate active Kite instrument-token mapping = 0
+- Ambiguous mapping count = 0
+- Every excluded/unavailable/unresolved record remains listed with a reason
+- No record appears in two mutually exclusive primary tiers
+- Counts are derived from records, never hardcoded
+
+Previously observed counts may be used only as regression expectations—not production constants:
+
+- NSE official LIVE approximately 2,972
+- NSE mapped LIVE approximately 2,971
+- BSE mapped LIVE approximately 4,710
+- All indices approximately 209
+- Future live target approximately 7,890
+
+Listing counts change. The implementation must derive current counts and explain legitimate differences.
+
+Known historical exceptions requiring explicit treatment:
+
+- `ANNAPURNA`
+- `DHAN-RE`
+- `HASJUICE`
+- `WEBSL`
+- `ADHIRAJ`
+- BSE group-Y records without authoritative ISIN
+- Eight suspended BSE instruments previously observed in the Kite master
+
+Do not special-case these symbols merely to satisfy expected counts. Their status must derive from current authoritative data.
+
+G. VERSIONED UNIVERSE MANIFEST
+
+Create one immutable accepted manifest containing:
+
+- manifestSchemaVersion
+- registryGenerationId
+- generatedAt
+- effectiveDate
+- source hashes
+- source row counts
+- record count
+- LIVE_REQUIRED count
+- SNAPSHOT_ONLY count
+- UNAVAILABLE count
+- EXCLUDED_NON_STOCK count
+- UNRESOLVED count
+- mapped-live count
+- unmapped-live count
+- index count
+- manifest checksum
+- reconciliation result
+- authoritativeEligibleIdentityHash
+- providerTokenSetHash
+- records
+
+Generation requirements:
+
+1. Deterministic output for identical normalized inputs.
+2. Stable sorting before hashing.
+3. Hash excludes its own checksum field.
+4. Array ordering must be canonical.
+5. Duplicate identities/tokens reject the generation.
+6. Failed reconciliation rejects the generation.
+7. An invalid generation must never replace the previous accepted manifest.
+8. Manifest is immutable after acceptance.
+9. Registry generation and quote generation remain conceptually distinct.
+10. Phase 0.5B coverage may use this manifest only after validation succeeds.
+
+Do not mark coverage authority `AUTHORITATIVE_RECONCILED_UNIVERSE` merely because a manifest object exists. It must satisfy every acceptance gate.
+
+H. DURABILITY AND COLD START
+
+The manifest must be available across Replit replica restarts.
+
+Use a layered strategy consistent with previous accepted durability work:
+
+- L0: in-memory accepted manifest
+- L1: local disk cache where appropriate
+- L2: PostgreSQL durable accepted manifest
+- L3: official-source refresh/build
+
+Required:
+
+- PostgreSQL schema is additive and idempotent.
+- Store versioned accepted generations.
+- Persist manifest checksum and source hashes.
+- Write inside a transaction.
+- Use advisory locking to serialize concurrent writers.
+- Use a unique generation/checksum constraint.
+- Retain a small bounded number of accepted generations.
+- Retention deletion must be bounded and occur only after successful insertion in the same transaction.
+- Database failure is non-fatal when an accepted L0/L1 generation exists.
+- Invalid/partial manifests are never persisted as accepted.
+- Cold start loads newest compatible accepted generation.
+- Loaded checksum must be recomputed and verified.
+- Schema-version mismatch must reject the stored generation.
+- Previous durable generation must survive failed writes.
+- No per-tick database writes.
+- No production database mutation in this development phase.
+
+If implementing database durability would materially exceed this bounded phase after inspecting existing patterns, stop before schema edits and report:
+
+BLOCKED_REGISTRY_DURABILITY_REQUIRES_SEPARATE_PHASE
+
+Do not silently create an in-memory-only “final” registry.
+
+I. CURRENT COVERAGE INTEGRATION
+
+Integrate the accepted manifest into Phase 0.5B coverage only at the contract boundary.
+
+Required:
+
+- Valid accepted manifest can supply authoritative required identities.
+- Invalid/missing manifest preserves `AUTHORITATIVE_UNIVERSE_NOT_CONFIGURED`.
+- Legacy approximately-58-token configuration remains `LIVE_PARTIAL`.
+- Do not expand subscriptions.
+- Do not claim `LIVE_COMPLETE`.
+- Do not change freshness thresholds.
+- Do not implement Upstox comparison.
+- Provider conflict remains `NOT_CHECKED`.
+- Manifest availability alone does not prove subscription/tick coverage.
+- Public health may expose safe manifest generation/count/status.
+- Exact identities/tokens remain owner-only.
+
+J. RESOLVER AND CONSUMER COMPATIBILITY
+
+Inventory all consumers of:
+
+- canonicalInstrumentId
+- instrumentToken
+- exchangeToken
+- symbol-only lookup
+- ISIN
+- security class
+- instrument resolver
+- Kite master files
+- NSE security master
+- BSE scrip master
+- eligibility classification
+- scanner universe construction
+- watchlist/portfolio resolution
+- chart resolution
+- index resolution
+- replay identity
+- F&O/Swing admission
+
+Classify each:
+
+- migrated in this phase
+- compatibility adapter
+- deferred
+- unsafe blocker
+
+Do not broadly migrate every website tab in this phase.
+
+Required behaviour:
+
+- Existing exact exchange-qualified calls remain compatible.
+- Ambiguous symbol-only requests return explicit candidates.
+- No consumer silently defaults to NSE.
+- No symbol-only fallback authorizes live data.
+- Existing portfolio/watchlist records with exchange resolve deterministically.
+- Replay entries remain unchanged in this phase; record their missing canonical fields as deferred.
+- Scanner universe may use registry eligibility only if doing so does not expand current subscriptions or alter locked evaluation behaviour.
+
+If a consumer requires a breaking contract change, stop and report:
+
+BLOCKED_REGISTRY_CONSUMER_CONTRACT_REQUIRES_OWNER_REVIEW
+
+K. AUTHORITY, FRESHNESS AND LAST-GOOD RULES
+
+A registry manifest is reference data—not a live quote.
+
+Required states:
+
+- CURRENT_AUTHORITATIVE
+- LAST_KNOWN
+- STALE
+- INVALID
+- UNAVAILABLE
+
+Rules:
+
+- Current official sources within their approved update period may authorize a new manifest.
+- A last-good manifest may support display and continuity according to explicit policy.
+- It must not silently authorize newly listed/delisted security changes beyond its effective date.
+- Stale/unavailable reference data must not create a new universe generation.
+- Existing accepted rows may remain available as `LAST_KNOWN` with original generation/effective timestamps.
+- Do not alter any existing 48-hour NSE-reference governance without owner authorization.
+- Define BSE reference freshness honestly from its actual publication cadence.
+- Do not invent a BSE freshness threshold merely to complete the task. If no policy exists, report it as requiring owner authorization.
+
+L. REQUIRED TESTS
+
+Use deterministic official-format fixtures. Fixtures must never enter production stores.
+
+At minimum test:
+
+IDENTITY AND MAPPING
+
+1. NSE EQ exact mapping.
+2. NSE BE suffix mapping.
+3. NSE BZ suffix mapping.
+4. NSE SM/ST/SZ suffix mapping.
+5. NSE REIT/InvIT/partly-paid classification.
+6. BSE exact SCRIP_CD/exchange-token mapping.
+7. NSE/BSE same symbol remain distinct.
+8. Same ISIN across exchanges remains two instruments.
+9. Duplicate Kite token rejected.
+10. Ambiguous NSE series mapping rejected.
+11. Missing ISIN remains null.
+12. Missing provider token becomes unavailable/unmapped.
+13. Suspended BSE token is blocked even if present in Kite.
+14. Rights entitlement excluded.
+15. BSE series-P classified as equity from official segment evidence, not letter inference.
+16. IP/Y/unresolved cases fail honestly.
+17. Provider `instrument_type=EQ` cannot classify debt as company equity.
+18. Symbol-only mapping cannot authorize a record.
+19. Alias/trading-symbol change preserves identity history.
+20. Upstox identifier remains null when unverified.
+
+RECONCILIATION
+
+21. NSE zero-remainder reconciliation.
+22. BSE zero-remainder reconciliation.
+23. Every record belongs to one primary tier.
+24. Duplicate canonical identity rejects generation.
+25. Duplicate active provider token rejects generation.
+26. Unexplained remainder rejects generation.
+27. Count values derive from records.
+28. Historical baseline differences require an explicit reason.
+29. Suspended records remain visible.
+30. Unresolved records remain visible.
+
+MANIFEST
+
+31. Deterministic generation.
+32. Stable sort.
+33. Same inputs produce same checksum.
+34. One changed record changes checksum.
+35. Checksum excludes itself.
+36. Source hashes retained.
+37. Invalid source rejects generation.
+38. Below-floor source rejects generation.
+39. Schema-version mismatch rejects load.
+40. Stored checksum mismatch rejects load.
+41. Previous accepted manifest preserved after failure.
+42. Manifest immutable after acceptance.
+43. Invalid manifest cannot set authoritative coverage.
+44. Valid manifest supplies required identity count.
+45. Index aliases count once.
+46. NSE/BSE cross-listings count separately.
+
+DURABILITY
+
+47. Transactional insert.
+48. Advisory lock.
+49. Unique generation handling.
+50. Bounded retention.
+51. Failed insert commits zero rows.
+52. Cold-start PostgreSQL hydration.
+53. Disk/DB selection uses compatible, validated generation.
+54. No per-tick DB writes.
+55. No production DB mutation during tests.
+
+HEALTH/SECURITY
+
+56. Public status exposes safe counts/hash prefix only.
+57. Owner status may expose reconciliation details.
+58. No raw provider credentials.
+59. No DATABASE_URL.
+60. Missing manifest preserves non-authoritative coverage.
+61. Current legacy feed remains partial.
+62. No provider conflict falsely marked checked.
+63. No freshness threshold changed.
+64. No subscription count changed.
+65. No scheduler/provider call introduced unless explicitly required for a bounded official-master refresh path.
+66. Four safety locks remain false.
+
+M. PERFORMANCE AND COST
+
+Registry construction is not a per-tick operation.
+
+Required:
+
+- No registry rebuilding inside tick handlers.
+- No database query per tick.
+- No full-manifest scan per quote lookup.
+- O(1) lookup by canonical ID.
+- O(1) lookup by provider token.
+- Exchange-qualified symbol lookup must be indexed.
+- Ambiguous symbol lookup returns a bounded candidate list.
+- Manifest hashing/building occurs only during controlled refresh.
+- Do not write one database row per security unless architecture explicitly justifies it.
+- Prefer one bounded versioned manifest payload if consistent with existing durability patterns.
+
+Run one small deterministic build benchmark only if needed. Do not claim production capacity from it.
+
+N. PROHIBITIONS
+
+Do not:
+
+- Expand subscriptions beyond current configuration
+- Implement three WebSocket shards
+- Change Replit deployment type
+- Run a 7,890-token load test
+- Integrate automatic Upstox fallback
+- Integrate IndianAPI
+- Modify Yahoo policy
+- Implement historical candles
+- Implement EMA, RSI, VWAP, MACD, ATR, ADX or 52-week calculations
+- Implement SMC, FVG, BOS, order blocks, volume profile or Fibonacci
+- Modify replay JSON shape
+- Fix SSE backpressure
+- Change scores, signals, confidence or trading
+- Enable any safety lock
+- Deploy, push or merge
+
+O. EXECUTION AND COST CONTROL
+
+Required sequence:
+
+1. Preflight/consumer inventory
+2. Deterministic characterization tests
+3. Minimal registry implementation
+4. Targeted tests
+5. Relevant TypeScript checks
+6. `git diff --check`
+7. Full diff self-review against this prompt
+8. Fix all in-scope P0/P1 findings
+9. Affected-package suite once only if justified
+10. No build unless a material module/schema boundary requires it
+11. No browser
+12. No service restart
+13. No production APIs
+14. No provider calls where official cached fixtures suffice
+15. No production database writes
+
+Do not repeatedly run broad suites, builds, searches or benchmarks.
+
+P. FOUR FROZEN SAFETY LOCKS
+
+Verify exact committed values remain:
+
+FULL_NSE_WAREHOUSE_POPULATION_AUTHORIZED = false as boolean
+SCANNER_KITE_CANDLE_EVALUATION_AUTHORIZED = false as boolean
+FNO_PAPER_V2_RUNTIME_AUTHORIZED = false as boolean
+SWING_PAPER_V2_RUNTIME_AUTHORIZED = false as boolean
+
+Q. FINAL REPORT
+
+Provide a requirement-to-evidence table:
+
+Requirement
+→ implementation
+→ test/evidence
+→ result
+→ unresolved limitation
+
+Also report:
+
+1. Pre-task branch/HEAD/status.
+2. Exact authoritative sources.
+3. Final identity contract.
+4. Security-class contract.
+5. Tier policy.
+6. NSE reconciliation.
+7. BSE reconciliation.
+8. Unmapped/unresolved record list.
+9. Manifest contract and checksum.
+10. Durability/cold-start behaviour.
+11. Coverage integration.
+12. Complete consumer inventory.
+13. Changed files.
+14. Targeted tests.
+15. Any affected-package suite/build and why.
+16. Provider calls.
+17. Database reads/writes.
+18. Schedulers.
+19. Subscription count before/after.
+20. Four safety locks.
+21. Cost and execution accounting.
+22. Remaining blockers.
+23. Git status and automatic commits.
+
+Required cost section:
+
+COST_AND_EXECUTION_ACCOUNTING
+
+Report:
+
+- Files read
+- Files changed
+- Targeted test runs
+- Broad suite runs
+- Builds
+- Restarts
+- Browser sessions
+- Provider calls
+- Database reads/writes
+- Benchmarks
+- Repeated actions and justification
+- Avoidable rework discovered
+
+Required verdict:
+
+AUTHORITATIVE_INSTRUMENT_REGISTRY_VERIFIED_IN_DEVELOPMENT —
+ZERO_UNEXPLAINED_REMAINDER —
+NO_SYMBOL_ONLY_AUTHORIZATION —
+INVALID_GENERATIONS_PRESERVE_LAST_GOOD —
+CURRENT_SUBSCRIPTIONS_UNCHANGED —
+INDEPENDENT_REVIEW_REQUIRED
+
+or:
+
+DATA_FOUNDATION_PHASE_0_6_BLOCKED — [exact unmet requirement]
+
+Do not commit unless Replit checkpoints automatically or the owner separately authorizes it.
+Do not deploy, push, merge or begin the next phase.

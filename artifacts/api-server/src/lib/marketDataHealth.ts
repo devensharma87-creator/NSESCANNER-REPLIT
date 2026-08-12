@@ -29,6 +29,8 @@ import {
   toPublicAggregateCoverage,
   type PublicAggregateCoverage,
 } from "./marketData/aggregateCoverage";
+import { toAuthoritativeCoverageManifest } from "./registry/coverageBridge";
+import { getActiveGeneration } from "./registry/manifestStore";
 
 /**
  * @deprecated Phase 0.5B — `LIVE_TICKS` is NOT a coverage claim.
@@ -357,6 +359,13 @@ export async function buildMarketDataHealth(): Promise<MarketDataHealth> {
         running: readiness.feedRunning,
       },
       now.getTime(),
+      // Phase 0.6: the reconciled authoritative denominator, if one has been
+      // durably accepted. `getActiveGeneration()` is an in-memory read of a
+      // generation that was already loaded/committed elsewhere — it performs no
+      // DB access on this path. With no accepted generation the bridge returns
+      // the not-configured manifest, so behaviour is unchanged until a registry
+      // generation actually exists.
+      toAuthoritativeCoverageManifest(getActiveGeneration()),
     ),
   );
 

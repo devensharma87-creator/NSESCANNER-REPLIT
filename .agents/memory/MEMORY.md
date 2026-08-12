@@ -4,6 +4,8 @@
 - [Aggregate market-data coverage contract](aggregate-coverage-contract.md) — two denominators; never inherit authoritative counts; enum alone grants no authority; pending overlay cross-cuts buckets; verified-close gap.
 - [Aggregate LIVE status blocker](aggregate-live-status-blocker.md) — deriveQuoteStatus reads LIVE_TICKS off a non-zero quote count; proves no per-instrument freshness, coverage, or pending-reconciliation state. Open blocker.
 - [NSE+BSE live capacity ceiling](nse-bse-live-capacity-ceiling.md) — full NSE+BSE live needs ~22.8k tokens vs Kite's 9,000 hard cap; also no ISIN in Kite master and no BSE authoritative security master.
+- [Denominator commitment hashing](denominator-commitment-hashing.md) — a subset hash never binds a completeness claim; the authority boundary re-applies every gate; version belongs in a content-derived id.
+- [P0.6 instrument registry](p06-instrument-registry.md) — BSE `Segment` is authority not the group letter; ETF list shares 0 symbols with EQUITY_L; latin-1; tier is policy not mapping outcome.
 - [Pack 33B three-blocker closure](pack33b-three-blocker-closure-2.md) — threshold unified to MIN=1000 everywhere; actual server PG hydration log; real PG failure totalRecords=1000; 6920+1305 PASS; commit b45df02; OWNER_DEPLOYMENT_AUTHORIZATION_REQUIRED.
 - [Pack 33B four-blocker correction](pack33b-four-blocker-correction.md) — pre-insert gate (MIN=1000), real PG failure, PostgreSQL hydration, REIT reconciliation; 6920+1305 PASS; commit 75f2a56; OWNER_DEPLOYMENT_AUTHORIZATION_REQUIRED.
 - [Pack 33B final bounded closure](pack33b-final-bounded-closure.md) — 3 blockers fixed (ETF comment, durableStore on ok=false, live reconciliation); 6916+1305 PASS; commit db0333e; OWNER_DEPLOYMENT_AUTHORIZATION_REQUIRED.

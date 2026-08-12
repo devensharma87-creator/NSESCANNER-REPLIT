@@ -85,6 +85,16 @@ export interface LiveFeedFacts {
 export function buildLiveAggregateCoverage(
   feed: LiveFeedFacts,
   nowMs: number = Date.now(),
+  /**
+   * Phase 0.6 — the reconciled authoritative denominator, INJECTED by the
+   * caller. It is a parameter rather than an import so this module keeps its
+   * "no database access" property: the registry store is a DB-backed module,
+   * and reading it here would break that guarantee and every pure test of it.
+   *
+   * Defaults to the Phase 0.5B not-configured manifest, so an unwired or
+   * failed registry load degrades honestly instead of claiming authority.
+   */
+  authoritativeManifest: UniverseManifest = AUTHORITATIVE_UNIVERSE_NOT_CONFIGURED,
 ): AggregateMarketDataHealth {
   const now = new Date(nowMs);
   const detail = getMarketStatusDetail(now);
@@ -145,7 +155,7 @@ export function buildLiveAggregateCoverage(
 
   return deriveAggregateCoverage({
     manifest: configuredManifest,
-    authoritativeManifest: AUTHORITATIVE_UNIVERSE_NOT_CONFIGURED,
+    authoritativeManifest,
     classifications,
     registeredInstrumentCount: identities.length,
     pendingReconciliationCount: pendingIds.size,
