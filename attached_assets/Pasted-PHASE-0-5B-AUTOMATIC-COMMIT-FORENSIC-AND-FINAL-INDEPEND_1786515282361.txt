@@ -1,0 +1,96 @@
+PHASE 0.5B — AUTOMATIC COMMIT FORENSIC AND FINAL INDEPENDENT REVIEW
+
+Do not edit, commit, reset, revert, squash, rebase, cherry-pick, push, merge or deploy.
+
+This is a read-only review only.
+
+A. AUDIT AUTOMATIC COMMIT 9608d2a7
+
+Report the exact diff of:
+
+9608d2a7^..9608d2a7
+
+For each changed source/test file, report:
+
+- Exact behaviour added or changed
+- Original defect it addresses
+- Whether the change was previously owner-authorized
+- Whether it overlaps Phase 0.5A canonicalInstrumentId/SSE work
+- Whether it changes snapshot/tick keying
+- Whether it introduces symbol fallback
+- Whether it can reintroduce NSE/BSE collision
+- Whether it changes authentication, provider calls, subscriptions, freshness, scoring or trading
+- Whether kite.pageCrash.test.ts exercises real component behaviour or only source text
+- Whether the screenshot contains runtime evidence or is merely an asset
+
+Classify commit 9608d2a7 as:
+
+- RETAIN_SAFE
+- RETAIN_REQUIRES_OWNER_ACCEPTANCE
+- REVERT_RECOMMENDED
+
+Do not perform the recommendation.
+
+B. INDEPENDENT REVIEW OF THE 12 UNCOMMITTED PHASE 0.5B FILES
+
+Review, without modification:
+
+- aggregateCoverage.ts
+- aggregateCoverageLive.ts
+- aggregateCoverage.p05b.test.ts
+- marketDataHealth.ts
+- marketDataHealth.test.ts
+- globalDataHealth.ts
+- globalDataHealth.test.ts
+- global-status-banner.tsx
+- global-status-banner.test.ts
+- kite-offline-banner.tsx
+- p05b.coverageBadge.test.ts
+- infra-health.tsx
+
+Verify:
+
+1. No partial/stale/non-authoritative feed can produce LIVE_COMPLETE.
+2. Legacy LIVE_TICKS cannot grant tradeGrade or green complete-live UI.
+3. RECONCILIATION_PENDING and CONFLICTED remain visible even when authority is absent.
+4. conflictObservationStatus is NOT_CHECKED in current production assembly.
+5. CHECKED_NO_CONFLICT cannot be fabricated by an empty conflict array.
+6. MARKET_CLOSED_CURRENT is unreachable without a verified session close.
+7. newestObservationAt is labelled observation time, never official close time.
+8. Identity aliases do not inflate coverage.
+9. NSE and BSE listings count separately.
+10. Counts and partitions cannot exceed required coverage.
+11. Public routes expose no owner-only identities/tokens.
+12. No new provider call, scheduler, database write, subscription or threshold exists.
+13. No unrelated page, signal, score, order or safety-lock behaviour changed.
+14. All four exact frozen constants remain false.
+
+C. RECORD FUTURE BLOCKER
+
+Record without implementing:
+
+PROVIDER_VALIDATION_COVERAGE_NOT_IMPLEMENTED
+
+Future provider validation must track required, compared, agreed, conflicted and unvalidated instrument counts. A subset comparison must never authorize whole-universe CHECKED_NO_CONFLICT.
+
+D. FINAL RESPONSE
+
+Report:
+
+- Automatic commit classification
+- Exact diff findings
+- Independent review findings
+- Any P0/P1/P2 issue
+- Whether the 12-file Phase 0.5B working tree is safe to checkpoint
+- Branch, HEAD and git status
+- Confirmation that nothing was modified during this review
+
+Required verdict:
+
+PHASE_0_5B_READY_FOR_CHECKPOINT_AUTHORIZATION
+
+or
+
+PHASE_0_5B_BLOCKED — [exact issue]
+
+Stop after reporting. Do not commit or deploy.

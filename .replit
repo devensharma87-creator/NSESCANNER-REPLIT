@@ -27,7 +27,6 @@ REASONING_WRITER_V2_ENABLED = "1"
 [userenv.development]
 KITE_MIRROR_URL = "https://marketscannerbydev.in"
 PAPER_FO_SHADOW_EXITS_ENABLED = "1"
-VITE_PREVIEW_BYPASS = "true"
 
 [userenv.production]
 PAPER_TRADING_ENABLED = "false"

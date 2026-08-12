@@ -1,3 +1,4 @@
+- [Preview bypass fakes auth in dev](preview-bypass-fake-auth.md) — VITE_PREVIEW_BYPASS renders a signed-in shell with no cookie so owner APIs 401; env var beats the git-ignored .env file; check /api/auth/status first.
 - [Canonical exchange-qualified instrument identity](canonical-instrument-identity.md) — live quotes keyed by NSE:SEGMENT:SYMBOL not symbol; token rotation must never orphan a subscription; preferred alias never positional.
 - [Aggregate market-data coverage contract](aggregate-coverage-contract.md) — two denominators; never inherit authoritative counts; enum alone grants no authority; pending overlay cross-cuts buckets; verified-close gap.
 - [Aggregate LIVE status blocker](aggregate-live-status-blocker.md) — deriveQuoteStatus reads LIVE_TICKS off a non-zero quote count; proves no per-instrument freshness, coverage, or pending-reconciliation state. Open blocker.
