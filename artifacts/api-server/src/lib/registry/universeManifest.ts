@@ -20,6 +20,10 @@ import {
   type RegistryListingStatus,
 } from "./securityClassification";
 import type { OfficialSourceProvenance, ReferenceFreshnessState } from "./officialSources";
+import type { BseReferenceAuthorityResult } from "./bseReferencePolicy";
+import { isPolicyIssuedAuthority } from "./bseReferencePolicy";
+import type { TradingCalendarCommitment } from "./exchangeCalendar";
+import { evaluateCalendarAuthorityNow, verifyCalendarCommitmentIntegrity } from "./exchangeCalendar";
 import { isSourceAccepted } from "./officialSources";
 import type {
   ExchangeReconciliation,
@@ -27,8 +31,24 @@ import type {
   RegistryRecord,
 } from "./instrumentRegistry";
 
-/** Bump when the manifest SHAPE changes. Stored, and re-verified on load. */
-export const MANIFEST_SCHEMA_VERSION = 2;
+/**
+ * Bump when the manifest SHAPE changes. Stored, and re-verified on load.
+ *
+ * 4: the trading-calendar commitment carries its enumerated sessions, so a
+ *    reader can RECOMPUTE its checksum and RE-DERIVE its latest completed
+ *    session instead of taking either on assertion. A schema-3 row was already
+ *    persisted in development under the earlier, assertion-only shape, so the
+ *    version had to move rather than the shape being widened in place — the
+ *    stored row is left intact and is rejected on load by version mismatch.
+ *
+ * 5. The committed calendar now carries each exchange's OWN official
+ *    regular-session timing document, with the normalized evidence rows needed
+ *    to reproduce the session hours from the commitment alone. Schema 4 rows
+ *    remain in storage as history and are rejected on load by version mismatch,
+ *    exactly as schema 3 was: they claimed session hours no source in them can
+ *    justify.
+ */
+export const MANIFEST_SCHEMA_VERSION = 5;
 /** Bump when the CLASSIFICATION or TIER policy changes meaning. */
 export const CLASSIFICATION_POLICY_VERSION = 1;
 
@@ -82,6 +102,26 @@ export interface InstrumentUniverseManifest {
   readonly classificationPolicyHash: string;
   /** Hash over the whole manifest with this field removed. */
   readonly manifestChecksum: string;
+
+  /**
+   * OWNER-APPROVED BSE reference authority for THIS generation (rule 8:
+   * retrievedAt, effectiveTradingDate, source hashes and authority state are
+   * preserved and exposed). Stored inside the manifest, so it is covered by
+   * `manifestChecksum` and cannot be edited after the fact.
+   */
+  readonly bseReferenceAuthority: BseReferenceAuthorityResult;
+
+  /**
+   * PHASE 0.6A — the authoritative trading calendar this generation was decided
+   * under, committed INSIDE the manifest rather than in a table of its own.
+   *
+   * The calendar's only consumer is registry authority, and the manifest is
+   * already a checksummed, cold-loaded, last-good-preserving durable record.
+   * Committing here means the manifest checksum covers the calendar, one
+   * storage path is validated instead of two, and an invalid calendar can never
+   * replace an accepted one because it can never reach an accepted manifest.
+   */
+  readonly tradingCalendar: TradingCalendarCommitment;
 
   readonly acceptanceStatus: ManifestAcceptanceStatus;
   readonly blockers: readonly string[];
@@ -192,6 +232,18 @@ export interface BuildManifestInput {
   readonly effectiveDate: string;
   /** Sources that MUST be ACCEPTED for the manifest to be accepted. */
   readonly requiredSourceIds: readonly string[];
+  /**
+   * REQUIRED. Result of the owner-approved BSE reference policy. Not optional
+   * and with no default: a caller that has not evaluated BSE authority must not
+   * be able to mint an accepted manifest by simply omitting the argument.
+   */
+  readonly bseAuthority: BseReferenceAuthorityResult;
+  /**
+   * REQUIRED. The authoritative trading calendar under which BSE authority was
+   * decided. Not optional and with no default, for the same reason as
+   * `bseAuthority`: omitting it must not be a route to an accepted manifest.
+   */
+  readonly tradingCalendar: TradingCalendarCommitment;
 }
 
 export const REQUIRED_SOURCE_IDS: readonly string[] = [
@@ -229,6 +281,79 @@ export function buildUniverseManifest(input: BuildManifestInput): InstrumentUniv
     }
   }
 
+  // Gate 4 — OWNER-APPROVED BSE REFERENCE POLICY (rules 1-6).
+  // Only CURRENT_AUTHORITATIVE may authorize a NEW generation. A LAST_KNOWN
+  // registry may be served for continuity, but rule 7 forbids it producing a
+  // new universe, so it must never reach ACCEPTED here.
+  //
+  // The verdict is never taken on trust. `mayAuthorizeNewGeneration` is just a
+  // boolean on an object, so a caller could hand-build an authorizing verdict
+  // that no source ever produced. Two independent checks close that:
+  //   (a) the verdict must be one this process's policy evaluator issued, and
+  //   (b) it must be bound BY HASH to the BSE List body in this manifest's own
+  //       provenance — otherwise a genuine verdict computed over some other
+  //       body could be transplanted onto this generation.
+  if (!isPolicyIssuedAuthority(input.bseAuthority)) {
+    blockers.push(
+      "BSE reference authority was not produced by evaluateBseReferenceAuthority and cannot be trusted",
+    );
+  } else if (!input.bseAuthority.mayAuthorizeNewGeneration) {
+    blockers.push(
+      `BSE reference authority is ${input.bseAuthority.state}, which cannot authorize a new generation: ` +
+        (input.bseAuthority.reasons.join("; ") || "no reason recorded"),
+    );
+  } else {
+    const bseList = input.sources.find((s) => s.sourceId === "BSE_LIST_OF_SCRIPS_ACTIVE");
+    if (!bseList) {
+      blockers.push("BSE reference authority claims authorization but no BSE List of Scrips provenance is present");
+    } else if (bseList.contentHash !== input.bseAuthority.listContentHash) {
+      blockers.push(
+        "BSE reference authority was computed over a different BSE List of Scrips body than this manifest's provenance",
+      );
+    }
+  }
+
+  // Gate 5 — PHASE 0.6A AUTHORITATIVE TRADING CALENDAR.
+  //
+  // Session identity is the foundation the BSE policy stands on: "the latest
+  // completed session" is meaningless without a calendar that can name it. So
+  // the calendar is checked on its own terms first (valid, accepted official
+  // sources for BOTH exchanges, id derived from its own checksum), and then
+  // bound to the authority verdict — an authorizing verdict whose effective
+  // trading date disagrees with the committed calendar means one of the two was
+  // computed somewhere else.
+  blockers.push(...verifyCalendarCommitmentIntegrity(input.tradingCalendar));
+
+  // A NEW generation must be built against a calendar that is authoritative
+  // RIGHT NOW, not merely one that was intact when it was committed. Building
+  // today's registry on a calendar that stopped covering today is how an expired
+  // commitment would otherwise be laundered into a fresh, accepted manifest.
+  const generatedAtMs = Date.parse(input.generatedAt);
+  if (!Number.isFinite(generatedAtMs)) {
+    blockers.push(`manifest generatedAt "${input.generatedAt}" is not a real instant`);
+  } else {
+    const authority = evaluateCalendarAuthorityNow(input.tradingCalendar, generatedAtMs);
+    if (authority.state !== "CURRENT_AUTHORITATIVE") {
+      blockers.push(
+        `committed trading calendar is ${authority.state} at generation time: ${authority.reasons.join("; ")}`,
+      );
+    }
+  }
+
+  if (input.bseAuthority.mayAuthorizeNewGeneration) {
+    const committedBse = input.tradingCalendar?.latestCompletedSession?.BSE ?? null;
+    if (committedBse === null) {
+      blockers.push(
+        "BSE reference authority claims authorization but the committed calendar names no latest completed BSE session",
+      );
+    } else if (input.bseAuthority.effectiveTradingDate !== committedBse) {
+      blockers.push(
+        `BSE reference authority effective trading date ${input.bseAuthority.effectiveTradingDate} ` +
+          `disagrees with the committed calendar's latest completed BSE session ${committedBse}`,
+      );
+    }
+  }
+
   const tierCounts = tallyTiers(all);
   const unmappedLiveCount = build.nse.unmappedLive + build.bse.unmappedLive;
   const unresolvedCount = all.filter((r) => r.eligibilityTier === "UNRESOLVED").length;
@@ -256,6 +381,8 @@ export function buildUniverseManifest(input: BuildManifestInput): InstrumentUniv
     eligibleLiveSetHash: computeEligibleLiveSetHash(all),
     recordSetHash: computeRecordSetHash(all),
     classificationPolicyHash: computeClassificationPolicyHash(),
+    bseReferenceAuthority: input.bseAuthority,
+    tradingCalendar: input.tradingCalendar,
     acceptanceStatus: blockers.length === 0 ? "ACCEPTED" : "REJECTED",
     blockers: [...blockers].sort(),
   };

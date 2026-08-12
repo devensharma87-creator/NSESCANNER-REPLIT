@@ -15,7 +15,16 @@
  *
  * This mirrors the accepted `fullNseScanner` durability pattern deliberately:
  * transaction-scoped advisory lock, ON CONFLICT DO NOTHING on a unique
- * generation id, and bounded retention inside the same transaction.
+ * generation id, and bounded retention inside the same transaction — retention
+ * is a consequence of a committed insert that actually created a row, never a
+ * standalone sweep and never a side effect of a duplicate no-op. See the DELETE
+ * in `saveRegistryGeneration` for the precise contract.
+ *
+ * LOADING IS NOT AUTHORIZING. A stored generation can be perfectly intact and
+ * still be unable to speak for today, because its committed trading calendar
+ * only covers the period its official sources cover. Loads therefore return
+ * last-known data and record the authority verdict; the coverage boundary is
+ * what refuses to hand out a denominator once that verdict expires.
  */
 
 import { db } from "@workspace/db";
@@ -31,6 +40,7 @@ import {
   verifyManifestChecksum,
   type InstrumentUniverseManifest,
 } from "./universeManifest";
+import { evaluateCalendarAuthorityNow, type CalendarAuthorityEvaluation } from "./exchangeCalendar";
 import type { RegistryRecord } from "./instrumentRegistry";
 
 /** Transaction-scoped advisory lock. Distinct from 7312847 / 8274613. */
@@ -229,17 +239,41 @@ export async function saveRegistryGeneration(
         RETURNING id::text AS id, saved_at
       `);
 
-      // Bounded retention inside the same transaction.
+      const insertedRows = (inserted.rows ?? []) as Array<{ id: string; saved_at: string | Date }>;
+
+      // RETENTION IS PAID FOR BY AN ACTUAL INSERT.
+      //
+      // Retention exists to bound the table as new generations arrive. A run
+      // that adds nothing has bought no room and must therefore delete nothing:
+      // re-running an identical generation, or replaying an old one, must not be
+      // able to prune history it did not extend. So we return here, BEFORE the
+      // DELETE, whenever ON CONFLICT DO NOTHING suppressed the insert.
+      if (insertedRows.length !== 1) return insertedRows;
+
+      // BOUNDED RETENTION — the exact contract, stated as it actually behaves:
+      //
+      //  * It runs inside THIS transaction, after an insert that created exactly
+      //    one row, so it can never delete a row unless that insert also
+      //    commits. A rolled-back write leaves the stored history untouched, and
+      //    a failing DELETE takes the new row down with it.
+      //  * It touches the registry manifest table and nothing else.
+      //  * It keeps the newest REGISTRY_DB_MAX_SNAPSHOTS rows by generated_at,
+      //    tie-broken on id so the retained set is deterministic when two
+      //    generations share a timestamp. It is NOT partitioned by version, so
+      //    accepting new generations across every schema and policy version is
+      //    what eventually evicts superseded-schema rows — that, and nothing
+      //    manual, is what removed the schema-1 rows. Older rows are history,
+      //    not backups; pruned evidence is gone and is not reconstructed.
       await tx.execute(sql`
         DELETE FROM instrument_universe_manifests
         WHERE id NOT IN (
           SELECT id FROM instrument_universe_manifests
-          ORDER BY generated_at DESC
+          ORDER BY generated_at DESC, id DESC
           LIMIT ${REGISTRY_DB_MAX_SNAPSHOTS}
         )
       `);
 
-      return (inserted.rows ?? []) as Array<{ id: string; saved_at: string | Date }>;
+      return insertedRows;
     });
 
     if (rows.length === 0) {
@@ -296,6 +330,63 @@ export function getActiveGeneration(): RegistryGeneration | null {
   return _memory;
 }
 
+/**
+ * IN-MEMORY AUTHORITY BOUNDARY.
+ *
+ * `getActiveGeneration` returns the last-known generation for display. This
+ * asks the separate question: may it still speak for NOW? The answer changes
+ * without any load, write or restart — at the next session close, and again at
+ * IST midnight — so it is recomputed whenever the previous evaluation's own
+ * `validUntilMs` has passed, and cached until then.
+ */
+let _authorityMemo: { readonly generationId: string; readonly evaluation: CalendarAuthorityEvaluation } | null =
+  null;
+let _lastLoggedAuthorityState: string | null = null;
+
+export interface ActiveGenerationAuthority {
+  readonly generation: RegistryGeneration | null;
+  readonly authority: CalendarAuthorityEvaluation | null;
+  /** True only for CURRENT_AUTHORITATIVE. LAST_KNOWN and STALE may not authorize. */
+  readonly mayAuthorize: boolean;
+}
+
+export function getActiveGenerationAuthority(nowMs: number = Date.now()): ActiveGenerationAuthority {
+  const gen = _memory;
+  if (!gen) return { generation: null, authority: null, mayAuthorize: false };
+  const id = gen.manifest.registryGenerationId;
+  const memo = _authorityMemo;
+  const usable =
+    memo &&
+    memo.generationId === id &&
+    nowMs >= memo.evaluation.evaluatedAtMs &&
+    nowMs < memo.evaluation.validUntilMs;
+  const evaluation = usable
+    ? memo!.evaluation
+    : evaluateCalendarAuthorityNow(gen.manifest.tradingCalendar, nowMs);
+  if (!usable) {
+    _authorityMemo = { generationId: id, evaluation };
+    const key = `${id}|${evaluation.state}`;
+    if (evaluation.state !== "CURRENT_AUTHORITATIVE" && key !== _lastLoggedAuthorityState) {
+      logger.warn(
+        {
+          registryGenerationId: id,
+          authorityState: evaluation.state,
+          reasons: evaluation.reasons,
+          diagnosticEvent: "REGISTRY_CALENDAR_AUTHORITY_EXPIRED",
+        },
+        "Instrument registry: committed trading calendar no longer authoritative for the current date",
+      );
+    }
+    _lastLoggedAuthorityState = key;
+  }
+  return { generation: gen, authority: evaluation, mayAuthorize: evaluation.state === "CURRENT_AUTHORITATIVE" };
+}
+
+export function _resetAuthorityMemoForTest(): void {
+  _authorityMemo = null;
+  _lastLoggedAuthorityState = null;
+}
+
 export function _setActiveGenerationForTest(gen: RegistryGeneration | null): void {
   _memory = gen;
 }
@@ -307,6 +398,7 @@ export function _setActiveGenerationForTest(gen: RegistryGeneration | null): voi
 export function acceptLoadedGeneration(
   candidate: RegistryGeneration,
   origin: "L1_DISK" | "L2_POSTGRESQL",
+  nowMs: number = Date.now(),
 ): RegistryGeneration | null {
   const m = candidate.manifest;
   if (m.schemaVersion !== MANIFEST_SCHEMA_VERSION || m.policyVersion !== CLASSIFICATION_POLICY_VERSION) {
@@ -341,6 +433,26 @@ export function acceptLoadedGeneration(
       "Instrument registry: stored generation rejected — record count disagrees with the manifest",
     );
     return null;
+  }
+
+  // COLD-LOAD AUTHORITY BOUNDARY (both L1 disk and L2 PostgreSQL).
+  //
+  // The generation is still returned when its calendar has expired: last-known
+  // data keeps its display value, and its stored checksums are NOT rewritten
+  // just because the clock moved. What it loses is the right to authorize —
+  // which the coverage boundary enforces by re-asking the same question there.
+  const authority = evaluateCalendarAuthorityNow(m.tradingCalendar, nowMs);
+  if (authority.state !== "CURRENT_AUTHORITATIVE") {
+    logger.warn(
+      {
+        origin,
+        registryGenerationId: m.registryGenerationId,
+        authorityState: authority.state,
+        reasons: authority.reasons,
+        diagnosticEvent: "REGISTRY_CALENDAR_AUTHORITY_EXPIRED",
+      },
+      "Instrument registry: stored generation loaded as LAST KNOWN — its trading calendar is not authoritative now",
+    );
   }
   return candidate;
 }

@@ -28,6 +28,11 @@ import {
   verifyManifestChecksum,
 } from "./universeManifest";
 import { toAuthoritativeCoverageManifest } from "./coverageBridge";
+import { makeCurrentAuthoritativeBse,
+  makeCalendarCommitment } from "./p06TestFixtures";
+
+/** The fixture calendar's own evaluation instant: 15:00 IST on 2026-08-12. */
+const FIXTURE_NOW_MS = Date.parse("2026-08-12T09:30:00.000Z");
 
 const GEN = "p06-test-generation";
 const EFFECTIVE = "2026-08-12";
@@ -329,11 +334,13 @@ function generation() {
   const manifest = buildUniverseManifest({
     build: build_,
     sources: acceptedSources(),
+    bseAuthority: makeCurrentAuthoritativeBse("0".repeat(64)),
     manifestVersion: 1,
     registryGenerationId: GEN,
     generatedAt: GENERATED_AT,
     effectiveDate: EFFECTIVE,
     requiredSourceIds: REQUIRED_SOURCE_IDS,
+    tradingCalendar: makeCalendarCommitment(),
   });
   return { manifest, records: build_.records };
 }
@@ -347,11 +354,13 @@ function unmappedLiveGeneration() {
   const manifest = buildUniverseManifest({
     build: built,
     sources: acceptedSources(),
+    bseAuthority: makeCurrentAuthoritativeBse("0".repeat(64)),
     manifestVersion: 1,
     registryGenerationId: GEN,
     generatedAt: GENERATED_AT,
     effectiveDate: EFFECTIVE,
     requiredSourceIds: REQUIRED_SOURCE_IDS,
+    tradingCalendar: makeCalendarCommitment(),
   });
   return { manifest, records: built.records };
 }
@@ -361,7 +370,7 @@ describe("P0.6 coverage bridge is fail-closed", () => {
     const g = generation();
     expect(g.manifest.acceptanceStatus).toBe("ACCEPTED");
 
-    const cov = toAuthoritativeCoverageManifest(g);
+    const cov = toAuthoritativeCoverageManifest(g, FIXTURE_NOW_MS);
     expect(cov.coverageAuthority).toBe("AUTHORITATIVE_RECONCILED_UNIVERSE");
     expect(cov.universeGenerationId).toBe(GEN);
     expect(cov.universeReconciliationValid).toBe(true);
@@ -371,14 +380,14 @@ describe("P0.6 coverage bridge is fail-closed", () => {
   });
 
   it("degrades to UNIVERSE_NOT_CONFIGURED when there is no generation", () => {
-    expect(toAuthoritativeCoverageManifest(null).coverageAuthority).toBe("UNIVERSE_NOT_CONFIGURED");
-    expect(toAuthoritativeCoverageManifest(undefined).coverageAuthority).toBe("UNIVERSE_NOT_CONFIGURED");
+    expect(toAuthoritativeCoverageManifest(null, FIXTURE_NOW_MS).coverageAuthority).toBe("UNIVERSE_NOT_CONFIGURED");
+    expect(toAuthoritativeCoverageManifest(undefined, FIXTURE_NOW_MS).coverageAuthority).toBe("UNIVERSE_NOT_CONFIGURED");
   });
 
   it("refuses authority for a REJECTED manifest", () => {
     const g = generation();
     const rejected = { ...g.manifest, acceptanceStatus: "REJECTED" as const, blockers: ["forced"] };
-    expect(toAuthoritativeCoverageManifest({ manifest: rejected, records: g.records }).coverageAuthority).toBe(
+    expect(toAuthoritativeCoverageManifest({ manifest: rejected, records: g.records }, FIXTURE_NOW_MS).coverageAuthority).toBe(
       "UNIVERSE_NOT_CONFIGURED",
     );
   });
@@ -386,7 +395,7 @@ describe("P0.6 coverage bridge is fail-closed", () => {
   it("refuses authority when the manifest checksum does not match its content", () => {
     const g = generation();
     const tampered = { ...g.manifest, totalOfficialRecords: g.manifest.totalOfficialRecords + 1 };
-    expect(toAuthoritativeCoverageManifest({ manifest: tampered, records: g.records }).coverageAuthority).toBe(
+    expect(toAuthoritativeCoverageManifest({ manifest: tampered, records: g.records }, FIXTURE_NOW_MS).coverageAuthority).toBe(
       "UNIVERSE_NOT_CONFIGURED",
     );
   });
@@ -398,7 +407,7 @@ describe("P0.6 coverage bridge is fail-closed", () => {
     const damaged = g.records.map((r, i) =>
       i === 0 && r.eligibilityTier === "LIVE_REQUIRED" ? { ...r, canonicalInstrumentId: null } : r,
     );
-    expect(toAuthoritativeCoverageManifest({ manifest: g.manifest, records: damaged }).coverageAuthority).toBe(
+    expect(toAuthoritativeCoverageManifest({ manifest: g.manifest, records: damaged }, FIXTURE_NOW_MS).coverageAuthority).toBe(
       "UNIVERSE_NOT_CONFIGURED",
     );
   });
@@ -421,7 +430,7 @@ describe("P0.6 coverage bridge is fail-closed", () => {
     expect(computeEligibleLiveSetHash(demoted)).toBe(g.manifest.eligibleLiveSetHash);
     expect(verifyManifestChecksum(g.manifest)).toBe(true);
 
-    expect(toAuthoritativeCoverageManifest({ manifest: g.manifest, records: demoted }).coverageAuthority).toBe(
+    expect(toAuthoritativeCoverageManifest({ manifest: g.manifest, records: demoted }, FIXTURE_NOW_MS).coverageAuthority).toBe(
       "UNIVERSE_NOT_CONFIGURED",
     );
   });
@@ -429,7 +438,7 @@ describe("P0.6 coverage bridge is fail-closed", () => {
   it("refuses authority when a record is removed outright", () => {
     const g = unmappedLiveGeneration();
     const fewer = g.records.slice(1);
-    expect(toAuthoritativeCoverageManifest({ manifest: g.manifest, records: fewer }).coverageAuthority).toBe(
+    expect(toAuthoritativeCoverageManifest({ manifest: g.manifest, records: fewer }, FIXTURE_NOW_MS).coverageAuthority).toBe(
       "UNIVERSE_NOT_CONFIGURED",
     );
   });
@@ -442,7 +451,7 @@ describe("P0.6 coverage bridge is fail-closed", () => {
       const rechecksummed = { ...shifted, manifestChecksum: computeManifestChecksum(shifted) };
       // Self-consistent, so only an explicit version gate can reject it.
       expect(verifyManifestChecksum(rechecksummed)).toBe(true);
-      expect(toAuthoritativeCoverageManifest({ manifest: rechecksummed, records: g.records }).coverageAuthority).toBe(
+      expect(toAuthoritativeCoverageManifest({ manifest: rechecksummed, records: g.records }, FIXTURE_NOW_MS).coverageAuthority).toBe(
         "UNIVERSE_NOT_CONFIGURED",
       );
     }
@@ -453,13 +462,15 @@ describe("P0.6 coverage bridge is fail-closed", () => {
     const manifest = buildUniverseManifest({
       build: only,
       sources: acceptedSources(),
+      bseAuthority: makeCurrentAuthoritativeBse("0".repeat(64)),
       manifestVersion: 1,
       registryGenerationId: GEN,
       generatedAt: GENERATED_AT,
       effectiveDate: EFFECTIVE,
       requiredSourceIds: REQUIRED_SOURCE_IDS,
+    tradingCalendar: makeCalendarCommitment(),
     });
-    expect(toAuthoritativeCoverageManifest({ manifest, records: only.records }).coverageAuthority).toBe(
+    expect(toAuthoritativeCoverageManifest({ manifest, records: only.records }, FIXTURE_NOW_MS).coverageAuthority).toBe(
       "UNIVERSE_NOT_CONFIGURED",
     );
   });

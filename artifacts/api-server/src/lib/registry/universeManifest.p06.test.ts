@@ -32,6 +32,8 @@ import {
   GEN_ID,
   GENERATED_AT,
   EFFECTIVE_DATE,
+  makeCurrentAuthoritativeBse,
+  makeCalendarCommitment,
 } from "./p06TestFixtures";
 
 function buildInput(
@@ -46,6 +48,8 @@ function buildInput(
     generatedAt: GENERATED_AT,
     effectiveDate: EFFECTIVE_DATE,
     requiredSourceIds: REQUIRED_SOURCE_IDS,
+    bseAuthority: makeCurrentAuthoritativeBse(),
+    tradingCalendar: makeCalendarCommitment(),
     ...overrides,
   };
 }

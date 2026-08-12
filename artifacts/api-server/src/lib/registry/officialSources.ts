@@ -17,6 +17,11 @@
  */
 
 import { createHash } from "node:crypto";
+// Runtime import is safe: bseReferencePolicy imports from this module with a
+// type-only import, which is erased, so there is no runtime cycle.
+import { istDateString } from "./bseReferencePolicy";
+
+export { istDateString };
 
 export type OfficialSourceId =
   | "NSE_EQUITY_L"
@@ -52,32 +57,24 @@ export type ReferenceFreshnessState =
 export const NSE_REFERENCE_MAX_AGE_HOURS_MIRROR = 48;
 
 /**
- * BSE REFERENCE FRESHNESS IS NOT POLICIED — OWNER AUTHORIZATION REQUIRED.
+ * BSE REFERENCE FRESHNESS — OWNER APPROVED.
  *
  * The BSE List of Scrips is a continuously-maintained database endpoint, not a
  * dated daily publication like NSE's EQUITY_L.csv. It carries no publication
- * timestamp, no effective date and no documented cadence, so there is no
- * honest basis on which to pick a maximum age.
+ * timestamp and no documented cadence, so no hour-based maximum age can be
+ * derived from it honestly.
  *
- * Rather than invent a threshold to make the phase complete, the policy here is
- * deliberately the most conservative one available:
+ * The owner therefore approved an EVENT-BASED policy instead of a threshold:
+ * authority requires a List of Scrips retrieved during the current IST calendar
+ * day, reconciled against the newest official BSE UDiFF for the latest
+ * COMPLETED trading session. See `bseReferencePolicy.ts` for the full rule set
+ * and `evaluateBseReferenceAuthority` for the only function permitted to
+ * authorize a new BSE-bearing generation.
  *
- *   a BSE source may be CURRENT_AUTHORITATIVE only while it is being used by
- *   the same generation run that retrieved it.
- *
- * Any later reuse of a stored BSE snapshot degrades to LAST_KNOWN. That claim
- * is defensible without a cadence, because a response read moments ago is
- * current by construction. Deciding how long a BSE snapshot MAY remain
- * authoritative is an owner policy decision and is reported as outstanding.
+ * NO NEW HOUR THRESHOLD IS INTRODUCED ANYWHERE BY THIS POLICY.
  */
-export const BSE_REFERENCE_FRESHNESS_POLICY = "OWNER_AUTHORIZATION_REQUIRED" as const;
-
-/**
- * Tolerance for "retrieved by this generation run". Not a freshness policy —
- * it only absorbs the seconds between fetching a source and hashing the
- * manifest that consumes it.
- */
-export const BSE_SAME_RUN_TOLERANCE_MS = 15 * 60 * 1000;
+export const BSE_REFERENCE_FRESHNESS_POLICY =
+  "OWNER_APPROVED_CURRENT_DAY_LIST_PLUS_LATEST_COMPLETED_SESSION_UDIFF" as const;
 
 /**
  * Minimum accepted row counts. A source below its floor is REJECTED, because a
@@ -275,8 +272,13 @@ function buildProvenance(args: {
  * Freshness per source family.
  *
  *  - NSE uses the existing, unaltered 48-hour reference governance.
- *  - BSE has no authorized max age, so only same-run retrieval is
- *    authoritative and everything older is honestly LAST_KNOWN.
+ *  - BSE uses the OWNER-APPROVED calendar-day rule: a List of Scrips retrieved
+ *    during the current IST calendar day is CURRENT_AUTHORITATIVE, and anything
+ *    retrieved on an earlier IST day is LAST_KNOWN. No hour threshold is used,
+ *    because BSE publishes no timestamp that an hour count could measure.
+ *    This is a per-source staleness label only; whether a generation may be
+ *    AUTHORIZED additionally requires completed-session UDiFF reconciliation
+ *    and is decided solely by `evaluateBseReferenceAuthority`.
  *  - The Kite dump is a provider master, not a security-classification
  *    authority; it is treated on the NSE cadence purely for staleness
  *    reporting and never grants classification authority.
@@ -295,7 +297,7 @@ export function computeFreshnessState(
     sourceId === "BSE_LIST_OF_SCRIPS_ACTIVE" || sourceId === "BSE_LIST_OF_SCRIPS_SUSPENDED";
 
   if (isBse) {
-    return ageMs <= BSE_SAME_RUN_TOLERANCE_MS ? "CURRENT_AUTHORITATIVE" : "LAST_KNOWN";
+    return istDateString(t) === istDateString(nowMs) ? "CURRENT_AUTHORITATIVE" : "LAST_KNOWN";
   }
   return ageMs < NSE_REFERENCE_MAX_AGE_HOURS_MIRROR * 3600_000 ? "CURRENT_AUTHORITATIVE" : "STALE";
 }

@@ -365,7 +365,7 @@ export async function buildMarketDataHealth(): Promise<MarketDataHealth> {
       // DB access on this path. With no accepted generation the bridge returns
       // the not-configured manifest, so behaviour is unchanged until a registry
       // generation actually exists.
-      toAuthoritativeCoverageManifest(getActiveGeneration()),
+      toAuthoritativeCoverageManifest(getActiveGeneration(), now.getTime()),
     ),
   );
 

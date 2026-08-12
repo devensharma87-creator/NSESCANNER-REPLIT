@@ -54,3 +54,18 @@ they deserve a different id.
 
 **Why:** observed only on the second execution of the durable path; a single run
 looks perfectly healthy.
+
+    ## Retention is paid for by an actual insert
+
+    Bounded retention inside a write transaction must execute only when the INSERT
+    created a row. Running it on the `ON CONFLICT DO NOTHING` path lets a replay of
+    an existing generation prune history it did not extend.
+
+    **Why:** the registry writer shipped retention unconditionally after the insert;
+    a duplicate re-run therefore trimmed the table while honestly reporting that it
+    had committed nothing.
+
+    **How to apply:** return before the DELETE when `RETURNING` yields no row; keep
+    the DELETE in the same transaction so a retention failure takes the new row with
+    it; give the retained-set ordering a tie-break column so it is deterministic; and
+    report the no-op honestly (no snapshot id, no commit time).

@@ -19,10 +19,54 @@ import {
   isManifestAccepted,
   verifyManifestChecksum,
 } from "./universeManifest";
+import {
+  evaluateCalendarAuthorityNow,
+  verifyCalendarCommitmentIntegrity,
+  type CalendarAuthorityEvaluation,
+  type TradingCalendarCommitment,
+} from "./exchangeCalendar";
 import type { RegistryGeneration } from "./manifestStore";
 
 /** Scope id must match the one Phase 0.5B already reserved for this universe. */
 export const AUTHORITATIVE_UNIVERSE_SCOPE_ID = "AUTHORITATIVE_NSE_BSE_INDEX_UNIVERSE";
+
+/**
+ * Single-entry memo for the current-authority verdict.
+ *
+ * The verdict can only change at a known instant — the next session close or
+ * the next IST midnight, whichever comes first — and `evaluateCalendarAuthorityNow`
+ * reports that instant as `validUntilMs`. Caching until then keeps this boundary
+ * O(1) for repeated calls (a health endpoint polled per tick re-reads the memo,
+ * it does not re-scan the committed sessions) while still flipping to
+ * `LAST_KNOWN` the moment the boundary passes, with no restart required.
+ */
+let authorityMemo: {
+  readonly calendarGenerationId: string;
+  readonly evaluation: CalendarAuthorityEvaluation;
+} | null = null;
+
+function calendarAuthorityNow(
+  commitment: TradingCalendarCommitment,
+  nowMs: number,
+): CalendarAuthorityEvaluation {
+  const memo = authorityMemo;
+  if (
+    memo &&
+    memo.calendarGenerationId === commitment.calendarGenerationId &&
+    nowMs >= memo.evaluation.evaluatedAtMs &&
+    nowMs < memo.evaluation.validUntilMs
+  ) {
+    return memo.evaluation;
+  }
+  const evaluation = evaluateCalendarAuthorityNow(commitment, nowMs);
+  authorityMemo = { calendarGenerationId: commitment.calendarGenerationId, evaluation };
+  return evaluation;
+}
+
+/** Test-only: drop the memo so a fresh evaluation is forced. */
+export function __resetCalendarAuthorityMemo(): void {
+  authorityMemo = null;
+}
 
 /**
  * Map a registry generation onto the coverage denominator.
@@ -37,9 +81,16 @@ export const AUTHORITATIVE_UNIVERSE_SCOPE_ID = "AUTHORITATIVE_NSE_BSE_INDEX_UNIV
  * The required set includes LIVE_REQUIRED instruments that are NOT mapped to a
  * provider token. They are genuinely required; being unmapped makes them
  * uncovered, not unrequired. Dropping them would be the same understatement.
+ *
+ * `nowMs` is REQUIRED, not defaulted. This is the authority boundary, and
+ * authority is a claim about the present: a manifest whose calendar no longer
+ * covers today, or whose BSE reconciliation has been overtaken by a newer
+ * completed session, is last-known data and may not supply a denominator.
+ * Defaulting the clock here would let a caller silently skip that question.
  */
 export function toAuthoritativeCoverageManifest(
   generation: RegistryGeneration | null | undefined,
+  nowMs: number,
 ): CoverageUniverseManifest {
   if (!generation) return AUTHORITATIVE_UNIVERSE_NOT_CONFIGURED;
 
@@ -59,6 +110,42 @@ export function toAuthoritativeCoverageManifest(
   if (manifest.schemaVersion !== MANIFEST_SCHEMA_VERSION) return AUTHORITATIVE_UNIVERSE_NOT_CONFIGURED;
   if (manifest.policyVersion !== CLASSIFICATION_POLICY_VERSION) return AUTHORITATIVE_UNIVERSE_NOT_CONFIGURED;
   if (manifest.classificationPolicyHash !== computeClassificationPolicyHash()) {
+    return AUTHORITATIVE_UNIVERSE_NOT_CONFIGURED;
+  }
+
+  // OWNER-APPROVED BSE REFERENCE POLICY, re-applied at the authority boundary.
+  //
+  // The in-process provenance check used at build time cannot survive storage,
+  // so the durable binding is re-verified here instead: the recorded verdict
+  // must be authorizing AND must be bound by hash to the BSE List body this
+  // manifest actually carries. A verdict transplanted from another generation,
+  // or edited to claim authority, fails one of the two.
+  const auth = manifest.bseReferenceAuthority;
+  if (!auth || auth.state !== "CURRENT_AUTHORITATIVE" || auth.mayAuthorizeNewGeneration !== true) {
+    return AUTHORITATIVE_UNIVERSE_NOT_CONFIGURED;
+  }
+  const bseList = manifest.sourceProvenance.find((s) => s.sourceId === "BSE_LIST_OF_SCRIPS_ACTIVE");
+  if (!bseList || bseList.contentHash !== auth.listContentHash) {
+    return AUTHORITATIVE_UNIVERSE_NOT_CONFIGURED;
+  }
+
+  // PHASE 0.6A — the authoritative trading calendar, re-verified durably.
+  //
+  // "Latest completed session" is the anchor the whole BSE verdict hangs on, so
+  // a manifest restored from storage must still carry a valid calendar whose id
+  // derives from its own checksum, and the verdict's effective trading date
+  // must still be the session that calendar names.
+  if (verifyCalendarCommitmentIntegrity(manifest.tradingCalendar).length > 0) {
+    return AUTHORITATIVE_UNIVERSE_NOT_CONFIGURED;
+  }
+  if (auth.effectiveTradingDate !== manifest.tradingCalendar.latestCompletedSession.BSE) {
+    return AUTHORITATIVE_UNIVERSE_NOT_CONFIGURED;
+  }
+
+  // ...and re-asked AT THE CURRENT INSTANT. Integrity is immutable; authority
+  // expires. A 2026 calendar is still perfectly intact on 2027-01-01 — it just
+  // no longer describes today, so it cannot hand out an authoritative universe.
+  if (calendarAuthorityNow(manifest.tradingCalendar, nowMs).state !== "CURRENT_AUTHORITATIVE") {
     return AUTHORITATIVE_UNIVERSE_NOT_CONFIGURED;
   }
 

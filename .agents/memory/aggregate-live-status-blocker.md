@@ -13,7 +13,14 @@ does **not** prove:
 - pending provider-token reconciliation state (a disputed identity still counts
   toward the quote total)
 
-**Why:** this is an owner-recorded deployment blocker, deliberately left unfixed.
+**Scope correction (owner, 2026-08-12):** Phase 0.5B already prevents legacy
+    `LIVE_TICKS` from granting complete or trade-grade status, so this is NOT an
+    unfixed authority hole — the trust decision is made elsewhere and is correct.
+    What remains is deprecated serialization: an aggregate badge that can still read
+    green while the underlying instruments are stale or missing. Describe it that
+    way; do not report it as an unfixed aggregate-authority implementation.
+
+    **Why:** this is an owner-recorded deployment blocker, deliberately left unfixed.
 Correcting the aggregate badge changes production behaviour — a surface that
 currently reads green would start reading degraded — so it exceeds the
 "status serialization only" scope that the identity work was authorized under.
