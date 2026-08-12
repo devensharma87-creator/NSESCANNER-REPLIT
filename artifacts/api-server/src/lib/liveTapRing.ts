@@ -10,8 +10,13 @@
  * age. When the owner hits `POST /api/replay/record`, this buffer is
  * drained to disk in the exact JSONL format the replay driver expects.
  *
+ * Phase 0.5C: storage is a strictly bounded O(1) ring buffer. Appends
+ * no longer shift or splice the retained history, so per-tick cost is
+ * constant regardless of how many entries are retained.
+ *
  * Spec: BACKTEST_REPLAY_HARNESS_SPEC.md §12.2
  */
+import { RingBuffer } from "./ringBuffer";
 
 // Hard caps — chosen to keep RAM comfortably under 512 MB with worst-
 // case burst rates (a full trading day at ~250 ticks/sec = ~7M ticks;
@@ -62,41 +67,51 @@ export interface TapSystemEvent {
   detail: Record<string, unknown>;
 }
 
-const ticks: TapTick[] = [];
-const chains: TapChainSnapshot[] = [];
-const boards: TapBoardSnapshot[] = [];
-const events: TapSystemEvent[] = [];
+const ticks = new RingBuffer<TapTick>(CAP_TICKS);
+const chains = new RingBuffer<TapChainSnapshot>(CAP_CHAIN);
+const boards = new RingBuffer<TapBoardSnapshot>(CAP_BOARDS);
+const events = new RingBuffer<TapSystemEvent>(CAP_EVENTS);
 
-function trim<T>(
-  arr: T[],
-  cap: number,
-  ageOf: (row: T) => number,
-): void {
+/**
+ * Age-based eviction. The count cap is enforced by the ring itself —
+ * `push` overwrites exactly the oldest entry once capacity is reached,
+ * in O(1), so no linear trim runs on the tick path any more.
+ *
+ * This is a HEAD SCAN, matching the original semantics exactly: it stops
+ * at the first entry that is not expired. An out-of-order old entry
+ * sitting behind a fresh one is therefore not evicted here, just as
+ * before. Each eviction is O(1), so the loop costs O(k) for k expired
+ * entries rather than the previous O(k*n).
+ */
+function trimByAge<T>(ring: RingBuffer<T>, ageOf: (row: T) => number): void {
   const cutoff = Date.now() - MAX_AGE_MS;
-  while (arr.length > 0 && ageOf(arr[0]!) < cutoff) arr.shift();
-  if (arr.length > cap) arr.splice(0, arr.length - cap);
+  for (;;) {
+    const oldest = ring.peekOldest();
+    if (oldest === undefined || ageOf(oldest) >= cutoff) break;
+    ring.dropOldest();
+  }
 }
 
 // ── Push API — every entry point wrapped by caller in try/catch ────
 
 export function tapPushTick(t: TapTick): void {
   ticks.push(t);
-  trim(ticks, CAP_TICKS, (x) => x.receivedAtMs);
+  trimByAge(ticks, (x) => x.receivedAtMs);
 }
 
 export function tapPushChainSnapshot(s: TapChainSnapshot): void {
   chains.push(s);
-  trim(chains, CAP_CHAIN, (x) => x.capturedAtMs);
+  trimByAge(chains, (x) => x.capturedAtMs);
 }
 
 export function tapPushBoardSnapshot(b: TapBoardSnapshot): void {
   boards.push(b);
-  trim(boards, CAP_BOARDS, (x) => x.capturedAtMs);
+  trimByAge(boards, (x) => x.capturedAtMs);
 }
 
 export function tapPushSystemEvent(e: TapSystemEvent): void {
   events.push(e);
-  trim(events, CAP_EVENTS, (x) => x.emittedAtMs);
+  trimByAge(events, (x) => x.emittedAtMs);
 }
 
 // ── Drain API — used by the recorder endpoint ──────────────────────
@@ -116,10 +131,14 @@ export interface DrainedFixture {
 }
 
 export function drainSince(window: DrainWindow): DrainedFixture {
-  const t = ticks.filter((x) => x.receivedAtMs >= window.sinceMs);
-  const c = chains.filter((x) => x.capturedAtMs >= window.sinceMs);
-  const b = boards.filter((x) => x.capturedAtMs >= window.sinceMs);
-  const e = events.filter((x) => x.emittedAtMs >= window.sinceMs);
+  // Single-pass filtered reads. O(n) in retained entries, which is
+  // unavoidable when materialising a window, but it runs ONLY here —
+  // on owner demand — never on the tick path. Reads never mutate the
+  // rings, and every returned array is freshly allocated.
+  const t = ticks.filterToArray((x) => x.receivedAtMs >= window.sinceMs);
+  const c = chains.filterToArray((x) => x.capturedAtMs >= window.sinceMs);
+  const b = boards.filterToArray((x) => x.capturedAtMs >= window.sinceMs);
+  const e = events.filterToArray((x) => x.emittedAtMs >= window.sinceMs);
   const range = t.length > 0
     ? { min: t[0]!.receivedAtMs, max: t[t.length - 1]!.receivedAtMs }
     : null;
@@ -143,20 +162,37 @@ export interface TapStats {
 }
 
 export function tapStats(): TapStats {
+  // Head/tail reads, O(1). Deliberately NOT a min/max scan — this
+  // preserves the pre-existing observable contract exactly.
   return {
-    tickCount: ticks.length,
-    chainCount: chains.length,
-    boardCount: boards.length,
-    eventCount: events.length,
-    oldestTickMs: ticks[0]?.receivedAtMs ?? null,
-    newestTickMs: ticks[ticks.length - 1]?.receivedAtMs ?? null,
+    tickCount: ticks.size,
+    chainCount: chains.size,
+    boardCount: boards.size,
+    eventCount: events.size,
+    oldestTickMs: ticks.peekOldest()?.receivedAtMs ?? null,
+    newestTickMs: ticks.peekNewest()?.receivedAtMs ?? null,
+  };
+}
+
+/** Test-only capacity introspection. Read-only; no behavioural effect. */
+export function _tapCapacities(): {
+  ticks: number;
+  chains: number;
+  boards: number;
+  events: number;
+} {
+  return {
+    ticks: CAP_TICKS,
+    chains: CAP_CHAIN,
+    boards: CAP_BOARDS,
+    events: CAP_EVENTS,
   };
 }
 
 /** Test-only reset. Not part of the barrel export. */
 export function _resetLiveTapRing(): void {
-  ticks.length = 0;
-  chains.length = 0;
-  boards.length = 0;
-  events.length = 0;
+  ticks.clear();
+  chains.clear();
+  boards.clear();
+  events.clear();
 }

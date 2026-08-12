@@ -1,0 +1,361 @@
+DATA FOUNDATION PHASE 0.5C — O(1) BOUNDED TICK REPLAY BUFFER
+
+CODER_EXECUTION_CONTRACT remains active.
+
+This is one bounded development task addressing only the existing high-volume replay-buffer performance defect.
+
+Work on branch:
+
+pack33c-p1-1-isolated
+
+Accepted Phase 0.5B HEAD ancestry includes:
+
+9608d2a7
+26c378c7
+37b151e5
+
+Do not deploy, merge, push or begin subscription expansion.
+
+BACKGROUND
+
+The current tick replay path retains approximately 400,000 entries in an array.
+
+The prior audit found that once the array reaches capacity, trimming uses operations such as:
+
+- Array.shift()
+- Array.splice(0, n)
+
+These operations move the remaining array contents and can become O(n) per incoming tick.
+
+At the current small subscription set this may remain hidden. At the future approved universe of approximately 7,890 subscriptions, it could create:
+
+- High CPU consumption
+- Event-loop lag
+- Garbage-collection pressure
+- Slow quote processing
+- Stale displayed data
+- WebSocket disconnects
+- Delayed SSE delivery
+- Incorrect freshness classifications
+
+The replay buffer is diagnostic/replay infrastructure. It is not the future historical candle warehouse and must never be used to fabricate technical indicators.
+
+OBJECTIVE
+
+Replace the current shifting/splicing replay structure with a strictly bounded O(1) circular/ring buffer while preserving externally required replay semantics.
+
+Do not change provider subscriptions, tick content, freshness thresholds, canonical identity or business behaviour.
+
+A. PREFLIGHT AND AUTOMATIC-COMMIT CONTROL
+
+Before modifying anything, record:
+
+- Branch
+- HEAD
+- main SHA
+- Git status
+- Exact replay-buffer files and consumers
+- Current buffer capacity
+- Current append and read paths
+
+Replit may automatically checkpoint work. If an automatic commit occurs:
+
+1. Stop at the next safe point.
+2. Report the commit SHA and exact file list.
+3. Do not reset, revert, squash, rebase or rewrite history.
+4. Classify whether it matches this authorized scope.
+5. Wait for owner review if unrelated runtime/configuration files were included.
+
+Do not spend time trying to prevent normal Replit checkpoints.
+
+B. CHARACTERIZE THE CURRENT CONTRACT BEFORE MODIFICATION
+
+Create deterministic characterization tests for the existing observable behaviour.
+
+Record:
+
+1. Maximum retained entry count.
+2. Oldest-to-newest ordering.
+3. Behaviour before capacity is reached.
+4. Behaviour exactly at capacity.
+5. Behaviour after one overflow.
+6. Behaviour after repeated overflow.
+7. Snapshot/read semantics.
+8. Filtering semantics, if any.
+9. Clearing/reset behaviour.
+10. Whether returned arrays are copies or mutable references.
+11. Timestamp/order assumptions.
+12. Behaviour with duplicate instrument ticks.
+13. Behaviour with canonical NSE/BSE identities.
+14. Every consumer of the replay buffer.
+
+Do not characterize accidental implementation details as required contracts unless consumers depend on them.
+
+Accurately label evidence as:
+
+- OBSERVED
+- TESTED
+- INFERRED
+- NOT_YET_VERIFIED
+
+C. IMPLEMENT A TRUE O(1) BOUNDED RING BUFFER
+
+Implement a fixed-capacity circular buffer with:
+
+- Preallocated or bounded storage
+- Head/write index
+- Current size
+- Configured capacity
+- O(1) append
+- O(1) overwrite of the oldest entry when full
+- No `shift()`
+- No front-removal `splice()`
+- No array reallocation proportional to retained history on every append
+- Deterministic oldest-to-newest snapshot output
+- Correct wrap-around behaviour
+- Explicit empty/full state
+- Capacity validation
+
+Required invariants:
+
+- `0 <= size <= capacity`
+- Append never increases retained size above capacity.
+- At capacity, one append evicts exactly the oldest entry.
+- Ordering remains oldest to newest when read.
+- No tick is duplicated or silently reordered.
+- NSE and BSE instruments with the same symbol remain separate through `canonicalInstrumentId`.
+- Index aliases do not create duplicate replay entries unless two actual provider events occurred.
+- Identity-less ticks remain fail-closed according to the accepted Phase 0.5A contract.
+- Buffer reset returns it to a valid empty state.
+- Consumer mutation cannot corrupt internal storage.
+
+Do not use an external package unless strictly necessary. Prefer a small internal implementation.
+
+D. PRESERVE DATA HONESTY
+
+Every replay entry must retain the fields already supplied by the canonical tick path, including where available:
+
+- canonicalInstrumentId
+- exchange
+- segment
+- tradingSymbol
+- providerInstrumentToken
+- provider
+- price/OHLC/volume fields
+- exchange timestamp
+- received timestamp
+- ingestion timestamp
+
+Do not generate or reconstruct missing fields.
+
+Do not convert missing data to zero.
+
+Do not use replay entries as proof that a quote is currently live. Freshness continues to be determined by the accepted Phase 0.5B coverage contract.
+
+Do not use the replay buffer as:
+
+- Historical candle storage
+- Official closing-price storage
+- Technical-indicator history
+- Database durability
+- Cross-replica state
+- Provider-validation evidence
+
+E. READ-PATH PERFORMANCE
+
+Appending must be O(1).
+
+Snapshot creation may be O(n) because returning all retained entries necessarily requires reading them, but:
+
+- It must happen only when a consumer requests a snapshot.
+- It must not happen on every tick.
+- Filtering should avoid repeated full copies where a bounded iterator can safely be used.
+- No unbounded JSON serialization may execute inside the WebSocket tick handler.
+- No replay read should mutate the ring.
+
+If any existing consumer requests the entire 400,000-entry buffer frequently, report it as:
+
+REPLAY_CONSUMER_CAUSES_O_N_READ_PRESSURE
+
+Do not silently redesign unrelated consumers without review.
+
+F. SSE AND CLIENT FAN-OUT BOUNDARY
+
+Audit whether the replay tap or buffer writes synchronously fan out to SSE clients.
+
+Report:
+
+- Number and identity of fan-out consumers
+- Whether append waits for client delivery
+- Whether one slow client can block tick ingestion
+- Whether the full replay snapshot is sent to new clients
+- Whether disconnected clients are removed
+- Whether client count is bounded
+- Whether backpressure exists
+
+Do not redesign SSE architecture in this task unless the ring-buffer change directly requires a minimal compatibility correction.
+
+Record any separate issue as:
+
+SSE_FANOUT_BACKPRESSURE_NOT_IMPLEMENTED
+
+G. SYNTHETIC PERFORMANCE VERIFICATION
+
+Use deterministic synthetic ticks only.
+
+Do not call Kite, Upstox, IndianAPI, Yahoo or production APIs.
+
+Required correctness tests:
+
+1. Capacity 1.
+2. Capacity 2.
+3. Default production capacity.
+4. Empty snapshot.
+5. Partial buffer snapshot.
+6. Exactly-full buffer snapshot.
+7. Single wrap-around.
+8. Multiple wrap-arounds.
+9. Large number of appends.
+10. Oldest entry evicted exactly once per overflow.
+11. Oldest-to-newest order preserved.
+12. Reset after wrap-around.
+13. Snapshot mutation cannot alter internal state.
+14. Duplicate tick events remain distinct events.
+15. Same-symbol NSE/BSE events remain distinct.
+16. Index aliases preserve canonical identity.
+17. Invalid capacity rejected.
+18. No `shift()` in the production append path.
+19. No front-removal `splice()` in the production append path.
+20. No database/provider/scheduler call introduced.
+
+Required performance evidence:
+
+Run a bounded synthetic benchmark comparing the old algorithm and new ring algorithm using representative capacities and append counts.
+
+Report:
+
+- Node version
+- Buffer capacity
+- Append count
+- Warm-up method
+- Number of benchmark repetitions
+- Median and worst duration
+- Approximate heap/RSS before and after
+- Event-loop delay if cheaply measurable
+- Whether garbage collection was explicitly forced
+- Exact benchmark code
+
+Benchmark rules:
+
+- Run locally once after correctness tests pass.
+- Do not treat microbenchmark timing as production throughput proof.
+- Do not claim the future 7,890-token feed is proven.
+- Do not run an excessively large benchmark that wastes Replit compute.
+- Mark all conclusions as development synthetic evidence only.
+
+H. CONSUMER COMPATIBILITY
+
+Inventory every replay-buffer consumer and report:
+
+- Import/call location
+- Operation used
+- Expected ordering
+- Maximum requested entries
+- Filtering
+- Mutation assumptions
+- Compatibility status
+- Required change, if any
+
+Preserve public/API output contracts where safe.
+
+If a consumer depends on internal mutable-array behaviour, stop and report:
+
+BLOCKED_REPLAY_CONSUMER_DEPENDS_ON_UNSAFE_MUTABILITY
+
+Do not preserve unsafe shared-reference behaviour merely for compatibility.
+
+I. COST AND EXECUTION CONTROL
+
+Use:
+
+- Targeted replay-buffer tests
+- Relevant TypeScript check
+- `git diff --check`
+- A single bounded synthetic benchmark
+
+Run the affected-package suite once only if material production code changes and targeted checks pass.
+
+Do not:
+
+- Repeatedly run full suites
+- Run production builds
+- Restart services
+- Open browsers
+- Write to a database
+- Make provider calls
+- Expand subscriptions
+- Change deployment type
+
+J. PROHIBITIONS
+
+Do not:
+
+- Implement three WebSocket shards
+- Subscribe the 7,890-token universe
+- Modify canonical identity contracts
+- Modify Phase 0.5B freshness/coverage states
+- Integrate the authoritative security master
+- Integrate Upstox, IndianAPI or Yahoo
+- Add candles or technical indicators
+- Add EMA, RSI, VWAP, MACD, ATR, ADX or 52-week calculations
+- Add SMC, FVG, BOS, order blocks, volume profile or Fibonacci
+- Change scores, signals, confidence or trading
+- Enable any safety lock
+- Push, merge or deploy
+
+K. FOUR SAFETY LOCKS
+
+Verify the exact values remain:
+
+FULL_NSE_WAREHOUSE_POPULATION_AUTHORIZED = false as boolean
+SCANNER_KITE_CANDLE_EVALUATION_AUTHORIZED = false as boolean
+FNO_PAPER_V2_RUNTIME_AUTHORIZED = false as boolean
+SWING_PAPER_V2_RUNTIME_AUTHORIZED = false as boolean
+
+L. FINAL REPORT
+
+Report:
+
+1. Pre-task branch/HEAD/status.
+2. Original replay-buffer implementation.
+3. Characterized observable contract.
+4. Root cause and complexity.
+5. New ring-buffer design.
+6. Changed files.
+7. Complete consumer inventory.
+8. Correctness tests.
+9. Synthetic benchmark results.
+10. Memory/event-loop observations.
+11. SSE/backpressure findings.
+12. Provider-query count before/after.
+13. Database-write count before/after.
+14. Scheduler count before/after.
+15. Subscription count before/after.
+16. TypeScript and diff-check results.
+17. Four exact safety locks.
+18. Remaining blockers.
+19. Git status and automatic commits.
+
+Required verdict:
+
+O1_TICK_REPLAY_BUFFER_VERIFIED_IN_DEVELOPMENT —
+NO_PER_TICK_LINEAR_TRIM —
+BOUNDED_MEMORY_PRESERVED —
+INDEPENDENT_REVIEW_REQUIRED
+
+or:
+
+DATA_FOUNDATION_PHASE_0_5C_BLOCKED — [exact blocker]
+
+Do not commit unless separately authorized after independent review.
+Do not push, merge, deploy or begin the next phase.
