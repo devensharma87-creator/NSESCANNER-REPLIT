@@ -1,0 +1,56 @@
+PHASE 0.5C FINAL CHECKPOINT AUTHORIZATION
+
+Phase 0.5C is accepted in development.
+
+Retain automatic commits bdd65463 and 3b1d125f. Do not reset, revert, squash, rebase, cherry-pick or rewrite history. The final working-tree correction supersedes the intermediate generic copier contained in 3b1d125f.
+
+Authorize one development checkpoint containing only:
+
+- artifacts/api-server/src/lib/liveTapRing.ts
+- artifacts/api-server/src/lib/liveTapRing.immutability.test.ts
+- artifacts/api-server/src/lib/liveTapRing.p05c.test.ts
+- artifacts/api-server/src/lib/ringBuffer.test.ts
+- artifacts/api-server/scripts/p05c.immutabilityBenchmark.ts
+
+Do not include:
+
+- .agents/memory files
+- attached_assets
+- screenshots
+- configuration files
+- unrelated source
+- generated output
+
+Do not rerun tests, suites, builds or benchmarks. The existing evidence is sufficient:
+
+- 145/145 targeted tests passed
+- TypeScript passed
+- git diff --check passed
+- four safety locks remained false
+
+If Replit automatically checkpoints the authorized files, record the SHA and exact file list. Retain it if it contains only the authorized scope plus inert memory/directive files. Stop if it contains unrelated runtime or configuration changes.
+
+After checkpointing, report:
+
+1. Final commit SHA
+2. Exact committed file list
+3. Git status
+4. Final Phase 0.5C source diff
+5. Confirmation that boundedCopy/general shared-reference paths are absent from the final branch tip
+6. Confirmation unsupported values are rejected and never stored
+7. Confirmation no tests/builds/benchmarks were repeated
+8. Confirmation branch remains pack33c-p1-1-isolated
+9. Confirmation main remains untouched
+10. Confirmation nothing was pushed, merged or deployed
+11. Four exact safety-lock values
+12. Deferred blockers
+
+Required verdict:
+
+PHASE_0_5C_DEVELOPMENT_CHECKPOINT_COMPLETE —
+O1_REPLAY_BUFFER_ACTIVE —
+REPLAY_STORAGE_IMMUTABLE —
+UNSUPPORTED_VALUES_FAIL_CLOSED —
+OWNER_NEXT_PHASE_AUTHORIZATION_REQUIRED
+
+Do not deploy or begin the next phase.
