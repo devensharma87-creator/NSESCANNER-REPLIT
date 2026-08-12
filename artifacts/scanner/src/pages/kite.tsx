@@ -49,6 +49,28 @@ function fmtTs(iso: string | null): string {
   return d.toLocaleString("en-IN", { hour12: false, timeZone: "Asia/Kolkata" }) + " IST";
 }
 
+/**
+ * Turn a /api/kite/status response into a KiteStatus, or throw.
+ *
+ * A non-OK response body is an ERROR, never data. Accepting the 401 JSON error
+ * body as data left `feed` undefined and every `s.feed.*` read crashed the
+ * page. Pure and exported so the failure modes are directly testable.
+ */
+export function parseKiteStatus(ok: boolean, httpStatus: number, body: unknown): KiteStatus {
+  if (!ok) {
+    throw new Error(
+      httpStatus === 401 || httpStatus === 403
+        ? "AUTH_REQUIRED"
+        : `KITE_STATUS_HTTP_${httpStatus}`,
+    );
+  }
+  const b = body as Partial<KiteStatus> | null;
+  if (!b || typeof b !== "object" || !b.feed || typeof b.feed !== "object") {
+    throw new Error("KITE_STATUS_MALFORMED");
+  }
+  return b as KiteStatus;
+}
+
 export default function KitePage() {
   const qc = useQueryClient();
   const [params, setParams] = useState<URLSearchParams>(() => new URLSearchParams(window.location.search));
@@ -56,13 +78,26 @@ export default function KitePage() {
 
   const status = useQuery<KiteStatus>({
     queryKey: ["kite", "status"],
-    queryFn: () => fetch(API("/kite/status")).then(r => r.json()),
+    /**
+     * /api/kite/status is owner-gated and answers 401 with a JSON error body.
+     * That body has no `feed`, so accepting it as data made every `s.feed.*`
+     * read throw and crashed the whole page. A non-OK response is an ERROR,
+     * never data — surface it honestly instead of rendering a half-object.
+     */
+    queryFn: async (): Promise<KiteStatus> => {
+      const r = await fetch(API("/kite/status"));
+      return parseKiteStatus(r.ok, r.status, r.ok ? await r.json() : null);
+    },
+    retry: false,
     refetchInterval: 5000,
   });
 
+  const statusErrorCode =
+    status.error instanceof Error ? status.error.message : status.error ? "UNKNOWN" : null;
+
   // SSE: subscribe to the live tick stream so the UI shows ticks arriving in real-time.
   useEffect(() => {
-    if (!status.data?.feed.running) return;
+    if (!status.data?.feed?.running) return;
     const es = new EventSource(API("/kite/stream"));
     es.addEventListener("snapshot", (e: MessageEvent) => {
       try {
@@ -80,7 +115,7 @@ export default function KitePage() {
     });
     es.onerror = () => { /* EventSource auto-reconnects */ };
     return () => es.close();
-  }, [status.data?.feed.running]);
+  }, [status.data?.feed?.running]);
 
   // Re-read query string after the OAuth callback redirect.
   useEffect(() => {
@@ -234,7 +269,16 @@ export default function KitePage() {
       {/* Credentials card */}
       <section className="rounded-lg border border-border bg-card p-4">
         <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-3">Server Credentials</h2>
-        {s?.credentialsConfigured ? (
+        {statusErrorCode ? (
+          // Never claim the keys are missing when we simply could not read the
+          // status. "Unknown" is the honest answer here.
+          <div className="text-sm text-muted-foreground">
+            <AlertCircle className="inline h-4 w-4 mr-1 text-amber-400" />
+            Credential state unknown — status could not be read.
+          </div>
+        ) : !s ? (
+          <div className="text-sm text-muted-foreground">Loading…</div>
+        ) : s.credentialsConfigured ? (
           <div className="text-sm text-foreground/90">
             <span className="text-emerald-400">●</span> API Key configured: <span className="font-mono">{s.apiKeyPreview}</span>
           </div>
@@ -250,7 +294,26 @@ export default function KitePage() {
       {/* Login / status card */}
       <section className="rounded-lg border border-border bg-card p-4">
         <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-3">Daily Session</h2>
-        {!s ? (
+        {statusErrorCode ? (
+          <div className="space-y-2" data-testid="kite-status-error">
+            <div className="text-sm text-amber-300 flex items-start gap-2">
+              <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
+              <span>
+                {statusErrorCode === "AUTH_REQUIRED"
+                  ? "Owner sign-in required to read the Kite feed status. This page shows no feed data until you are signed in as the owner."
+                  : statusErrorCode === "KITE_STATUS_MALFORMED"
+                    ? "The Kite status response was not in the expected shape, so no feed state can be shown."
+                    : `Kite status request failed (${statusErrorCode}).`}
+              </span>
+            </div>
+            <button
+              onClick={() => void status.refetch()}
+              className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-1.5 text-xs font-semibold hover:bg-foreground/5"
+            >
+              <RefreshCw className="h-3 w-3" /> Retry
+            </button>
+          </div>
+        ) : !s ? (
           <div className="text-sm text-muted-foreground">Loading…</div>
         ) : !s.loggedIn ? (
           <div className="space-y-3">
@@ -359,7 +422,7 @@ export default function KitePage() {
       {/* Feed card */}
       <section className="rounded-lg border border-border bg-card p-4">
         <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-3">WebSocket Feed</h2>
-        {!s ? null : (
+        {!s?.feed ? null : (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm mb-4">
             <Stat label="Running" value={s.feed.running ? "Yes" : "No"} ok={s.feed.running} />
             <Stat label="Connected" value={s.feed.connected ? "Yes" : "No"} ok={s.feed.connected} />
@@ -367,7 +430,7 @@ export default function KitePage() {
             <Stat label="Live Quotes" value={String(s.feed.liveQuotes)} />
           </div>
         )}
-        {s?.feed.lastError && (
+        {s?.feed?.lastError && (
           <div className="text-xs text-red-400 mb-3"><AlertCircle className="inline h-3 w-3 mr-1" />Last error: {s.feed.lastError}</div>
         )}
 
@@ -389,7 +452,11 @@ export default function KitePage() {
               {sortedTicks.length === 0 ? (
                 <tr>
                   <td colSpan={8} className="px-3 py-10 text-center text-muted-foreground">
-                    {s?.loggedIn ? "Waiting for ticks… (markets closed?)" : "Login above to start the feed."}
+                    {statusErrorCode
+                      ? "Feed state unavailable — the Kite status could not be read."
+                      : s?.loggedIn
+                        ? "Waiting for ticks… (markets closed?)"
+                        : "Login above to start the feed."}
                   </td>
                 </tr>
               ) : sortedTicks.map(t => (
