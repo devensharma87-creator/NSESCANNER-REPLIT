@@ -205,6 +205,11 @@ describe("B9 clearing/reset behaviour", () => {
     tapPushChainSnapshot(chain());
     tapPushSystemEvent({ emittedAtMs: T0, kind: "OTHER", detail: {} });
     _resetLiveTapRing();
+    // NOTE — second deliberate characterization change in this file.
+    // `copyExclusions` was added to TapStats so the two documented
+    // reference-sharing exclusions are observable in production rather
+    // than merely exported. The addition is additive; every pre-existing
+    // field keeps its exact prior meaning.
     expect(tapStats()).toEqual({
       tickCount: 0,
       chainCount: 0,
@@ -212,6 +217,7 @@ describe("B9 clearing/reset behaviour", () => {
       eventCount: 0,
       oldestTickMs: null,
       newestTickMs: null,
+      copyExclusions: { depthLimitTruncations: 0, exoticPassthroughs: 0 },
     });
     const d = drainSince({ sinceMs: 0 });
     expect(d.ticks).toHaveLength(0);
@@ -233,14 +239,30 @@ describe("B9 clearing/reset behaviour", () => {
 });
 
 describe("B10 copies vs mutable references", () => {
-  it("the returned ARRAY is a copy, but entry objects are shared references", () => {
-    // OBSERVED (pre-existing, deliberately preserved): entries are not
-    // deep-cloned. Array-level isolation protects internal storage;
-    // element-level sharing is unchanged by 0.5C and reported as-is.
+  it("the returned array AND its entries are copies — storage is unreachable", () => {
+    // ─────────────────────────────────────────────────────────────────
+    // DELIBERATE CONTRACT CHANGE — the ONLY characterized behaviour that
+    // Phase 0.5C intentionally INVERTS rather than preserves.
+    //
+    // The original assertion here was `expect(d.ticks[0]).toBe(t)`:
+    // entries were shared references, so a consumer could mutate retained
+    // storage and re-pushing one mutated caller object retroactively
+    // rewrote earlier events. That was characterized as "pre-existing,
+    // preserved" — which was the wrong call. It violates the explicit
+    // acceptance invariant CONSUMER MUTATION CANNOT CORRUPT INTERNAL
+    // STORAGE, so it is a defect, not a contract worth preserving.
+    //
+    // The failing pre-correction result is recorded in
+    // liveTapRing.immutability.test.ts, which proves the corruption was
+    // real and reachable before this change.
+    //
+    // All 24 OTHER characterization assertions remain untouched.
+    // ─────────────────────────────────────────────────────────────────
     const t = tick({ receivedAtMs: T0 });
     tapPushTick(t);
     const d = drainSince({ sinceMs: T0 });
-    expect(d.ticks[0]).toBe(t);
+    expect(d.ticks[0]).not.toBe(t);
+    expect(d.ticks[0]).toEqual(t);
   });
 });
 

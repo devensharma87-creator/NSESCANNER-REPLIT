@@ -1,0 +1,157 @@
+PHASE 0.5C — FINAL IMMUTABILITY CORRECTION AND INDEPENDENT REVIEW
+
+Do not commit, deploy, merge, push or broaden scope.
+
+The O(1) ring-buffer migration is provisionally accepted, but Phase 0.5C is blocked because drainSince/toArray returns arrays containing references to the same mutable objects stored inside the ring.
+
+The explicit acceptance invariant was:
+
+CONSUMER MUTATION CANNOT CORRUPT INTERNAL STORAGE
+
+A. PROVE THE FAILURE FIRST
+
+Add a deterministic test against the current Phase 0.5C implementation:
+
+1. Insert a tick/object.
+2. Read it through drainSince/toArray/filterToArray.
+3. Mutate a returned object field.
+4. Read the buffer again.
+5. Prove whether internal retained data changed.
+
+Run and record the failing result before correction.
+
+Also test nested mutable fields if any replay entry type contains arrays or nested objects.
+
+B. IMPLEMENT BOUNDED IMMUTABILITY
+
+Correct the issue without introducing O(n) work on every append.
+
+Acceptable designs include:
+
+- immutable shallow copy/freeze at insertion for flat entry types;
+- explicit immutable normalization at insertion;
+- copying only returned entries during requested reads;
+- another design that proves stored entries cannot be corrupted externally.
+
+Requirements:
+
+- No full-buffer clone on append.
+- O(1) append remains.
+- No JSON stringify/parse cloning.
+- No deep-cloning of the entire 400,000-entry buffer.
+- Existing replay JSON shape remains compatible.
+- Existing ordering/filtering semantics remain unchanged.
+- Consumer mutation of a returned entry cannot alter retained storage.
+- Mutation of one returned snapshot cannot alter a later snapshot.
+- If nested objects exist, document and test the chosen depth of immutability.
+- Do not silently freeze/mutate caller-owned input objects unless explicitly documented and tested.
+- Reusing the same caller object for multiple pushes must not create cross-entry mutation.
+- The implementation must not fabricate canonical identity fields.
+
+C. REQUIRED TESTS
+
+1. Returned array mutation cannot affect ring storage.
+2. Returned entry mutation cannot affect ring storage.
+3. Nested-field mutation cannot affect storage where nested fields exist.
+4. Mutating the original input after push cannot affect stored data.
+5. Reusing and mutating one input object across multiple pushes preserves each event independently.
+6. Two snapshots are independent.
+7. Capacity and wrap-around behaviour remain correct.
+8. Oldest-to-newest ordering remains correct.
+9. Existing 25 characterization tests still pass.
+10. O(1) append remains free of shift/front-splice.
+11. No database/provider/scheduler/subscription call introduced.
+12. Benchmark confirms no material regression from the Phase 0.5C ring result.
+
+Use a smaller bounded benchmark for the immutability comparison. Do not repeat excessive benchmarking.
+
+D. INDEPENDENT CODE REVIEW
+
+Review:
+
+- ringBuffer.ts
+- liveTapRing.ts
+- all Phase 0.5C tests
+- benchmark script
+- replayRecorder consumers
+
+Verify:
+
+- Age eviction remains amortized O(1).
+- Snapshot generation occurs only on demand.
+- No snapshot is generated inside the tick append path.
+- Wrap-around cannot retain stale object references.
+- clear/reset releases stored references.
+- Exceptions cannot corrupt head/size invariants.
+- No caller relies on shared mutable entry references.
+- No accidental behaviour or JSON-shape change exists.
+
+E. EXACT FILE INVENTORY
+
+Expand:
+
+?? artifacts/api-server/scripts/
+
+into exact filenames.
+
+Report every modified/new file and classify it:
+
+- production
+- test
+- development benchmark
+- unrelated
+
+Correct the previous statement: ringBuffer.ts is a new production file and liveTapRing.ts is a modified production file. Therefore, two production files are affected.
+
+If any unrelated file exists inside scripts/, exclude it and stop for review.
+
+F. DEFERRED BLOCKERS
+
+Retain without implementing:
+
+- SSE_FANOUT_BACKPRESSURE_NOT_IMPLEMENTED
+- REPLAY_ENTRY_LACKS_CANONICAL_IDENTITY_FIELDS
+- REPLAY_BOARD_SNAPSHOT_STREAM_NEVER_POPULATED
+- EVENT_LOOP_DELAY_AT_FULL_LOAD_NOT_MEASURED
+
+G. VERIFICATION
+
+Run:
+
+- Targeted ring/replay tests
+- Relevant TypeScript check
+- git diff --check
+- One bounded immutability performance comparison
+
+Do not repeat the full API suite unless material shared production behaviour changes and repository policy requires it. The prior full suite already passed.
+
+Verify the exact four frozen safety constants remain false.
+
+H. FINAL RESPONSE
+
+Report:
+
+1. Demonstrated mutation failure.
+2. Selected immutability strategy.
+3. Complexity and allocation impact.
+4. Exact file inventory.
+5. Independent review findings.
+6. Tests and benchmark.
+7. TypeScript and diff-check.
+8. Four exact safety locks.
+9. Deferred blockers.
+10. Git status and automatic commits.
+
+Required verdict:
+
+O1_TICK_REPLAY_BUFFER_ACCEPTED_IN_DEVELOPMENT —
+NO_PER_TICK_LINEAR_TRIM —
+CONSUMER_MUTATION_CANNOT_CORRUPT_STORAGE —
+BOUNDED_MEMORY_PRESERVED —
+INDEPENDENT_COMMIT_AUTHORIZATION_REQUIRED
+
+or:
+
+DATA_FOUNDATION_PHASE_0_5C_BLOCKED — [exact blocker]
+
+Do not commit or deploy.
