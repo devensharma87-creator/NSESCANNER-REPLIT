@@ -1,47 +1,69 @@
 ---
-name: Hot-path defensive copy — serialization contract, not structured clone
-description: Why a bounded "copy what the consumer can serialize" copy beats a general structured clone on a per-tick path, and the three exclusions that must stay counted.
+name: Hot-path copy = an explicit type contract, never a generic clone
+description: Why a "copy what you can, share and count the rest" helper is not an isolation guarantee, and what a defensible replay/snapshot copy looks like.
 ---
 
-When a buffer must stop consumer mutation from corrupting retained storage,
-copy **exactly what the sole consumer can observe**, not "everything".
+# Retaining caller data on a hot path
 
-If the only consumer serializes to JSON/JSONL, the authoritative definition of
-an entry's shape is what `JSON.stringify` observes: own, enumerable,
-string-keyed properties, with getters evaluated. Reproduce that set and the
-output is provably byte-identical, while staying on V8's fast property path.
+## The rule
 
-**Why:** two general-purpose designs were tried and both failed measurably.
+When a hot path RETAINS caller-supplied data (replay ring, audit buffer,
+snapshot store), the copy must be an **explicit, finite, type-specific
+contract with exactly two outcomes**: copy a supported value, or reject
+the entry fail-closed. There is no third "share this one and increment a
+counter" outcome.
 
-1. Reference-sharing (no copy) — a caller reusing one object across pushes
-   retroactively rewrote earlier entries. Reachable with ordinary data.
-2. Full descriptor preservation (`Reflect.ownKeys` + `getOwnPropertyDescriptor`
-   + `defineProperty`) — cost ~23.4us/tick, a ~10x throughput regression,
-   because per-property descriptor objects and `defineProperty` leave the fast
-   path. It *also* failed correctness: transplanting an accessor keeps the
-   getter's closure shared, so a consumer still reaches retained state.
-   Evaluating getters once at insertion is both faster and strictly safer.
+**Why:** a counter records that an entry *might* be corruptible; it does
+not prevent the corruption. Diagnostics are not an invariant. An owner
+review rejected a generic bounded copier on exactly this ground — it
+copied what `JSON.stringify` could observe and shared class instances,
+`toJSON`-bearing objects, and containers past a depth limit, counting
+each. "Observable in production" is not the same as "cannot happen."
 
-**How to apply:**
-- Copy at BOTH insertion and read. Insertion alone loses to a caller mutating
-  or reusing its object after push; read alone loses to consumer mutation.
-- `Object.keys` + plain assignment, but never `out[k] = v` for `k ===
-  "__proto__"` — that invokes the inherited setter, drops the key and mutates
-  the copy's prototype. `JSON.parse` can produce an own `__proto__` key, so
-  anything sourced from an HTTP payload can carry one. Use `defineProperty`.
-- Check for a **custom** `toJSON` before any Date/Map/Set branch, since those
-  branches build a new instance that would silently drop it. Exclude
-  `Date.prototype.toJSON`, which every Date has and a copied Date reproduces.
-- Copy `Date` before the depth check: it is O(1) and terminal, and a shared
-  `Date` is mutable via `setTime`.
-- Depth-limit the recursion. Unbounded cloning on an append path reintroduces
-  the unbounded per-append work the ring buffer existed to remove, and the
-  limit also makes reference cycles terminate for free.
+**How to apply:** inventory the real runtime shapes at every push site
+FIRST (read the call sites; do not infer from the TypeScript types —
+they are usually wider than reality). If nothing reachable emits the
+exotic types, a strict contract costs nothing and you can reject them
+outright instead of inventing an unauthorized normalization (ISO vs
+epoch for a Date is a product decision, not a copy decision).
 
-**The exclusions must be counted, not asserted absent.** Class instances,
-`toJSON`-bearing objects, and containers past the depth limit stay shared.
-Expose a counter for each and surface it on the existing stats endpoint. A
-counter turns "this never happens" from an assumption into a measurement, and
-is the difference between bounded isolation and hand-waving. Verify
-reachability by inspecting *every* call site rather than reasoning about the
-type — the declared type is usually far wider than what callers actually pass.
+## Never read caller data with plain member access
+
+If the contract promises "no caller code runs," then **every** field
+read must go through `Object.getOwnPropertyDescriptor` — including
+top-level fields and even `array.length`. A single `obj.field` read
+executes a getter and breaks the guarantee. Two traps that are easy to
+miss:
+
+- A **non-enumerable `toJSON`** still drives `JSON.stringify` while never
+  appearing in `Object.keys`. Check it by descriptor, explicitly.
+- `i in arr` is true for indices inherited from a polluted
+  `Array.prototype`, but `getOwnPropertyDescriptor` returns `undefined`
+  for them — so `getOwnPropertyDescriptor(arr, i)!` crashes. Distinguish
+  a genuine hole from an inherited index and reject the latter.
+
+Also: `Array.isArray` returns true for Array **subclasses**; only the
+prototype tells you it is really a plain array. Detect Promises with
+`instanceof`, never by reading `.then` (that read fires a getter).
+
+**Proxies are the honest boundary.** `getOwnPropertyDescriptor`,
+`ownKeys`, `getPrototypeOf` and `in` all fire proxy traps, and a proxy
+cannot be identified without firing one. Document that limit rather than
+claiming to cover it — and prove the property that still holds
+absolutely: a throwing trap aborts before anything is stored, so a
+hostile value costs an entry, never integrity. (Bonus: descriptor-only
+reads never fire `get` traps at all, so that whole proxy class is
+normalized into ordinary data.)
+
+## Cost
+
+Descriptor-driven copying is roughly **10x the cost of storing a bare
+reference**, but that ratio is against an almost-free baseline — on the
+real payload it measured ~900 ns vs ~100 ns per entry, which is
+negligible at market tick rates. Benchmark the **actual** production
+payload shape, not a synthetic worst case: a padded synthetic object
+overstated the same contract's cost by ~7x.
+
+**Guard your benchmark:** a fail-closed path that rejects everything
+looks blazingly fast. Assert the timed loop actually stored what it
+claims and recorded zero rejections, or the number is a lie.

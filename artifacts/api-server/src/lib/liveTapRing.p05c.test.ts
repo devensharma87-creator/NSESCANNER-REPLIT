@@ -206,10 +206,9 @@ describe("B9 clearing/reset behaviour", () => {
     tapPushSystemEvent({ emittedAtMs: T0, kind: "OTHER", detail: {} });
     _resetLiveTapRing();
     // NOTE — second deliberate characterization change in this file.
-    // `copyExclusions` was added to TapStats so the two documented
-    // reference-sharing exclusions are observable in production rather
-    // than merely exported. The addition is additive; every pre-existing
-    // field keeps its exact prior meaning.
+    // `rejections` was added to TapStats so entries refused by the typed
+    // snapshot contract are observable in production. The addition is
+    // additive; every pre-existing field keeps its exact prior meaning.
     expect(tapStats()).toEqual({
       tickCount: 0,
       chainCount: 0,
@@ -217,7 +216,17 @@ describe("B9 clearing/reset behaviour", () => {
       eventCount: 0,
       oldestTickMs: null,
       newestTickMs: null,
-      copyExclusions: { depthLimitTruncations: 0, exoticPassthroughs: 0 },
+      rejections: {
+        total: 0,
+        byEntryType: {
+          tick: 0,
+          chainSnapshot: 0,
+          boardSnapshot: 0,
+          systemEvent: 0,
+        },
+        byReason: {},
+        lastRejection: null,
+      },
     });
     const d = drainSince({ sinceMs: 0 });
     expect(d.ticks).toHaveLength(0);

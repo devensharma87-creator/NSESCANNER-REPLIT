@@ -19,9 +19,14 @@
  *   • Phase order is run twice (A-then-B and B-then-A) to expose any
  *     residual ordering bias.
  *
- * A: bare RingBuffer.push   — ring, no immutability (prior 0.5C result)
- * B: tapPushTick            — ring + bounded copy (current)
- * C: drainSince             — read-path copy cost
+ * A: bare RingBuffer.push   — the ACCEPTED bdd65463 append path exactly:
+ *                             O(1) ring that stores the CALLER'S
+ *                             reference, with no immutability at all.
+ * B: tapPushTick            — the final typed-snapshot-contract path:
+ *                             same ring + per-type normalization that
+ *                             copies supported values and rejects
+ *                             unsupported ones fail-closed.
+ * C: drainSince             — read-path snapshot cost
  *
  * Deterministic synthetic data only. No provider call, no database,
  * no scheduler, no network, no subscription.
@@ -32,7 +37,13 @@
  *        scripts/p05c.immutabilityBenchmark.ts
  */
 import { RingBuffer } from "../src/lib/ringBuffer";
-import { tapPushTick, drainSince, _resetLiveTapRing, type TapTick } from "../src/lib/liveTapRing";
+import {
+  tapPushTick,
+  drainSince,
+  tapStats,
+  _resetLiveTapRing,
+  type TapTick,
+} from "../src/lib/liveTapRing";
 
 const APPENDS = 20_000; // bounded
 const POOL = 2_000;     // distinct prebuilt payloads, cycled
@@ -102,7 +113,29 @@ function phaseB(): number {
   gc?.();
   const t0 = performance.now();
   for (let i = 0; i < APPENDS; i++) tapPushTick(pool[i % POOL]!);
-  return performance.now() - t0;
+  const ms = performance.now() - t0;
+  // VALIDITY GUARD. A fail-closed contract that rejected every payload
+  // would look BLAZINGLY fast here. Assert the work was actually done:
+  // every append stored, nothing rejected.
+  assertRealWork("B");
+  return ms;
+}
+
+/** Fail loudly if the timed phase did not actually store what it claims. */
+function assertRealWork(label: string): void {
+  const s = tapStats();
+  if (s.tickCount !== Math.min(APPENDS, CAP)) {
+    throw new Error(
+      `${label}: stored ${s.tickCount}, expected ${Math.min(APPENDS, CAP)} — ` +
+        `benchmark invalid`,
+    );
+  }
+  if (s.rejections.total !== 0) {
+    throw new Error(
+      `${label}: ${s.rejections.total} entries REJECTED ` +
+        `(${JSON.stringify(s.rejections.byReason)}) — benchmark invalid`,
+    );
+  }
 }
 
 // Phases A/B isolate the copy against a bare reference-store, which is
@@ -122,7 +155,52 @@ function phaseB2(): number {
   gc?.();
   const t0 = performance.now();
   for (let i = 0; i < APPENDS; i++) tapPushTick(makeTick(i));
+  const ms = performance.now() - t0;
+  assertRealWork("B2");
+  return ms;
+}
+
+/**
+ * The ACTUAL production tick shape.
+ *
+ * kiteFeed.ts pushes `raw: { ohlc, change_percent }` and nothing else —
+ * no depth ladder, no mode/tradable block. makeTick() above is a
+ * deliberately pessimistic ~30-property payload that production never
+ * emits, so it overstates the contract's cost. This phase measures what
+ * the tick path really pays.
+ */
+function makeRealTick(i: number): TapTick {
+  return {
+    receivedAtMs: 1_800_000_000_000 + i,
+    instrumentToken: 256265,
+    symbol: "NIFTY 50",
+    ltp: 24000 + (i % 100),
+    ltq: 1,
+    volume: 1000 + i,
+    oi: null,
+    raw: {
+      ohlc: { open: 23900, high: 24100, low: 23850, close: 23950 },
+      change_percent: 0.21,
+    },
+  };
+}
+
+function phaseA3(): number {
+  baseRing.clear();
+  gc?.();
+  const t0 = performance.now();
+  for (let i = 0; i < APPENDS; i++) baseRing.push(makeRealTick(i));
   return performance.now() - t0;
+}
+
+function phaseB3(): number {
+  _resetLiveTapRing();
+  gc?.();
+  const t0 = performance.now();
+  for (let i = 0; i < APPENDS; i++) tapPushTick(makeRealTick(i));
+  const ms = performance.now() - t0;
+  assertRealWork("B3");
+  return ms;
 }
 
 function mb(b: number): string {
@@ -208,6 +286,29 @@ console.log("REALISTIC PIPELINE (payload construction included on both sides):")
 console.log(`A2 construct + push, NO copy   : median ${a2.median.toFixed(2).padStart(8)} ms   ${nsA2.toFixed(0).padStart(5)} ns/tick`);
 console.log(`B2 construct + push, WITH copy : median ${b2.median.toFixed(2).padStart(8)} ms   ${nsB2.toFixed(0).padStart(5)} ns/tick`);
 console.log(`   marginal overhead           : ${nsB2 - nsA2 >= 0 ? "+" : ""}${(nsB2 - nsA2).toFixed(0)} ns/tick   (${(nsB2 / nsA2).toFixed(2)}x)`);
+console.log("");
+
+// The decision-relevant number: the payload kiteFeed ACTUALLY pushes.
+const a3Runs: number[] = [];
+const b3Runs: number[] = [];
+phaseA3();
+phaseB3();
+for (let r = 0; r < REPS; r++) {
+  a3Runs.push(phaseA3());
+  b3Runs.push(phaseB3());
+}
+for (let r = 0; r < REPS; r++) {
+  b3Runs.push(phaseB3());
+  a3Runs.push(phaseA3());
+}
+const a3 = stats(a3Runs);
+const b3 = stats(b3Runs);
+const nsA3 = (a3.median * 1e6) / APPENDS;
+const nsB3 = (b3.median * 1e6) / APPENDS;
+console.log("REAL PRODUCTION TICK SHAPE (raw = { ohlc, change_percent } only):");
+console.log(`A3 construct + push, NO copy   : median ${a3.median.toFixed(2).padStart(8)} ms   worst ${a3.worst.toFixed(2).padStart(8)} ms   ${nsA3.toFixed(0).padStart(5)} ns/tick`);
+console.log(`B3 construct + normalize+push  : median ${b3.median.toFixed(2).padStart(8)} ms   worst ${b3.worst.toFixed(2).padStart(8)} ms   ${nsB3.toFixed(0).padStart(5)} ns/tick`);
+console.log(`   marginal overhead           : ${nsB3 - nsA3 >= 0 ? "+" : ""}${(nsB3 - nsA3).toFixed(0)} ns/tick   (${(nsB3 / nsA3).toFixed(2)}x)`);
 console.log("");
 console.log(`C  drainSince (${drainRows.toLocaleString()} rows) : median ${d.median.toFixed(2)} ms   worst ${d.worst.toFixed(2)} ms   ${((d.median * 1e6) / Math.max(drainRows, 1)).toFixed(0)} ns/row`);
 console.log("");

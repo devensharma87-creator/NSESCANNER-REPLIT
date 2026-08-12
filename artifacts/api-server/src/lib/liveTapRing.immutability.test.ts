@@ -1,21 +1,25 @@
 /**
- * Phase 0.5C — FINAL IMMUTABILITY CORRECTION.
+ * Phase 0.5C — FINAL TYPED SNAPSHOT CONTRACT.
  *
  * Acceptance invariant under test:
  *
- *     CONSUMER MUTATION CANNOT CORRUPT INTERNAL STORAGE
+ *     NO ACCEPTED REPLAY ENTRY RETAINS A CALLER REFERENCE
+ *     UNSUPPORTED VALUES ARE REJECTED FAIL-CLOSED
  *
- * Part A of this file was written and executed against the PRE-CORRECTION
- * Phase 0.5C implementation (bare `RingBuffer` storing caller references)
- * and FAILED, proving the defect was real and reachable rather than
- * theoretical. Part B fixes it; every assertion here must then pass.
+ * An earlier revision of this module copied what JSON.stringify could
+ * observe and SHARED what it could not rebuild (class instances,
+ * custom-toJSON objects, containers past a depth limit), counting each
+ * occurrence. That was rejected: a counter records that an entry might
+ * be corruptible, it does not prevent the corruption.
  *
- * Documented depth of immutability is asserted explicitly in Part D —
- * including the boundary BEYOND which references are shared. That
- * boundary is reported honestly, not hidden.
+ * The contract is now explicit and finite — supported values are copied,
+ * unsupported values are REJECTED and the entry never enters the ring.
+ * There is no "share and count" outcome, and these tests prove it.
  *
  * No provider call, no database write, no scheduler, no subscription.
  */
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { describe, it, expect, beforeEach } from "vitest";
 import {
   tapPushTick,
@@ -23,10 +27,11 @@ import {
   tapPushBoardSnapshot,
   tapPushSystemEvent,
   drainSince,
+  tapStats,
   _resetLiveTapRing,
-  COPY_DEPTH_LIMIT,
-  getBoundedCopyDiagnostics,
-  _resetBoundedCopyDiagnostics,
+  _tapCapacities,
+  MAX_REPLAY_DEPTH,
+  getReplayRejectionDiagnostics,
   type TapTick,
   type TapChainSnapshot,
   type TapBoardSnapshot,
@@ -45,7 +50,7 @@ function tick(over: Partial<TapTick> = {}): TapTick {
     ltq: 1,
     volume: 100,
     oi: null,
-    raw: { last_price: 24000, ohlc: { open: 23900, high: 24100 } },
+    raw: { ohlc: { open: 23900, high: 24100, low: 23850, close: 23950 }, change_percent: 0.21 },
     ...over,
   };
 }
@@ -56,7 +61,7 @@ function chain(over: Partial<TapChainSnapshot> = {}): TapChainSnapshot {
     underlying: "NIFTY",
     expiry: "2026-08-27",
     source: "kite",
-    snapshot: { strikes: [{ strike: 24000, ce: { oi: 10 } }] },
+    snapshot: { rows: [{ strike: 24000, ce: { oi: 10, ltp: 120.5 } }], spot: 24012.4 },
     ...over,
   };
 }
@@ -64,16 +69,16 @@ function chain(over: Partial<TapChainSnapshot> = {}): TapChainSnapshot {
 function board(over: Partial<TapBoardSnapshot> = {}): TapBoardSnapshot {
   return {
     capturedAtMs: T0,
-    rows: [{ symbol: "NIFTY", ltp: 24000 }],
+    rows: [{ symbol: "NIFTY 50", ltp: 24000, changePercent: 0.21 }],
     ...over,
   };
 }
 
-function evt(over: Partial<TapSystemEvent> = {}): TapSystemEvent {
+function event(over: Partial<TapSystemEvent> = {}): TapSystemEvent {
   return {
     emittedAtMs: T0,
-    kind: "REGIME_CHANGE",
-    detail: { from: "TREND", to: "CHOP" },
+    kind: "SYSTEM_MODE_TRANSITION",
+    detail: { from: "NORMAL", to: "DEGRADED", drivers: ["kite_stale"] },
     ...over,
   };
 }
@@ -82,679 +87,914 @@ beforeEach(() => {
   _resetLiveTapRing();
 });
 
-// ─── PART A — the four streams, top-level entry mutation ──────────────
-// (C1, C2) Returned array AND returned entry mutation must not reach storage.
+/* ───────────────────────── A. NO RETAINED CALLER REFERENCE ───────── */
 
-describe("A. consumer mutation of a returned entry cannot corrupt storage", () => {
-  it("C1: mutating the returned ARRAY does not affect a later read", () => {
-    tapPushTick(tick({ ltp: 100 }));
-    tapPushTick(tick({ ltp: 200 }));
+describe("A. accepted entries retain no caller reference", () => {
+  // Proof 1
+  it("mutating the original input after push cannot affect retained data", () => {
+    const t = tick();
+    tapPushTick(t);
 
-    const first = drainSince(ALL).ticks;
-    expect(first).toHaveLength(2);
-    first.pop();
-    first.push(tick({ ltp: 999 }));
-    first[0] = tick({ ltp: 888 });
+    t.ltp = -1;
+    t.symbol = "MUTATED";
+    (t.raw.ohlc as Record<string, unknown>).open = -1;
+    t.raw.injected = "should not appear";
 
-    const second = drainSince(ALL).ticks;
-    expect(second).toHaveLength(2);
-    expect(second.map((t) => t.ltp)).toEqual([100, 200]);
+    const [stored] = drainSince(ALL).ticks;
+    expect(stored!.ltp).toBe(24000);
+    expect(stored!.symbol).toBe("NIFTY 50");
+    expect((stored!.raw.ohlc as Record<string, unknown>).open).toBe(23900);
+    expect(stored!.raw.injected).toBeUndefined();
   });
 
-  it("C2: mutating a returned TICK entry does not affect retained storage", () => {
-    tapPushTick(tick({ ltp: 24000, symbol: "NIFTY 50" }));
-
-    const got = drainSince(ALL).ticks[0]!;
-    got.ltp = -1;
-    got.symbol = "CORRUPTED";
-    got.instrumentToken = 999999;
-
-    const after = drainSince(ALL).ticks[0]!;
-    expect(after.ltp).toBe(24000);
-    expect(after.symbol).toBe("NIFTY 50");
-    expect(after.instrumentToken).toBe(256265);
-  });
-
-  it("C2: mutating a returned CHAIN entry does not affect retained storage", () => {
-    tapPushChainSnapshot(chain({ underlying: "NIFTY" }));
-    const got = drainSince(ALL).chainSnapshots[0]!;
-    got.underlying = "CORRUPTED";
-    expect(drainSince(ALL).chainSnapshots[0]!.underlying).toBe("NIFTY");
-  });
-
-  it("C2: mutating a returned BOARD entry does not affect retained storage", () => {
-    tapPushBoardSnapshot(board());
-    const got = drainSince(ALL).boardSnapshots[0]!;
-    got.capturedAtMs = -1;
-    expect(drainSince(ALL).boardSnapshots[0]!.capturedAtMs).toBe(T0);
-  });
-
-  it("C2: mutating a returned SYSTEM EVENT does not affect retained storage", () => {
-    tapPushSystemEvent(evt({ kind: "REGIME_CHANGE" }));
-    const got = drainSince(ALL).systemEvents[0]!;
-    got.kind = "OTHER";
-    expect(drainSince(ALL).systemEvents[0]!.kind).toBe("REGIME_CHANGE");
-  });
-});
-
-// ─── PART B — nested mutable containers (C3) ──────────────────────────
-// Every replay entry type declares exactly one nested mutable container.
-
-describe("B. nested-field mutation cannot corrupt storage", () => {
-  it("C3: tick.raw mutation does not reach storage", () => {
-    tapPushTick(tick());
-    const got = drainSince(ALL).ticks[0]!;
-    got.raw.last_price = -1;
-    got.raw.injected = "CORRUPT";
-    const after = drainSince(ALL).ticks[0]!;
-    expect(after.raw.last_price).toBe(24000);
-    expect(after.raw.injected).toBeUndefined();
-  });
-
-  it("C3: tick.raw.ohlc (depth 3) mutation does not reach storage", () => {
-    tapPushTick(tick());
-    const got = drainSince(ALL).ticks[0]!;
-    (got.raw.ohlc as Record<string, unknown>).open = -1;
-    const after = drainSince(ALL).ticks[0]!;
-    expect((after.raw.ohlc as Record<string, unknown>).open).toBe(23900);
-  });
-
-  it("C3: chain.snapshot nested array + object mutation does not reach storage", () => {
-    tapPushChainSnapshot(chain());
-    const got = drainSince(ALL).chainSnapshots[0]!;
-    const strikes = got.snapshot.strikes as Array<Record<string, unknown>>;
-    strikes.push({ strike: 99999 });
-    (strikes[0]!.ce as Record<string, unknown>).oi = -1;
-
-    const after = drainSince(ALL).chainSnapshots[0]!;
-    const afterStrikes = after.snapshot.strikes as Array<Record<string, unknown>>;
-    expect(afterStrikes).toHaveLength(1);
-    expect((afterStrikes[0]!.ce as Record<string, unknown>).oi).toBe(10);
-  });
-
-  it("C3: board.rows array and row objects are isolated", () => {
-    tapPushBoardSnapshot(board());
-    const got = drainSince(ALL).boardSnapshots[0]!;
-    got.rows.push({ symbol: "INJECTED" });
-    got.rows[0]!.ltp = -1;
-
-    const after = drainSince(ALL).boardSnapshots[0]!;
-    expect(after.rows).toHaveLength(1);
-    expect(after.rows[0]!.ltp).toBe(24000);
-  });
-
-  it("C3: event.detail mutation does not reach storage", () => {
-    tapPushSystemEvent(evt());
-    const got = drainSince(ALL).systemEvents[0]!;
-    got.detail.to = "CORRUPT";
-    expect(drainSince(ALL).systemEvents[0]!.detail.to).toBe("CHOP");
-  });
-});
-
-// ─── PART C — caller-owned input objects (C4, C5) ─────────────────────
-// These CANNOT be satisfied by read-time copying alone; they force
-// insertion-time copying.
-
-describe("C. caller-owned input objects", () => {
-  it("C4: mutating the original input AFTER push does not alter stored data", () => {
-    const input = tick({ ltp: 24000 });
-    tapPushTick(input);
-
-    input.ltp = -1;
-    input.symbol = "CORRUPTED";
-    input.raw.last_price = -1;
-
-    const after = drainSince(ALL).ticks[0]!;
-    expect(after.ltp).toBe(24000);
-    expect(after.symbol).toBe("NIFTY 50");
-    expect(after.raw.last_price).toBe(24000);
-  });
-
-  it("C4: the caller's input object is NOT frozen or mutated by push", () => {
-    const input = tick({ ltp: 24000 });
-    tapPushTick(input);
-    // Documented contract: we copy, we do not take ownership. The caller
-    // may keep using its own object exactly as before.
-    expect(Object.isFrozen(input)).toBe(false);
-    expect(Object.isFrozen(input.raw)).toBe(false);
-    expect(() => {
-      input.ltp = 55;
-    }).not.toThrow();
-    expect(input.ltp).toBe(55);
-  });
-
-  it("C5: reusing and mutating ONE input object across pushes keeps each event independent", () => {
-    const reused = tick({ ltp: 1, raw: { last_price: 1 } });
-    tapPushTick(reused);
-    reused.ltp = 2;
-    reused.raw.last_price = 2;
-    tapPushTick(reused);
-    reused.ltp = 3;
-    reused.raw.last_price = 3;
-    tapPushTick(reused);
+  // Proof 2 — the case that failed hardest pre-correction: one reused
+  // scratch object retroactively rewrote every earlier entry.
+  it("reusing one mutable input across pushes preserves independent history", () => {
+    const scratch = tick();
+    for (let i = 1; i <= 3; i++) {
+      scratch.ltp = i;
+      (scratch.raw.ohlc as Record<string, unknown>).open = i * 10;
+      tapPushTick(scratch);
+    }
 
     const got = drainSince(ALL).ticks;
-    expect(got).toHaveLength(3);
-    expect(got.map((t) => t.ltp)).toEqual([1, 2, 3]);
-    expect(got.map((t) => t.raw.last_price)).toEqual([1, 2, 3]);
+    expect(got.map((x) => x.ltp)).toEqual([1, 2, 3]);
+    expect(
+      got.map((x) => (x.raw.ohlc as Record<string, unknown>).open),
+    ).toEqual([10, 20, 30]);
   });
 
-  it("C5: reused input object across system events stays independent", () => {
-    const reused = evt({ kind: "REGIME_CHANGE" });
-    tapPushSystemEvent(reused);
-    reused.detail.to = "TREND";
-    tapPushSystemEvent(reused);
+  it("all four entry types ignore post-push caller mutation", () => {
+    const c = chain();
+    const b = board();
+    const e = event();
+    tapPushChainSnapshot(c);
+    tapPushBoardSnapshot(b);
+    tapPushSystemEvent(e);
 
-    const got = drainSince(ALL).systemEvents;
-    expect(got.map((e) => e.detail.to)).toEqual(["CHOP", "TREND"]);
+    (c.snapshot.rows as unknown[])[0] = { strike: -1 };
+    b.rows[0]!.ltp = -1;
+    (e.detail.drivers as string[]).push("injected");
+
+    const d = drainSince(ALL);
+    expect(
+      ((d.chainSnapshots[0]!.snapshot.rows as unknown[])[0] as { strike: number })
+        .strike,
+    ).toBe(24000);
+    expect(d.boardSnapshots[0]!.rows[0]!.ltp).toBe(24000);
+    expect(d.systemEvents[0]!.detail.drivers).toEqual(["kite_stale"]);
   });
 });
 
-// ─── PART D — snapshot independence + documented depth (C6) ───────────
+/* ───────────────────────── B. CONSUMER CANNOT CORRUPT STORAGE ────── */
 
-describe("D. snapshot independence and documented immutability depth", () => {
-  it("C6: two snapshots are independent at every copied depth", () => {
+describe("B. drained snapshots are independent of storage", () => {
+  // Proof 3
+  it("mutating a drained array cannot affect the ring", () => {
     tapPushTick(tick());
-    const a = drainSince(ALL);
-    const b = drainSince(ALL);
+    tapPushTick(tick({ ltp: 24100 }));
 
-    expect(a.ticks[0]).not.toBe(b.ticks[0]);
-    expect(a.ticks[0]!.raw).not.toBe(b.ticks[0]!.raw);
-    expect(a.ticks[0]!.raw.ohlc).not.toBe(b.ticks[0]!.raw.ohlc);
+    const first = drainSince(ALL);
+    first.ticks.length = 0;
+    first.ticks.push(tick({ ltp: 999999 }));
 
-    a.ticks[0]!.ltp = -1;
-    a.ticks[0]!.raw.last_price = -1;
-    (a.ticks[0]!.raw.ohlc as Record<string, unknown>).open = -1;
-
-    expect(b.ticks[0]!.ltp).toBe(24000);
-    expect(b.ticks[0]!.raw.last_price).toBe(24000);
-    expect((b.ticks[0]!.raw.ohlc as Record<string, unknown>).open).toBe(23900);
+    expect(drainSince(ALL).ticks.map((x) => x.ltp)).toEqual([24000, 24100]);
   });
 
-  it("C6: the returned entry is never the stored object identity", () => {
-    const input = tick();
-    tapPushTick(input);
-    const got = drainSince(ALL).ticks[0]!;
-    expect(got).not.toBe(input);
-    expect(got.raw).not.toBe(input.raw);
+  // Proof 4
+  it("mutating a drained entry cannot affect the ring", () => {
+    tapPushTick(tick());
+
+    const drained = drainSince(ALL).ticks[0]!;
+    drained.ltp = -1;
+    drained.symbol = "CORRUPTED";
+
+    const again = drainSince(ALL).ticks[0]!;
+    expect(again.ltp).toBe(24000);
+    expect(again.symbol).toBe("NIFTY 50");
   });
 
-  it("documents the depth limit as a real, asserted constant", () => {
-    expect(COPY_DEPTH_LIMIT).toBe(6);
+  // Proof 5
+  it("mutating nested objects and arrays in a drained entry cannot affect the ring", () => {
+    tapPushChainSnapshot(chain());
+
+    const drained = drainSince(ALL).chainSnapshots[0]!;
+    const rows = drained.snapshot.rows as Array<Record<string, unknown>>;
+    (rows[0]!.ce as Record<string, unknown>).oi = -1;
+    rows.push({ strike: -1 });
+    drained.snapshot.spot = -1;
+
+    const again = drainSince(ALL).chainSnapshots[0]!;
+    const againRows = again.snapshot.rows as Array<Record<string, unknown>>;
+    expect(againRows).toHaveLength(1);
+    expect((againRows[0]!.ce as Record<string, unknown>).oi).toBe(10);
+    expect(again.snapshot.spot).toBe(24012.4);
   });
 
-  it("copies plain objects and arrays up to the documented depth limit", () => {
-    // depth: entry(0) -> raw(1) -> l2(2) -> l3(3) -> l4(4) -> l5(5)
-    tapPushTick(
-      tick({
-        raw: { l2: { l3: { l4: { l5: { leaf: "original" } } } } },
-      }),
-    );
+  // Proof 6
+  it("a second drain is fully independent from the first", () => {
+    tapPushTick(tick());
+
     const a = drainSince(ALL).ticks[0]!;
     const b = drainSince(ALL).ticks[0]!;
-    const pathOf = (t: TapTick): Record<string, unknown> =>
-      ((((t.raw.l2 as Record<string, unknown>).l3 as Record<string, unknown>)
-        .l4 as Record<string, unknown>).l5 as Record<string, unknown>);
-    expect(pathOf(a)).not.toBe(pathOf(b));
-    pathOf(a).leaf = "CORRUPT";
-    expect(pathOf(b).leaf).toBe("original");
+
+    expect(a).not.toBe(b);
+    expect(a.raw).not.toBe(b.raw);
+    expect(a.raw.ohlc).not.toBe(b.raw.ohlc);
+
+    (a.raw.ohlc as Record<string, unknown>).open = -1;
+    expect((b.raw.ohlc as Record<string, unknown>).open).toBe(23900);
   });
 
-  it("BOUNDARY (documented, not a defect): containers deeper than the limit are shared by reference", () => {
-    // One level deeper than the copied depth. This is the honest,
-    // deliberate boundary: unbounded-depth cloning on the tick append
-    // path would reintroduce unbounded per-append work, which is exactly
-    // what Phase 0.5C exists to remove.
-    const deep = { leaf: "original" };
-    tapPushTick(
-      tick({
-        raw: { l2: { l3: { l4: { l5: { l6: deep } } } } },
-      }),
-    );
-    const a = drainSince(ALL).ticks[0]!;
-    const reach = (t: TapTick): Record<string, unknown> =>
-      (((((t.raw.l2 as Record<string, unknown>).l3 as Record<string, unknown>)
-        .l4 as Record<string, unknown>).l5 as Record<string, unknown>)
-        .l6 as Record<string, unknown>);
-    // Beyond the limit the reference IS shared — asserted, not hidden.
-    expect(reach(a)).toBe(deep);
+  it("drain never shares an object identity with a subsequent drain", () => {
+    tapPushBoardSnapshot(board());
+    const a = drainSince(ALL).boardSnapshots[0]!;
+    const b = drainSince(ALL).boardSnapshots[0]!;
+    expect(a.rows).not.toBe(b.rows);
+    expect(a.rows[0]).not.toBe(b.rows[0]);
   });
 
-  it("REGRESSION: a Date is COPIED, so setTime() on a drain cannot corrupt storage", () => {
-    // A Kite tick carries `timestamp` / `last_trade_time` as real Date
-    // objects, so an earlier by-reference design left this as a live
-    // corruption path rather than a theoretical one.
-    const when = new Date(T0);
-    tapPushTick(tick({ raw: { exchange_timestamp: when } }));
-
-    const got = drainSince(ALL).ticks[0]!;
-    const drained = got.raw.exchange_timestamp as Date;
-    expect(drained).not.toBe(when);
-    expect(drained.getTime()).toBe(T0);
-    // Serialised bytes are unchanged by copying.
-    expect(JSON.stringify(got.raw)).toBe(JSON.stringify({ exchange_timestamp: when }));
-
-    // Attack 1 — mutate the drained Date.
-    drained.setTime(0);
-    expect((drainSince(ALL).ticks[0]!.raw.exchange_timestamp as Date).getTime()).toBe(T0);
-
-    // Attack 2 — mutate the caller's original Date after the push.
-    when.setTime(0);
-    expect((drainSince(ALL).ticks[0]!.raw.exchange_timestamp as Date).getTime()).toBe(T0);
-  });
-
-  it("a Date is copied right up to the depth boundary, then shared with the subtree", () => {
-    // Depth accounting: the entry itself is depth 0, so `entry.raw` is
-    // depth 1 and each further nesting adds one.
-    const atLimit = new Date(T0);
-    // entry(0) → raw(1) → l2(2) → l3(3) → l4(4) → l5(5) → Date(6)
-    tapPushTick(tick({ raw: { l2: { l3: { l4: { l5: { when: atLimit } } } } } }));
-    const reached = (drainSince(ALL).ticks[0]!.raw as never as {
-      l2: { l3: { l4: { l5: { when: Date } } } };
-    }).l2.l3.l4.l5.when;
-    expect(reached).not.toBe(atLimit); // Date branch precedes the depth check
-    expect(reached.getTime()).toBe(T0);
-
-    // One level deeper the PARENT container is shared at the limit, so
-    // the walk never reaches the Date and the whole subtree is shared.
-    // This is EXCLUSION 2 and is counted, not hidden.
-    _resetLiveTapRing();
-    _resetBoundedCopyDiagnostics();
-    const beyond = new Date(T0);
-    const leaf = { when: beyond };
-    tapPushTick(tick({ raw: { l2: { l3: { l4: { l5: { l6: leaf } } } } } }));
-    const shared = (drainSince(ALL).ticks[0]!.raw as never as {
-      l2: { l3: { l4: { l5: { l6: { when: Date } } } } };
-    }).l2.l3.l4.l5.l6;
-    expect(shared).toBe(leaf);
-    expect(getBoundedCopyDiagnostics().depthLimitTruncations).toBeGreaterThan(0);
-  });
-
-  it("null / undefined nested containers keep their exact shape (no {} fabrication)", () => {
-    const t = tick();
-    (t as unknown as Record<string, unknown>).raw = null;
-    tapPushTick(t);
-    const got = drainSince(ALL).ticks[0]!;
-    expect(got.raw).toBeNull();
-  });
-
-  it("does not fabricate canonical identity fields", () => {
-    tapPushTick(tick());
-    const got = drainSince(ALL).ticks[0]! as unknown as Record<string, unknown>;
-    expect(got.canonicalInstrumentId).toBeUndefined();
-    expect(got.exchange).toBeUndefined();
-    expect(got.segment).toBeUndefined();
-    expect(got.provider).toBeUndefined();
-    expect(Object.keys(got).sort()).toEqual(
-      ["instrumentToken", "ltp", "ltq", "oi", "raw", "receivedAtMs", "symbol", "volume"],
-    );
-  });
-});
-
-// ─── PART E — invariants that must survive the correction ─────────────
-
-describe("E. ordering, wrap-around and capacity survive the correction", () => {
-  it("C7/C8: wrap-around retains the newest window in oldest-to-newest order", () => {
-    // chains cap = 2_000
-    for (let i = 0; i < 2_500; i++) {
-      tapPushChainSnapshot(chain({ underlying: `U${i}`, snapshot: { i } }));
-    }
-    const got = drainSince(ALL).chainSnapshots;
-    expect(got).toHaveLength(2_000);
-    expect(got[0]!.underlying).toBe("U500");
-    expect(got[got.length - 1]!.underlying).toBe("U2499");
-    for (let i = 1; i < got.length; i++) {
-      expect(got[i]!.snapshot.i as number).toBe((got[i - 1]!.snapshot.i as number) + 1);
-    }
-  });
-
-  it("C7: wrap-around does not retain stale references from evicted entries", () => {
-    for (let i = 0; i < 2_500; i++) {
-      tapPushChainSnapshot(chain({ underlying: `U${i}` }));
-    }
-    const got = drainSince(ALL).chainSnapshots;
-    expect(got.some((c) => c.underlying === "U0")).toBe(false);
-    expect(got.some((c) => c.underlying === "U499")).toBe(false);
-  });
-
-  it("reset releases every retained reference", () => {
+  it("the drain path itself never records a rejection", () => {
     tapPushTick(tick());
     tapPushChainSnapshot(chain());
-    _resetLiveTapRing();
-    const got = drainSince(ALL);
-    expect(got.ticks).toHaveLength(0);
-    expect(got.chainSnapshots).toHaveLength(0);
-    expect(got.boardSnapshots).toHaveLength(0);
-    expect(got.systemEvents).toHaveLength(0);
-    expect(got.observedRangeMs).toBeNull();
-  });
-
-  it("filtering semantics (inclusive lower bound) are unchanged", () => {
-    tapPushTick(tick({ receivedAtMs: T0 - 1 }));
-    tapPushTick(tick({ receivedAtMs: T0 }));
-    tapPushTick(tick({ receivedAtMs: T0 + 1 }));
-    const got = drainSince({ sinceMs: T0 }).ticks;
-    expect(got.map((t) => t.receivedAtMs)).toEqual([T0, T0 + 1]);
+    tapPushBoardSnapshot(board());
+    tapPushSystemEvent(event());
+    drainSince(ALL);
+    drainSince(ALL);
+    expect(getReplayRejectionDiagnostics().total).toBe(0);
   });
 });
 
-// ─── PART F — exotic own-property shapes ──────────────────────────────
-// Raised by independent review: a naive `{}` + Object.keys copy silently
-// alters valid data. Each case below is a real structural difference.
+/* ───────────────────────── C. ACCEPTED VALUE RANGE ───────────────── */
 
-describe("F. the bounded copy must not silently alter object shape", () => {
-  const rawOf = (): Record<string, unknown> => drainSince(ALL).ticks[0]!.raw;
-
-  it("an own __proto__ key is preserved as DATA and does not pollute", () => {
-    // JSON.parse can produce a genuine own "__proto__" key, and chain
-    // snapshots originate from parsed HTTP JSON. Plain assignment would
-    // invoke the inherited setter: key silently dropped, prototype changed.
-    const raw = JSON.parse('{"__proto__":{"polluted":true},"ok":1}') as Record<string, unknown>;
-    expect(Object.prototype.hasOwnProperty.call(raw, "__proto__")).toBe(true);
-
-    tapPushTick(tick({ raw }));
-    const got = rawOf();
-
-    expect(Object.prototype.hasOwnProperty.call(got, "__proto__")).toBe(true);
-    expect(got.ok).toBe(1);
-    expect(Object.getPrototypeOf(got)).toBe(Object.prototype);
-    expect((({}) as Record<string, unknown>).polluted).toBeUndefined();
-  });
-
-  it("a null-prototype object stays null-prototype", () => {
-    const np = Object.create(null) as Record<string, unknown>;
-    np.x = 1;
-    tapPushTick(tick({ raw: { np } }));
-    const got = rawOf().np as object;
-    expect(Object.getPrototypeOf(got)).toBeNull();
-    expect((got as Record<string, unknown>).x).toBe(1);
-  });
-
-  it("DECLARED CONTRACT: symbol keys are not retained (JSON cannot express them)", () => {
-    const S = Symbol.for("p05c.symbol");
-    const raw: Record<PropertyKey, unknown> = { a: 1 };
-    raw[S] = "dropped";
-    const original = raw as Record<string, unknown>;
-    tapPushTick(tick({ raw: original }));
-
-    const got = rawOf();
-    expect((got as Record<PropertyKey, unknown>)[S]).toBeUndefined();
-    // The recorder's only output is JSONL, and JSON.stringify already
-    // ignores symbol keys — so dropping them changes nothing observable.
-    expect(JSON.stringify(got)).toBe(JSON.stringify(original));
-  });
-
-  it("DECLARED CONTRACT: non-enumerable own properties are not retained", () => {
-    const raw: Record<string, unknown> = { a: 1 };
-    Object.defineProperty(raw, "hidden", { value: 2, enumerable: false, configurable: true });
-    tapPushTick(tick({ raw }));
-
-    const got = rawOf();
-    expect(got.hidden).toBeUndefined();
-    expect(Object.keys(got)).toEqual(["a"]);
-    expect(JSON.stringify(got)).toBe(JSON.stringify(raw));
-  });
-
-  it("getters are EVALUATED ONCE at insertion and stored as plain data", () => {
-    let reads = 0;
-    const raw: Record<string, unknown> = {};
-    Object.defineProperty(raw, "lazy", {
-      get() {
-        reads++;
-        return 42;
-      },
-      enumerable: true,
-      configurable: true,
+describe("C. supported values are accepted and copied", () => {
+  // Proof 7
+  it("plain objects and arrays within the accepted depth work", () => {
+    // snapshot=1, l2=2, l3=3, l4=4 — all strictly below MAX_REPLAY_DEPTH.
+    const deep = chain({
+      snapshot: { l2: { l3: { l4: { leaf: "ok", list: [1, 2, 3] } } } },
     });
+    tapPushTick(tick());
+    tapPushChainSnapshot(deep);
 
-    tapPushTick(tick({ raw }));
-    expect(reads).toBe(1); // exactly once, at insertion — as JSON.stringify would
-
-    const got = rawOf();
-    expect(reads).toBe(1); // drains re-read plain data, never the accessor
-    expect(got.lazy).toBe(42);
-
-    const d = Object.getOwnPropertyDescriptor(got, "lazy")!;
-    expect(d.get).toBeUndefined();
-    expect(d.value).toBe(42);
+    const got = drainSince(ALL).chainSnapshots[0]!;
+    const l2 = got.snapshot.l2 as Record<string, unknown>;
+    const l3 = l2.l3 as Record<string, unknown>;
+    const l4 = l3.l4 as Record<string, unknown>;
+    expect(l4.leaf).toBe("ok");
+    expect(l4.list).toEqual([1, 2, 3]);
+    expect(getReplayRejectionDiagnostics().total).toBe(0);
   });
 
-  it("REGRESSION: an accessor closure cannot reach retained storage", () => {
-    // Independent review raised this exact attack against an earlier
-    // design that transplanted accessors instead of evaluating them:
-    // the getter closed over mutable state, so both storage and every
-    // drained copy observed the same backing object.
-    const backing = { value: 1 };
-    const raw: Record<string, unknown> = {};
-    Object.defineProperty(raw, "x", {
-      get() {
-        return backing;
-      },
-      enumerable: true,
-      configurable: true,
-    });
-
-    tapPushTick(tick({ raw }));
-
-    // Attack 1 — mutate through what the consumer received.
-    (rawOf().x as Record<string, unknown>).value = 999;
-    expect((rawOf().x as Record<string, unknown>).value).toBe(1);
-
-    // Attack 2 — mutate the closure-captured object directly.
-    backing.value = 777;
-    expect((rawOf().x as Record<string, unknown>).value).toBe(1);
-  });
-
-  it("a THROWING getter cannot corrupt the ring", () => {
-    tapPushTick(tick({ ltp: 111 })); // a good entry already retained
-
-    const raw: Record<string, unknown> = { ok: 1 };
-    Object.defineProperty(raw, "boom", {
-      get() {
-        throw new Error("getter exploded");
-      },
-      enumerable: true,
-      configurable: true,
-    });
-
-    // The copy runs BEFORE ring.push, so the throw propagates to the
-    // caller (every production caller wraps the tap in try/catch, per
-    // spec 12.2) and nothing is appended. JSON.stringify would throw on
-    // this input too, so the behaviour is consistent with the recorder.
-    expect(() => tapPushTick(tick({ raw }))).toThrow("getter exploded");
-
-    const after = drainSince(ALL).ticks;
-    expect(after).toHaveLength(1); // ring intact, no partial entry
-    expect(after[0]!.ltp).toBe(111);
-
-    // And the ring still accepts writes afterwards.
-    tapPushTick(tick({ ltp: 222 }));
-    expect(drainSince(ALL).ticks.map((t) => t.ltp)).toEqual([111, 222]);
-  });
-
-  it("array holes stay holes and are not materialised as undefined", () => {
-    // eslint-disable-next-line no-sparse-arrays
-    const sparse = [1, , 3];
-    tapPushTick(tick({ raw: { sparse } }));
-    const got = rawOf().sparse as unknown[];
-    expect(got).toHaveLength(3);
-    expect(0 in got).toBe(true);
-    expect(1 in got).toBe(false); // hole preserved
-    expect(2 in got).toBe(true);
-    expect(got[2]).toBe(3);
-  });
-
-  it("DECLARED CONTRACT: extra non-index array properties are not retained", () => {
-    const arr = [1, 2] as unknown[] & { tag?: string };
-    arr.tag = "meta";
-    tapPushTick(tick({ raw: { arr } }));
-    const got = rawOf().arr as unknown[] & { tag?: string };
-    expect(Array.isArray(got)).toBe(true);
-    expect(got).toHaveLength(2);
-    expect(got.tag).toBeUndefined();
-    // JSON.stringify ignores non-index array properties, so the
-    // recorder's output is unchanged.
-    expect(JSON.stringify(got)).toBe(JSON.stringify(arr));
-  });
-
-  it("PROOF: JSONL output is byte-identical to serialising the original entry", () => {
-    const withHidden = (): Record<string, unknown> => {
-      const o: Record<string, unknown> = { a: 1 };
-      Object.defineProperty(o, "hidden", { value: 2, enumerable: false });
-      (o as Record<PropertyKey, unknown>)[Symbol.for("p05c.json")] = 3;
-      return o;
-    };
-    // eslint-disable-next-line no-sparse-arrays
-    const sparse = [1, , 3];
-
-    const cases: Array<Record<string, unknown>> = [
-      { plain: 1, nested: { a: [1, 2, { b: 3 }] } },
-      { withDate: new Date(T0) },
-      { nullish: null, undef: undefined },
-      { sparse },
-      { deep: { l2: { l3: { l4: { l5: { l6: { leaf: 1 } } } } } } },
-      JSON.parse('{"__proto__":{"p":1},"ok":2}') as Record<string, unknown>,
-      withHidden(),
-    ];
-
-    for (const raw of cases) {
-      _resetLiveTapRing();
-      const original = tick({ raw });
-      const expected = JSON.stringify(original);
-      tapPushTick(original);
-      expect(JSON.stringify(drainSince(ALL).ticks[0])).toBe(expected);
-    }
-  });
-
-  it("Map and Set are COPIED — mutating a drained collection cannot corrupt storage", () => {
-    const m = new Map([["k", 1]]);
-    const s = new Set([1]);
-    tapPushTick(tick({ raw: { m, s } }));
-
-    const got = rawOf();
-    const gm = got.m as Map<string, number>;
-    const gs = got.s as Set<number>;
-    expect(gm).not.toBe(m);
-    expect(gs).not.toBe(s);
-    expect(gm.get("k")).toBe(1);
-    expect(gs.has(1)).toBe(true);
-
-    gm.set("k", 999);
-    gm.set("injected", 5);
-    gs.add(42);
-    m.set("k", 111);
-
-    const again = rawOf();
-    expect((again.m as Map<string, number>).get("k")).toBe(1);
-    expect((again.m as Map<string, number>).has("injected")).toBe(false);
-    expect((again.s as Set<number>).has(42)).toBe(false);
-  });
-
-  it("EXCLUSION 1: a class instance is shared by reference and COUNTED", () => {
-    class Marker {
-      constructor(public v: number) {}
-    }
-    const inst = new Marker(7);
-    _resetBoundedCopyDiagnostics();
-    tapPushTick(tick({ raw: { inst } }));
-
-    expect(rawOf().inst).toBe(inst);
-    // Not assumed absent — measured. Non-zero in production means the
-    // exclusion is real and must be revisited.
-    expect(getBoundedCopyDiagnostics().exoticPassthroughs).toBeGreaterThan(0);
-  });
-
-  it("EXCLUSION 1: a toJSON-bearing object is shared so its bytes stay exact", () => {
-    const raw: Record<string, unknown> = { a: 1 };
-    Object.defineProperty(raw, "secret", { value: 42, enumerable: false });
-    Object.defineProperty(raw, "toJSON", {
-      value(this: Record<string, unknown>) {
-        return { a: this.a, secret: this.secret };
-      },
-      enumerable: false,
-    });
-    // JSON.stringify delegates to a NON-ENUMERABLE toJSON that reads
-    // NON-ENUMERABLE state. Copying by contract would drop both and
-    // change the serialised bytes, so the original is shared instead.
-    _resetBoundedCopyDiagnostics();
-    tapPushTick(tick({ raw }));
-
-    const got = rawOf();
-    expect(got).toBe(raw);
-    expect(JSON.stringify(got)).toBe(JSON.stringify(raw));
-    expect(JSON.stringify(got)).toBe('{"a":1,"secret":42}');
-    expect(getBoundedCopyDiagnostics().exoticPassthroughs).toBeGreaterThan(0);
-  });
-
-  it("EXCLUSION 1: a CUSTOM toJSON on Date/Map/Set/array is caught before copying", () => {
-    // Branch order matters. Copying a Date/Map/Set first would silently
-    // drop an own toJSON and change the emitted bytes, while also
-    // escaping the exclusion counter.
-    const d = Object.assign(new Date(T0), { toJSON: () => "CUSTOM_DATE" });
-    const m = Object.assign(new Map([["k", 1]]), { toJSON: () => ({ x: 1 }) });
-    const s = Object.assign(new Set([1]), { toJSON: () => ({ y: 2 }) });
-    const a = Object.assign([1, 2], { toJSON: () => ({ z: 3 }) });
-
-    _resetBoundedCopyDiagnostics();
-    tapPushTick(tick({ raw: { d, m, s, a } }));
-    const got = rawOf();
-
-    expect(got.d).toBe(d);
-    expect(got.m).toBe(m);
-    expect(got.s).toBe(s);
-    expect(got.a).toBe(a);
-    expect(JSON.stringify(got)).toBe(JSON.stringify({ d, m, s, a }));
-    expect(JSON.stringify(got)).toBe(
-      '{"d":"CUSTOM_DATE","m":{"x":1},"s":{"y":2},"a":{"z":3}}',
-    );
-    expect(getBoundedCopyDiagnostics().exoticPassthroughs).toBeGreaterThan(0);
-  });
-
-  it("an ORDINARY Date keeps the standard toJSON and is still COPIED, not shared", () => {
-    _resetBoundedCopyDiagnostics();
-    const when = new Date(T0);
-    tapPushTick(tick({ raw: { when } }));
-    const got = rawOf();
-    expect(got.when).not.toBe(when);
-    expect(JSON.stringify(got)).toBe(JSON.stringify({ when }));
-    // Date.prototype.toJSON must NOT be mistaken for a custom one.
-    expect(getBoundedCopyDiagnostics().exoticPassthroughs).toBe(0);
-  });
-
-  it("EXCLUSION 2: past-depth sharing is counted, and clean payloads count ZERO", () => {
-    _resetBoundedCopyDiagnostics();
-    // A realistic Kite full-mode payload: deepest container is
-    // raw.depth.buy[i] at depth 4, well inside the limit.
+  it("null, undefined, booleans, strings and numbers survive exactly", () => {
     tapPushTick(
       tick({
+        oi: null,
         raw: {
-          ohlc: { open: 1, high: 2, low: 3, close: 4 },
-          depth: { buy: [{ price: 1, qty: 2 }], sell: [{ price: 3, qty: 4 }] },
-          timestamp: new Date(T0),
+          nul: null,
+          undef: undefined,
+          yes: true,
+          no: false,
+          str: "x",
+          zero: 0,
+          neg: -1.5,
         },
       }),
     );
-    drainSince(ALL);
-    const clean = getBoundedCopyDiagnostics();
-    expect(clean.depthLimitTruncations).toBe(0);
-    expect(clean.exoticPassthroughs).toBe(0);
-
-    // Now exceed the limit deliberately.
-    _resetBoundedCopyDiagnostics();
-    let node: Record<string, unknown> = { leaf: true };
-    for (let i = 0; i < COPY_DEPTH_LIMIT + 2; i++) node = { next: node };
-    tapPushTick(tick({ raw: node }));
-    expect(getBoundedCopyDiagnostics().depthLimitTruncations).toBeGreaterThan(0);
+    const raw = drainSince(ALL).ticks[0]!.raw;
+    expect(raw.nul).toBeNull();
+    expect("undef" in raw).toBe(true);
+    expect(raw.undef).toBeUndefined();
+    expect(raw.yes).toBe(true);
+    expect(raw.no).toBe(false);
+    expect(raw.str).toBe("x");
+    expect(raw.zero).toBe(0);
+    expect(raw.neg).toBe(-1.5);
   });
 
-  it("a reference cycle is terminated by the depth limit and does not hang", () => {
-    const cyclic: Record<string, unknown> = { name: "root" };
+  it("an own __proto__ key is stored as real data, not applied as a prototype", () => {
+    // Reachable: JSON.parse produces own __proto__ keys and chain
+    // snapshots come from parsed HTTP JSON.
+    const snapshot = JSON.parse('{"__proto__":{"polluted":true},"ok":1}') as Record<
+      string,
+      unknown
+    >;
+    tapPushChainSnapshot(chain({ snapshot }));
+
+    const got = drainSince(ALL).chainSnapshots[0]!.snapshot;
+    expect(Object.prototype.hasOwnProperty.call(got, "__proto__")).toBe(true);
+    expect(Object.getPrototypeOf(got)).toBe(Object.prototype);
+    expect((({}) as Record<string, unknown>).polluted).toBeUndefined();
+    expect(got.ok).toBe(1);
+  });
+
+  it("array holes stay holes and length is preserved", () => {
+    const sparse: unknown[] = [1];
+    sparse[3] = 4;
+    tapPushChainSnapshot(chain({ snapshot: { sparse } }));
+
+    const got = drainSince(ALL).chainSnapshots[0]!.snapshot.sparse as unknown[];
+    expect(got).toHaveLength(4);
+    expect(1 in got).toBe(false);
+    expect(got[3]).toBe(4);
+  });
+
+  it("a null-prototype payload keeps its null prototype", () => {
+    const np = Object.create(null) as Record<string, unknown>;
+    np.a = 1;
+    tapPushChainSnapshot(chain({ snapshot: { np } }));
+
+    const got = drainSince(ALL).chainSnapshots[0]!.snapshot.np as object;
+    expect(Object.getPrototypeOf(got)).toBeNull();
+    expect((got as Record<string, unknown>).a).toBe(1);
+  });
+});
+
+/* ───────────────────────── D. FAIL-CLOSED REJECTION ──────────────── */
+
+describe("D. unsupported values are rejected, never shared", () => {
+  function expectRejected(reason: string) {
+    const d = getReplayRejectionDiagnostics();
+    expect(d.total).toBe(1);
+    expect(d.byReason[reason as keyof typeof d.byReason]).toBe(1);
+    // Proof 15 — the ring never grew.
+    expect(tapStats().tickCount + tapStats().chainCount).toBe(0);
+    expect(drainSince(ALL).ticks).toHaveLength(0);
+    expect(drainSince(ALL).chainSnapshots).toHaveLength(0);
+  }
+
+  // Proof 8
+  it("excessive nesting is rejected, not shared", () => {
+    // snapshot=1, l2=2, l3=3, l4=4, l5=5, l6=6 -> rejected at 6.
+    const tooDeep = { l2: { l3: { l4: { l5: { l6: { leaf: 1 } } } } } };
+    tapPushChainSnapshot(chain({ snapshot: tooDeep }));
+    expectRejected("MAX_DEPTH_EXCEEDED");
+  });
+
+  // Proof 9
+  it("cyclic input is rejected deterministically", () => {
+    const cyclic: Record<string, unknown> = { a: 1 };
     cyclic.self = cyclic;
-    expect(() => tapPushTick(tick({ raw: cyclic }))).not.toThrow();
-    const got = rawOf();
-    expect(got.name).toBe("root");
-    // Below the limit the cycle is unrolled into copies; at the limit the
-    // original reference is shared. Either way: terminates, no throw.
-    expect(got).not.toBe(cyclic);
+    tapPushTick(tick({ raw: cyclic }));
+    expectRejected("CYCLIC_REFERENCE");
+  });
+
+  it("a cycle through an array is also rejected", () => {
+    const arr: unknown[] = [];
+    arr.push(arr);
+    tapPushTick(tick({ raw: { arr } }));
+    expect(getReplayRejectionDiagnostics().byReason.CYCLIC_REFERENCE).toBe(1);
+    expect(drainSince(ALL).ticks).toHaveLength(0);
+  });
+
+  it("a repeated (non-cyclic) sibling reference is NOT mistaken for a cycle", () => {
+    const shared = { v: 1 };
+    tapPushTick(tick({ raw: { a: shared, b: shared } }));
+    const got = drainSince(ALL).ticks[0]!;
+    expect(getReplayRejectionDiagnostics().total).toBe(0);
+    expect(got.raw.a).toEqual({ v: 1 });
+    expect(got.raw.b).toEqual({ v: 1 });
+    // Copied independently — they must NOT alias each other.
+    expect(got.raw.a).not.toBe(got.raw.b);
+  });
+
+  // Proof 10
+  it("getter/accessor input is rejected", () => {
+    const raw: Record<string, unknown> = {};
+    Object.defineProperty(raw, "leaky", {
+      get: () => "computed",
+      enumerable: true,
+      configurable: true,
+    });
+    tapPushTick(tick({ raw }));
+    expectRejected("ACCESSOR_PROPERTY");
+  });
+
+  it("a setter-only property is rejected too", () => {
+    const raw: Record<string, unknown> = {};
+    Object.defineProperty(raw, "sink", {
+      set: () => undefined,
+      enumerable: true,
+      configurable: true,
+    });
+    tapPushTick(tick({ raw }));
+    expectRejected("ACCESSOR_PROPERTY");
+  });
+
+  it("a throwing getter is rejected WITHOUT being invoked", () => {
+    let invoked = false;
+    const raw: Record<string, unknown> = {};
+    Object.defineProperty(raw, "boom", {
+      get: () => {
+        invoked = true;
+        throw new Error("must never run");
+      },
+      enumerable: true,
+      configurable: true,
+    });
+    expect(() => tapPushTick(tick({ raw }))).not.toThrow();
+    expect(invoked).toBe(false);
+    expectRejected("ACCESSOR_PROPERTY");
+  });
+
+  // Proof 11
+  it("function values are rejected", () => {
+    tapPushTick(tick({ raw: { fn: () => 1 } }));
+    expectRejected("FUNCTION_VALUE");
+  });
+
+  it("symbol values are rejected", () => {
+    tapPushTick(tick({ raw: { sym: Symbol("s") } }));
+    expectRejected("SYMBOL_VALUE");
+  });
+
+  it("bigint values are rejected", () => {
+    tapPushTick(tick({ raw: { big: BigInt(1) } }));
+    expectRejected("BIGINT_VALUE");
+  });
+
+  // Proof 12
+  it("class instances are rejected", () => {
+    class Position {
+      constructor(readonly qty: number) {}
+    }
+    tapPushTick(tick({ raw: { pos: new Position(5) } }));
+    expectRejected("CLASS_INSTANCE");
+  });
+
+  // Proof 13
+  it("custom-toJSON objects are rejected", () => {
+    const withToJson = { v: 1, toJSON: () => ({ v: "custom" }) };
+    tapPushTick(tick({ raw: { withToJson } }));
+    expectRejected("CUSTOM_TO_JSON");
+  });
+
+  // Proof 14 — Date/Map/Set are NOT normalized by this contract, so the
+  // explicit field contract rejects them rather than sharing them.
+  it("Date values are rejected (not silently shared)", () => {
+    tapPushTick(tick({ raw: { ts: new Date(T0) } }));
+    expectRejected("DATE_VALUE");
+  });
+
+  it("Map and Set values are rejected", () => {
+    tapPushTick(tick({ raw: { m: new Map([["a", 1]]) } }));
+    expect(getReplayRejectionDiagnostics().byReason.MAP_OR_SET_VALUE).toBe(1);
+    _resetLiveTapRing();
+    tapPushTick(tick({ raw: { s: new Set([1]) } }));
+    expectRejected("MAP_OR_SET_VALUE");
+  });
+
+  it("weak collections and promises are rejected", () => {
+    tapPushTick(tick({ raw: { w: new WeakMap() } }));
+    expect(getReplayRejectionDiagnostics().byReason.WEAK_COLLECTION_VALUE).toBe(1);
+    _resetLiveTapRing();
+    tapPushTick(tick({ raw: { p: Promise.resolve(1) } }));
+    expectRejected("PROMISE_VALUE");
+  });
+
+  it("a malformed scalar field rejects the entry", () => {
+    tapPushTick(tick({ receivedAtMs: NaN }));
+    expect(getReplayRejectionDiagnostics().byReason.INVALID_SCALAR_FIELD).toBe(1);
+    _resetLiveTapRing();
+    tapPushSystemEvent(event({ kind: "NOT_A_KIND" as TapSystemEvent["kind"] }));
+    expect(getReplayRejectionDiagnostics().byReason.INVALID_SCALAR_FIELD).toBe(1);
+    expect(drainSince(ALL).systemEvents).toHaveLength(0);
+  });
+
+  it("a non-object payload container rejects the entry", () => {
+    tapPushTick(tick({ raw: [1, 2] as unknown as Record<string, unknown> }));
+    expectRejected("INVALID_PAYLOAD_CONTAINER");
+  });
+
+  it("rejection of one entry never damages entries already stored", () => {
+    tapPushTick(tick({ ltp: 1 }));
+    tapPushTick(tick({ raw: { bad: () => 1 } }));
+    tapPushTick(tick({ ltp: 3 }));
+
+    expect(drainSince(ALL).ticks.map((x) => x.ltp)).toEqual([1, 3]);
+    expect(getReplayRejectionDiagnostics().total).toBe(1);
+  });
+
+  it("rejection never throws into the caller", () => {
+    expect(() => tapPushTick(tick({ raw: { fn: () => 1 } }))).not.toThrow();
+    expect(() => tapPushChainSnapshot(chain({ snapshot: { d: new Date() } }))).not.toThrow();
+    expect(() => tapPushBoardSnapshot(board({ rows: [null as unknown as Record<string, unknown>] }))).not.toThrow();
+    expect(() => tapPushSystemEvent(event({ detail: { s: Symbol("x") } }))).not.toThrow();
+  });
+
+  it("caller input is never mutated or frozen by rejection or acceptance", () => {
+    const accepted = tick();
+    const rejected = tick({ raw: { fn: () => 1 } });
+    tapPushTick(accepted);
+    tapPushTick(rejected);
+
+    expect(Object.isFrozen(accepted)).toBe(false);
+    expect(Object.isFrozen(accepted.raw)).toBe(false);
+    expect(Object.isFrozen(rejected)).toBe(false);
+    expect(accepted.ltp).toBe(24000);
+    expect(typeof rejected.raw.fn).toBe("function");
+  });
+});
+
+/* ───── D2. HOSTILE ACCESSORS AND EXOTIC ARRAYS (review regressions) ─ */
+
+describe("D2. no accessor is ever invoked, at any position", () => {
+  /** Defines a property whose getter fails the test if it ever runs. */
+  function poison(target: object, key: string): void {
+    Object.defineProperty(target, key, {
+      get: () => {
+        throw new Error(`getter for "${key}" must never be invoked`);
+      },
+      configurable: true,
+      enumerable: true,
+    });
+  }
+
+  it("a throwing accessor on a TOP-LEVEL field rejects without running", () => {
+    for (const key of ["receivedAtMs", "ltp", "symbol", "raw", "oi"]) {
+      _resetLiveTapRing();
+      const t = tick();
+      delete (t as unknown as Record<string, unknown>)[key];
+      poison(t, key);
+
+      expect(() => tapPushTick(t)).not.toThrow();
+      expect(tapStats().tickCount).toBe(0);
+      const d = getReplayRejectionDiagnostics();
+      expect(d.byReason.ACCESSOR_PROPERTY).toBe(1);
+      expect(d.lastRejection?.path).toBe(key);
+    }
+  });
+
+  it("a throwing top-level accessor rejects on all four entry types", () => {
+    _resetLiveTapRing();
+    const c = chain();
+    delete (c as unknown as Record<string, unknown>).snapshot;
+    poison(c, "snapshot");
+    const b = board();
+    delete (b as unknown as Record<string, unknown>).rows;
+    poison(b, "rows");
+    const e = event();
+    delete (e as unknown as Record<string, unknown>).detail;
+    poison(e, "detail");
+
+    expect(() => {
+      tapPushChainSnapshot(c);
+      tapPushBoardSnapshot(b);
+      tapPushSystemEvent(e);
+    }).not.toThrow();
+
+    const d = getReplayRejectionDiagnostics();
+    expect(d.total).toBe(3);
+    expect(d.byReason.ACCESSOR_PROPERTY).toBe(3);
+    expect(tapStats().chainCount + tapStats().boardCount + tapStats().eventCount).toBe(0);
+  });
+
+  it("a throwing `toJSON` accessor rejects without running", () => {
+    const nested: Record<string, unknown> = { v: 1 };
+    poison(nested, "toJSON");
+    expect(() => tapPushTick(tick({ raw: { nested } }))).not.toThrow();
+    expect(getReplayRejectionDiagnostics().byReason.ACCESSOR_PROPERTY).toBe(1);
+    expect(tapStats().tickCount).toBe(0);
+  });
+
+  it("a throwing `then` accessor on an exotic object rejects without running", () => {
+    class Weird {}
+    const w = new Weird();
+    poison(w, "then");
+    expect(() => tapPushTick(tick({ raw: { w } }))).not.toThrow();
+    // Classified by prototype brand, never by duck-typing `.then`.
+    expect(getReplayRejectionDiagnostics().byReason.CLASS_INSTANCE).toBe(1);
+    expect(tapStats().tickCount).toBe(0);
+  });
+
+  it("a NON-ENUMERABLE toJSON is still caught (it drives JSON.stringify)", () => {
+    const sneaky: Record<string, unknown> = { v: 1 };
+    Object.defineProperty(sneaky, "toJSON", {
+      value: () => ({ v: "rewritten" }),
+      enumerable: false,
+      configurable: true,
+    });
+    // Proves the hazard is real: stringify honours it despite Object.keys
+    // never listing it.
+    expect(JSON.stringify(sneaky)).toBe('{"v":"rewritten"}');
+
+    tapPushTick(tick({ raw: { sneaky } }));
+    expect(getReplayRejectionDiagnostics().byReason.CUSTOM_TO_JSON).toBe(1);
+    expect(tapStats().tickCount).toBe(0);
+  });
+
+  it("an ARRAY carrying its own toJSON is rejected, not silently copied", () => {
+    const arr: unknown[] = [1, 2];
+    (arr as unknown as Record<string, unknown>).toJSON = () => "REWRITTEN";
+    expect(JSON.stringify({ arr })).toBe('{"arr":"REWRITTEN"}');
+
+    tapPushChainSnapshot(chain({ snapshot: { arr } }));
+    expect(getReplayRejectionDiagnostics().byReason.CUSTOM_TO_JSON).toBe(1);
+    expect(tapStats().chainCount).toBe(0);
+  });
+
+  it("an Array SUBCLASS is rejected as a class instance", () => {
+    class Rows extends Array<number> {}
+    const rows = Rows.from([1, 2]) as unknown as unknown[];
+    expect(Array.isArray(rows)).toBe(true); // isArray alone cannot catch it
+    tapPushChainSnapshot(chain({ snapshot: { rows } }));
+    expect(getReplayRejectionDiagnostics().byReason.CLASS_INSTANCE).toBe(1);
+    expect(tapStats().chainCount).toBe(0);
+  });
+
+  it("an index visible only through a polluted Array.prototype is rejected", () => {
+    const arr: unknown[] = [];
+    arr.length = 2;
+    arr[1] = "own";
+    // Index 0 is a hole on the array but present on the prototype.
+    Object.defineProperty(Array.prototype, "0", {
+      value: "INHERITED",
+      configurable: true,
+      enumerable: false,
+      writable: true,
+    });
+    try {
+      expect(0 in arr).toBe(true);
+      expect(Object.getOwnPropertyDescriptor(arr, 0)).toBeUndefined();
+
+      // Must not throw a TypeError out of the push, and must not store.
+      expect(() =>
+        tapPushChainSnapshot(chain({ snapshot: { arr } })),
+      ).not.toThrow();
+      expect(
+        getReplayRejectionDiagnostics().byReason.INHERITED_INDEXED_PROPERTY,
+      ).toBe(1);
+      expect(tapStats().chainCount).toBe(0);
+    } finally {
+      delete (Array.prototype as unknown as Record<string, unknown>)["0"];
+    }
+  });
+
+  // CONTRACT BOUNDARY. A Proxy can run code from any reflection
+  // operation, so the no-invoke guarantee is scoped to ordinary objects.
+  // What must STILL hold unconditionally is the integrity invariant:
+  // a hostile proxy costs an entry, never storage correctness.
+  it("a proxy's `get` trap is never fired — descriptor reads bypass it", () => {
+    // Going descriptor-only had an unplanned benefit: `get` traps are
+    // simply never consulted, so this class of proxy is normalized into
+    // ordinary data instead of being stored by reference.
+    let getTrapFired = false;
+    const target = [1, 2] as unknown[];
+    const proxied = new Proxy(target, {
+      get(t, prop, recv) {
+        getTrapFired = true;
+        return Reflect.get(t, prop, recv);
+      },
+    });
+
+    tapPushChainSnapshot(chain({ snapshot: { proxied } }));
+
+    expect(getTrapFired).toBe(false);
+    const stored = drainSince(ALL).chainSnapshots[0]!.snapshot
+      .proxied as unknown[];
+    // Stored as an independent plain array, NOT as the proxy or target.
+    expect(stored).toEqual([1, 2]);
+    expect(stored).not.toBe(proxied);
+    expect(stored).not.toBe(target);
+    target[0] = 999;
+    expect(stored[0]).toBe(1);
+  });
+
+  it("a proxy with a throwing reflection trap stores nothing and corrupts nothing", () => {
+    // The documented residual: getOwnPropertyDescriptor/ownKeys traps
+    // CAN run code and throw. Integrity must still hold absolutely.
+    tapPushTick(tick({ ltp: 111 })); // a good entry already in the ring
+
+    const hostile = new Proxy(
+      { a: 1 },
+      {
+        getOwnPropertyDescriptor() {
+          throw new Error("hostile trap");
+        },
+      },
+    );
+
+    // May throw — that is documented, and every production call site
+    // wraps tapPush* in try/catch. It must never store or damage.
+    try {
+      tapPushChainSnapshot(chain({ snapshot: { hostile } }));
+    } catch {
+      /* contained exactly as the production call sites contain it */
+    }
+
+    expect(tapStats().chainCount).toBe(0);
+    const ticks = drainSince(ALL).ticks;
+    expect(ticks).toHaveLength(1);
+    expect(ticks[0]!.ltp).toBe(111);
+  });
+
+  it("array length is read by descriptor, not by member access", () => {
+    // A getter on `length` is impossible on a real array, so this pins
+    // the weaker but checkable property: the source has no bare
+    // `src.length` read left in the copy path.
+    const src = readFileSync(path.join(__dirname, "liveTapRing.ts"), "utf8")
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/^\s*\/\/.*$/gm, "");
+    expect(src).not.toMatch(/\bsrc\.length\b/);
+  });
+
+  it("a genuine hole is still preserved when the prototype is clean", () => {
+    const arr: unknown[] = [];
+    arr.length = 2;
+    arr[1] = "own";
+    tapPushChainSnapshot(chain({ snapshot: { arr } }));
+    const got = drainSince(ALL).chainSnapshots[0]!.snapshot.arr as unknown[];
+    expect(got).toHaveLength(2);
+    expect(0 in got).toBe(false);
+    expect(got[1]).toBe("own");
+  });
+});
+
+/* ───────────────────────── E. DIAGNOSTICS ────────────────────────── */
+
+describe("E. rejection diagnostics", () => {
+  // Proof 16
+  it("counters increase correctly by total, entry type and reason", () => {
+    tapPushTick(tick({ raw: { fn: () => 1 } }));
+    tapPushTick(tick({ raw: { d: new Date() } }));
+    tapPushChainSnapshot(chain({ snapshot: { s: Symbol("x") } }));
+
+    const d = getReplayRejectionDiagnostics();
+    expect(d.total).toBe(3);
+    expect(d.byEntryType.tick).toBe(2);
+    expect(d.byEntryType.chainSnapshot).toBe(1);
+    expect(d.byEntryType.boardSnapshot).toBe(0);
+    expect(d.byReason.FUNCTION_VALUE).toBe(1);
+    expect(d.byReason.DATE_VALUE).toBe(1);
+    expect(d.byReason.SYMBOL_VALUE).toBe(1);
+    expect(d.lastRejection).toEqual({
+      entryType: "chainSnapshot",
+      reason: "SYMBOL_VALUE",
+      path: "snapshot.s",
+    });
+  });
+
+  it("diagnostics are surfaced on tapStats and are a defensive copy", () => {
+    tapPushTick(tick({ raw: { fn: () => 1 } }));
+    const stats = tapStats();
+    expect(stats.rejections.total).toBe(1);
+
+    stats.rejections.total = 999;
+    stats.rejections.byEntryType.tick = 999;
+    expect(tapStats().rejections.total).toBe(1);
+    expect(tapStats().rejections.byEntryType.tick).toBe(1);
+  });
+
+  it("counters stay at zero for every realistic production payload", () => {
+    // Exact shapes from the Section A call-site inventory.
+    tapPushTick({
+      receivedAtMs: T0,
+      instrumentToken: 256265,
+      symbol: "NIFTY 50",
+      ltp: 24000.5,
+      ltq: 0,
+      volume: null,
+      oi: null,
+      raw: {
+        ohlc: { open: 23900, high: 24100, low: 23850, close: 23950 },
+        change_percent: 0.21,
+      },
+    });
+    tapPushChainSnapshot({
+      capturedAtMs: T0,
+      underlying: "NIFTY",
+      expiry: "2026-08-27",
+      source: "kite",
+      snapshot: {
+        rows: Array.from({ length: 40 }, (_, i) => ({
+          strike: 23000 + i * 50,
+          ce: { oi: 1, chgOi: 2, iv: 12.5, ltp: 100, moneyness: "OTM", open: null },
+          pe: { oi: 3, chgOi: 4, iv: 13.5, ltp: 90, moneyness: "ITM", open: null },
+          pcrOi: 1.2,
+          isMaxPain: false,
+        })),
+        spot: 24012.4,
+      },
+    });
+    tapPushSystemEvent({
+      emittedAtMs: T0,
+      kind: "SYSTEM_MODE_TRANSITION",
+      detail: { from: "NORMAL", to: "DEGRADED", drivers: ["kite_stale", "nse_slow"] },
+    });
+    tapPushSystemEvent({
+      emittedAtMs: T0,
+      kind: "KITE_SESSION_EDGE",
+      detail: { edge: "disconnect", err: "socket hang up" },
+    });
+    tapPushSystemEvent({
+      emittedAtMs: T0,
+      kind: "REGIME_CHANGE",
+      detail: {
+        indexSymbol: "NIFTY",
+        from: "RANGE",
+        to: "TREND_UP",
+        reason: "adx>25",
+        bypassedHysteresis: true,
+      },
+    });
+
+    const s = tapStats();
+    expect(s.rejections.total).toBe(0);
+    expect(s.tickCount).toBe(1);
+    expect(s.chainCount).toBe(1);
+    expect(s.eventCount).toBe(3);
+  });
+
+  // Proof 17
+  it("diagnostic output exposes no payload contents or secrets", () => {
+    const SECRET = "kite_access_token_SUPERSECRET_VALUE";
+    tapPushTick(
+      tick({
+        raw: {
+          accessToken: SECRET,
+          nested: { apiSecret: SECRET },
+          leak: () => SECRET,
+        },
+      }),
+    );
+
+    const serialised = JSON.stringify(getReplayRejectionDiagnostics());
+    expect(serialised).not.toContain(SECRET);
+    expect(serialised).not.toContain("SUPERSECRET");
+    // Only the structural key path is retained.
+    expect(getReplayRejectionDiagnostics().lastRejection?.path).toBe("raw.leak");
+  });
+
+  it("_resetLiveTapRing clears the counters as well as the rings", () => {
+    tapPushTick(tick({ raw: { fn: () => 1 } }));
+    expect(getReplayRejectionDiagnostics().total).toBe(1);
+    _resetLiveTapRing();
+    const d = getReplayRejectionDiagnostics();
+    expect(d.total).toBe(0);
+    expect(d.byReason).toEqual({});
+    expect(d.lastRejection).toBeNull();
+    expect(d.byEntryType).toEqual({
+      tick: 0,
+      chainSnapshot: 0,
+      boardSnapshot: 0,
+      systemEvent: 0,
+    });
+  });
+});
+
+/* ───────────────────────── F. OUTPUT + STRUCTURAL PARITY ─────────── */
+
+describe("F. production JSON shape and ring behaviour are preserved", () => {
+  // Proof 18
+  it("all four entry types preserve their valid production JSON shape", () => {
+    const t = tick();
+    const c = chain();
+    const b = board();
+    const e = event();
+    tapPushTick(t);
+    tapPushChainSnapshot(c);
+    tapPushBoardSnapshot(b);
+    tapPushSystemEvent(e);
+
+    const d = drainSince(ALL);
+    // Byte-for-byte parity with serialising the caller's own object —
+    // this is exactly what the recorder writes to JSONL.
+    expect(JSON.stringify(d.ticks[0])).toBe(JSON.stringify(t));
+    expect(JSON.stringify(d.chainSnapshots[0])).toBe(JSON.stringify(c));
+    expect(JSON.stringify(d.boardSnapshots[0])).toBe(JSON.stringify(b));
+    expect(JSON.stringify(d.systemEvents[0])).toBe(JSON.stringify(e));
+  });
+
+  it("the recorder's own projection of a tick is byte-identical", () => {
+    const t = tick();
+    tapPushTick(t);
+    const stored = drainSince(ALL).ticks[0]!;
+    // Mirrors serialiseFixture() in routes/replayRecorder.ts.
+    const project = (x: TapTick) => ({
+      receivedAtMs: x.receivedAtMs,
+      instrumentToken: x.instrumentToken,
+      ltp: x.ltp,
+      raw: { symbol: x.symbol, ...x.raw },
+    });
+    expect(JSON.stringify(project(stored))).toBe(JSON.stringify(project(t)));
+  });
+
+  // Proof 19
+  it("capacity, wrap, order and reset behaviour are unchanged", () => {
+    const cap = _tapCapacities().chains;
+    for (let i = 0; i < cap + 25; i++) {
+      tapPushChainSnapshot(chain({ capturedAtMs: T0 + i, underlying: `U${i}` }));
+    }
+    const got = drainSince(ALL).chainSnapshots;
+    expect(got).toHaveLength(cap);
+    // Oldest 25 were overwritten; order is still oldest -> newest.
+    expect(got[0]!.underlying).toBe("U25");
+    expect(got[got.length - 1]!.underlying).toBe(`U${cap + 24}`);
+    for (let i = 1; i < got.length; i++) {
+      expect(got[i]!.capturedAtMs).toBeGreaterThan(got[i - 1]!.capturedAtMs);
+    }
+
+    _resetLiveTapRing();
+    expect(tapStats().chainCount).toBe(0);
+    tapPushChainSnapshot(chain());
+    expect(tapStats().chainCount).toBe(1);
+  });
+
+  it("the drain window boundary is still inclusive", () => {
+    tapPushTick(tick({ receivedAtMs: T0 - 1 }));
+    tapPushTick(tick({ receivedAtMs: T0 }));
+    const got = drainSince({ sinceMs: T0 }).ticks;
+    expect(got).toHaveLength(1);
+    expect(got[0]!.receivedAtMs).toBe(T0);
+  });
+
+  // Proof 20 + 22 — source-text guards. readFileSync, never a dynamic
+  // import: importing these modules for a text check would run their
+  // module-level side effects.
+  const SRC = (f: string) =>
+    readFileSync(path.join(__dirname, f), "utf8");
+
+  it("no shift / front-splice returns to the append path", () => {
+    for (const f of ["liveTapRing.ts", "ringBuffer.ts"]) {
+      // Comments are stripped first: ringBuffer.ts's header legitimately
+      // NAMES the Array.shift()/splice() pattern it replaced.
+      const code = SRC(f)
+        .replace(/\/\*[\s\S]*?\*\//g, "")
+        .replace(/^\s*\/\/.*$/gm, "");
+      expect(code).not.toMatch(/\.shift\s*\(/);
+      expect(code).not.toMatch(/\.unshift\s*\(/);
+      expect(code).not.toMatch(/\.splice\s*\(/);
+    }
+  });
+
+  it("no provider, DB, scheduler or subscription work is introduced", () => {
+    for (const f of ["liveTapRing.ts", "ringBuffer.ts"]) {
+      const src = SRC(f).replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
+      expect(src).not.toMatch(/setInterval|setTimeout|setImmediate/);
+      expect(src).not.toMatch(/\bdrizzle\b|\bdb\.|executeSql|\bpool\b/);
+      expect(src).not.toMatch(/\bfetch\s*\(|axios|KiteConnect|KiteTicker/);
+      expect(src).not.toMatch(/subscribe\s*\(|\.on\s*\(/);
+      expect(src).not.toMatch(/structuredClone|JSON\.parse|JSON\.stringify/);
+    }
+  });
+
+  it("the module declares no universal clone surface", () => {
+    const src = SRC("liveTapRing.ts");
+    // The rejected "share and count" primitive must be gone.
+    expect(src).not.toMatch(/boundedCopy/);
+    expect(src).not.toMatch(/exoticPassthroughs/);
+    expect(src).not.toMatch(/depthLimitTruncations/);
+  });
+
+  // Proof 21
+  it("append stays O(1) as retained size grows", () => {
+    const measure = (preload: number): number => {
+      _resetLiveTapRing();
+      for (let i = 0; i < preload; i++) {
+        tapPushTick(tick({ receivedAtMs: T0 + i }));
+      }
+      const N = 4000;
+      const start = performance.now();
+      for (let i = 0; i < N; i++) {
+        tapPushTick(tick({ receivedAtMs: T0 + preload + i }));
+      }
+      return (performance.now() - start) / N;
+    };
+
+    measure(1000); // warm JIT
+    const small = measure(1_000);
+    const large = measure(120_000);
+
+    // Linear-in-size behaviour would be ~120x here. A generous ceiling
+    // keeps this robust on a shared CI container while still failing
+    // loudly if per-append cost starts tracking retained size.
+    expect(large).toBeLessThan(Math.max(small, 0.0005) * 6);
+    expect(tapStats().rejections.total).toBe(0);
+  });
+});
+
+describe("G. depth boundary is exact", () => {
+  it("accepts the deepest legal payload and rejects one level more", () => {
+    // Container depth: snapshot=1 ... so the deepest legal object sits at
+    // MAX_REPLAY_DEPTH - 1.
+    const build = (levels: number): Record<string, unknown> => {
+      let node: Record<string, unknown> = { leaf: 1 };
+      for (let i = 0; i < levels; i++) node = { next: node };
+      return node;
+    };
+
+    // snapshot(1) + 4 nested objects = deepest object at depth 5.
+    tapPushChainSnapshot(chain({ snapshot: build(4) }));
+    expect(tapStats().chainCount).toBe(1);
+    expect(getReplayRejectionDiagnostics().total).toBe(0);
+
+    _resetLiveTapRing();
+    tapPushChainSnapshot(chain({ snapshot: build(5) }));
+    expect(tapStats().chainCount).toBe(0);
+    expect(getReplayRejectionDiagnostics().byReason.MAX_DEPTH_EXCEEDED).toBe(1);
+  });
+
+  it("MAX_REPLAY_DEPTH is the documented value", () => {
+    expect(MAX_REPLAY_DEPTH).toBe(6);
   });
 });

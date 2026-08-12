@@ -1,0 +1,192 @@
+PHASE 0.5C — FINAL TYPED SNAPSHOT CONTRACT
+
+This is the final bounded correction. Maximum accuracy with minimum additional compute.
+
+Do not deploy, push, merge, rewrite history or broaden scope.
+
+OWNER RULING
+
+Automatic commit bdd65463 may remain. Do not reset, revert, squash, rebase or cherry-pick it.
+
+The O(1) ring implementation is accepted provisionally.
+
+The remaining blocker is:
+
+REPLAY_IMMUTABILITY_HAS_SHARED_REFERENCE_EXCLUSIONS
+
+The current generic bounded copier still permits shared references for class instances, custom-toJSON objects and data beyond depth 6. Diagnostics do not satisfy the invariant that consumer mutation cannot corrupt retained storage.
+
+OBJECTIVE
+
+Replace the universal/general copying behaviour with an explicit, finite, type-specific replay snapshot contract for the four existing entry types:
+
+- TapTick
+- TapChainSnapshot
+- TapBoardSnapshot
+- TapSystemEvent
+
+Do not build a universal clone utility.
+
+A. EXACT RUNTIME SHAPE INVENTORY
+
+Before modifying code, inspect all four production push call sites and document the exact runtime shapes supplied to:
+
+- tapPushTick
+- tapPushChainSnapshot
+- tapPushBoardSnapshot
+- tapPushSystemEvent
+
+For each field classify:
+
+- primitive
+- plain object
+- array
+- Date
+- Map/Set
+- class instance
+- function/accessor
+- optional/nullable
+- unknown provider payload
+
+Do not infer from TypeScript alone where runtime evidence/source construction is available.
+
+If a production payload contains an unsupported non-plain object that cannot be normalized without changing the replay contract, stop with:
+
+BLOCKED_REPLAY_PAYLOAD_REQUIRES_OWNER_CONTRACT
+
+B. EXPLICIT NORMALIZATION
+
+Create explicit normalizers for the four replay entry types.
+
+Required behaviour:
+
+1. Accept only documented primitives, arrays and plain objects.
+2. Copy every accepted container so caller-owned references are never retained.
+3. Create a fresh snapshot on every push.
+4. Reads return independent snapshots; no stored reference escapes.
+5. Getters/accessors are rejected or converted only through an explicitly authorized scalar projection.
+6. Functions, symbols, weak collections, promises, class instances and custom-toJSON objects are rejected.
+7. Cycles are rejected deterministically.
+8. Excessive nesting is rejected rather than shared.
+9. Unsupported values must never be silently retained by reference.
+10. Rejection increments an owner-visible diagnostic counter and logs a safe reason.
+11. Rejected entries must not enter the ring.
+12. Do not mutate or freeze caller-owned input.
+13. Preserve the existing JSON-observable output for every currently reachable valid production payload.
+14. Do not fabricate missing fields.
+15. Do not add canonical identity fields in this task.
+
+Prefer a small shared `copyPlainReplayValue` helper only if it has these semantics:
+
+- supported value → independent copy
+- unsupported value → explicit rejection
+
+There must be no “share and count” result.
+
+C. REMOVE MISLEADING GENERALITY
+
+Remove or stop using production paths that:
+
+- preserve arbitrary property descriptors
+- retain accessor closures
+- retain unsupported class instances
+- retain custom-toJSON objects
+- share beyond a depth limit
+- claim universal structured cloning
+
+Diagnostics may report rejected entries/categories, but no accepted entry may contain a shared mutable reference.
+
+D. REQUIRED TESTS
+
+Use targeted tests only.
+
+Prove:
+
+1. Mutating original input after push cannot affect retained data.
+2. Reusing one mutable input across pushes preserves independent historical events.
+3. Mutating a drained array cannot affect the ring.
+4. Mutating a drained entry cannot affect the ring.
+5. Mutating nested objects/arrays cannot affect the ring.
+6. A second drain is independent from the first.
+7. Plain objects and arrays within the maximum accepted depth work.
+8. Excessive nesting is rejected, not shared.
+9. Cyclic input is rejected.
+10. Getter/accessor input is rejected.
+11. Function and symbol values are rejected.
+12. Class instances are rejected.
+13. Custom-toJSON objects are rejected.
+14. Date/Map/Set behaviour matches the explicit field contract—accepted only if specifically normalized; otherwise rejected.
+15. Rejected entries do not increase ring size.
+16. Rejection diagnostics increase correctly.
+17. Safe diagnostic output exposes no payload contents or secrets.
+18. All four entry types preserve their valid production JSON shape.
+19. Capacity/wrap/order/reset behaviour remains unchanged.
+20. No shift/front-splice returns.
+21. Append remains O(1) relative to retained ring size.
+22. No provider/DB/scheduler/subscription work is introduced.
+
+E. COST CONTROL
+
+Do not rerun the full API suite unless the explicit normalizer changes a shared public contract.
+
+Run only:
+
+- targeted ring/replay tests
+- relevant TypeScript check
+- git diff --check
+- one small benchmark comparing the accepted bdd65463 append path with the final typed-normalization path
+
+Do not repeat large benchmarks.
+
+Report median and worst time honestly. Do not extrapolate production capacity from microbenchmarks.
+
+F. FILE AND COMMIT CONTROL
+
+Report:
+
+- exact files already included in bdd65463
+- exact current working-tree files
+- exact files changed by this final correction
+
+If Replit auto-commits current authorized files:
+
+- report SHA and file list
+- retain it if scope matches exactly
+- stop if unrelated runtime/configuration files are included
+- do not rewrite history
+
+G. DEFERRED BLOCKERS
+
+Retain without implementing:
+
+- SSE_FANOUT_BACKPRESSURE_NOT_IMPLEMENTED
+- REPLAY_ENTRY_LACKS_CANONICAL_IDENTITY_FIELDS
+- REPLAY_BOARD_SNAPSHOT_STREAM_NEVER_POPULATED
+- EVENT_LOOP_DELAY_AT_FULL_LOAD_NOT_MEASURED
+
+H. SAFETY
+
+Verify the exact four constants remain `false as boolean`:
+
+FULL_NSE_WAREHOUSE_POPULATION_AUTHORIZED
+SCANNER_KITE_CANDLE_EVALUATION_AUTHORIZED
+FNO_PAPER_V2_RUNTIME_AUTHORIZED
+SWING_PAPER_V2_RUNTIME_AUTHORIZED
+
+I. FINAL VERDICT
+
+Return:
+
+O1_TICK_REPLAY_BUFFER_ACCEPTED_IN_DEVELOPMENT —
+NO_PER_TICK_LINEAR_TRIM —
+NO_ACCEPTED_REPLAY_ENTRY_RETAINS_CALLER_REFERENCE —
+UNSUPPORTED_VALUES_REJECTED_FAIL_CLOSED —
+BOUNDED_MEMORY_PRESERVED —
+INDEPENDENT_CHECKPOINT_AUTHORIZATION_REQUIRED
+
+or:
+
+DATA_FOUNDATION_PHASE_0_5C_BLOCKED — [exact blocker]
+
+Do not commit unless Replit checkpoints automatically or the owner separately authorizes it.
+Do not deploy or begin the next phase.

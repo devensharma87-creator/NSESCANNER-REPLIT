@@ -404,11 +404,18 @@ describe("G20 no database, provider, scheduler or network call introduced", () =
     expect(code).not.toMatch(/\brequire\s*\(/);
   });
 
-  it("liveTapRing.ts imports nothing beyond the ring buffer", () => {
+  it("liveTapRing.ts imports nothing beyond the ring buffer and the logger", () => {
     const src = readFileSync(path.join(__dirname, "liveTapRing.ts"), "utf8");
     const imports = [...src.matchAll(/^\s*import\s[\s\S]*?from\s+"([^"]+)"/gm)].map(
       (m) => m[1],
     );
-    expect(imports).toEqual(["./ringBuffer"]);
+    // DELIBERATE RELAXATION (Phase 0.5C typed snapshot contract).
+    // The allowlist gained "./logger" because the contract must log a
+    // safe reason when it REJECTS an entry — silent data loss would be
+    // strictly worse than the shared references this phase removed.
+    // The guard's intent is unchanged and still enforced above: no
+    // database, provider, scheduler, subscription or network import may
+    // appear here. Any addition beyond these two still fails.
+    expect(imports).toEqual(["./ringBuffer", "./logger"]);
   });
 });
