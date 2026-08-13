@@ -5,19 +5,35 @@ description: The real live-token count for every listed NSE+BSE stock and index 
 
 # Full NSE+BSE listed-stock live coverage FITS a single Kite key
 
-Live-subscribing every **listed NSE and BSE equity plus every index** needs
-**~7,620–7,820 tokens**. A single Kite key allows **3 x 3,000 = 9,000**.
-Classification: FITS_WITH_SAFE_HEADROOM. **No second broker or paid feed is needed
-for capacity reasons.**
+Live-subscribing every **listed NSE and BSE equity plus every index** fits inside
+one Kite key's **3 x 3,000 = 9,000** ceiling. Classification:
+FITS_WITH_SAFE_HEADROOM. **No second broker or paid feed is needed for capacity
+reasons.**
 
-## The counting trap that produced a wrong answer once
+## RETRACTED CLAIM — "~22,800 subscription tokens are required"
 
-Do **not** quote the raw Kite instrument-master row count as a capacity requirement.
-NSE 10,022 + BSE 12,765 = 22,787 is **not** a stock count — it is ~87% corporate
-debt (NCDs, numeric symbols), state/central government securities (`-SG`),
-sovereign gold bonds, T-bills, ETFs and mutual funds. Counting those as required
-live *stock* subscriptions overstates the requirement by roughly 3x and produces a
-false "impossible on Kite" conclusion.
+That figure is **withdrawn and must not be quoted**. It was the raw Kite
+cash-segment instrument-master row count (NSE 10,022 + BSE 12,765 = 22,787), which
+is ~87% corporate debt (NCDs, numeric symbols), state/central government securities
+(`-SG`), sovereign gold bonds, T-bills, ETFs and mutual funds. It was never a stock
+count and never a token requirement; treating it as one overstates the requirement
+by roughly 3x and produces a false "impossible on Kite" conclusion.
+
+## Accepted figures — DEVELOPMENT EVIDENCE ONLY, never runtime constants
+
+Measured from the reconciled registry generation, not hardcoded anywhere:
+
+| Quantity | Value |
+| --- | --- |
+| LIVE_REQUIRED instruments | 7,880 |
+| of those, mapped to a provider token | 7,876 |
+| of those, unmapped | 4 |
+| provider capacity (3 sockets x 3,000) | 9,000 |
+| headroom against capacity | 1,124 |
+
+**Why development evidence only:** these are properties of one dated generation.
+Any runtime path must recount from the manifest in force at that instant; a
+constant would silently keep asserting last month's universe.
 
 **Why:** Kite's `instrument_type` is `EQ` for nearly every cash-segment row
 regardless of whether the security is a share, an NCD, or a government bond. The

@@ -1,4 +1,5 @@
 - [Registry boot restoration contract](registry-boot-restoration.md) — DDL in a loader makes it a writer; an outage ≠ nothing there; a refusal must revoke earlier state; settled ≠ empty; integrity before authority.
+- [Admission boundary must re-apply the FULL commit gate set](admission-boundary-recheck-commit-gates.md) — re-deriving checksum + record-set hash is fail-open; every subset hash, count floor and per-row generation id must be recomputed too.
 - [Restored reference data has two expiry clocks](authority-two-expiries.md) — a valid calendar never implies valid source evidence; re-ask every expiry question at the same current-time boundary, never trust a stored verdict.
 - [Provider-free boot mode](provider-free-boot-gap.md) — capability contract gates import-time side effects; suppression must allocate no timer; every module-scope NODE_ENV!=='test' warm-up is a leak; verify with lsof, not logs.
 - [Exchange qualification at the source](exchange-qualification-at-source.md) — declare the exchange once where established, thread it, gate inside the writer; five ways that gate is still bypassable.
@@ -6,8 +7,8 @@
 - [Hot-path copy = explicit type contract](hot-path-copy-contract.md) — two outcomes only: copy or reject fail-closed; "share and count" is not an invariant; read every field by descriptor, never obj.field; proxies are the honest boundary.
 - [Canonical exchange-qualified instrument identity](canonical-instrument-identity.md) — live quotes keyed by NSE:SEGMENT:SYMBOL not symbol; token rotation must never orphan a subscription; preferred alias never positional.
 - [Aggregate market-data coverage contract](aggregate-coverage-contract.md) — two denominators; never inherit authoritative counts; enum alone grants no authority; pending overlay cross-cuts buckets; verified-close gap.
-- [Aggregate LIVE status blocker](aggregate-live-status-blocker.md) — deriveQuoteStatus reads LIVE_TICKS off a non-zero quote count; proves no per-instrument freshness, coverage, or pending-reconciliation state. Open blocker.
-- [NSE+BSE live capacity ceiling](nse-bse-live-capacity-ceiling.md) — full NSE+BSE live needs ~22.8k tokens vs Kite's 9,000 hard cap; also no ISIN in Kite master and no BSE authoritative security master.
+- [Deprecated LIVE_TICKS serialization](aggregate-live-status-blocker.md) — DEPRECATED_LIVE_TICKS_SERIALIZATION_REQUIRES_REMOVAL; no authority gate depends on it (0.5B closed that), but the aggregate badge can still read green.
+- [NSE+BSE live capacity fits one Kite key](nse-bse-live-capacity-ceiling.md) — listed stocks+indices fit the 9,000 cap; the ~22.8k figure was raw master rows (debt/G-sec/funds), never a token requirement.
 - [Denominator commitment hashing](denominator-commitment-hashing.md) — a subset hash never binds a completeness claim; the authority boundary re-applies every gate; version belongs in a content-derived id.
 - [Exchange trading-calendar authority](exchange-calendar-authority.md) — an unrecomputable checksum is a claim not a commitment; a row floor is not a truncation defence; completion is the official close, never an age.
 - [Session times and expiring calendar authority](session-time-authority-expiry.md) — hours are per-exchange source material not a constant; integrity is immutable, authority expires; refresh per session.

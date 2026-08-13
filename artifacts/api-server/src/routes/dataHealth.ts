@@ -25,6 +25,14 @@ import {
   getSuppressedBootSideEffects,
   isDataFoundationBootProofMode,
 } from "../lib/bootCapabilities";
+import { getSubscriptionAdmissionManifestNow } from "../lib/registry/subscriptionManifest";
+import { planFeedShards } from "../lib/registry/feedShardPlan";
+import {
+  evaluateFeedOwnershipAdmission,
+  readDeclaredDeploymentTargetFromDisk,
+  readTopologySignals,
+} from "../lib/registry/feedOwnershipAdmission";
+import { evaluateActivationGates } from "../lib/registry/feedActivationGates";
 
 const router: IRouter = Router();
 
@@ -114,6 +122,86 @@ router.get("/data-health/registry", requireOwnerStrict, (req, res) => {
   } catch (err) {
     req.log.error({ err }, "data-health/registry failed");
     res.status(500).json({ error: "registry health check failed" });
+  }
+});
+
+/**
+ * GET /api/data-health/subscription-admission — OWNER-ONLY, PHASE 0.8A.
+ *
+ * The admission layer that must exist before any live feed socket is opened:
+ * which instruments the reconciled universe would admit, whether that universe
+ * may speak for the present instant, how the admitted set would shard across
+ * the provider's three sockets, whether a single feed owner can be established
+ * at all under this deployment topology, and the full activation gate list.
+ *
+ * SAFETY. Metadata only. No API keys, no access tokens, no credentials, no
+ * environment values, no raw provider responses, and NO instrument/token
+ * payload — only counts, classifications, hashes and per-shard summaries. It
+ * opens no socket, contacts no provider, writes nothing, and mutates no state.
+ */
+router.get("/data-health/subscription-admission", requireOwnerStrict, (req, res) => {
+  try {
+    const nowMs = Date.now();
+    const manifest = getSubscriptionAdmissionManifestNow(nowMs);
+    const plan = planFeedShards(manifest);
+    const ownership = evaluateFeedOwnershipAdmission(
+      readTopologySignals(process.env, readDeclaredDeploymentTargetFromDisk(process.cwd())),
+    );
+    const gates = evaluateActivationGates({ manifest, plan, ownership });
+
+    res.json({
+      phase: "PHASE_0_8A",
+      evaluatedAt: manifest.evaluatedAt,
+      manifest: {
+        state: manifest.state,
+        activationAuthorized: manifest.activationAuthorized,
+        policyVersion: manifest.policyVersion,
+        registryGenerationId: manifest.registryGenerationId,
+        registryGeneratedAt: manifest.registryGeneratedAt,
+        schemaVersion: manifest.schemaVersion,
+        manifestPolicyVersion: manifest.manifestPolicyVersion,
+        authorityState: manifest.authorityState,
+        authorityReasons: manifest.authorityReasons,
+        totalRecords: manifest.totalRecords,
+        classificationCounts: manifest.classificationCounts,
+        remainder: manifest.remainder,
+        liveRequired: manifest.liveRequired,
+        admittedCount: manifest.admitted.length,
+        subscriptionSetHash: manifest.subscriptionSetHash,
+        blockers: manifest.blockers,
+        blockerCode: manifest.blockerCode,
+      },
+      shardPlan: {
+        state: plan.state,
+        blockerCode: plan.blockerCode,
+        capacity: plan.capacity,
+        maxSockets: plan.maxSockets,
+        maxTokensPerSocket: plan.maxTokensPerSocket,
+        totalTokens: plan.totalTokens,
+        headroom: plan.headroom,
+        completeManifestHash: plan.completeManifestHash,
+        activationAuthorized: plan.activationAuthorized,
+        shards: plan.shards.map((s) => ({
+          shardId: s.shardId,
+          priorityClass: s.priorityClass,
+          count: s.count,
+          shardHash: s.shardHash,
+        })),
+      },
+      feedOwnership: {
+        ownershipAdmitted: ownership.ownershipAdmitted,
+        singleWriterStructurallyGuaranteed: ownership.singleWriterStructurallyGuaranteed,
+        blockerCode: ownership.blockerCode,
+        rationale: ownership.rationale,
+        phase: ownership.phase,
+        topology: ownership.topology,
+        rejectedMechanisms: ownership.rejectedMechanisms,
+      },
+      activationGates: gates,
+    });
+  } catch (err) {
+    req.log.error({ err }, "data-health/subscription-admission failed");
+    res.status(500).json({ error: "subscription admission check failed" });
   }
 });
 

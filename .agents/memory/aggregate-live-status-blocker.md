@@ -1,39 +1,33 @@
 ---
-name: Aggregate LIVE status is not freshness- or coverage-aware
-description: Open deployment blocker — deriveQuoteStatus infers LIVE_TICKS from a non-zero quote count, so it can read green while instruments are stale, missing, or under disputed token identity.
+name: Deprecated LIVE_TICKS serialization requires removal
+description: Open owner-recorded deployment blocker — the deprecated aggregate LIVE badge can read green while instruments are stale or missing. It grants no authority; the trust decision is made by coverage elsewhere.
 ---
 
-# AGGREGATE_LIVE_STATUS_NOT_FRESHNESS_OR_COVERAGE_AWARE
+# DEPRECATED_LIVE_TICKS_SERIALIZATION_REQUIRES_REMOVAL
 
-`deriveQuoteStatus` derives `LIVE_TICKS` purely from `liveQuotesCount > 0`. It
-does **not** prove:
+Superseded label (do not reuse): `AGGREGATE_LIVE_STATUS_NOT_FRESHNESS_OR_COVERAGE_AWARE`.
+That name overstated the issue: it read as an unfixed authority hole, which it is not.
 
-- per-instrument tick freshness (one fresh tick out of hundreds still reads LIVE)
-- required-universe coverage (a mostly-empty feed still reads LIVE)
-- pending provider-token reconciliation state (a disputed identity still counts
-  toward the quote total)
+**The rule.** A green aggregate `LIVE_TICKS` / `quoteStatus` badge is not evidence
+that market data is live and complete. It is derived from "some live quotes
+exist", which proves nothing about per-instrument freshness, coverage of the
+required universe, or unresolved provider-identity disputes. Per-instrument
+truth is the only truth; the aggregate is presentation.
 
-**Scope correction (owner, 2026-08-12):** Phase 0.5B already prevents legacy
-    `LIVE_TICKS` from granting complete or trade-grade status, so this is NOT an
-    unfixed authority hole — the trust decision is made elsewhere and is correct.
-    What remains is deprecated serialization: an aggregate badge that can still read
-    green while the underlying instruments are stale or missing. Describe it that
-    way; do not report it as an unfixed aggregate-authority implementation.
+**No authority depends on it.** Every trade-grade / complete-status decision
+requires a coverage gate in addition to the live flag, so the live flag alone is
+necessary-but-insufficient. Re-verify that property before assuming it still
+holds, rather than trusting this note.
 
-    **Why:** this is an owner-recorded deployment blocker, deliberately left unfixed.
-Correcting the aggregate badge changes production behaviour — a surface that
-currently reads green would start reading degraded — so it exceeds the
-"status serialization only" scope that the identity work was authorized under.
-It is reserved for its own bounded phase.
+**Why it stays open.** Owner-recorded and deliberately unfixed: correcting the
+badge changes production behaviour (a surface that reads green would start
+reading degraded), which exceeds the serialization-only scope the identity work
+was authorized under. It is reserved for its own bounded phase.
 
-**How to apply:** do not treat a green `quoteStatus` / `LIVE_TICKS` badge as
-evidence that market data is actually live and complete. Per-instrument truth
-lives in `marketData/freshness.ts` (`computeFreshness`, budgets from
-`getPolicy()`), never in the aggregate. When the bounded fix is authorized, the
-aggregate must consume per-instrument freshness, universe coverage, and
-`pendingReconciliationCount` — and the change must be treated as a behaviour
-change, not a serialization change.
+**How to apply.** Describe the defect as deprecated serialization, never as an
+unfixed aggregate-authority implementation. When the bounded fix is authorized,
+the aggregate must consume per-instrument freshness, universe coverage and
+pending-reconciliation state — and it must be reviewed as a behaviour change.
 
-Related: pending token rotations already expose safe state/count publicly and
-full detail on the owner-only feed status, and are never eligible for a LIVE
-label while pending. See `canonical-instrument-identity.md`.
+Related: pending token rotations expose safe state/count publicly and are never
+eligible for a LIVE label while pending. See `canonical-instrument-identity.md`.
