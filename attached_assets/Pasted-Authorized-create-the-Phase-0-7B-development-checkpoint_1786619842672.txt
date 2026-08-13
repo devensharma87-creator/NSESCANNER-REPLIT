@@ -1,0 +1,61 @@
+Authorized: create the Phase 0.7B development checkpoint only.
+
+Do not perform additional implementation, tests, builds, boots, database queries, provider calls, restarts or browser sessions. The accepted evidence stands.
+
+Before committing:
+
+Inspect auto-commits e6ba531 and d02a602.
+Report the exact file list in each.
+Confirm every runtime file belongs exclusively to:
+read-only Schema-5 boot restoration;
+provider-free boot capability enforcement;
+restoration/coverage diagnostics;
+BSE authority-expiry correction;
+directly associated targeted tests.
+Stop if either commit contains unrelated runtime, dependency, schema, migration, configuration or generated changes.
+Include the current uncommitted Phase 0.7B correction files:
+registry/bseReferencePolicy.ts
+registry/manifestStore.ts
+registry/coverageBridge.ts
+registry/instrumentRegistry.p06.test.ts
+registry/bseAuthorityExpiry.p07b.test.ts
+directly related memory/evidence only
+Exclude the uploaded owner directive from the checkpoint unless Replit has already auto-committed it as inert content.
+Do not alter or rewrite existing auto-commit history.
+Confirm no production migration SQL, subscription expansion, F&O/Swing work, candle processing, provider integration or safety-lock change is included.
+
+The checkpoint must preserve these verified contracts:
+
+restoration uses read-only SQL only;
+restoration settles before listening;
+database outage is not masked by disk;
+invalid restoration revokes prior authority;
+calendar commitment verifies before installation;
+BSE reference authority expires at IST midnight;
+intact expired generations restore only as last-known;
+expired generations cannot authorize coverage or trade-grade readiness;
+proof mode is impossible in production;
+normal boot behaviour remains unchanged outside proof mode;
+diagnostics remain owner-only.
+
+Do not rerun the controlled boot or targeted tests.
+
+After checkpoint, report:
+
+Final commit SHA and author
+Exact committed-file list
+Exact contents of e6ba531 and d02a602
+Files intentionally excluded
+Diff summary
+Git status
+Branch, main and origin status
+Confirmation nothing was pushed, merged or deployed
+All eight zero-side-effect counters individually
+Four frozen safety-lock values
+Remaining production blockers
+
+Do not begin the three-WebSocket phase.
+
+Required verdict:
+
+PHASE_0_7B_DEVELOPMENT_CHECKPOINT_COMPLETE — SCHEMA_5_BOOT_RESTORATION_VERIFIED — EXPIRED_BSE_AUTHORITY_RESTORED_LAST_KNOWN — ZERO_STALE_AUTHORITY_LABELLED_CURRENT — PROVIDER_FREE_PROOF_MODE_ENFORCED — OWNER_NEXT_PHASE_AUTHORIZATION_REQUIRED

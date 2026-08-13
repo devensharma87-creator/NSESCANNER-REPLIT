@@ -1,4 +1,5 @@
 - [Registry boot restoration contract](registry-boot-restoration.md) — DDL in a loader makes it a writer; an outage ≠ nothing there; a refusal must revoke earlier state; settled ≠ empty; integrity before authority.
+- [Restored reference data has two expiry clocks](authority-two-expiries.md) — a valid calendar never implies valid source evidence; re-ask every expiry question at the same current-time boundary, never trust a stored verdict.
 - [Provider-free boot mode](provider-free-boot-gap.md) — capability contract gates import-time side effects; suppression must allocate no timer; every module-scope NODE_ENV!=='test' warm-up is a leak; verify with lsof, not logs.
 - [Exchange qualification at the source](exchange-qualification-at-source.md) — declare the exchange once where established, thread it, gate inside the writer; five ways that gate is still bypassable.
 - [Preview bypass fakes auth in dev](preview-bypass-fake-auth.md) — VITE_PREVIEW_BYPASS renders a signed-in shell with no cookie so owner APIs 401; env var beats the git-ignored .env file; check /api/auth/status first.
