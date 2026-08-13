@@ -101,6 +101,34 @@ export interface EtfQuoteLike {
   price?: number | null;
   previousClose?: number | null;
   updatedAt?: string | null;
+  /**
+   * The exchange the backend actually priced. Authoritative — it is stamped
+   * from the quote key the provider was asked for, not inferred here.
+   */
+  exchange?: string | null;
+}
+
+/** Closed set. Anything else (including "", "NSEIDX", nullish) is unknown. */
+export function normalizeExchangeLabel(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const t = value.trim().toUpperCase();
+  return t === "NSE" || t === "BSE" ? t : null;
+}
+
+/**
+ * Phase 0.7A — the exchange reported alongside an ETF-quote price.
+ *
+ * The quote's own exchange wins: it is the listing that actually produced the
+ * price, so a holding recorded on BSE but priced from the NSE listing is shown
+ * as NSE rather than implying its own listing was quoted. When the quote does
+ * not name an exchange, the declared one is passed through, and an unknown
+ * exchange stays unknown (`null`) — it is never assumed to be NSE.
+ */
+export function etfQuoteExchange(
+  quoteExchangeRaw: unknown,
+  declaredExchangeRaw: unknown,
+): string | null {
+  return normalizeExchangeLabel(quoteExchangeRaw) ?? normalizeExchangeLabel(declaredExchangeRaw);
 }
 
 export interface EnrichFetchers {
@@ -301,6 +329,10 @@ export async function resolveHolding(
     const quote = await safe(() => fx.etfQuote!(primarySymbol));
     const etfLive = liveFromEtfQuote(quote);
     if (etfLive.available) {
+      // Phase 0.7A: the exchange comes from the quote that produced the price.
+      // Without one it stays unknown (`null`) — "NSE" would have labelled a
+      // BSE holding as NSE in the UI, the CSV export and the persisted row.
+      const etfIdentity = etfQuoteExchange(quote?.exchange, alias?.exchange ?? holding.exchange);
       return {
         live: etfLive,
         meta: meta({
@@ -308,7 +340,7 @@ export async function resolveHolding(
           normalisedSymbol,
           resolvedSymbol: primarySymbol,
           displaySymbol: primarySymbol,
-          exchange: alias?.exchange ?? holding.exchange ?? "NSE",
+          exchange: etfIdentity,
           segment: "equity",
           instrumentType: etfCls,
           fundamentalsApplicable: false,
@@ -393,6 +425,9 @@ export async function resolveHolding(
     const etfLive = liveFromEtfQuote(quote);
     if (etfLive.available) {
       const resolvedCls: InstrumentClass = isEtfClass(instrumentType) ? instrumentType : "ETF";
+      // Phase 0.7A: same rule as step 1b — the priced listing is authoritative,
+      // and unknown stays unknown rather than becoming NSE.
+      const etfIdentity = etfQuoteExchange(quote?.exchange, exchange);
       return {
         live: etfLive,
         meta: meta({
@@ -400,7 +435,7 @@ export async function resolveHolding(
           normalisedSymbol,
           resolvedSymbol: resolvedSymbol ?? primarySymbol,
           displaySymbol: resolvedSymbol ?? primarySymbol,
-          exchange: exchange ?? "NSE",
+          exchange: etfIdentity,
           segment: "equity",
           instrumentType: resolvedCls,
           fundamentalsApplicable: false,

@@ -1,0 +1,277 @@
+PHASE 0.6A — FINAL SESSION-TIME AND CURRENT-AUTHORITY CORRECTION
+
+CODER COST/ACCURACY DIRECTIVE remains binding.
+
+This is one final bounded correction addressing only:
+
+1. REGULAR_SESSION_CLOSE_TIME_NOT_AUTHORITATIVE_AND_NOT_EXCHANGE_INDEPENDENT
+2. ACCEPTED_CALENDAR_AUTHORITY_DOES_NOT_EXPIRE
+
+Do not broaden scope. Do not implement WebSocket sharding, subscriptions, indicators, provider fallback, website migration or deployment.
+
+Do not rerun full suites, builds, browsers, load tests or repeated registry rebuilds.
+
+A. OFFICIAL REGULAR-SESSION TIMING SOURCES
+
+Obtain official, independently attributable cash-market session timings for:
+
+- NSE cash/equity market
+- BSE equity/cash market
+
+Use official exchange pages or official exchange circulars only.
+
+For each exchange retain:
+
+- exchange
+- source name
+- official URL/source identifier
+- retrievedAt
+- effectiveFrom/effectiveYear where available
+- normal-session open
+- normal-session close
+- pre-open timing where relevant
+- closing-session timing where relevant
+- content hash
+- validation result
+
+NSE and BSE may currently have identical timings, but each must carry its own official provenance. Do not share one unsourced constant between exchanges.
+
+Remove any claim that a time was “officially notified” by a holiday source that did not contain timing information.
+
+A regular session may use 15:30 only when the corresponding exchange’s official timing source independently proves it.
+
+If an official timing source cannot be obtained for either exchange, return:
+
+PHASE_0_6A_BLOCKED — OFFICIAL_REGULAR_SESSION_TIMING_SOURCE_UNAVAILABLE
+
+Do not fall back to a hardcoded value.
+
+B. SESSION-TIME PRECEDENCE
+
+Required precedence:
+
+1. Specific official exceptional-session circular
+2. Specific official special/Muhurat/half-day circular
+3. Exchange-specific official regular-session timing source
+4. No source → unknown/fail-closed
+
+Rules:
+
+- A later specific circular overrides the regular schedule only for its stated date/scope.
+- Preserve base timing provenance and override provenance.
+- Equal-priority conflicts fail closed.
+- A special/half-day session without authoritative timing fails closed.
+- `HALF_DAY` must be producible through a specific official override.
+- Do not infer half-days from an early bhavcopy or missing ticks.
+- Latest-completed-session must compare against that session record’s own sourced close.
+- UDiFF availability remains a separate requirement; reaching scheduled close alone does not prove today’s official output exists.
+
+C. CURRENT-TIME AUTHORITY BOUNDARY
+
+Separate immutable integrity verification from current authority evaluation.
+
+Required distinction:
+
+1. `verifyCalendarCommitmentIntegrity(manifest)`
+   - Recomputes hashes
+   - Verifies embedded sessions and provenance
+   - Re-derives the session applicable at the manifest’s committed instant
+   - Answers whether stored evidence was internally valid when accepted
+
+2. `evaluateCalendarAuthorityNow(manifest, now)`
+   - Determines whether that accepted evidence may still authorize the registry now
+   - Must use current IST date and current exchange calendar coverage
+   - Must not mutate the manifest
+
+Required current-authority rules:
+
+- The calendar must cover the current IST year/date.
+- Official timing provenance for each required exchange must still be applicable.
+- The current BSE List-of-Scrips retrieval policy must remain satisfied.
+- The embedded latest-completed BSE session must remain the session required by current policy.
+- If the accepted manifest is no longer current, downgrade it to `LAST_KNOWN` or `STALE`.
+- An expired calendar must never supply `AUTHORITATIVE_RECONCILED_UNIVERSE`.
+- An expired calendar may preserve display continuity only with its original effective date, retrieval timestamp and hashes.
+- On 1 January 2027, a 2026-only manifest must immediately lose current authority unless an official 2027 calendar is accepted.
+- Unknown current calendar fails closed.
+- Do not silently continue authority until the next attempted refresh.
+- Do not alter immutable stored checksum merely because authority changes with time.
+
+Evaluate current authority at every authority boundary:
+
+- PostgreSQL cold load
+- Disk cold load
+- In-memory access after date rollover
+- Coverage-denominator bridge
+- Before accepting/persisting a new registry generation
+
+A process running across midnight/year rollover must not retain authority indefinitely merely because it did not restart.
+
+Use an O(1) or small bounded authority check. Do not rebuild or scan all 9,702 records on every quote/tick.
+
+D. SOURCE-EVIDENCE DURABILITY
+
+Resolve the reviewer’s P2 evidence gap now to avoid another correction cycle.
+
+For official calendar/timing sources, persist sufficient lossless evidence to reproduce the normalized calendar facts:
+
+Preferred:
+
+- Exact source bytes, compressed if appropriate; or
+- A lossless normalized extracted table plus original content hash and extraction version
+
+Required:
+
+- Future review can reproduce the normalized holiday/session/timing records from persisted evidence.
+- A hash without the corresponding evidence is not sufficient.
+- Do not store credentials, cookies, bot-challenge content or secrets.
+- Validate reasonable size limits.
+- Invalid/truncated/block-page content must never be persisted as authoritative evidence.
+- Evidence persistence is refresh-time only, never per tick.
+- Existing schema-4 row may remain as historical evidence but must not remain current-authoritative after the new schema/policy version.
+
+If this requires a durable-shape change, bump schema/policy version exactly once before the controlled proof so no additional corrective generation is needed.
+
+E. RETENTION CLARIFICATION
+
+Do not claim old snapshots are preserved indefinitely.
+
+Document the actual bounded-retention contract:
+
+- Last N accepted compatible/incompatible generations retained according to existing policy.
+- Identity gaps do not prove deletion.
+- Retention may delete older registry snapshots.
+- Retention must never delete outside the registry table.
+- Retention runs only after a successful accepted insert within the same transaction.
+
+The previous schema-1 deletion is acceptable under the bounded-retention policy, but must be reported accurately.
+
+F. REQUIRED TARGETED TESTS
+
+Add/run only targeted calendar, authority-boundary and durability tests.
+
+Test at minimum:
+
+1. NSE regular close derived from NSE official timing source.
+2. BSE regular close derived from BSE official timing source.
+3. Same time but distinct exchange provenance.
+4. Missing NSE timing source fails closed.
+5. Missing BSE timing source fails closed.
+6. Holiday source cannot claim session timing.
+7. Special-session circular overrides regular timing.
+8. Muhurat timing uses its circular.
+9. Half-day override is representable and uses official timing.
+10. Special/half-day without timing fails closed.
+11. Equal-priority timing conflict fails closed.
+12. Latest completed session uses selected session’s own close.
+13. Reaching close without required UDiFF does not authorize today.
+14. Integrity valid at committed instant.
+15. 2026 manifest current on a covered 2026 date.
+16. Same manifest loses authority on 1 January 2027.
+17. Expired manifest becomes LAST_KNOWN/STALE.
+18. Expired manifest cannot set authoritative coverage.
+19. In-memory authority changes across midnight without restart.
+20. Cold-loaded expired manifest cannot authorize coverage.
+21. Missing current calendar fails closed.
+22. Current List-of-Scrips policy still enforced.
+23. New official override changes calendar checksum/generation.
+24. Persisted evidence reproduces normalized sessions.
+25. Source evidence hash mismatch rejects load.
+26. Block/bot/truncated evidence rejects authority.
+27. Evidence size limit enforced.
+28. No per-tick registry scan/query introduced.
+29. Current subscriptions remain unchanged.
+30. NSE 48-hour reference policy unchanged.
+31. Provider conflict remains NOT_CHECKED.
+32. Four exact safety locks remain false.
+
+G. ONE CONTROLLED DEVELOPMENT PROOF
+
+Only after targeted tests and self-review pass:
+
+1. Confirm development database identity.
+2. Reuse already cached official calendar/registry source bytes where valid.
+3. Fetch each newly required official regular-session timing source at most once.
+4. Finalize schema/policy version before building.
+5. Build exactly one new accepted registry generation.
+6. Persist it to development only.
+7. Cold-load it.
+8. Recompute source-evidence hashes, calendar checksum, manifest checksum, recordSetHash and eligibleLiveSetHash.
+9. Verify current authority at the actual proof time.
+10. Verify coverage receives the authoritative denominator.
+11. Verify the legacy approximately-58-token feed remains partial.
+12. Simulate 1 January 2027 against the loaded manifest and prove authority is removed.
+13. Confirm production has no registry table and receives no write.
+14. Do not rebuild twice.
+
+If the final review finds a durable-shape defect after persistence, stop and report it. Do not automatically perform another corrective rebuild without owner direction.
+
+H. FIRST-PASS SELF-REVIEW
+
+Before running the controlled proof, independently review:
+
+- Timing provenance
+- Override precedence
+- Current-time authority evaluation
+- Year rollover
+- Disk/DB/in-memory boundaries
+- Persisted source evidence
+- Schema/policy versioning
+- Coverage bridge
+- Retention scope
+
+Fix all in-scope P0/P1 findings before the single persistence run.
+
+I. COST CONTROL
+
+Use:
+
+- Existing cached sources
+- At most one fetch per missing official timing source
+- Targeted tests
+- Relevant TypeScript
+- git diff --check
+- One controlled development persistence/cold-load proof
+
+Do not run broad suites, builds, browsers, benchmarks, provider calls or repeated downloads.
+
+J. FINAL REPORT
+
+Report:
+
+1. Official NSE timing source.
+2. Official BSE timing source.
+3. Independent timing provenance.
+4. Regular/special/Muhurat/half-day precedence.
+5. Current-time authority contract.
+6. Year-rollover result.
+7. Persisted source-evidence format.
+8. Schema/policy version.
+9. Targeted tests.
+10. Development generation ID and counts.
+11. Hash/commitment verification.
+12. Cold-load result.
+13. Coverage-bridge result.
+14. Legacy subscription count before/after.
+15. Production non-mutation proof.
+16. Retention behaviour.
+17. Four exact safety locks.
+18. Changed files and automatic commits.
+19. Cost/execution accounting.
+20. Remaining blockers.
+
+Required verdict:
+
+AUTHORITATIVE_EXCHANGE_SESSION_TIMES_VERIFIED —
+CURRENT_AUTHORITY_EXPIRES_FAIL_CLOSED —
+REGISTRY_ACCEPTED_AND_COLD_LOADED_IN_DEVELOPMENT —
+ZERO_UNEXPLAINED_REMAINDER —
+PRODUCTION_NOT_MUTATED —
+CURRENT_SUBSCRIPTIONS_UNCHANGED —
+INDEPENDENT_CHECKPOINT_AUTHORIZATION_REQUIRED
+
+or:
+
+PHASE_0_6A_BLOCKED — [exact blocker]
+
+Do not deploy, push, merge or begin WebSocket expansion.

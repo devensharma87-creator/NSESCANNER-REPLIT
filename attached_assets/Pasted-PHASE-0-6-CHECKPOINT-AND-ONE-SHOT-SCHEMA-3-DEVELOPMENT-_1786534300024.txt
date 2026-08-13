@@ -1,0 +1,132 @@
+PHASE 0.6 — CHECKPOINT AND ONE-SHOT SCHEMA-3 DEVELOPMENT PROOF
+
+CODER COST/ACCURACY DIRECTIVE remains binding.
+
+The Phase 0.6 implementation is accepted provisionally. Perform only the bounded checkpoint and one controlled development proof below.
+
+Do not deploy, push, merge, expand subscriptions or modify production.
+
+A. CHECKPOINT SCOPE
+
+Before committing/reporting, provide the exact Phase 0.6 changed-file list and classify every file:
+
+- production
+- schema
+- test
+- development script
+- documentation/memory/directive
+- unrelated
+
+Exclude unrelated files.
+
+If Replit automatically checkpoints the authorized Phase 0.6 files plus inert memory/directive files, retain it and report the SHA. Do not rewrite history.
+
+B. RECORD THE REMAINING CALENDAR BLOCKER
+
+Record without implementing:
+
+AUTHORITATIVE_TRADING_CALENDAR_NOT_IMPLEMENTED
+
+Reason:
+
+The application has no authoritative NSE/BSE holiday calendar. Weekday-only logic cannot prove the latest completed trading session around exchange holidays.
+
+Consequences:
+
+- Unknown calendar must remain fail-closed.
+- No BSE manifest may be CURRENT_AUTHORITATIVE when the latest completed trading session cannot be proven.
+- Do not infer holidays.
+- Do not add a calendar provider in this pass.
+
+Also preserve the eight existing NSE-defaulting consumers in the deferred consumer inventory. Do not fix them now, but label them:
+
+LEGACY_NSE_DEFAULTING_CONSUMERS_REQUIRE_MIGRATION
+
+C. ONE CONTROLLED DEVELOPMENT-ONLY SCHEMA-3 REBUILD
+
+After confirming the database environment is development:
+
+1. Record NODE_ENV.
+2. Record database name and redacted fingerprint.
+3. Prove it is not the production database.
+4. Record the registry-table count and generation IDs before the operation.
+5. Fetch each required official source no more than once, or reuse a current valid local source if available.
+6. Build exactly one schema-3 manifest using the final owner-approved policy.
+7. If the authoritative trading calendar is unknown, do not fake CURRENT_AUTHORITATIVE. The result must remain fail-closed and explain the blocker.
+8. Persist only if every schema-3 acceptance gate passes.
+9. Perform one cold-load using the final production loader.
+10. Recompute and verify:
+   - manifest checksum
+   - full-record-set commitment
+   - source hashes
+   - reconciliation
+   - schema/policy version
+   - generation ID
+11. Confirm previous schema-1/2 rows remain preserved.
+12. Confirm bounded retention did not remove unrelated data.
+13. Confirm production has no registry table and received no write.
+14. Do not repeat the rebuild.
+
+If calendar authority prevents an accepted schema-3 manifest, return:
+
+PHASE_0_6_BLOCKED — AUTHORITATIVE_TRADING_CALENDAR_REQUIRED
+
+Do not bypass it with weekday assumptions.
+
+D. COVERAGE-BRIDGE PROOF
+
+Using the cold-loaded schema-3 result, prove:
+
+- Valid accepted manifest supplies the authoritative denominator.
+- Current approximately-58-token feed remains LEGACY_PARTIAL_CONFIGURATION.
+- LIVE_COMPLETE remains impossible.
+- Manifest existence does not prove subscriptions or fresh ticks.
+- Provider conflict remains NOT_CHECKED.
+- No subscription count changes.
+- No scores, signals or orders consume the manifest.
+
+E. VERIFICATION LIMITS
+
+Run only:
+
+- Targeted schema-3 persistence/load tests if needed
+- Targeted coverage-bridge tests
+- Relevant TypeScript
+- git diff --check
+
+Do not rerun broad package suites, builds, browsers or benchmarks.
+
+F. REQUIRED FINAL EVIDENCE
+
+Report:
+
+1. Final checkpoint SHA and exact files.
+2. Development database identity.
+3. Before/after registry-table rows and generations.
+4. Official-source retrieval count.
+5. Schema-3 generation ID.
+6. Record/tier/mapped counts.
+7. Checksum and record-commitment equality.
+8. Cold-load result.
+9. Coverage-bridge result.
+10. Production non-mutation proof.
+11. Current subscription count before/after.
+12. Exact four frozen safety constants.
+13. Deferred calendar and NSE-defaulting blockers.
+14. Git status.
+15. Cost and execution accounting.
+
+Required verdict:
+
+AUTHORITATIVE_INSTRUMENT_REGISTRY_SCHEMA_3_VERIFIED_IN_DEVELOPMENT —
+ZERO_UNEXPLAINED_REMAINDER —
+COLD_LOAD_VERIFIED —
+PRODUCTION_NOT_MUTATED —
+CURRENT_SUBSCRIPTIONS_UNCHANGED —
+OWNER_NEXT_PHASE_AUTHORIZATION_REQUIRED
+
+or:
+
+PHASE_0_6_BLOCKED — [exact blocker]
+
+Do not deploy or begin the next phase.

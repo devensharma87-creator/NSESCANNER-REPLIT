@@ -1,0 +1,68 @@
+PHASE 0.6A — RETENTION TRANSACTION CORRECTION AND FINAL CHECKPOINT GATE
+
+Do not broaden scope. Do not redownload sources, rebuild the registry, write to any database, rerun broad suites, deploy, push or merge.
+
+The schema-5 calendar and registry authority implementation is accepted. Correct only the retention transaction defect.
+
+1. RETENTION CONTRACT
+
+Retention may execute only when the current transaction has actually inserted one new accepted registry generation.
+
+Required behaviour:
+
+- INSERT created exactly one row → bounded retention may execute in the same transaction.
+- ON CONFLICT DO NOTHING / inserted-row count = 0 → retention must not execute.
+- Validation failure → no insert and no retention.
+- Transaction failure → no insert and no retention.
+- Duplicate generation must return an honest no-op result, not `durablyCommitted: true` for a new row.
+- Retention must never affect any table except the registry-manifest table.
+- Retention must retain the configured newest N rows deterministically.
+- Do not attempt to restore already-pruned schema-1 evidence.
+- Correct the documentation claiming retention runs on the conflict path.
+
+2. TARGETED TESTS ONLY
+
+Test:
+
+- Successful new insert invokes retention once.
+- Duplicate/no-op insert invokes retention zero times.
+- Validation failure invokes retention zero times.
+- Insert failure invokes retention zero times.
+- Retention failure rolls back the new insert.
+- Duplicate generation preserves all existing row IDs/counts.
+- Retention touches only the registry table.
+- Honest persistence result distinguishes inserted from already-existing.
+- Existing schema-5 load/checksum behaviour remains unchanged.
+
+Run targeted persistence tests, relevant TypeScript and git diff --check only.
+
+Do not run another database proof—the transaction behaviour must be tested deterministically.
+
+3. REPORT PRECISION
+
+Correct these statements:
+
+- Under the approved policy, BSE current authority expires at midnight IST because current-day List-of-Scrips retrieval is required. It may expire before another session completes.
+- Phase 0.5B already prevents legacy LIVE_TICKS from granting complete/trade-grade status. Remaining legacy exposure is deprecated serialization, not an unfixed aggregate-authority implementation.
+
+4. CHECKPOINT INVENTORY
+
+Report:
+
+- Exact Phase 0.6/0.6A changed files
+- Exact automatic commits, if any
+- Targeted test results
+- TypeScript and diff check
+- Four frozen lock values
+- Git status
+- Confirmation no database/provider/subscription operation occurred
+
+Required verdict:
+
+AUTHORITATIVE_INSTRUMENT_REGISTRY_READY_FOR_CHECKPOINT —
+RETENTION_ONLY_AFTER_ACTUAL_INSERT —
+DUPLICATE_INSERT_PRESERVES_HISTORY —
+SCHEMA_5_AUTHORITY_ACCEPTED_IN_DEVELOPMENT —
+OWNER_CHECKPOINT_AUTHORIZATION_REQUIRED
+
+Do not commit unless Replit checkpoints automatically or owner separately authorizes it.

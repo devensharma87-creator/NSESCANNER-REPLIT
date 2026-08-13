@@ -417,7 +417,18 @@ export async function getChartCandles(
 
   // Always query the canonical resolver for equities so we get the authoritative exchange + token.
   if (segment === "equity") {
+    // Phase 0.7A: the exchange is stated, so this call cannot come back
+    // AMBIGUOUS. The branch below is the caller's ambiguity contract: an
+    // unqualified symbol never silently becomes a chart for one of two
+    // different order books — the request falls through to the curated meta or
+    // fails as unresolved.
     const r = resolveMasterInstrument(symbol, { preferExchange: "NSE" });
+    if (r.outcome === "AMBIGUOUS") {
+      logger.warn(
+        { symbol, candidates: r.candidates.map(c => c.kite_key) },
+        "chart: instrument is listed on multiple exchanges — refusing to pick one",
+      );
+    }
     if (r.resolved && r.instrument) {
       const inst = r.instrument;
       const isEtf = inst.instrument_type.endsWith("ETF");

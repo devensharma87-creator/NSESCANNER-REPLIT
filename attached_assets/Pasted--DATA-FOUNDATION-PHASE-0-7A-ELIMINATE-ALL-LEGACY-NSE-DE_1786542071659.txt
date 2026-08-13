@@ -1,0 +1,343 @@
+# DATA FOUNDATION — PHASE 0.7A
+
+## ELIMINATE ALL LEGACY NSE-DEFAULTING CONSUMERS
+
+### COST AND EXECUTION CONTRACT
+
+This is one bounded implementation phase only.
+
+Complete the entire authorized scope accurately in one pass. Do not broaden the task, redesign unrelated systems, repeat accepted audits or run unnecessary compute.
+
+Use the existing Phase 0.6/0.6A evidence and Schema-5 authoritative registry. Do not rediscover conclusions already established.
+
+Work sequentially:
+
+1. Inventory
+2. Reproduce
+3. Define contract
+4. Implement
+5. Run targeted verification
+6. Independently review the changed diff
+7. Correct genuine findings
+8. Run the final targeted verification once
+9. Report and stop
+
+Do not repeatedly run tests after individual edits. Group related edits and verify them together.
+
+---
+
+## A. AUTHORIZED OBJECTIVE
+
+Migrate all eight previously identified legacy consumers that silently default an unqualified instrument or symbol to NSE.
+
+After this phase:
+
+* No affected consumer may silently assume NSE.
+* NSE and BSE listings with the same trading symbol must remain distinct.
+* Exact exchange-qualified canonical identity must flow through the consumer.
+* Ambiguous identities must fail closed.
+* Missing identities must fail closed.
+* No symbol-only fallback may silently select an exchange.
+* Existing accurate NSE-only behaviour must remain compatible where the exchange is explicitly established.
+* No consumer may fabricate `exchange`, `securityId`, `ISIN`, provider token or security class.
+
+This phase is about identity correctness only. It does not expand live subscriptions or modify market-data values.
+
+---
+
+## B. STRICT SCOPE BOUNDARY
+
+Authorized:
+
+* Locate the exact eight NSE-defaulting production sites recorded during Phase 0.6.
+* Correct those eight consumers and only the directly required shared identity contract.
+* Add or update targeted tests for these paths.
+* Add safe, explicit blocker responses where exact identity cannot be established.
+* Update generated types only if an existing public contract genuinely requires an additive identity/blocker field. Stop and report before doing so.
+
+Not authorized:
+
+* WebSocket expansion or sharding
+* Any new Kite subscription
+* Provider calls
+* Kite, Upstox, IndianAPI or Yahoo integration changes
+* Quote, OHLC, volume, OI or candle logic
+* Indicator calculations
+* Scanner evaluation
+* Trading thresholds or signals
+* Order or paper-trade behaviour
+* Exchange-calendar policy
+* Registry rebuild or source download
+* Database writes or schema changes
+* Scheduler changes
+* Authentication changes
+* UI redesign
+* Infrastructure migration
+* Dependency or lockfile changes
+* Deployment, merge or push
+* Safety-lock changes
+* Cleanup of deprecated `LIVE_TICKS` serialization
+* Work on Phase 0.5C deferred blockers
+
+If correct migration requires any prohibited change, stop with:
+
+`BLOCKED_SCOPE_EXPANSION_REQUIRES_OWNER_AUTHORIZATION`
+
+---
+
+## C. REQUIRED PRE-MODIFICATION INVENTORY
+
+Before changing code, identify all eight sites from the existing Phase 0.6 evidence and verify each against current source.
+
+For every site report:
+
+| Field                    | Required                                              |
+| ------------------------ | ----------------------------------------------------- |
+| File and function        | Exact location                                        |
+| Consumer category        | API, page, scheduler, scanner, chart, portfolio, etc. |
+| Current input            | Symbol, token, exchange, canonical id                 |
+| Existing NSE default     | Exact expression or control path                      |
+| Downstream use           | Display, calculation, signal, order or lookup         |
+| Ambiguity risk           | NSE/BSE dual listing possible?                        |
+| Intended corrected input | Exact canonical identity contract                     |
+| Failure behaviour        | Explicit blocker required                             |
+| Caller inventory         | Every direct caller                                   |
+| Test coverage            | Existing and required                                 |
+
+Do not rely only on grep totals. Trace the runtime call path for each site.
+
+If the previously reported count of eight is wrong, stop before editing and report the reconciled count with evidence. Do not silently change the scope.
+
+---
+
+## D. REPRODUCTION BEFORE MODIFICATION
+
+Create the smallest deterministic characterization necessary to demonstrate the defect.
+
+At minimum cover:
+
+1. An NSE-only instrument with an explicitly known NSE identity.
+2. A BSE-only instrument with an explicitly known BSE identity.
+3. The same trading symbol existing on NSE and BSE.
+4. An unknown symbol.
+5. An unqualified symbol with multiple exchange candidates.
+6. A canonical identity whose provider token is unavailable.
+7. An exact provider token resolving to one canonical identity.
+8. An invalid or malformed exchange value.
+
+Use deterministic local fixtures or existing accepted registry fixtures. Do not call live providers or rebuild the registry.
+
+Clearly label evidence:
+
+* `OBSERVED`
+* `TESTED`
+* `INFERRED`
+* `NOT_YET_VERIFIED`
+
+Do not call extracted or reconstructed behaviour “production reproduction.”
+
+---
+
+## E. CORRECT IDENTITY CONTRACT
+
+The corrected path must use the existing exchange-qualified runtime identity and Schema-5 authoritative registry.
+
+Preferred resolution order:
+
+1. Existing valid `canonicalInstrumentId`
+2. Exact provider instrument token mapped to one canonical identity
+3. Exact exchange plus exact trading symbol or official security identifier
+4. Explicit ambiguity or unavailable blocker
+
+Never resolve by:
+
+* Bare trading symbol alone when multiple candidates exist
+* Defaulting a missing exchange to NSE
+* Choosing the first search result
+* Fuzzy symbol matching
+* ISIN-deduplicating NSE and BSE listings
+* Reconstructing a provider token
+* Guessing from suffix or UI route
+* Substituting a neutral or zero value
+
+Cross-listed instruments remain separate:
+
+* `NSE:EQUITY:<symbol>`
+* `BSE:EQUITY:<symbol>`
+
+They have separate order books and must never collapse merely because symbol or ISIN matches.
+
+---
+
+## F. FAIL-CLOSED BEHAVIOUR
+
+Use explicit outcomes, not silent `null`, empty arrays or NSE fallback.
+
+Where compatible with the existing contract, use stable reason codes such as:
+
+* `CANONICAL_IDENTITY_REQUIRED`
+* `AMBIGUOUS_EXCHANGE`
+* `IDENTITY_NOT_FOUND`
+* `PROVIDER_TOKEN_NOT_MAPPED`
+* `INVALID_EXCHANGE`
+* `REGISTRY_UNAVAILABLE`
+* `REGISTRY_AUTHORITY_EXPIRED`
+
+Do not introduce these blindly. Reuse existing equivalent codes where present.
+
+For downstream calculations or actionable paths:
+
+* No identity → no quote
+* No exact quote → no calculation
+* No mandatory input → no actionable score or signal
+* No exact instrument → no paper trade or broker operation
+
+Return the exact blocker.
+
+---
+
+## G. CONSUMER COMPATIBILITY
+
+For every changed API or shared function:
+
+1. Inventory all callers before modifying its return type.
+2. Preserve compatible behaviour for explicit, unambiguous NSE requests.
+3. Preserve compatible behaviour for explicit BSE requests.
+4. Do not silently reinterpret old unqualified calls.
+5. If a public endpoint becomes stricter, update every in-repository consumer in this same bounded phase.
+6. Do not change generated API contracts unless required and authorized under Section B.
+
+Any public-contract change with unknown external consumers must stop with:
+
+`BLOCKED_PUBLIC_CONTRACT_CHANGE_REQUIRES_OWNER_REVIEW`
+
+---
+
+## H. REQUIRED TARGETED TESTS
+
+Tests must exercise real production functions, not hand-written replicas.
+
+Required minimum:
+
+1. Explicit NSE identity resolves correctly.
+2. Explicit BSE identity resolves correctly.
+3. Same symbol on NSE/BSE remains two identities.
+4. Ambiguous unqualified symbol is blocked.
+5. Unknown symbol is blocked.
+6. Invalid exchange is blocked.
+7. Exact provider token resolves correctly.
+8. Token mapped to another identity cannot be reassigned silently.
+9. BSE-only security never becomes NSE.
+10. NSE-only security remains compatible.
+11. No first-result selection.
+12. No symbol-only storage key is introduced.
+13. Every identified NSE-defaulting expression is removed.
+14. Every changed caller handles the blocker.
+15. No actionable downstream calculation proceeds without exact identity.
+16. All four safety locks remain `false as boolean`.
+
+Add consumer-specific tests for each of the eight sites. A source-inspection guard alone does not prove runtime correctness.
+
+---
+
+## I. COST-CONTROLLED VERIFICATION
+
+During implementation:
+
+* Use targeted tests only.
+* Use the narrowest relevant TypeScript project.
+* Do not start the dev server.
+* Do not run browsers.
+* Do not run production builds.
+* Do not run full api-server or scanner suites.
+* Do not download provider data.
+* Do not connect to development or production databases.
+* Do not restart any workflow.
+* Do not call Kite, Upstox, IndianAPI, Yahoo, NSE or BSE.
+
+After targeted checks pass, perform one independent diff review focused on:
+
+* remaining NSE defaults,
+* ambiguous-symbol paths,
+* exchange collapsing,
+* caller regressions,
+* invented identity fields,
+* public-contract changes,
+* unrelated file changes.
+
+Correct genuine review findings, then rerun the affected targeted tests and typecheck once.
+
+Do not run the complete package suites unless targeted evidence reveals a shared-contract risk that cannot be bounded. If that occurs, report why before spending the compute.
+
+---
+
+## J. CHANGE CONTROL
+
+Before checkpoint authorization, report:
+
+* exact changed-file list,
+* purpose of every changed file,
+* production vs test-only files,
+* additions and deletions,
+* any public contract changes,
+* all caller updates,
+* unrelated dirty files already present,
+* whether any auto-commit occurred.
+
+Do not commit, push, merge, deploy, reset, revert, rebase, cherry-pick or rewrite history.
+
+If Replit auto-commits source changes, stop immediately and report:
+
+* commit SHA,
+* author,
+* exact committed-file list,
+* containment status,
+* whether `main`, origin or production changed.
+
+Do not attempt to repair history without owner authorization.
+
+---
+
+## K. SAFETY LOCKS
+
+These must remain exactly:
+
+```ts
+FNO_PAPER_V2_RUNTIME_AUTHORIZED = false as boolean
+SWING_PAPER_V2_RUNTIME_AUTHORIZED = false as boolean
+FULL_NSE_WAREHOUSE_POPULATION_AUTHORIZED = false as boolean
+SCANNER_KITE_CANDLE_EVALUATION_AUTHORIZED = false as boolean
+```
+
+No subscription expansion and no evaluation activation are authorized.
+
+---
+
+## L. REQUIRED FINAL REPORT
+
+Report:
+
+1. Reconciled list of all eight legacy sites.
+2. Exact failure mechanism at each site.
+3. Before/after identity flow.
+4. Exact resolution order implemented.
+5. Fail-closed codes and affected consumers.
+6. Caller inventory and compatibility result.
+7. Targeted tests executed and results.
+8. TypeScript result.
+9. Independent diff-review findings and corrections.
+10. Exact changed-file list and diff summary.
+11. Confirmation of zero provider calls, database operations, downloads, server restarts, builds and browser sessions.
+12. Four safety-lock values.
+13. Git status and auto-commit status.
+14. Remaining limitations and evidence not yet obtained.
+
+Required verdict only if all eight consumers are migrated:
+
+`LEGACY_NSE_DEFAULTING_ELIMINATED_IN_DEVELOPMENT — EXACT_EXCHANGE_QUALIFIED_IDENTITY_REQUIRED — AMBIGUOUS_AND_MISSING_IDENTITIES_FAIL_CLOSED — ZERO_SUBSCRIPTION_EXPANSION — OWNER_CHECKPOINT_AUTHORIZATION_REQUIRED`
+
+If even one site remains:
+
+`PHASE_0_7A_BLOCKED — LEGACY_NSE_DEFAULTING_REMAINS`
+
+Stop after the report. Do not begin boot-time restoration, subscription expansion, cross-tab migration or deployment.

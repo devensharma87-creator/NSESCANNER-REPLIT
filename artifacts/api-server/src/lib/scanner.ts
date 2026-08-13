@@ -1,5 +1,5 @@
 import type { Indicators, Quote, StockHistory, StockRow } from "@workspace/api-zod";
-import { UNIVERSE, INACTIVE_SYMBOLS, KITE_NSE_SYMBOL_OVERRIDE, type UniverseEntry } from "./universe";
+import { UNIVERSE, INACTIVE_SYMBOLS, KITE_NSE_SYMBOL_OVERRIDE, CURATED_UNIVERSE_EXCHANGE, type UniverseEntry } from "./universe";
 import {
   SCANNER_KITE_CANDLE_EVALUATION_AUTHORIZED,
   CANDLE_EVALUATION_LOCKED_CODE,
@@ -152,7 +152,10 @@ function quoteFromChart(
   return {
     symbol: entry.symbol,
     name: meta.longName ?? meta.shortName ?? entry.name,
-    exchange: meta.exchangeName ?? "NSE",
+    // Phase 0.7A: the curated table declares the exchange its symbols are
+    // listed on. Yahoo's `meta.exchangeName` is a provider label ("NSI"), not a
+    // canonical exchange, and defaulting it to "NSE" invented an identity.
+    exchange: CURATED_UNIVERSE_EXCHANGE,
     price: round2(price),
     change: round2(change),
     changePercent: round2(changePct),
@@ -329,7 +332,9 @@ async function buildRowFromKiteCandles(
   // Phase B Gate 1: read Kite daily candles from the canonical candle store.
   // This is a synchronous Map lookup — zero Kite HTTP calls on the UI path.
   // The background refresh (kiteCandleStore.ts) keeps the store current.
-  const storeEntry = getKiteCandleSeries(entry.symbol);
+  // Phase 0.7A: the universe declares its own exchange; this call site does
+  // not assume one.
+  const storeEntry = getKiteCandleSeries(entry.symbol, CURATED_UNIVERSE_EXCHANGE);
   const kiteChart = storeEntry.chart;
   // null chart covers: pending (store not yet populated), unavailable (Kite
   // offline), and insufficient<MIN_DISPLAY_BARS.  Return null to let buildRow()
@@ -368,7 +373,8 @@ async function buildRowFromKiteCandles(
   const quote: Quote = {
     symbol:        entry.symbol,
     name:          entry.name,
-    exchange:      "NSE",
+    // Phase 0.7A: declared by the curated universe, not by this call site.
+    exchange:      CURATED_UNIVERSE_EXCHANGE,
     price:         round2(kiteQuote.lastPrice),
     change:        round2(change),
     changePercent: round2(changePct),

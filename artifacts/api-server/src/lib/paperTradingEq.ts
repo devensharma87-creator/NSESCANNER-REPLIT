@@ -52,6 +52,7 @@ import {
   getEqWeeklyRealizedDrawdown,
 } from "./paperAccount";
 import { logger } from "./logger";
+import { normalizeCanonicalExchange } from "./canonicalInstrument";
 import { isPaperAutoTradingEnabled } from "./paperAutoTradeFlag";
 import { recordEqDecision, pushEqEvent, type EqEventType } from "./paperEqAudit";
 import type { SwingSignal } from "./swingSignals";
@@ -386,6 +387,28 @@ export async function openPaperEquityTrade(
     logger.info(
       { source: opts?.source ?? "AUTO", symbol: signal.symbol },
       "openPaperEquityTrade: C0 hard-block — non-MANUAL open rejected before any DB access",
+    );
+    return null;
+  }
+
+  // Phase 0.7A — writer-level exchange-identity gate.
+  // Every caller (AUTO tick, MANUAL override, staged approval, and any future
+  // one) funnels through this function, and `signal.exchange` is persisted
+  // verbatim into paper_trade_eq.exchange. A gate placed only in a caller can
+  // be bypassed; this one cannot. It runs before any DB access, so the refusal
+  // is independent of DB state.
+  const signalExchange = normalizeCanonicalExchange(signal.exchange);
+  if (signalExchange == null) {
+    logger.warn(
+      {
+        symbol: signal.symbol,
+        source: opts?.source ?? "AUTO",
+        signalExchange: signal.exchange,
+        code: signal.exchange == null || signal.exchange === ""
+          ? "CANONICAL_IDENTITY_REQUIRED"
+          : "INVALID_EXCHANGE",
+      },
+      "openPaperEquityTrade: signal is not exchange-qualified — refusing to open before any DB access",
     );
     return null;
   }
@@ -822,7 +845,10 @@ export async function openPaperEquityTrade(
         .values({
           symbol: insertCore.symbol,                          // validatedFill.instrument (Phase-B verified)
           name: signal.name,
-          exchange: signal.exchange,
+          // Phase 0.7A: persist the value the gate validated, not the raw field —
+          // " nse " passes normalisation but must never be stored as its own
+          // representation of the same order book.
+          exchange: signalExchange,
           signalDate: today,
           signalTriggeredAt: now,
           qty,
@@ -1130,11 +1156,23 @@ export async function openManualPaperEquityTrade(
   const r = entryPrice - stopPrice;
   const target1Price = entryPrice + 2 * r;
   const target2Price = entryPrice + 3 * r;
+  // Phase 0.7A: the manual lane must not fabricate an identity for the writer
+  // gate to rubber-stamp. The exchange comes from the scanner row's own quote —
+  // the listing that was actually priced — and an unqualified row is refused
+  // with a reason the UI can show.
+  const rowExchange = normalizeCanonicalExchange(row.quote.exchange);
+  if (rowExchange == null) {
+    return {
+      row: null,
+      reason: `${row.symbol}: the scanner row does not name a recognised exchange (NSE or BSE), so the position cannot be tied to an exact listing.`,
+    };
+  }
+
   const now = new Date();
   const signal: SwingSignal = {
     symbol: row.symbol,
     name: row.name,
-    exchange: "NSE",
+    exchange: rowExchange,
     triggeredAt: now,
     signalDate: istDateKey(now),
     score: row.recommendation.score,
@@ -1471,6 +1509,26 @@ export async function hasOpenEquityTrade(symbol: string): Promise<boolean> {
 export async function openPaperEquityTradeFromStagedOrder(
   stagingRow: SwingOrderStagingRow,
 ): Promise<PaperTradeEqRow | null> {
+  // Phase 0.7A: the staged row must name the exchange it was staged on. It
+  // used to fall back to "NSE", so an order staged without an exchange — or
+  // staged on BSE with a malformed value — opened an NSE position under a
+  // symbol that may trade on both. A paper position is a persisted financial
+  // record: no exact instrument, no trade. This is the FIRST check in the
+  // function, before any other work.
+  const stagedExchange = normalizeCanonicalExchange(stagingRow.exchange);
+  if (stagedExchange == null) {
+    logger.warn(
+      {
+        stagingId: stagingRow.id,
+        symbol: stagingRow.symbol,
+        stagedExchange: stagingRow.exchange,
+        code: stagingRow.exchange == null ? "CANONICAL_IDENTITY_REQUIRED" : "INVALID_EXCHANGE",
+      },
+      "openPaperEquityTradeFromStagedOrder: staged order is not exchange-qualified — refusing to open",
+    );
+    return null;
+  }
+
   const now = new Date();
   const ist = new Date(now.getTime() + 5.5 * 60 * 60 * 1000);
   const signalDate = ist.toISOString().slice(0, 10);
@@ -1492,7 +1550,7 @@ export async function openPaperEquityTradeFromStagedOrder(
   const signal: SwingSignal = {
     symbol: stagingRow.symbol,
     name: stagingRow.symbol,              // no dedicated name column in staging
-    exchange: stagingRow.exchange ?? "NSE",
+    exchange: stagedExchange,
     triggeredAt: now,
     signalDate,
     score: 0,                             // score not persisted in staging row

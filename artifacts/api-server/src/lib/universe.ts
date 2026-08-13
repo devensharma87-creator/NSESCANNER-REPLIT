@@ -1,5 +1,15 @@
 // Curated NSE universe across major sectors.
 // Symbol is the NSE ticker (no .NS suffix); Yahoo Finance accessed as `${symbol}.NS`.
+
+/**
+ * The exchange this universe is DEFINED in. Every `UniverseEntry.symbol` below
+ * is an NSE trading symbol by construction of the table, so consumers must read
+ * the exchange from this declaration rather than assuming NSE per call site
+ * (Phase 0.7A). If a non-NSE listing is ever added here, this table has to be
+ * split per exchange — a second exchange cannot be smuggled in under a symbol.
+ */
+export const CURATED_UNIVERSE_EXCHANGE = "NSE" as const;
+
 export interface UniverseEntry {
   symbol: string;        // canonical NSE ticker used everywhere in the app
   name: string;

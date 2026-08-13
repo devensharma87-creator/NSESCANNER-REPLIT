@@ -1,0 +1,36 @@
+Continue Phase 0.7A closure only. Do not checkpoint yet.
+
+Correct instrumentResolver.ts so an absent preferExchange never silently prefers NSE when multiple exchange candidates exist.
+Preserve compatibility when:
+the caller explicitly provides NSE or BSE;
+the symbol resolves uniquely across the authoritative master.
+When an unqualified symbol has NSE and BSE candidates, return an explicit ambiguity result containing safe candidate identities. Do not choose the first result.
+Inventory every caller of the affected resolver function and update each caller to handle ambiguity. Stop if this changes an unknown public contract.
+Add targeted tests for:
+explicit NSE;
+explicit BSE;
+unique unqualified symbol;
+dual-listed unqualified symbol;
+invalid exchange;
+unknown symbol;
+deterministic results independent of master-file order.
+Correct the migration report: committing or deploying the SQL file does not execute it. Document the production migration as a separate owner-authorized post-deployment operation with:
+pre-check of the current default;
+one idempotent schema-only execution;
+post-check showing column_default IS NULL;
+unchanged row count;
+rollback SQL restoring the previous default only if separately authorized.
+Do not execute anything against production.
+Trace every production consumer of kite_candle_store and prove what happens when a row is PROVENANCE_UNVERIFIABLE.
+Such rows must not authorize actionable indicators, signals, paper trades or orders. If current consumers still treat them as authoritative, stop and report the exact paths; do not expand this phase without authorization.
+Reconcile the development-database mutation disclosure: the earlier instruction authorized preparation and read-only inspection, not a development migration execution. Record that the migration was executed, its exact effect and that no row data changed.
+
+Use targeted tests only. Do not run full suites, builds, providers, registry rebuilds, server restarts or browsers. Do not commit, push, merge or deploy.
+
+Required verdict only when complete:
+
+PHASE_0_7A_READY_FOR_CHECKPOINT — ALL_SILENT_NSE_PREFERENCES_ELIMINATED — PRODUCTION_MIGRATION_EXPLICITLY_PENDING — UNVERIFIABLE_HISTORICAL_CANDLES_CANNOT_AUTHORIZE_ACTIONABLE_OUTPUTS — OWNER_CHECKPOINT_AUTHORIZATION_REQUIRED
+
+Otherwise:
+
+PHASE_0_7A_BLOCKED — IDENTITY_OR_CANDLE_AUTHORITY_GAP_REMAINS

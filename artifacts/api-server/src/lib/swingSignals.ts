@@ -38,6 +38,7 @@ import { atr } from "./indicators";
 import { fetchChart } from "./marketData/analyticsYahoo";
 import { logger } from "./logger";
 import { getEntry } from "./universe";
+import { normalizeCanonicalExchange } from "./canonicalInstrument";
 
 interface SectorStrength {
   avgChangePercent: number;
@@ -345,10 +346,22 @@ export async function buildSwingSignalFromRow(
     );
   }
 
+  // Phase 0.7A: the signal names the listing the scanner actually priced. A row
+  // whose quote does not carry a recognised exchange produces no signal rather
+  // than an NSE-shaped guess.
+  const rowExchange = normalizeCanonicalExchange(row.quote.exchange);
+  if (rowExchange == null) {
+    logger.warn(
+      { symbol: row.symbol, exchange: row.quote.exchange },
+      "Swing skip: scanner row is not exchange-qualified (NSE or BSE) — no signal emitted",
+    );
+    return null;
+  }
+
   return {
     symbol: row.symbol,
     name: row.name,
-    exchange: "NSE",
+    exchange: rowExchange,
     triggeredAt: now,
     signalDate: istDateKey(now),
     score: row.recommendation.score,

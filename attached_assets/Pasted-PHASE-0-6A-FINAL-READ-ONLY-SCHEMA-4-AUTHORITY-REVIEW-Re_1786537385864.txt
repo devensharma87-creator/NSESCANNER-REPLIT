@@ -1,0 +1,104 @@
+PHASE 0.6A — FINAL READ-ONLY SCHEMA-4 AUTHORITY REVIEW
+
+Read-only review only.
+
+Do not edit, test, build, benchmark, download, write to a database, restart, commit, deploy, push or merge.
+
+Review the final schema-4 implementation and existing evidence.
+
+1. CALENDAR SESSION TIMES
+
+Verify that:
+
+- Regular NSE/BSE sessions use their official scheduled close.
+- Special/Muhurat sessions use their own officially sourced open/close times.
+- 15:30 IST is not universally applied to every session type.
+- A special session without authoritative timing fails closed.
+- Latest-completed-session logic compares against the selected session’s own close.
+- NSE and BSE session times remain independently sourced.
+
+If 15:30 is applied universally, return:
+
+PHASE_0_6A_BLOCKED — SPECIAL_SESSION_TIME_NOT_AUTHORITATIVE
+
+Do not fix it in this review.
+
+2. SOURCE AUTHORITY
+
+Verify:
+
+- NSE calendar came from an official NSE source.
+- BSE holiday data came from content served by BSE’s official application/domain.
+- BSE parser rejects partial, truncated, bot-blocked or mixed-content payloads.
+- Source bytes, hashes, retrieval timestamps and effective year are retained.
+- UDiFF confirms a completed trading session but is not incorrectly treated as the annual holiday calendar.
+- Later official special-session circulars can override annual calendar entries with provenance.
+- Equal-priority conflicts fail closed.
+
+3. DURABLE CALENDAR COMMITMENT
+
+Verify schema 4:
+
+- Embeds normalized calendar sessions.
+- Hashes every embedded session.
+- Recomputes the calendar checksum on load.
+- Re-derives the claimed latest completed session from embedded sessions.
+- Does not trust a stored boolean/date assertion.
+- Rejects schema-1/2/3 rows as incompatible.
+- Preserves old rows without selecting them.
+- Binds schema and policy versions into generation identity.
+- Cannot accept a fabricated session date with a self-consistent outer manifest checksum.
+
+4. SUBSCRIPTION COUNT CLARIFICATION
+
+Explain separately:
+
+- authoritative LIVE_REQUIRED identity count
+- mapped live identity count
+- current legacy configured subscription count
+- subscriptions observed inside the one-shot proof
+- actual provider subscribe/unsubscribe operations performed
+
+Resolve why the report says `subscriptions requested: 0` while previous runtime configuration was approximately 58.
+
+Confirm that no subscription expansion occurred.
+
+5. DATABASE EVIDENCE
+
+Report read-only evidence already available for:
+
+- development database identity
+- schema-4 generation ID
+- schema-4 row/snapshot count
+- schema-1/2/3 rows retained
+- cold-load checksum result
+- production database table absence
+- no production mutation
+
+Do not query or write again if the existing captured evidence is sufficient.
+
+6. DATED DEPENDENCY
+
+Record:
+
+2027_EXCHANGE_CALENDAR_REQUIRED_BEFORE_2027_REGISTRY_REFRESH
+
+Confirm:
+
+- Unknown calendar year fails closed.
+- No third-party or weekday-only fallback exists.
+- No schema-4 generation can become authoritative outside the covered official calendar year.
+
+7. FINAL REVIEW
+
+Report any P0/P1/P2 issue and whether the implementation is safe to checkpoint.
+
+Required verdict:
+
+PHASE_0_6A_SCHEMA_4_READY_FOR_CHECKPOINT_AUTHORIZATION
+
+or:
+
+PHASE_0_6A_BLOCKED — [exact issue]
+
+Stop after the report.

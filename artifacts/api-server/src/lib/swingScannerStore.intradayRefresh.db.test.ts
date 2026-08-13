@@ -139,6 +139,7 @@ function makeQuote(symbol: string, last: number, high?: number, close?: number):
   return {
     symbol,
     name: symbol,
+    exchange: "NSE",
     lastPrice: last,
     open: last,
     high: h,

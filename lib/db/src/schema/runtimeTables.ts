@@ -124,12 +124,18 @@ export const systemAlertState = pgTable("system_alert_state", {
  * offers to DROP it on next Publish.
  *
  * Column types match the live DDL in kiteCandleStore.ts exactly.
+ *
+ * Phase 0.7A (2026-08-13): `exchange` no longer carries `.default("NSE")`.
+ * The runtime DDL dropped that default so an omitted exchange is a failed
+ * write rather than a row that merely looks NSE-qualified. This declaration
+ * feeds the drizzle-kit push diff, so leaving the default here would have
+ * re-asserted in production exactly what the runtime DDL removed.
  */
 export const kiteCandleStore = pgTable(
   "kite_candle_store",
   {
     symbol:           text("symbol").notNull(),
-    exchange:         text("exchange").notNull().default("NSE"),
+    exchange:         text("exchange").notNull(),
     timeframe:        text("timeframe").notNull().default("day"),
     sessionDate:      date("session_date"),
     barCount:         integer("bar_count"),

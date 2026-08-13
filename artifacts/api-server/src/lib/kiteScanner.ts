@@ -28,9 +28,20 @@ export interface KiteScannerInstrument {
   name: string;
 }
 
+/**
+ * Phase 0.7A: the exchange these scanner quotes are requested on. It is used
+ * BOTH to build the Kite `<EXCHANGE>:<SYMBOL>` quote key and to stamp
+ * `KiteScannerQuote.exchange`, so the field can never disagree with the order
+ * book the price actually came from. Consumers read the field instead of
+ * hard-coding "NSE" at their own layer.
+ */
+export const KITE_SCANNER_QUOTE_EXCHANGE = "NSE" as const;
+
 export interface KiteScannerQuote {
   symbol: string;
   name: string;
+  /** Exchange the quote was requested on — never inferred by the consumer. */
+  exchange: typeof KITE_SCANNER_QUOTE_EXCHANGE;
   lastPrice: number;
   open: number;
   high: number;
@@ -415,7 +426,7 @@ export async function loadKiteQuotes(symbols: string[]): Promise<Map<string, Kit
 
   for (let i = 0; i < symbols.length; i += QUOTE_BATCH) {
     const slice = symbols.slice(i, i + QUOTE_BATCH);
-    const keys = slice.map(s => `NSE:${s}`);
+    const keys = slice.map(s => `${KITE_SCANNER_QUOTE_EXCHANGE}:${s}`);
     let raw: Record<string, KiteRawQuote>;
     try {
       raw = (await ctx.kc.getQuote(keys)) as Record<string, KiteRawQuote>;
@@ -429,7 +440,7 @@ export async function loadKiteQuotes(symbols: string[]): Promise<Map<string, Kit
       continue;
     }
     for (const sym of slice) {
-      const q = raw[`NSE:${sym}`];
+      const q = raw[`${KITE_SCANNER_QUOTE_EXCHANGE}:${sym}`];
       if (!q) continue;
       const lp = q.last_price;
       const close = q.ohlc?.close;
@@ -447,6 +458,7 @@ export async function loadKiteQuotes(symbols: string[]): Promise<Map<string, Kit
       out.set(sym, {
         symbol: sym,
         name: nameLookup.get(sym)?.name ?? sym,
+        exchange: KITE_SCANNER_QUOTE_EXCHANGE,
         lastPrice: lp,
         open,
         high,

@@ -543,6 +543,12 @@ router.get("/portfolio/resolve-debug", requireSubscriberOrOwner(), (req, res) =>
       input,
       normalized: r.normalized,
       resolved: r.resolved,
+      // Phase 0.7A: RESOLVED | UNRESOLVED | AMBIGUOUS. A dual-listed symbol
+      // asked for without an exchange reports both candidate identities here
+      // instead of resolving to the NSE listing by default. This route states
+      // preferExchange, so it sees AMBIGUOUS only if that ever changes.
+      outcome: r.outcome,
+      candidates: r.candidates,
       matchedVia: r.matched_via,
       reason: r.reason,
       attempts: r.attempts,

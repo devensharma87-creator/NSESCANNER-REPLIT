@@ -502,6 +502,14 @@ export type NseSecurityReference = Map<string, {
  *  17. EQ + NSE, nseRef + not found  → UNRESOLVED_SECURITY_TYPE    (UNRESOLVED)
  *  18. All others                    → OTHER_UNSUPPORTED            (UNRESOLVED)
  */
+/**
+ * The ONLY exchange this classifier can return an affirmative verdict for.
+ * Gate 2 below compares against this constant, so any consumer that reads it
+ * is reading the exchange the classifier actually enforces rather than
+ * assuming one (Phase 0.7A). Anything else is OTHER_UNSUPPORTED.
+ */
+export const ELIGIBLE_INSTRUMENT_EXCHANGE = "NSE" as const;
+
 export function classifyInstrument(opts: {
   symbol: string;
   name: string;
@@ -599,7 +607,7 @@ export function classifyInstrument(opts: {
   }
 
   // ── 2. Exchange check ──────────────────────────────────────────────────────
-  if (exchange !== "NSE") {
+  if (exchange !== ELIGIBLE_INSTRUMENT_EXCHANGE) {
     return makeResult(
       "OTHER_UNSUPPORTED",
       "UNRESOLVED",

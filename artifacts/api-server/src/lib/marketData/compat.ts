@@ -143,6 +143,10 @@ export { getLiveQuote as centralLiveQuote } from "../kiteFeed";
  */
 export { loadKiteQuotes as centralBatchEquityQuotes } from "../kiteScanner";
 export type { KiteScannerQuote } from "../kiteScanner";
+// Phase 0.7A: the exchange scanner quotes are requested on. Consumers that
+// build a KiteScannerQuote-shaped row read it from here instead of writing
+// their own "NSE" literal.
+export { KITE_SCANNER_QUOTE_EXCHANGE } from "../kiteScanner";
 
 // ─── Kite instrument resolution compat ──────────────────────────────────
 

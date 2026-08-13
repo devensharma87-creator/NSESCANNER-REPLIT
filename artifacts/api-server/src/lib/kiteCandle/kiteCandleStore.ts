@@ -28,7 +28,14 @@ import { sql } from "drizzle-orm";
 import { logger } from "../logger";
 import { centralEquityCandles } from "../marketData/compat";
 import type { YahooChart } from "../marketData/analyticsYahoo";
-import { UNIVERSE, INACTIVE_SYMBOLS, KITE_NSE_SYMBOL_OVERRIDE, validateKiteSymbolOverrides } from "../universe";
+import {
+  UNIVERSE,
+  INACTIVE_SYMBOLS,
+  KITE_NSE_SYMBOL_OVERRIDE,
+  validateKiteSymbolOverrides,
+  CURATED_UNIVERSE_EXCHANGE,
+} from "../universe";
+import { normalizeCanonicalExchange, type CanonicalExchange } from "../canonicalInstrument";
 import { centralKiteNseEqInstruments } from "../marketData/compat";
 import { kiteHistoricalBucket, type TokenBucketMetrics } from "./tokenBucket";
 
@@ -43,7 +50,12 @@ export type KiteCandleStatus =
 
 export interface KiteCandleEntry {
   symbol: string;
-  exchange: string;
+  /**
+   * Phase 0.7A: closed-set exchange. Entries arriving from the database or
+   * from another module are validated before they are keyed; an unrecognised
+   * exchange is dropped, never coerced to NSE.
+   */
+  exchange: CanonicalExchange;
   timeframe: string;
   sessionDate: string | null;   // YYYY-MM-DD IST date of last completed bar
   barCount: number;             // number of bars in chart (0 when chart is null)
@@ -295,8 +307,27 @@ let schemaEnsurePromise: Promise<void> | null = null;
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-function cacheKey(symbol: string, exchange = "NSE", timeframe = "day"): string {
+/**
+ * Phase 0.7A: the exchange is a REQUIRED, exchange-qualified argument. It used
+ * to default to "NSE", so a caller that simply forgot it silently wrote (or
+ * read) an NSE-keyed row — and a BSE listing of the same symbol would have
+ * overwritten the NSE one. `CanonicalExchange` is a closed set, so an
+ * unqualified call no longer compiles.
+ */
+function cacheKey(symbol: string, exchange: CanonicalExchange, timeframe: string): string {
   return `${exchange}:${timeframe}:${symbol}`;
+}
+
+/**
+ * Key an entry whose `exchange` came from an untrusted boundary (a database
+ * row, or an entry handed in by another module). Returns null — never an
+ * assumed NSE key — when the exchange is missing or outside {NSE, BSE}, so the
+ * row is dropped rather than filed under the wrong order book.
+ */
+function cacheKeyForEntry(entry: KiteCandleEntry): string | null {
+  const exchange = normalizeCanonicalExchange(entry.exchange);
+  if (exchange == null) return null;
+  return cacheKey(entry.symbol, exchange, entry.timeframe);
 }
 
 function sleep(ms: number): Promise<void> {
@@ -336,9 +367,16 @@ export async function ensureKiteCandleSchema(): Promise<void> {
   if (!schemaEnsurePromise) {
     schemaEnsurePromise = (async () => {
       await db.execute(sql`
+        -- Phase 0.7A: the exchange column deliberately has NO default. A default
+        -- of 'NSE' made any writer that omitted the column produce a row that
+        -- looks exchange-qualified, which restore-time validation cannot
+        -- detect, count or reject. Every writer must state the exchange.
+        -- Existing databases created before this change still carry the old
+        -- default until docs/migrations/kite_candle_store_exchange_drop_default.sql
+        -- is applied — that ALTER is deliberately NOT executed from runtime.
         CREATE TABLE IF NOT EXISTS kite_candle_store (
           symbol              TEXT NOT NULL,
-          exchange            TEXT NOT NULL DEFAULT 'NSE',
+          exchange            TEXT NOT NULL,
           timeframe           TEXT NOT NULL DEFAULT 'day',
           session_date        DATE,
           bar_count           INT,
@@ -373,7 +411,8 @@ interface DbRow {
   error_code: string | null;
 }
 
-function dbRowToEntry(row: DbRow): KiteCandleEntry {
+/** Returns null when the row is not exchange-qualified (Phase 0.7A). */
+function dbRowToEntry(row: DbRow): KiteCandleEntry | null {
   let chart: YahooChart | null = null;
   if (row.bars_json && typeof row.bars_json === "object") {
     chart = row.bars_json as YahooChart;
@@ -388,9 +427,16 @@ function dbRowToEntry(row: DbRow): KiteCandleEntry {
   const effectiveStatus: KiteCandleStatus =
     rawStatus === "ok" && ageMs > STALE_THRESHOLD_MS ? "stale" : rawStatus;
 
+  // Phase 0.7A: the stored exchange is untrusted text. A row that does not
+  // carry a recognised exchange is dropped by the caller — it is never read
+  // back as NSE, because that would resurrect a mis-filed row under the wrong
+  // order book.
+  const exchange = normalizeCanonicalExchange(row.exchange);
+  if (exchange == null) return null;
+
   return {
     symbol: row.symbol,
-    exchange: row.exchange,
+    exchange,
     timeframe: row.timeframe,
     sessionDate: row.session_date ?? null,
     barCount,
@@ -411,15 +457,63 @@ async function loadFromDb(): Promise<number> {
   `)) as unknown as { rows: DbRow[] };
 
   let loaded = 0;
+  let rejectedExchange = 0;
   for (const row of result.rows ?? []) {
     const entry = dbRowToEntry(row);
-    memCache.set(cacheKey(entry.symbol, entry.exchange, entry.timeframe), entry);
+    if (entry == null) {
+      rejectedExchange++;
+      continue;
+    }
+    const key = cacheKeyForEntry(entry);
+    if (key == null) {
+      rejectedExchange++;
+      continue;
+    }
+    memCache.set(key, entry);
     loaded++;
+  }
+  if (rejectedExchange > 0) {
+    logger.warn(
+      { rejectedExchange, loaded },
+      "kiteCandleStore: rows rejected on restore — INVALID_EXCHANGE (not restored under an assumed exchange)",
+    );
   }
   return loaded;
 }
 
+/**
+ * Phase 0.7A — the exchange an L2 write is allowed to persist.
+ *
+ * `kite_candle_store.exchange` no longer carries a column default, so an
+ * omitted or unrecognised exchange is a failed write rather than a silent
+ * 'NSE' row. This validator is the single decision point for that, and
+ * `upsertToDb` — the only function in the codebase that writes the table —
+ * calls it before touching the database.
+ */
+function validateWriteExchange(entry: Pick<KiteCandleEntry, "symbol" | "exchange">): CanonicalExchange | null {
+  return normalizeCanonicalExchange(entry.exchange);
+}
+
 async function upsertToDb(entry: KiteCandleEntry): Promise<void> {
+  // Fail closed BEFORE any SQL: a row that cannot name its order book is not
+  // written at all. Callers treat L2 as best-effort, so this refusal is logged
+  // rather than thrown — but nothing reaches the INSERT.
+  const writeExchange = validateWriteExchange(entry);
+  if (writeExchange == null) {
+    logger.warn(
+      {
+        symbol: entry.symbol,
+        exchange: entry.exchange,
+        timeframe: entry.timeframe,
+        code: entry.exchange == null || String(entry.exchange).trim() === ""
+          ? "CANONICAL_IDENTITY_REQUIRED"
+          : "INVALID_EXCHANGE",
+      },
+      "kiteCandleStore: L2 write refused — entry is not exchange-qualified (no row written)",
+    );
+    return;
+  }
+
   const barsJsonStr = entry.chart ? JSON.stringify(entry.chart) : null;
   const sessionDateStr = entry.sessionDate ?? null;
   const fetchedAtStr = entry.fetchedAt?.toISOString() ?? null;
@@ -429,7 +523,7 @@ async function upsertToDb(entry: KiteCandleEntry): Promise<void> {
       (symbol, exchange, timeframe, session_date, bar_count, bars_json,
        fetched_at, status, error_code, refresh_attempt_at)
     VALUES
-      (${entry.symbol}, ${entry.exchange}, ${entry.timeframe},
+      (${entry.symbol}, ${writeExchange}, ${entry.timeframe},
        ${sessionDateStr}::date, ${entry.barCount},
        ${barsJsonStr}::jsonb,
        ${fetchedAtStr}::timestamptz,
@@ -567,15 +661,20 @@ export function getCuratedRefreshDueAt(): Date | null {
 // ─── Public read API (zero Kite calls) ───────────────────────────────────────
 
 /**
- * Return the cached candle entry for a symbol.
+ * Return the cached candle entry for a symbol on a SPECIFIC exchange.
  * NEVER triggers a Kite HTTP call — reads from in-memory L1 only.
  *
  * Returns a synthetic 'pending' entry for symbols not yet in the store.
  * Callers must treat chart===null as "data unavailable" and fall back accordingly.
+ *
+ * Phase 0.7A: `exchange` is required. It previously defaulted to "NSE", so a
+ * caller holding a BSE symbol silently read the NSE series for the same
+ * trading symbol. The two listings have separate order books and separate
+ * candles, and they stay separate here.
  */
 export function getKiteCandleSeries(
   symbol: string,
-  exchange = "NSE",
+  exchange: CanonicalExchange,
   timeframe = "day",
 ): KiteCandleEntry {
   const key = cacheKey(symbol, exchange, timeframe);
@@ -775,7 +874,9 @@ export function getSymbolsForMode(mode: RefreshMode): string[] {
   const today = todayIst();
 
   return active.filter(sym => {
-    const key = cacheKey(sym, "NSE", "day");
+    // Phase 0.7A: the exchange comes from the universe's own declaration
+    // (CURATED_UNIVERSE_EXCHANGE), not from a literal typed at this call site.
+    const key = cacheKey(sym, CURATED_UNIVERSE_EXCHANGE, "day");
     const entry = memCache.get(key);
     switch (mode) {
       case "INCREMENTAL":
@@ -807,14 +908,17 @@ export function getSymbolsForMode(mode: RefreshMode): string[] {
  *
  * @param symbol       Canonical universe symbol (e.g. "LTIM", "ZOMATO")
  * @param kiteSymbol   Resolved Kite NSE trading symbol (from override or == symbol)
+ * @param exchange     Exchange the symbol was drawn from. Phase 0.7A: supplied
+ *                     by the caller from the source's own declaration; this
+ *                     function no longer stamps every entry "NSE" itself.
  * @param rateLimiter  Token-bucket limiter — must acquire a token before each request
  */
 async function fetchEntryFromKite(
   symbol: string,
   kiteSymbol: string,
+  exchange: CanonicalExchange,
   rateLimiter: typeof kiteHistoricalBucket,
 ): Promise<KiteCandleEntry> {
-  const exchange = "NSE";
   const timeframe = "day";
   const MAX_RETRIES = 1; // one retry after a 429
 
@@ -1022,12 +1126,12 @@ export async function runKiteCandleRefresh(mode: RefreshMode = "FULL"): Promise<
         if (aliasStatus === "INSTRUMENT_IDENTITY_UNRESOLVED") {
           instrumentUnresolvedCount++;
           const entry: KiteCandleEntry = {
-            symbol, exchange: "NSE", timeframe: "day",
+            symbol, exchange: CURATED_UNIVERSE_EXCHANGE, timeframe: "day",
             sessionDate: null, barCount: 0, chart: null,
             fetchedAt: new Date(), status: "unavailable",
             errorCode: "INSTRUMENT_IDENTITY_UNRESOLVED",
           };
-          memCache.set(cacheKey(symbol, "NSE", "day"), entry);
+          memCache.set(cacheKey(symbol, CURATED_UNIVERSE_EXCHANGE, "day"), entry);
           try { await upsertToDb(entry); } catch { /* best-effort */ }
           errors.push({ symbol, errorCode: "INSTRUMENT_IDENTITY_UNRESOLVED" });
           failCount++;
@@ -1035,7 +1139,14 @@ export async function runKiteCandleRefresh(mode: RefreshMode = "FULL"): Promise<
         }
 
         kiteRequests++;
-        const entry = await fetchEntryFromKite(symbol, kiteSymbol, kiteHistoricalBucket);
+        // The symbol set for this loop is the curated universe, whose exchange
+        // is declared by the universe table itself (Phase 0.7A).
+        const entry = await fetchEntryFromKite(
+          symbol,
+          kiteSymbol,
+          CURATED_UNIVERSE_EXCHANGE,
+          kiteHistoricalBucket,
+        );
 
         // Update L1 immediately (stale-while-revalidate: serves the old value
         // to concurrent readers until the new one arrives).
@@ -1195,7 +1306,18 @@ function scheduleNextRefresh(): void {
  * L2 write is best-effort — L1 is always updated.
  */
 export async function storeKiteCandleEntry(entry: KiteCandleEntry): Promise<void> {
-  memCache.set(cacheKey(entry.symbol, entry.exchange, entry.timeframe), entry);
+  // Phase 0.7A: an entry handed in by another module is an untrusted boundary.
+  // An unrecognised exchange is refused outright rather than being stored under
+  // an assumed NSE key.
+  const key = cacheKeyForEntry(entry);
+  if (key == null) {
+    logger.warn(
+      { symbol: entry.symbol, exchange: entry.exchange },
+      "kiteCandleStore: storeKiteCandleEntry refused — INVALID_EXCHANGE",
+    );
+    return;
+  }
+  memCache.set(key, entry);
   try {
     await upsertToDb(entry);
   } catch (err) {
@@ -1268,8 +1390,12 @@ export async function initKiteCandleStore(): Promise<void> {
 
 /** Exported for unit tests only. Do not use in production code. */
 export const _testOnly = {
-  setMemCacheEntry(entry: KiteCandleEntry): void {
-    memCache.set(cacheKey(entry.symbol, entry.exchange, entry.timeframe), entry);
+  /** Returns false when the entry's exchange is not a recognised exchange. */
+  setMemCacheEntry(entry: KiteCandleEntry): boolean {
+    const key = cacheKeyForEntry(entry);
+    if (key == null) return false;
+    memCache.set(key, entry);
+    return true;
   },
   clearMemCache(): void { memCache.clear(); },
   resetCounters(): void { cacheHitCount = 0; cacheMissCount = 0; },
@@ -1306,6 +1432,7 @@ export const _testOnly = {
   chunk,
   isMarketHours,
   dbRowToEntry,
+  validateWriteExchange,
   cacheKey,
   computeNextRefreshMode,
   getSymbolsForMode,

@@ -25,6 +25,7 @@ import { getKiteReadiness } from "../lib/kiteReadiness";
 import { requireOwner, requireOwnerStrict, requireSubscriberOrOwner } from "../lib/userAuth";
 import { SECTORS, UNIVERSE, getEntry, INDEX_CONSTITUENTS } from "../lib/universe";
 import { computeSectorCoverage } from "../lib/sectorCoverage";
+import { normalizeCanonicalExchange } from "../lib/canonicalInstrument";
 import { getStockHistoryWithSeries, scanAll, getCachedScanRows, refreshScanInBackground, getScanRowsFast } from "../lib/scanner";
 import { centralIndexQuotes, centralIsRecognisedEtf, centralLoadKiteEtfQuote, centralGetEtfRecognitionDiagnostics, centralCheckEtfRecognition } from "../lib/marketData/compat";
 import { loadEtfNav } from "../lib/etfNav";
@@ -555,10 +556,22 @@ router.get("/etf/:symbol/quote", async (req, res, next) => {
       res.status(503).json({ error: "Live quote source unavailable", code: "KITE_OFFLINE" });
       return;
     }
+    // Phase 0.7A: report the exchange the quote was actually requested on
+    // (stamped by the Kite quote loader), never a literal typed at this layer.
+    // If it is ever not a recognised exchange, fail closed rather than publish
+    // an assumed one — the price would be attributed to the wrong order book.
+    const quoteExchange = normalizeCanonicalExchange(q.exchange);
+    if (quoteExchange == null) {
+      res.status(503).json({
+        error: "Quote is not exchange-qualified",
+        code: "CANONICAL_IDENTITY_REQUIRED",
+      });
+      return;
+    }
     const data = GetEtfQuoteResponse.parse({
       symbol: q.symbol,
       name: q.name,
-      exchange: "NSE",
+      exchange: quoteExchange,
       price: round2(q.lastPrice),
       change: round2(q.change),
       changePercent: round2(q.changePercent),

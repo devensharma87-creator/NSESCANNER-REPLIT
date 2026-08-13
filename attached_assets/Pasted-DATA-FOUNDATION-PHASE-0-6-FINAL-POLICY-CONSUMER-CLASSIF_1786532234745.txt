@@ -1,0 +1,191 @@
+DATA FOUNDATION PHASE 0.6 — FINAL POLICY, CONSUMER CLASSIFICATION AND ENVIRONMENT CLOSURE
+
+CODER_EXECUTION_CONTRACT and COST/ACCURACY DIRECTIVE remain active.
+
+Do not broaden implementation. Do not rerun full suites, builds, benchmarks or official-source downloads. Do not restart services. Do not deploy, push, merge or expand subscriptions.
+
+The Phase 0.6 registry implementation is provisionally accepted. Resolve only the two declared blockers and prove the development database boundary.
+
+A. OWNER-APPROVED BSE REFERENCE POLICY
+
+Implement and test this exact policy:
+
+1. A new BSE registry generation may be authoritative only when the official BSE List of Scrips is retrieved successfully during the current IST calendar day.
+2. Classification must be reconciled with the newest available official BSE UDiFF/bhavcopy representing the latest completed BSE trading session.
+3. On weekends and exchange holidays, a successfully retrieved current-day List of Scrips plus the latest completed-session UDiFF may authorize a generation.
+4. If the current official List of Scrips cannot be retrieved, the previous accepted registry may be served as LAST_KNOWN but cannot authorize a newly generated universe.
+5. The latest completed-session UDiFF remains valid during pre-open and market hours until a newer completed-session official file exists.
+6. Unknown trading calendar, invalid source date, malformed source, failed row floor, hash failure or reconciliation failure must fail closed.
+7. A LAST_KNOWN registry cannot add, remove or reclassify securities.
+8. Preserve and expose retrievedAt, effectiveTradingDate, source hashes and authority state.
+9. This policy authorizes reference identity/classification only. It does not make quotes LIVE.
+10. Do not alter the existing NSE 48-hour reference policy.
+
+Required BSE states:
+
+- CURRENT_AUTHORITATIVE
+- LAST_KNOWN
+- STALE
+- INVALID
+- UNAVAILABLE
+
+Do not introduce another arbitrary hour threshold.
+
+B. CONSUMER CLASSIFICATION
+
+Produce and persist one complete inventory for every consumer of:
+
+- accepted registry manifest
+- registry bridge
+- authoritative universe identities
+- canonicalInstrumentId
+- provider token lookup
+- symbol lookup
+- NSE/BSE master classification
+- scanner universe
+- subscription configuration
+- coverage denominator
+- watchlist
+- portfolio
+- chart resolution
+- replay identity
+- F&O/Swing admission
+
+For every consumer report:
+
+- file/module
+- data consumed
+- current authority
+- migrated in Phase 0.6
+- compatibility adapter
+- deferred
+- unsafe blocker
+- whether it can affect quotes, coverage, scores, signals or orders
+- required future phase
+
+Binding boundary for Phase 0.6:
+
+- Registry validation/persistence: integrated.
+- Phase 0.5B authoritative coverage denominator: may consume only a fully accepted manifest.
+- Current subscription list: unchanged.
+- Scanner universe construction: do not expand or migrate unless already required for safe compatibility.
+- Watchlist/portfolio/chart/replay/F&O/Swing: classify and defer unless a present unsafe regression exists.
+- No consumer may silently default to NSE.
+- No symbol-only lookup may authorize live data.
+- Manifest existence alone must not imply subscription or tick completeness.
+
+Resolve the apparent contradiction:
+
+- The report says the coverage bridge is implemented.
+- It also says nothing reads the registry as universe authority.
+
+State precisely what currently consumes the manifest and what remains deferred.
+
+If a current consumer can incorrectly treat the manifest as proof of complete live coverage, stop with:
+
+PHASE_0_6_BLOCKED — UNSAFE_MANIFEST_CONSUMER
+
+C. DEVELOPMENT DATABASE ENVIRONMENT PROOF
+
+Provide read-only evidence for the database write already performed:
+
+- NODE_ENV used
+- Database name
+- Redacted database fingerprint
+- Table name
+- Inserted generation IDs
+- Inserted row/snapshot count
+- Before/after table counts if available
+- Retention effect
+- Confirmation no unrelated table was written
+- Confirmation production database was not accessed or mutated
+- Confirmation no deployment occurred
+
+Do not perform another database write.
+
+If production environment identity cannot be excluded, stop with:
+
+PHASE_0_6_BLOCKED — DATABASE_ENVIRONMENT_NOT_PROVEN
+
+D. TARGETED TESTS ONLY
+
+Add/run only tests needed for:
+
+1. Current-day BSE List + latest completed-session UDiFF → CURRENT_AUTHORITATIVE.
+2. Weekend/holiday policy.
+3. Pre-open latest-completed-session policy.
+4. Market-hours latest-completed-session policy.
+5. Failed current-day List retrieval → no new authoritative generation.
+6. Previous accepted manifest remains LAST_KNOWN.
+7. Unknown calendar fails closed.
+8. Future/invalid UDiFF date fails closed.
+9. Reconciliation/hash/row-floor failure fails closed.
+10. LAST_KNOWN cannot mutate membership/classification.
+11. NSE 48-hour policy unchanged.
+12. Accepted manifest may supply the coverage denominator.
+13. Missing/invalid manifest keeps coverage non-authoritative.
+14. Manifest does not prove subscription/tick completeness.
+15. Current approximately-58-token subscription count remains unchanged.
+16. Four safety locks remain false.
+
+Run relevant TypeScript and git diff --check.
+
+Do not rerun the 500-test subset or full package suite unless a material shared production correction is made.
+
+E. FIRST-PASS SELF-REVIEW
+
+Before reporting:
+
+- Re-read this prompt.
+- Review every Phase 0.6 changed file.
+- Verify no production source still contains a missing policy branch.
+- Verify manifest checksum and full-record commitment cover every record.
+- Verify no new provider call, scheduler, per-tick DB read/write or subscription exists.
+- Verify the BSE policy cannot authorize a new generation from failed current retrieval.
+- Verify the consumer inventory has no omitted direct master/resolver path.
+
+F. AUTOMATIC COMMIT RULE
+
+If Replit automatically commits only Phase 0.6 source/tests plus inert memory/directive files:
+
+- Record SHA and exact file list.
+- Do not rewrite history.
+- Continue only if no unrelated runtime/configuration file is included.
+
+Stop for unrelated source or configuration.
+
+G. FINAL REPORT
+
+Provide:
+
+1. BSE policy implementation.
+2. Policy test matrix.
+3. Exact manifest consumers today.
+4. Complete deferred consumer inventory.
+5. Resolution of the bridge-authority contradiction.
+6. Development database environment proof.
+7. Changed files.
+8. Targeted tests and TypeScript.
+9. Provider calls/downloads in this closure pass.
+10. Database reads/writes in this closure pass.
+11. Subscription count before/after.
+12. Four exact safety locks.
+13. Git status and automatic commits.
+14. Cost and execution accounting.
+15. Remaining blockers.
+
+Required verdict:
+
+AUTHORITATIVE_INSTRUMENT_REGISTRY_ACCEPTED_IN_DEVELOPMENT —
+ZERO_UNEXPLAINED_REMAINDER —
+BSE_REFERENCE_POLICY_OWNER_APPROVED —
+DATABASE_ENVIRONMENT_PROVEN_DEVELOPMENT_ONLY —
+CURRENT_SUBSCRIPTIONS_UNCHANGED —
+INDEPENDENT_CHECKPOINT_AUTHORIZATION_REQUIRED
+
+or:
+
+DATA_FOUNDATION_PHASE_0_6_BLOCKED — [exact unmet requirement]
+
+Do not commit unless automatically checkpointed or separately authorized.
+Do not deploy, push, merge or begin subscription sharding.

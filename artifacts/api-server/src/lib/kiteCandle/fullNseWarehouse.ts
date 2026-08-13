@@ -72,7 +72,9 @@ import {
 import {
   classifyInstrument,
   WAREHOUSE_EXCLUDED_CLASSES,
+  ELIGIBLE_INSTRUMENT_EXCHANGE,
 } from "./instrumentEligibility";
+import { normalizeCanonicalExchange } from "../canonicalInstrument";
 import { kiteHistoricalBucket } from "./tokenBucket";
 import {
   getKiteCandleSeries,
@@ -244,6 +246,11 @@ export interface EligibleSymbolResult {
   excluded: {
     etfOrSme: { symbol: string; name: string }[];
     curated: string[];
+    /**
+     * Phase 0.7A: master rows whose exchange/segment could not be qualified.
+     * These are NOT eligible — an unqualified row is never assumed to be NSE.
+     */
+    identityUnqualified: { symbol: string; reason: "INVALID_EXCHANGE" | "CANONICAL_IDENTITY_REQUIRED" }[];
     total: number;
   };
   masterRefreshedAt: Date | null;
@@ -264,7 +271,7 @@ export async function getEligibleNseSymbols(): Promise<EligibleSymbolResult> {
   if (!instruments) {
     return {
       symbols: [],
-      excluded: { etfOrSme: [], curated: [], total: 0 },
+      excluded: { etfOrSme: [], curated: [], identityUnqualified: [], total: 0 },
       masterRefreshedAt: null,
     };
   }
@@ -278,6 +285,8 @@ export async function getEligibleNseSymbols(): Promise<EligibleSymbolResult> {
   const etfOrSme: { symbol: string; name: string }[] = [];
   const curated: string[] = [];
   const eligible: string[] = [];
+  /** Master rows that could not be exchange-qualified (Phase 0.7A). */
+  const identityUnqualified: { symbol: string; reason: "INVALID_EXCHANGE" | "CANONICAL_IDENTITY_REQUIRED" }[] = [];
 
   for (const [sym, inst] of instruments.bySymbol) {
     const instData = inst as { name: string; instrument_type?: string; segment?: string; exchange?: string };
@@ -285,6 +294,21 @@ export async function getEligibleNseSymbols(): Promise<EligibleSymbolResult> {
     // Curated symbols are excluded first (refreshed by kiteCandleStore.ts).
     if (curatedSet.has(sym)) {
       curated.push(sym);
+      continue;
+    }
+
+    // Phase 0.7A: the master row's own exchange and segment are REQUIRED. They
+    // used to fall back to "NSE", which meant a row that carried no exchange
+    // was classified as if the master had asserted NSE — an eligibility verdict
+    // resting on an assumption rather than on the master record. A row missing
+    // either field is now excluded outright.
+    const rowExchange = normalizeCanonicalExchange(instData.exchange);
+    const rowSegment = typeof instData.segment === "string" ? instData.segment.trim() : "";
+    if (rowExchange == null || rowSegment === "") {
+      identityUnqualified.push({
+        symbol: sym,
+        reason: rowExchange == null ? "INVALID_EXCHANGE" : "CANONICAL_IDENTITY_REQUIRED",
+      });
       continue;
     }
 
@@ -296,8 +320,8 @@ export async function getEligibleNseSymbols(): Promise<EligibleSymbolResult> {
       symbol: sym,
       name: instData.name ?? "",
       instrumentType: instData.instrument_type ?? "EQ",
-      segment: instData.segment ?? "NSE",
-      exchange: instData.exchange ?? "NSE",
+      segment: rowSegment,
+      exchange: rowExchange,
       inCurrentMaster: true,
       // Pass the synchronous NSE reference map (null if not yet loaded).
       // Fails closed: warehouse callers without an authoritative reference see
@@ -315,9 +339,21 @@ export async function getEligibleNseSymbols(): Promise<EligibleSymbolResult> {
     eligible.push(sym);
   }
 
+  if (identityUnqualified.length > 0) {
+    logger.warn(
+      { count: identityUnqualified.length, sample: identityUnqualified.slice(0, 10) },
+      "fullNseWarehouse: master rows excluded — exchange/segment not qualified (no NSE assumption)",
+    );
+  }
+
   return {
     symbols: eligible,
-    excluded: { etfOrSme, curated, total: etfOrSme.length + curated.length },
+    excluded: {
+      etfOrSme,
+      curated,
+      identityUnqualified,
+      total: etfOrSme.length + curated.length + identityUnqualified.length,
+    },
     masterRefreshedAt: new Date(),
   };
 }
@@ -394,7 +430,7 @@ async function fetchWarehouseEntry(sym: string): Promise<FetchResult> {
     if (!chart) {
       return {
         entry: {
-          symbol: sym, exchange: "NSE", timeframe: "day",
+          symbol: sym, exchange: ELIGIBLE_INSTRUMENT_EXCHANGE, timeframe: "day",
           sessionDate: null, barCount: 0, chart: null,
           fetchedAt: new Date(), status: "unavailable", errorCode: "KITE_OFFLINE",
         },
@@ -421,7 +457,7 @@ async function fetchWarehouseEntry(sym: string): Promise<FetchResult> {
       : null;
 
     const entry: KiteCandleEntry = {
-      symbol: sym, exchange: "NSE", timeframe: "day",
+      symbol: sym, exchange: ELIGIBLE_INSTRUMENT_EXCHANGE, timeframe: "day",
       sessionDate, barCount, chart,
       fetchedAt: new Date(), status, errorCode,
     };
@@ -442,7 +478,7 @@ async function fetchWarehouseEntry(sym: string): Promise<FetchResult> {
 
     return {
       entry: {
-        symbol: sym, exchange: "NSE", timeframe: "day",
+        symbol: sym, exchange: ELIGIBLE_INSTRUMENT_EXCHANGE, timeframe: "day",
         sessionDate: null, barCount: 0, chart: null,
         fetchedAt: new Date(), status: "unavailable",
         errorCode: statusCode === 429 ? "RATE_LIMIT_429" :
@@ -707,7 +743,9 @@ export async function runFullNseWarehousePopulation(): Promise<WarehouseRunResul
 
     for (const sym of batch) {
       // Skip symbols already populated today (no re-download)
-      const existing = getKiteCandleSeries(sym);
+      // Phase 0.7A: eligible symbols are NSE by the classifier gate that
+      // admitted them; read the exchange from that gate's own constant.
+      const existing = getKiteCandleSeries(sym, ELIGIBLE_INSTRUMENT_EXCHANGE);
       if (existing.status === "ok" && existing.sessionDate === todayIst) {
         batchSuccessCount++;
         continue;

@@ -433,3 +433,209 @@ class CanonicalInstrumentRegistry {
 
 export const instrumentRegistry = new CanonicalInstrumentRegistry();
 export type { CanonicalInstrumentRegistry };
+
+// ───────────────────────────────────────────────────────────────────────────
+// Phase 0.7A — EXACT_EXCHANGE_QUALIFIED_IDENTITY for legacy consumers
+//
+// The eight legacy consumers migrated in Phase 0.7A used to reach for
+// `?? "NSE"` (or an `exchange = "NSE"` default parameter) whenever an exchange
+// was missing. That silently merged a BSE listing into the NSE order book, and
+// it silently invented an exchange for a symbol nobody had qualified.
+//
+// The helpers below are the ONLY sanctioned way for those consumers to obtain
+// an exchange. They never guess: an unqualified, unknown, ambiguous or
+// malformed input yields an explicit blocker code, never a fallback exchange.
+// ───────────────────────────────────────────────────────────────────────────
+
+/**
+ * Stable fail-closed reason codes. These are reported to callers instead of a
+ * silent `null`, an empty result, or an assumed exchange.
+ */
+export type IdentityBlockerCode =
+  | "CANONICAL_IDENTITY_REQUIRED"
+  | "INVALID_EXCHANGE"
+  | "AMBIGUOUS_EXCHANGE"
+  | "IDENTITY_NOT_FOUND"
+  | "PROVIDER_TOKEN_NOT_MAPPED";
+
+/**
+ * Closed-set exchange normalisation. Accepts only an exact (case- and
+ * whitespace-insensitive) "NSE" or "BSE". Everything else — null, undefined,
+ * "", "nse ", "NSEIDX", a number, an object — returns null. There is no
+ * default and no nearest match.
+ */
+export function normalizeCanonicalExchange(raw: unknown): CanonicalExchange | null {
+  if (typeof raw !== "string") return null;
+  const s = raw.trim().toUpperCase();
+  return VALID_EXCHANGES.has(s) ? (s as CanonicalExchange) : null;
+}
+
+/** An exchange-qualified identity, with the evidence that established it. */
+export interface QualifiedIdentity {
+  readonly canonicalInstrumentId: string;
+  readonly exchange: CanonicalExchange;
+  readonly segment: CanonicalSegment;
+  readonly tradingSymbol: string;
+  /**
+   * Which rule in the resolution order produced this identity. Callers log it
+   * so an exchange can always be traced back to the evidence that set it.
+   */
+  readonly resolvedBy:
+    | "CANONICAL_ID"
+    | "PROVIDER_TOKEN"
+    | "EXPLICIT_EXCHANGE_AND_SYMBOL"
+    | "REGISTRY_UNIQUE_SYMBOL";
+  /** The registered identity, when the resolution came from the registry. */
+  readonly identity: CanonicalInstrumentIdentity | null;
+}
+
+export type QualifiedIdentityResult =
+  | { ok: true; qualified: QualifiedIdentity }
+  | { ok: false; code: IdentityBlockerCode; detail: string };
+
+export interface ResolveIdentityInput {
+  /** An already-canonical `<EXCHANGE>:<SEGMENT>:<SYMBOL>` id, when one exists. */
+  canonicalInstrumentId?: string | null;
+  /** An exact provider instrument token. Never reconstructed by the caller. */
+  providerInstrumentToken?: number | null;
+  /** An exchange the caller can genuinely evidence. Never a default. */
+  exchange?: unknown;
+  /** The trading symbol as the caller received it. */
+  tradingSymbol?: string | null;
+  /** Defaults to EQUITY only for building an id from an EXPLICIT exchange. */
+  segment?: CanonicalSegment;
+  /**
+   * Whether a registry-unique symbol lookup may resolve the exchange. Allowed
+   * because the registry attests uniqueness; two candidates fail closed with
+   * AMBIGUOUS_EXCHANGE. It is never a "first result wins" search.
+   */
+  allowRegistryUniqueSymbol?: boolean;
+}
+
+/**
+ * The Phase 0.7A resolution order, in strict precedence:
+ *
+ *   1. an existing valid `canonicalInstrumentId`
+ *   2. an exact provider instrument token mapped to exactly one identity
+ *   3. an exact exchange plus an exact trading symbol
+ *   4. a registry-UNIQUE symbol (only when the caller opts in)
+ *   5. otherwise an explicit blocker
+ *
+ * A supplied-but-invalid input never falls through to a weaker rule: a
+ * malformed exchange is INVALID_EXCHANGE, and an unmapped token is
+ * PROVIDER_TOKEN_NOT_MAPPED. Falling through would let a bad input quietly
+ * become an assumed one, which is the defect this phase removes.
+ */
+export function resolveExchangeQualifiedIdentity(input: ResolveIdentityInput): QualifiedIdentityResult {
+  // 1 — canonical id.
+  if (input.canonicalInstrumentId != null) {
+    const parsed = parseCanonicalInstrumentId(input.canonicalInstrumentId);
+    if (parsed == null) {
+      return {
+        ok: false,
+        code: "CANONICAL_IDENTITY_REQUIRED",
+        detail: `not a canonical instrument id: ${JSON.stringify(input.canonicalInstrumentId)}`,
+      };
+    }
+    return {
+      ok: true,
+      qualified: {
+        canonicalInstrumentId: input.canonicalInstrumentId,
+        exchange: parsed.exchange,
+        segment: parsed.segment,
+        tradingSymbol: parsed.tradingSymbol,
+        resolvedBy: "CANONICAL_ID",
+        identity: instrumentRegistry.resolveById(input.canonicalInstrumentId),
+      },
+    };
+  }
+
+  // 2 — exact provider token.
+  if (input.providerInstrumentToken != null) {
+    const token = input.providerInstrumentToken;
+    if (!Number.isInteger(token) || token <= 0) {
+      return { ok: false, code: "PROVIDER_TOKEN_NOT_MAPPED", detail: `invalid provider token ${String(token)}` };
+    }
+    const identity = instrumentRegistry.resolveByToken(token);
+    if (identity == null) {
+      return { ok: false, code: "PROVIDER_TOKEN_NOT_MAPPED", detail: `token ${token} is not mapped` };
+    }
+    return {
+      ok: true,
+      qualified: {
+        canonicalInstrumentId: identity.canonicalInstrumentId,
+        exchange: identity.exchange,
+        segment: identity.segment,
+        tradingSymbol: identity.tradingSymbol,
+        resolvedBy: "PROVIDER_TOKEN",
+        identity,
+      },
+    };
+  }
+
+  const symbol = typeof input.tradingSymbol === "string" ? normalizeTradingSymbol(input.tradingSymbol) : null;
+
+  // 3 — explicit exchange + exact symbol.
+  if (input.exchange !== undefined && input.exchange !== null) {
+    const exchange = normalizeCanonicalExchange(input.exchange);
+    if (exchange == null) {
+      return { ok: false, code: "INVALID_EXCHANGE", detail: JSON.stringify(input.exchange) };
+    }
+    if (symbol == null) {
+      return {
+        ok: false,
+        code: "CANONICAL_IDENTITY_REQUIRED",
+        detail: `exchange ${exchange} supplied without a usable trading symbol`,
+      };
+    }
+    const segment: CanonicalSegment = input.segment ?? "EQUITY";
+    const canonicalInstrumentId = buildCanonicalInstrumentId(exchange, segment, symbol);
+    return {
+      ok: true,
+      qualified: {
+        canonicalInstrumentId,
+        exchange,
+        segment,
+        tradingSymbol: symbol,
+        resolvedBy: "EXPLICIT_EXCHANGE_AND_SYMBOL",
+        identity: instrumentRegistry.resolveById(canonicalInstrumentId),
+      },
+    };
+  }
+
+  // 4 — registry-unique symbol, only on explicit opt-in.
+  if (symbol != null && input.allowRegistryUniqueSymbol === true) {
+    const resolution = instrumentRegistry.resolveBySymbol(symbol);
+    if (resolution.status === "UNIQUE") {
+      const identity = resolution.identity;
+      return {
+        ok: true,
+        qualified: {
+          canonicalInstrumentId: identity.canonicalInstrumentId,
+          exchange: identity.exchange,
+          segment: identity.segment,
+          tradingSymbol: identity.tradingSymbol,
+          resolvedBy: "REGISTRY_UNIQUE_SYMBOL",
+          identity,
+        },
+      };
+    }
+    if (resolution.status === "AMBIGUOUS") {
+      return {
+        ok: false,
+        code: "AMBIGUOUS_EXCHANGE",
+        detail: `${symbol} resolves to ${resolution.candidates.map(c => c.canonicalInstrumentId).sort().join(", ")}`,
+      };
+    }
+    return { ok: false, code: "IDENTITY_NOT_FOUND", detail: `${symbol} is not in the canonical registry` };
+  }
+
+  // 5 — nothing exchange-qualifying was supplied.
+  return {
+    ok: false,
+    code: "CANONICAL_IDENTITY_REQUIRED",
+    detail: symbol == null
+      ? "no canonical id, provider token, exchange or trading symbol supplied"
+      : `symbol ${symbol} supplied without an exchange, canonical id or provider token`,
+  };
+}

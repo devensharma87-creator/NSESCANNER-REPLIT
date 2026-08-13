@@ -100,7 +100,7 @@ describe("Gate 6-B: New replica starts empty → DB warm-load populates L1", () 
   });
 
   it("getKiteCandleSeries on empty L1 returns pending (not undefined/error)", () => {
-    const entry = getKiteCandleSeries("HDFCBANK");
+    const entry = getKiteCandleSeries("HDFCBANK", "NSE");
     expect(entry.status).toBe("pending");
     expect(entry.chart).toBeNull();
     expect(entry.errorCode).toBe("KITE_CANDLE_STORE_PENDING");
@@ -121,6 +121,8 @@ describe("Gate 6-B: New replica starts empty → DB warm-load populates L1", () 
       error_code: null,
     };
     const entry = dbRowToEntry(row);
+    expect(entry).not.toBeNull();
+    if (entry == null) return;
     expect(entry.symbol).toBe("RELIANCE");
     expect(entry.status).toBe("ok");
     expect(entry.barCount).toBe(247);
@@ -142,6 +144,8 @@ describe("Gate 6-B: New replica starts empty → DB warm-load populates L1", () 
       error_code: "KITE_OFFLINE",
     };
     const entry = dbRowToEntry(row);
+    expect(entry).not.toBeNull();
+    if (entry == null) return;
     expect(entry.status).toBe("unavailable");
     expect(entry.chart).toBeNull();
     expect(entry.barCount).toBe(0);
@@ -153,7 +157,7 @@ describe("Gate 6-B: New replica starts empty → DB warm-load populates L1", () 
     const entry = makeOkEntry("TCS", 247);
     setMemCacheEntry(entry);
 
-    const retrieved = getKiteCandleSeries("TCS");
+    const retrieved = getKiteCandleSeries("TCS", "NSE");
     expect(retrieved.status).toBe("ok");
     expect(retrieved.barCount).toBe(247);
     expect(retrieved.chart).not.toBeNull();
@@ -204,7 +208,7 @@ describe("Gate 6-C: Lock loser path — losing replica reloads from DB", () => {
     // If winner only refreshed 198/199 symbols, the missing one is still pending.
     setMemCacheEntry(makeOkEntry("HDFCBANK", 247));
     // LTIM is not in cache → pending
-    const ltim = getKiteCandleSeries("LTIM");
+    const ltim = getKiteCandleSeries("LTIM", "NSE");
     expect(ltim.status).toBe("pending");
 
     // INSTRUMENT_CHANGE mode would pick LTIM up for the next cycle.
@@ -224,7 +228,7 @@ describe("Gate 6-D: Failed refresh preserves last-good data", () => {
     resetCircuitBreaker();
     resetSchedulerState();
 
-    const retrieved = getKiteCandleSeries("SBIN");
+    const retrieved = getKiteCandleSeries("SBIN", "NSE");
     expect(retrieved.status).toBe("ok");
     expect(retrieved.barCount).toBe(247);
   });
@@ -237,7 +241,7 @@ describe("Gate 6-D: Failed refresh preserves last-good data", () => {
     });
     setMemCacheEntry(staleEntry);
 
-    const retrieved = getKiteCandleSeries("WIPRO");
+    const retrieved = getKiteCandleSeries("WIPRO", "NSE");
     expect(retrieved.status).toBe("stale");
     expect(retrieved.chart).not.toBeNull(); // chart still served (stale-while-revalidate)
     expect(retrieved.barCount).toBe(247);
@@ -297,7 +301,7 @@ describe("Gate 7-A: Candle store status — impact on scanner row type", () => {
 
   it("pending: chart=null → scanner treats as cold-start (no row from Kite path)", () => {
     // pending = KITE_CANDLE_STORE_PENDING — triggers Yahoo fallback in buildRow().
-    const entry = getKiteCandleSeries("NOTINSTORE");
+    const entry = getKiteCandleSeries("NOTINSTORE", "NSE");
     expect(entry.status).toBe("pending");
     expect(entry.chart).toBeNull();
     // The scanner's buildRowFromKiteCandles() checks chart===null and returns null.
@@ -311,7 +315,7 @@ describe("Gate 7-A: Candle store status — impact on scanner row type", () => {
       sessionDate: null, barCount: 0, chart: null,
       fetchedAt: new Date(), status: "unavailable", errorCode: "KITE_OFFLINE",
     });
-    const entry = getKiteCandleSeries("DELISTED");
+    const entry = getKiteCandleSeries("DELISTED", "NSE");
     expect(entry.status).toBe("unavailable");
     expect(entry.chart).toBeNull(); // scanner sees null → falls to Yahoo cold-start
   });
@@ -324,7 +328,7 @@ describe("Gate 7-A: Candle store status — impact on scanner row type", () => {
       fetchedAt: new Date(), status: "unavailable",
       errorCode: "INSTRUMENT_IDENTITY_UNRESOLVED",
     });
-    const entry = getKiteCandleSeries("ORPHAN");
+    const entry = getKiteCandleSeries("ORPHAN", "NSE");
     expect(entry.status).toBe("unavailable");
     expect(entry.errorCode).toBe("INSTRUMENT_IDENTITY_UNRESOLVED");
     expect(entry.chart).toBeNull();
@@ -336,7 +340,7 @@ describe("Gate 7-A: Candle store status — impact on scanner row type", () => {
       chart: null, // kiteCandleStore stores null when barCount < MIN_DISPLAY_BARS
       errorCode: "INSUFFICIENT_HISTORY",
     }));
-    const entry = getKiteCandleSeries("SHORT");
+    const entry = getKiteCandleSeries("SHORT", "NSE");
     expect(entry.status).toBe("insufficient");
     expect(entry.chart).toBeNull();
     expect(entry.barCount).toBe(20);
@@ -345,7 +349,7 @@ describe("Gate 7-A: Candle store status — impact on scanner row type", () => {
   it("ok with 30 ≤ barCount < MIN_INDICATOR_BARS (200): chart exists, score=null expected", () => {
     // buildRowFromKiteCandles checks bars < 200 → returns NOT_EVALUATED with INSUFFICIENT_HISTORY.
     setMemCacheEntry(makeOkEntry("THIN", 150, { status: "ok" }));
-    const entry = getKiteCandleSeries("THIN");
+    const entry = getKiteCandleSeries("THIN", "NSE");
     expect(entry.status).toBe("ok");
     expect(entry.chart).not.toBeNull();
     expect(entry.barCount).toBe(150);
@@ -356,7 +360,7 @@ describe("Gate 7-A: Candle store status — impact on scanner row type", () => {
 
   it("ok with barCount ≥ MIN_INDICATOR_BARS (200): chart + full indicators possible", () => {
     setMemCacheEntry(makeOkEntry("FULL", 252, { status: "ok" }));
-    const entry = getKiteCandleSeries("FULL");
+    const entry = getKiteCandleSeries("FULL", "NSE");
     expect(entry.status).toBe("ok");
     expect(entry.barCount).toBeGreaterThanOrEqual(MIN_INDICATOR_BARS);
     expect(entry.chart).not.toBeNull();
@@ -368,7 +372,7 @@ describe("Gate 7-A: Candle store status — impact on scanner row type", () => {
       status: "stale",
       sessionDate: "2026-08-06", // yesterday
     }));
-    const entry = getKiteCandleSeries("STALESYM");
+    const entry = getKiteCandleSeries("STALESYM", "NSE");
     expect(entry.status).toBe("stale");
     expect(entry.chart).not.toBeNull();
     expect(entry.barCount).toBe(247);
@@ -473,7 +477,7 @@ describe("Gate 7-D: Insufficient history states", () => {
       sessionDate: null, barCount: 0, chart: null,
       fetchedAt: new Date(), status: "pending", errorCode: "KITE_CANDLE_STORE_PENDING",
     });
-    const entry = getKiteCandleSeries("EMPTY");
+    const entry = getKiteCandleSeries("EMPTY", "NSE");
     expect(entry.barCount).toBe(0);
     expect(entry.chart).toBeNull();
   });
@@ -481,7 +485,7 @@ describe("Gate 7-D: Insufficient history states", () => {
   it("barCount = 29 → insufficient (below MIN_DISPLAY_BARS=30) → chart stored as null", () => {
     // kiteCandleStore stores chart=null for barCount < MIN_DISPLAY_BARS.
     setMemCacheEntry(makeOkEntry("THIN29", 29, { status: "insufficient", chart: null, errorCode: "INSUFFICIENT_HISTORY" }));
-    const entry = getKiteCandleSeries("THIN29");
+    const entry = getKiteCandleSeries("THIN29", "NSE");
     expect(entry.barCount).toBe(29);
     expect(entry.chart).toBeNull();
     expect(entry.barCount).toBeLessThan(MIN_DISPLAY_BARS);
@@ -489,7 +493,7 @@ describe("Gate 7-D: Insufficient history states", () => {
 
   it("barCount = 30 → meets MIN_DISPLAY_BARS, chart stored (partial indicators only)", () => {
     setMemCacheEntry(makeOkEntry("THIN30", 30, { status: "ok" }));
-    const entry = getKiteCandleSeries("THIN30");
+    const entry = getKiteCandleSeries("THIN30", "NSE");
     expect(entry.barCount).toBe(30);
     expect(entry.chart).not.toBeNull();
     expect(entry.barCount).toBeLessThan(MIN_INDICATOR_BARS); // <200 → NOT_EVALUATED
@@ -497,7 +501,7 @@ describe("Gate 7-D: Insufficient history states", () => {
 
   it("barCount = 199 → one short of MIN_INDICATOR_BARS (200) → NOT_EVALUATED", () => {
     setMemCacheEntry(makeOkEntry("ALMOST", 199, { status: "ok" }));
-    const entry = getKiteCandleSeries("ALMOST");
+    const entry = getKiteCandleSeries("ALMOST", "NSE");
     expect(entry.barCount).toBe(199);
     expect(entry.barCount).toBeLessThan(MIN_INDICATOR_BARS);
     // scanner.ts: bars < 200 → signal=NOT_EVALUATED, score=null, INSUFFICIENT_HISTORY reason.
@@ -505,7 +509,7 @@ describe("Gate 7-D: Insufficient history states", () => {
 
   it("barCount = 200 → meets MIN_INDICATOR_BARS exactly → full evaluation possible", () => {
     setMemCacheEntry(makeOkEntry("EXACT200", 200, { status: "ok" }));
-    const entry = getKiteCandleSeries("EXACT200");
+    const entry = getKiteCandleSeries("EXACT200", "NSE");
     expect(entry.barCount).toBe(MIN_INDICATOR_BARS);
     expect(entry.chart).not.toBeNull();
     // With exactly 200 bars, EMA200 can be computed → full signal evaluation.
@@ -521,7 +525,7 @@ describe("Gate 7-E: Provider error states", () => {
       sessionDate: null, barCount: 0, chart: null,
       fetchedAt: new Date(), status: "unavailable", errorCode: "KITE_OFFLINE",
     });
-    const entry = getKiteCandleSeries("KITEDOWN");
+    const entry = getKiteCandleSeries("KITEDOWN", "NSE");
     expect(entry.status).toBe("unavailable");
     expect(entry.errorCode).toBe("KITE_OFFLINE");
     expect(entry.chart).toBeNull();
@@ -535,7 +539,7 @@ describe("Gate 7-E: Provider error states", () => {
       sessionDate: null, barCount: 0, chart: null,
       fetchedAt: new Date(), status: "unavailable", errorCode: "FETCH_FAILED",
     });
-    const entry = getKiteCandleSeries("FETCHERR");
+    const entry = getKiteCandleSeries("FETCHERR", "NSE");
     expect(entry.status).toBe("unavailable");
     expect(entry.errorCode).toBe("FETCH_FAILED");
   });
@@ -547,7 +551,7 @@ describe("Gate 7-E: Provider error states", () => {
       sessionDate: null, barCount: 0, chart: null,
       fetchedAt: new Date(), status: "unavailable", errorCode: "RATE_LIMIT_EXHAUSTED",
     });
-    const entry = getKiteCandleSeries("RATELIMITED");
+    const entry = getKiteCandleSeries("RATELIMITED", "NSE");
     expect(entry.errorCode).toBe("RATE_LIMIT_EXHAUSTED");
   });
 
@@ -561,7 +565,7 @@ describe("Gate 7-E: Provider error states", () => {
       fetchedAt: new Date(), status: "unavailable",
       errorCode: "INSTRUMENT_IDENTITY_UNRESOLVED",
     });
-    const entry = getKiteCandleSeries("ORPHAN");
+    const entry = getKiteCandleSeries("ORPHAN", "NSE");
     expect(entry.errorCode).toBe("INSTRUMENT_IDENTITY_UNRESOLVED");
     // This is fail-closed: the symbol is not evaluated, not traded, not alert-triggering.
   });
@@ -725,6 +729,8 @@ describe("Gate 7-I: dbRowToEntry — future timestamp handling", () => {
       error_code: null,
     };
     const entry = dbRowToEntry(row);
+    expect(entry).not.toBeNull();
+    if (entry == null) return;
     // Status: fetched_at is in the future → ageMs < 0 → < STALE_THRESHOLD_MS → stays 'ok'.
     expect(entry.status).toBe("ok");
     expect(entry.symbol).toBe("FUTURE");
@@ -743,6 +749,8 @@ describe("Gate 7-I: dbRowToEntry — future timestamp handling", () => {
       error_code: null,
     };
     const entry = dbRowToEntry(row);
+    expect(entry).not.toBeNull();
+    if (entry == null) return;
     expect(entry.status).toBe("stale");
   });
 });

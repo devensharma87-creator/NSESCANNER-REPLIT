@@ -69,8 +69,12 @@ describe("cacheKey", () => {
   it("formats NSE:day:SYMBOL", () => {
     expect(cacheKey("RELIANCE", "NSE", "day")).toBe("NSE:day:RELIANCE");
   });
-  it("defaults to NSE and day", () => {
-    expect(cacheKey("INFY")).toBe("NSE:day:INFY");
+  // Phase 0.7A: there is no longer an exchange default. The same trading
+  // symbol on two exchanges must key two distinct entries.
+  it("keys the same symbol separately per exchange", () => {
+    expect(cacheKey("INFY", "NSE", "day")).toBe("NSE:day:INFY");
+    expect(cacheKey("INFY", "BSE", "day")).toBe("BSE:day:INFY");
+    expect(cacheKey("INFY", "NSE", "day")).not.toBe(cacheKey("INFY", "BSE", "day"));
   });
 });
 
@@ -78,7 +82,7 @@ describe("cacheKey", () => {
 
 describe("getKiteCandleSeries", () => {
   it("returns pending entry for unknown symbol", () => {
-    const entry = getKiteCandleSeries("UNKNOWN_XYZ");
+    const entry = getKiteCandleSeries("UNKNOWN_XYZ", "NSE");
     expect(entry.status).toBe("pending");
     expect(entry.chart).toBeNull();
     expect(entry.errorCode).toBe("KITE_CANDLE_STORE_PENDING");
@@ -88,7 +92,7 @@ describe("getKiteCandleSeries", () => {
   it("returns cached ok entry", () => {
     const stored = makeEntry("RELIANCE", { status: "ok", barCount: 247 });
     setMemCacheEntry(stored);
-    const entry = getKiteCandleSeries("RELIANCE");
+    const entry = getKiteCandleSeries("RELIANCE", "NSE");
     expect(entry.status).toBe("ok");
     expect(entry.barCount).toBe(247);
     expect(entry.chart).not.toBeNull();
@@ -97,7 +101,7 @@ describe("getKiteCandleSeries", () => {
   it("returns stale entry", () => {
     const stored = makeEntry("TCS", { status: "stale", barCount: 247 });
     setMemCacheEntry(stored);
-    const entry = getKiteCandleSeries("TCS");
+    const entry = getKiteCandleSeries("TCS", "NSE");
     expect(entry.status).toBe("stale");
   });
 
@@ -109,7 +113,7 @@ describe("getKiteCandleSeries", () => {
       errorCode: "KITE_OFFLINE",
     });
     setMemCacheEntry(stored);
-    const entry = getKiteCandleSeries("BADSTOCK");
+    const entry = getKiteCandleSeries("BADSTOCK", "NSE");
     expect(entry.status).toBe("unavailable");
     expect(entry.chart).toBeNull();
     expect(entry.errorCode).toBe("KITE_OFFLINE");
@@ -117,15 +121,15 @@ describe("getKiteCandleSeries", () => {
 
   it("increments cacheHits for known symbol", () => {
     setMemCacheEntry(makeEntry("HDFC"));
-    getKiteCandleSeries("HDFC");
-    getKiteCandleSeries("HDFC");
+    getKiteCandleSeries("HDFC", "NSE");
+    getKiteCandleSeries("HDFC", "NSE");
     const m = getKiteCandleStoreMetrics();
     expect(m.cacheHits).toBe(2);
     expect(m.cacheMisses).toBe(0);
   });
 
   it("increments cacheMisses for unknown symbol", () => {
-    getKiteCandleSeries("NOTHERE");
+    getKiteCandleSeries("NOTHERE", "NSE");
     const m = getKiteCandleStoreMetrics();
     expect(m.cacheMisses).toBe(1);
     expect(m.cacheHits).toBe(0);
@@ -133,9 +137,9 @@ describe("getKiteCandleSeries", () => {
 
   it("computes cacheHitRatio correctly", () => {
     setMemCacheEntry(makeEntry("WIPRO"));
-    getKiteCandleSeries("WIPRO");  // hit
-    getKiteCandleSeries("WIPRO");  // hit
-    getKiteCandleSeries("MISSING"); // miss
+    getKiteCandleSeries("WIPRO", "NSE");  // hit
+    getKiteCandleSeries("WIPRO", "NSE");  // hit
+    getKiteCandleSeries("MISSING", "NSE"); // miss
     const m = getKiteCandleStoreMetrics();
     expect(m.cacheHitRatio).toBeCloseTo(2 / 3, 2);
   });
@@ -224,6 +228,8 @@ describe("dbRowToEntry (stale promotion)", () => {
       fetched_at: oldFetchedAt, status: "ok", error_code: null,
     };
     const entry = dbRowToEntry(row);
+    expect(entry).not.toBeNull();
+    if (entry == null) return;
     expect(entry.status).toBe("stale");
   });
 
@@ -235,6 +241,8 @@ describe("dbRowToEntry (stale promotion)", () => {
       fetched_at: freshFetchedAt, status: "ok", error_code: null,
     };
     const entry = dbRowToEntry(row);
+    expect(entry).not.toBeNull();
+    if (entry == null) return;
     expect(entry.status).toBe("ok");
   });
 
@@ -246,6 +254,8 @@ describe("dbRowToEntry (stale promotion)", () => {
       fetched_at: oldFetchedAt, status: "unavailable", error_code: "KITE_OFFLINE",
     };
     const entry = dbRowToEntry(row);
+    expect(entry).not.toBeNull();
+    if (entry == null) return;
     expect(entry.status).toBe("unavailable");
   });
 });

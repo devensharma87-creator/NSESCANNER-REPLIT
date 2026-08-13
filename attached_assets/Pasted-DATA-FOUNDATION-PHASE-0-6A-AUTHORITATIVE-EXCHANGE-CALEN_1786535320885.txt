@@ -1,0 +1,253 @@
+DATA FOUNDATION PHASE 0.6A — AUTHORITATIVE EXCHANGE CALENDAR AND FINAL SCHEMA-3 ACCEPTANCE
+
+CODER COST/ACCURACY DIRECTIVE remains binding.
+
+This is one bounded phase to resolve:
+
+AUTHORITATIVE_TRADING_CALENDAR_REQUIRED
+
+Do not broaden scope. Do not expand subscriptions, implement WebSocket sharding, migrate website tabs, add indicators, deploy, push or merge.
+
+A. OBJECTIVE
+
+Implement an authoritative NSE/BSE trading-session calendar capable of determining the latest completed trading session for each exchange.
+
+Then perform exactly one controlled development-only schema-3 registry rebuild and cold-load proof.
+
+Do not use weekday-only assumptions.
+
+B. OFFICIAL SOURCES ONLY
+
+Use official exchange sources:
+
+- NSE official annual trading-holiday calendar/circular
+- BSE official annual trading-holiday calendar/circular
+- Official special-session/Muhurat-trading circulars
+- Official exceptional closure or session-change circulars where applicable
+- BSE official UDiFF/Common Bhavcopy for the latest completed BSE session
+
+Do not use:
+
+- Third-party holiday websites
+- Search snippets
+- Broker holiday lists as authority
+- Hardcoded Monday–Friday logic as sufficient authority
+- Inferred holidays
+- Missing bhavcopy dates as automatic proof of a holiday
+
+NSE and BSE calendars must remain separately versioned. Do not assume their holidays or special sessions are always identical.
+
+For each source retain:
+
+- exchange
+- sourceName
+- official source identifier/URL
+- retrievedAt
+- calendar year
+- effective period
+- content hash
+- row/event count
+- validation status
+
+Fetch each required official source at most once during this phase and reuse the cached copy.
+
+C. CALENDAR CONTRACT
+
+Represent at minimum:
+
+- exchange
+- tradingDate
+- sessionType:
+  - REGULAR
+  - SPECIAL
+  - MUHURAT
+  - HALF_DAY where officially applicable
+  - CLOSED
+- scheduledOpenAt
+- scheduledCloseAt
+- source provenance
+- source effective date
+- exceptional override reason
+- calendarGenerationId
+
+Required functions:
+
+- isTradingDate(exchange, date)
+- getTradingSession(exchange, date)
+- getLatestCompletedTradingSession(exchange, now)
+- getPreviousTradingSession(exchange, date)
+- validateBhavcopySession(exchange, bhavcopyDate, now)
+
+Rules:
+
+1. Use Asia/Kolkata consistently.
+2. A session is completed only after its official scheduled close.
+3. During pre-open or market hours, latest completed means the previous completed session.
+4. After official close, today may become the latest completed session only when the required official session output is available and valid.
+5. Weekends are closed unless an official special session overrides them.
+6. Official holidays are closed.
+7. Special/Muhurat sessions override ordinary weekend/holiday assumptions.
+8. Unknown year, missing source, conflicting circulars or invalid dates fail closed.
+9. Future-dated bhavcopy/UDiFF fails closed.
+10. A UDiFF date must equal the calculated latest completed BSE session required by policy.
+11. Do not introduce an arbitrary hourly freshness threshold.
+12. Calendar authority does not make quotes LIVE.
+
+D. SOURCE CONFLICT AND UPDATE POLICY
+
+If official annual calendars and later official circulars differ:
+
+- A later, specifically applicable official exchange circular may override the annual calendar.
+- Preserve both sources and the override reason.
+- Reject equal-priority contradictory sources.
+- Never silently choose one.
+
+Calendar changes must produce a new deterministic calendar generation and checksum.
+
+E. DURABILITY
+
+Use the smallest existing-compatible durability design.
+
+Required:
+
+- Deterministic normalized calendar
+- Schema/version
+- Content checksum
+- Source hashes
+- Cold-load validation
+- Last-good preservation
+- Invalid calendar cannot replace accepted calendar
+- No per-tick database operation
+- No recurring provider call
+- No production database mutation in this phase
+
+If a new database table is unnecessary because the calendar can be committed inside the accepted registry provenance, explain and prove that choice.
+
+Do not create unnecessary infrastructure.
+
+F. REQUIRED TESTS
+
+Use deterministic official-format fixtures.
+
+Test at minimum:
+
+1. Ordinary weekday regular session.
+2. Saturday closed.
+3. Sunday closed.
+4. Weekday official holiday.
+5. Weekend special session.
+6. Muhurat session.
+7. Pre-open latest-completed-session calculation.
+8. During-market latest-completed-session calculation.
+9. Immediately before close.
+10. Immediately after close with valid official output.
+11. After close without valid UDiFF.
+12. Latest completed Friday on Monday pre-open.
+13. Holiday following a weekend.
+14. Consecutive exchange holidays.
+15. NSE and BSE different holiday/session dates.
+16. Unknown calendar year fails closed.
+17. Missing official calendar fails closed.
+18. Invalid calendar date fails closed.
+19. Conflicting equal-priority sources fail closed.
+20. Later official override circular wins with provenance.
+21. Future UDiFF date rejected.
+22. Old UDiFF not matching latest completed session rejected for new authority.
+23. Exact latest-completed BSE UDiFF accepted.
+24. Weekend/holiday registry authority policy.
+25. Current-day BSE List plus correct completed-session UDiFF authorizes schema-3.
+26. Failed current BSE List retrieval rejects new generation.
+27. Invalid calendar cannot authorize registry.
+28. Invalid calendar cannot replace last-good.
+29. Calendar checksum deterministic.
+30. One changed session changes checksum.
+31. No subscription/provider/tick path change.
+32. Existing NSE 48-hour policy unchanged.
+33. Four safety locks remain false.
+
+G. ONE CONTROLLED DEVELOPMENT PROOF
+
+After targeted tests pass:
+
+1. Prove development database identity.
+2. Record registry rows/generations before.
+3. Retrieve/reuse official calendar and UDiFF sources once.
+4. Calculate the authoritative latest completed BSE session.
+5. Build one schema-3 manifest.
+6. Verify zero-remainder reconciliation.
+7. Verify checksum, recordSetHash and eligibleLiveSetHash.
+8. Persist exactly one accepted schema-3 generation.
+9. Cold-load it through the production loader.
+10. Verify coverage bridge receives the authoritative denominator.
+11. Confirm current approximately-58-token feed remains LIVE_PARTIAL.
+12. Confirm LIVE_COMPLETE remains impossible.
+13. Confirm firstSeenAt behaviour honestly.
+14. Confirm schema-1/2 rows remain preserved.
+15. Confirm production database has no registry table and receives no write.
+16. Do not repeat the rebuild.
+
+If the latest required official source is unavailable, stop:
+
+PHASE_0_6A_BLOCKED — OFFICIAL_CALENDAR_OR_UDIFF_UNAVAILABLE
+
+Do not weaken authority.
+
+H. COST CONTROL
+
+Run only:
+
+- Targeted calendar/policy/registry tests
+- Relevant TypeScript
+- git diff --check
+- One development schema-3 proof
+
+Do not run full package suites, builds, browser sessions, load tests or repeated downloads.
+
+I. SAFETY LOCKS
+
+Verify exactly:
+
+FULL_NSE_WAREHOUSE_POPULATION_AUTHORIZED = false as boolean
+SCANNER_KITE_CANDLE_EVALUATION_AUTHORIZED = false as boolean
+FNO_PAPER_V2_RUNTIME_AUTHORIZED = false as boolean
+SWING_PAPER_V2_RUNTIME_AUTHORIZED = false as boolean
+
+J. FINAL REPORT
+
+Report:
+
+1. Exact official calendar sources.
+2. Calendar contract and override precedence.
+3. Test matrix.
+4. Latest completed NSE/BSE sessions used.
+5. UDiFF date and matching result.
+6. Schema-3 generation ID.
+7. Registry counts and reconciliation.
+8. Checksum/hash verification.
+9. Development DB before/after rows.
+10. Cold-load result.
+11. Coverage-bridge result.
+12. Production non-mutation proof.
+13. Provider/download count.
+14. Database read/write count.
+15. Subscription count before/after.
+16. Four safety locks.
+17. Changed files.
+18. Git status/automatic commits.
+19. Cost and execution accounting.
+20. Remaining blockers.
+
+Required verdict:
+
+AUTHORITATIVE_TRADING_CALENDAR_VERIFIED_IN_DEVELOPMENT —
+SCHEMA_3_REGISTRY_ACCEPTED_AND_COLD_LOADED —
+ZERO_UNEXPLAINED_REMAINDER —
+PRODUCTION_NOT_MUTATED —
+CURRENT_SUBSCRIPTIONS_UNCHANGED —
+INDEPENDENT_CHECKPOINT_AUTHORIZATION_REQUIRED
+
+or:
+
+PHASE_0_6A_BLOCKED — [exact blocker]
+
+Do not deploy or begin WebSocket expansion.

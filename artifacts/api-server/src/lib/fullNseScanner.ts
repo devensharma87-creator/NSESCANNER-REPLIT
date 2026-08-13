@@ -70,7 +70,7 @@ import { getAllSymbols, getDeliveryMap } from "./marketData/referenceData";
 import { UNIVERSE, INACTIVE_SYMBOLS } from "./universe";
 import { logger } from "./logger";
 import { loadBlob, saveBlob } from "./diskCache";
-import { centralKiteNseEqInstruments, centralBatchEquityQuotes, type KiteScannerQuote } from "./marketData/compat";
+import { centralKiteNseEqInstruments, centralBatchEquityQuotes, KITE_SCANNER_QUOTE_EXCHANGE, type KiteScannerQuote } from "./marketData/compat";
 import { classifyInstrument, WAREHOUSE_EXCLUDED_CLASSES } from "./kiteCandle/instrumentEligibility";
 import { getNseSecurityMaster, getNseSecurityMasterMap, getNseSecurityMasterMeta } from "./nseSecurityMaster";
 import { FULL_NSE_WAREHOUSE_POPULATION_AUTHORIZED, SCANNER_KITE_CANDLE_EVALUATION_AUTHORIZED } from "./candleEvaluationControl";
@@ -1536,7 +1536,8 @@ function rowFromKiteOnly(
   const quote: Quote = {
     symbol: kq.symbol,
     name: kq.name,
-    exchange: "NSE",
+    // Phase 0.7A: the quote carries the exchange it was priced on.
+    exchange: kq.exchange,
     price: round2(kq.lastPrice),
     change: round2(kq.change),
     changePercent: round2(kq.changePercent),
@@ -1601,7 +1602,8 @@ function rowFromKitePlusIndicators(
   const quote: Quote = {
     symbol: kq.symbol,
     name: ind.longName || kq.name,
-    exchange: "NSE",
+    // Phase 0.7A: the quote carries the exchange it was priced on.
+    exchange: kq.exchange,
     price: round2(kq.lastPrice),
     change: round2(kq.change),
     changePercent: round2(kq.changePercent),
@@ -2074,6 +2076,10 @@ async function performFullScan(): Promise<Cache> {
       const yQuote: KiteScannerQuote = {
         symbol: sym,
         name: ind.longName ?? sym,
+        // Symbols in this scan come from the Kite NSE EQ master and the
+        // fallback bars are the NSE-suffixed Yahoo series for the same
+        // listing — the exchange is established, not assumed here.
+        exchange: KITE_SCANNER_QUOTE_EXCHANGE,
         lastPrice: ind.realPrice,
         open: ind.realOpen,
         high: ind.realHigh,
@@ -2119,6 +2125,7 @@ async function performFullScan(): Promise<Cache> {
       const yQuote: KiteScannerQuote = {
         symbol: sym,
         name: bq.longName ?? bq.shortName ?? sym,
+        exchange: KITE_SCANNER_QUOTE_EXCHANGE,
         lastPrice: bq.regularMarketPrice,
         open: bq.regularMarketOpen,
         high: bq.regularMarketDayHigh,

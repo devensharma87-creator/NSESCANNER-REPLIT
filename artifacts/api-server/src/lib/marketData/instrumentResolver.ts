@@ -64,6 +64,32 @@ interface RawInstrument {
 
 export type ResolverStatus = "RESOLVED" | "UNRESOLVED";
 
+/**
+ * Outcome of a resolution attempt.
+ *
+ * `AMBIGUOUS` is distinct from `UNRESOLVED`: the symbol exists, but it exists on
+ * more than one exchange and the caller did not say which one it meant. Phase
+ * 0.7A: picking the NSE listing "because it is usually the NSE one" invents an
+ * identity — the two listings are separate order books with separate prices.
+ */
+export type ResolverOutcome = "RESOLVED" | "UNRESOLVED" | "AMBIGUOUS";
+
+/**
+ * A fully exchange-qualified identity offered back to the caller when a bare
+ * symbol is ambiguous. Every field names ONE listing, so a caller can re-ask
+ * with `preferExchange` (or show the choice) without guessing.
+ */
+export interface ExchangeCandidate {
+  canonical_symbol: string;
+  display_name: string;
+  exchange: string;
+  instrument_type: string;
+  /** Quote key understood by Kite getQuote, e.g. "NSE:TRIDENT". */
+  kite_key: string;
+  instrument_token: number;
+  bse_code: string | null;
+}
+
 export interface CanonicalInstrument {
   /** Canonical Kite tradingsymbol (e.g. "ARE&M", "TRIDENT", "NSDL"). */
   canonical_symbol: string;
@@ -92,6 +118,10 @@ export interface ResolveResult {
   attempts: string[];
   matched_via: string | null;
   reason: string | null;
+  /** RESOLVED | UNRESOLVED | AMBIGUOUS. `resolved` is true only for RESOLVED. */
+  outcome: ResolverOutcome;
+  /** Exchange-qualified choices; non-empty only when outcome is AMBIGUOUS. */
+  candidates: ExchangeCandidate[];
 }
 
 /**
@@ -225,16 +255,25 @@ function buildIndex(): ResolverIndex {
       const aList = byAlnum.get(ak) ?? [];
       aList.push(inst);
       byAlnum.set(ak, aList);
-      if (inst.bse_code) byBseCode.set(inst.bse_code, inst);
+      if (inst.bse_code) {
+        // A scrip code names one listing. If a malformed master repeats one,
+        // keep the identity that sorts first rather than whichever row came
+        // last in the file — the answer must not depend on file order.
+        const priorCodeHit = byBseCode.get(inst.bse_code);
+        if (!priorCodeHit || byIdentity(inst, priorCodeHit) < 0) {
+          byBseCode.set(inst.bse_code, inst);
+        }
+      }
       all.push(inst);
     }
   }
 
-  const byPriority = (a: CanonicalInstrument, b: CanonicalInstrument) =>
-    (EX_PRIORITY[a.exchange] ?? 99) - (EX_PRIORITY[b.exchange] ?? 99);
-  for (const list of bySym.values()) list.sort(byPriority);
-  for (const list of byAlnum.values()) list.sort(byPriority);
-  all.sort(byPriority);
+  // Deterministic ordering everywhere: exchange priority, then symbol, then
+  // token. Sorting on identity alone means the index — and therefore every
+  // resolution and search ranking — does not depend on master-file row order.
+  for (const list of bySym.values()) list.sort(byIdentity);
+  for (const list of byAlnum.values()) list.sort(byIdentity);
+  all.sort(byIdentity);
 
   return { diskSig, byKey, bySym, byAlnum, byBseCode, all };
 }
@@ -274,8 +313,70 @@ export function getExchangeReadiness(): Record<(typeof EXCHANGES)[number], boole
 }
 
 export interface ResolveOptions {
-  /** Preferred exchange when a symbol exists on both NSE and BSE. */
+  /**
+   * The exchange the caller means when a symbol exists on both NSE and BSE.
+   *
+   * Phase 0.7A: this is NOT defaulted. Omitting it on a dual-listed symbol
+   * returns an AMBIGUOUS result with both candidate identities instead of
+   * silently selecting the NSE listing.
+   */
   preferExchange?: "NSE" | "BSE";
+}
+
+function toCandidate(inst: CanonicalInstrument): ExchangeCandidate {
+  return {
+    canonical_symbol: inst.canonical_symbol,
+    display_name: inst.display_name,
+    exchange: inst.exchange,
+    instrument_type: inst.instrument_type,
+    kite_key: inst.kite_key,
+    instrument_token: inst.instrument_token,
+    bse_code: inst.bse_code,
+  };
+}
+
+/**
+ * Deterministic ordering for a candidate list: exchange priority, then the
+ * canonical symbol, then the instrument token. Every key is a property of the
+ * instrument itself, so the order cannot depend on master-file row order.
+ */
+function byIdentity(a: CanonicalInstrument, b: CanonicalInstrument): number {
+  return (
+    (EX_PRIORITY[a.exchange] ?? 99) - (EX_PRIORITY[b.exchange] ?? 99) ||
+    a.canonical_symbol.localeCompare(b.canonical_symbol) ||
+    a.instrument_token - b.instrument_token
+  );
+}
+
+/**
+ * Choose ONE instrument from a candidate list, or report ambiguity.
+ *
+ * - explicit `prefer`: the listing on that exchange wins; if the symbol exists
+ *   on the other exchange only, that unique listing still resolves (unchanged
+ *   behaviour for callers that state what they mean);
+ * - no `prefer` and candidates span more than one exchange: AMBIGUOUS — the
+ *   caller gets both identities and picks;
+ * - no `prefer` and all candidates sit on one exchange: resolved, choosing the
+ *   exact symbol match first and otherwise the lowest identity in sort order.
+ */
+function selectCandidate(
+  candidates: CanonicalInstrument[],
+  sym: string,
+  prefer: "NSE" | "BSE" | null,
+): { kind: "none" } | { kind: "one"; inst: CanonicalInstrument } | { kind: "ambiguous"; candidates: CanonicalInstrument[] } {
+  if (candidates.length === 0) return { kind: "none" };
+  const ordered = [...candidates].sort(byIdentity);
+  const exactFirst = (list: CanonicalInstrument[]): CanonicalInstrument =>
+    list.find(i => i.canonical_symbol === sym) ?? list[0]!;
+
+  if (prefer) {
+    const onPreferred = ordered.filter(i => i.exchange === prefer);
+    return { kind: "one", inst: exactFirst(onPreferred.length > 0 ? onPreferred : ordered) };
+  }
+
+  const exchanges = new Set(ordered.map(i => i.exchange));
+  if (exchanges.size > 1) return { kind: "ambiguous", candidates: ordered };
+  return { kind: "one", inst: exactFirst(ordered) };
 }
 
 /**
@@ -287,8 +388,6 @@ export function resolveInstrument(raw: string, opts: ResolveOptions = {}): Resol
   const idx = getIndex();
   const normalized = normalizeSymbol(raw);
   const attempts: string[] = [];
-  const prefer = opts.preferExchange ?? "NSE";
-  const order = prefer === "BSE" ? ["BSE", "NSE"] : ["NSE", "BSE"];
 
   const fail = (reason: string): ResolveResult => ({
     raw_symbol: raw,
@@ -298,6 +397,8 @@ export function resolveInstrument(raw: string, opts: ResolveOptions = {}): Resol
     attempts,
     matched_via: null,
     reason,
+    outcome: "UNRESOLVED",
+    candidates: [],
   });
   const ok = (inst: CanonicalInstrument, via: string): ResolveResult => ({
     raw_symbol: raw,
@@ -307,7 +408,37 @@ export function resolveInstrument(raw: string, opts: ResolveOptions = {}): Resol
     attempts,
     matched_via: via,
     reason: null,
+    outcome: "RESOLVED",
+    candidates: [],
   });
+  const ambiguous = (cands: CanonicalInstrument[], via: string): ResolveResult => ({
+    raw_symbol: raw,
+    normalized,
+    resolved: false,
+    instrument: null,
+    attempts: [...attempts, `ambiguous:${via}`],
+    matched_via: null,
+    reason:
+      `"${normalized}" is listed on ${cands.map(c => c.exchange).join(" and ")} ` +
+      `(${cands.map(c => c.kite_key).join(", ")}). These are separate order books; ` +
+      `re-request with preferExchange to say which listing is meant.`,
+    outcome: "AMBIGUOUS",
+    candidates: cands.map(toCandidate),
+  });
+
+  // Phase 0.7A: an exchange preference that is present but unrecognised is a
+  // caller error, not an invitation to fall back to NSE. Fail closed.
+  let prefer: "NSE" | "BSE" | null = null;
+  if (opts.preferExchange !== undefined) {
+    const requested = String(opts.preferExchange).trim().toUpperCase();
+    if (requested !== "NSE" && requested !== "BSE") {
+      attempts.push("prefer-exchange-validation");
+      return fail(
+        `Invalid preferExchange ${JSON.stringify(opts.preferExchange)} — expected "NSE" or "BSE"`,
+      );
+    }
+    prefer = requested;
+  }
 
   if (!normalized) return fail("Empty symbol");
   if (idx.all.length === 0) {
@@ -320,11 +451,13 @@ export function resolveInstrument(raw: string, opts: ResolveOptions = {}): Resol
   const aliased = ALIASES[normalized];
   const target = aliased ?? normalized;
   if (aliased) {
-    const hit = pickByExchange(idx, target, order);
-    if (hit) return ok(hit, `alias:${normalized}→${target}`);
+    const picked = selectCandidate(idx.bySym.get(target) ?? [], target, prefer);
+    if (picked.kind === "one") return ok(picked.inst, `alias:${normalized}→${target}`);
+    if (picked.kind === "ambiguous") return ambiguous(picked.candidates, `alias:${normalized}→${target}`);
   }
 
-  // 2) BSE numeric scrip code (e.g. 544467 → NSDL).
+  // 2) BSE numeric scrip code (e.g. 544467 → NSDL). A scrip code names one
+  //    BSE listing by construction, so it is never ambiguous.
   if (/^\d+$/.test(target)) {
     attempts.push("bse-numeric-code");
     const hit = idx.byBseCode.get(target);
@@ -332,30 +465,20 @@ export function resolveInstrument(raw: string, opts: ResolveOptions = {}): Resol
     return fail(`No BSE instrument with scrip code ${target} in Kite master`);
   }
 
-  // 3) Exact tradingsymbol, preferred exchange first.
+  // 3) Exact tradingsymbol.
   attempts.push("exact-symbol");
-  const exact = pickByExchange(idx, target, order);
-  if (exact) return ok(exact, "exact-symbol");
+  const exact = selectCandidate(idx.bySym.get(target) ?? [], target, prefer);
+  if (exact.kind === "one") return ok(exact.inst, "exact-symbol");
+  if (exact.kind === "ambiguous") return ambiguous(exact.candidates, "exact-symbol");
 
   // 4) Alphanumeric-normalized match (ARE&M ↔ AREM ↔ "ARE M").
   attempts.push("alnum-normalized");
-  const aList = idx.byAlnum.get(alnum(target));
-  if (aList && aList.length > 0) {
-    const pref = aList.find(i => i.exchange === order[0]) ?? aList[0];
-    return ok(pref, "alnum-normalized");
-  }
+  const alnumPick = selectCandidate(idx.byAlnum.get(alnum(target)) ?? [], target, prefer);
+  if (alnumPick.kind === "one") return ok(alnumPick.inst, "alnum-normalized");
+  if (alnumPick.kind === "ambiguous") return ambiguous(alnumPick.candidates, "alnum-normalized");
 
   attempts.push("name-search");
   return fail("No matching instrument in Kite NSE/BSE master, alias map, or BSE code index");
-}
-
-function pickByExchange(idx: ResolverIndex, sym: string, order: string[]): CanonicalInstrument | null {
-  for (const ex of order) {
-    const hit = idx.byKey.get(`${ex}:${sym}`);
-    if (hit) return hit;
-  }
-  const any = idx.bySym.get(sym);
-  return any && any.length > 0 ? any[0] : null;
 }
 
 function aliasesFor(inst: CanonicalInstrument): string[] {
