@@ -66,6 +66,7 @@ export type FeedActivationState =
 export type FeedActivationBlockerCode =
   | "FEED_DISABLED_BY_DEFAULT"
   | "FEED_NOT_DISABLED_AT_BOOT"
+  | "SHUTDOWN_NOT_INSTALLED"
   | "RUNTIME_SINGLETON_EVIDENCE_NOT_YET_OBSERVED"
   | "DEPLOYMENT_HANDOVER_NOT_CLEARED"
   | "PREVIOUS_DEPLOYMENT_IDENTITY_NOT_CONFIRMED_INACTIVE"
@@ -210,18 +211,35 @@ function isHandoverCleared(h: DeploymentHandoverEvidence): boolean {
  * result object. The return type explicitly excludes ACTIVE — calling code
  * cannot receive that value from this function.
  *
- * @param handover  Deployment handover evidence for this boot.
- * @param topologyReady  True when Phase 0.8T topology contract is satisfied.
- * @param shutdownPhase  Current phase of the shutdown coordinator.
- * @param proofMode  True when booted with side-effects suppressed.
+ * @param handover        Deployment handover evidence for this boot.
+ * @param topologyReady   True when Phase 0.8T topology contract is satisfied.
+ * @param shutdownPhase   Current phase of the shutdown coordinator.
+ * @param proofMode       True when booted with side-effects suppressed.
+ * @param shutdownInstalled  True when the shutdown coordinator has been
+ *                        registered at boot via registerShutdownController().
+ *                        Feed activation is refused when this is false: a feed
+ *                        opened without a shutdown handler cannot be closed on
+ *                        SIGTERM/SIGINT, which is the exact overlap hazard this
+ *                        phase exists to prevent.
  */
 export function evaluateFeedActivationState(
   handover: DeploymentHandoverEvidence,
   topologyReady: boolean,
   shutdownPhase: ShutdownPhase,
   proofMode: boolean,
+  shutdownInstalled: boolean,
 ): FeedActivationAssessment {
   const notes: string[] = [];
+
+  // ── Lifecycle prerequisite: shutdown coordinator must be installed ────────
+  // Checked first — before proof mode, before topology. A feed opened without
+  // a shutdown handler cannot be cleaned up on SIGTERM/SIGINT.
+
+  if (!shutdownInstalled) {
+    notes.push("SHUTDOWN_COORDINATOR_NOT_INSTALLED");
+    return result("REFUSED", "SHUTDOWN_NOT_INSTALLED", handover, false, notes);
+  }
+  notes.push("SHUTDOWN_COORDINATOR_INSTALLED");
 
   // ── Absolute blockers ────────────────────────────────────────────────────
 

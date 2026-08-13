@@ -11,13 +11,19 @@
  *      App module is never initialized on invalid configuration.
  *   5. Await the read-only instrument-registry restoration, so no HTTP consumer
  *      can observe the registry before restoration has settled.
- *   6. Start HTTP listener.
+ *   6. Create the HTTP server object via createServer(app).
+ *   7. Install the graceful-shutdown coordinator SYNCHRONOUSLY — immediately
+ *      after the server object exists, before server.listen() is called and
+ *      before the listening callback can execute. This closes the startup window
+ *      in which a SIGTERM/SIGINT could arrive without a registered handler.
+ *   8. Start the HTTP listener.
  *
  * CONFIG_ONLY=1 mode (test/probe only):
  *   Exit immediately after step 3 (validation pass) without initializing
  *   the application or opening any listener. Used by G3 bootstrap-order probes.
  */
 
+import { createServer } from "node:http";
 import { validateProductionConfig } from "./lib/productionConfigValidator.js";
 import {
   assertBootProofModeAllowed,
@@ -119,41 +125,53 @@ try {
 }
 proofMark("RESTORATION_SETTLED");
 
-// Step 6 — Start listener. In boot-proof mode, state plainly what this process
-// is and is not doing, so the log is self-describing evidence.
+// Step 6 — Create HTTP server object.
+// The server object is created here so the shutdown coordinator (Step 7) can
+// reference it synchronously before listen() is called.
 proofMark("CAPABILITIES", ` capabilities=${JSON.stringify(getBootCapabilities())}`);
-const server = app.listen(port, (err?: Error) => {
+const server = createServer(app);
+
+// Step 7 — Install graceful shutdown SYNCHRONOUSLY, before server.listen().
+//
+// This is the Phase 0.8T correction: the coordinator is installed as soon as
+// the server object exists, NOT inside the listen callback. Any SIGTERM/SIGINT
+// arriving in the startup window (after createServer, before the listen
+// callback fires) is now handled correctly.
+//
+// Ordering contract (Phase 0.8T):
+//   signal → SHUTTING_DOWN → feed hook (no-op, NOT_OWNED) → HTTP close
+//
+// The feed hook is the Phase 0.8T no-op: it owns no socket, says so honestly,
+// and is replaced in Phase 0.8B when socket construction is authorised.
+// Shutdown DOES NOT call process.exit itself; the onExit callback does,
+// after the result is written.
+//
+// registerShutdownController is idempotent: a second call is a no-op and
+// returns false, so there is no risk of duplicate handlers if this module is
+// somehow evaluated more than once.
+const shutdownController = createShutdownController({
+  closeFeed: NO_OP_FEED_CLOSE_HOOK,
+  closeHttp: () =>
+    new Promise<void>((resolve, reject) => {
+      server.close((e) => (e ? reject(e) : resolve()));
+    }),
+  // Feeds get 5 s to confirm closure; HTTP gets another 5 s for keep-alive
+  // connections to drain. Neither wait is unbounded.
+  feedCloseTimeoutMs: 5_000,
+  httpCloseTimeoutMs: 5_000,
+});
+installShutdownSignalHandlers(shutdownController, process, (code) => {
+  process.exit(code);
+});
+registerShutdownController(shutdownController);
+proofMark("SHUTDOWN_INSTALLED");
+
+// Step 8 — Start listener. In boot-proof mode, state plainly what this process
+// is and is not doing, so the log is self-describing evidence.
+server.listen(port, (err?: Error) => {
   if (err) {
     process.stderr.write(`Error listening on port ${port}: ${err.message}\n`);
     process.exit(1);
   }
   proofMark("LISTENING", ` port=${port}`);
-
-  // Step 7 — Install graceful shutdown. Created inside the listen callback so
-  // closeHttp has a reference to `server` (which is only assigned after
-  // app.listen() returns, but the callback runs after that assignment).
-  //
-  // Ordering contract (Phase 0.8T):
-  //   signal → SHUTTING_DOWN → feed hook (no-op, NOT_OWNED) → HTTP close
-  //
-  // The feed hook is the Phase 0.8T no-op: it owns no socket, says so
-  // honestly, and is replaced in Phase 0.8B when socket construction is
-  // authorised. Shutdown DOES NOT call process.exit itself; the onExit
-  // callback does, after the result is written to the process.
-  const shutdownController = createShutdownController({
-    closeFeed: NO_OP_FEED_CLOSE_HOOK,
-    closeHttp: () =>
-      new Promise<void>((resolve, reject) => {
-        server.close((e) => (e ? reject(e) : resolve()));
-      }),
-    // Feeds get 5 s to confirm closure; HTTP gets another 5 s for keep-alive
-    // connections to drain. Neither wait is unbounded.
-    feedCloseTimeoutMs: 5_000,
-    httpCloseTimeoutMs: 5_000,
-  });
-  installShutdownSignalHandlers(shutdownController, process, (code) => {
-    process.exit(code);
-  });
-  registerShutdownController(shutdownController);
-  proofMark("SHUTDOWN_INSTALLED");
 });

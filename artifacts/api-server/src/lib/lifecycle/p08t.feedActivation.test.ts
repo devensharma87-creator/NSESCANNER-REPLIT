@@ -98,7 +98,7 @@ describe("P08T A1-A10 — Feed activation safety", () => {
     // The constant is the compile-time declaration; the function is the runtime check.
     expect(FEED_ACTIVATION_DISABLED_AT_BOOT).toBe(true);
     const h = activeHandover();
-    const a = evaluateFeedActivationState(h, false, NOT_SHUTTING_DOWN, false);
+    const a = evaluateFeedActivationState(h, false, NOT_SHUTTING_DOWN, false, true);
     expect(a.feedDisabledAtBoot).toBe(true);
     // Without topology, state is TOPOLOGY_EVIDENCE_PENDING — still blocked.
     expect(a.state).toBe("TOPOLOGY_EVIDENCE_PENDING");
@@ -115,6 +115,7 @@ describe("P08T A1-A10 — Feed activation safety", () => {
       true,
       NOT_SHUTTING_DOWN,
       false,
+      true,
     );
     // Without owner authorisation, blocked before ACTIVE.
     expect(a.state).toBe("OWNER_AUTHORIZATION_PENDING");
@@ -127,7 +128,7 @@ describe("P08T A1-A10 — Feed activation safety", () => {
     // Passing topologyReady=false simulates "only .replit says vm, no runtime
     // evidence yet" — which is exactly the development situation.
     const h = activeHandover({ activationAuthorized: true });
-    const a = evaluateFeedActivationState(h, false /* <— source config only */, NOT_SHUTTING_DOWN, false);
+    const a = evaluateFeedActivationState(h, false /* <— source config only */, NOT_SHUTTING_DOWN, false, true);
     expect(a.state).toBe("TOPOLOGY_EVIDENCE_PENDING");
     expect(a.blockerCode).toBe("RUNTIME_SINGLETON_EVIDENCE_NOT_YET_OBSERVED");
   });
@@ -135,7 +136,7 @@ describe("P08T A1-A10 — Feed activation safety", () => {
   it("A4 runtime topology attestation alone cannot activate", () => {
     // Topology is attested but the owner has not authorized.
     const h = activeHandover({ topologyAttested: true, activationAuthorized: false });
-    const a = evaluateFeedActivationState(h, true, NOT_SHUTTING_DOWN, false);
+    const a = evaluateFeedActivationState(h, true, NOT_SHUTTING_DOWN, false, true);
     expect(["OWNER_AUTHORIZATION_PENDING", "HANDOVER_CLEARANCE_PENDING"]).toContain(a.state);
     expect(a.state).not.toBe("ACTIVE" as string);
     expect(a.state).not.toBe("READY_FOR_OWNER_ACTIVATION");
@@ -146,7 +147,7 @@ describe("P08T A1-A10 — Feed activation safety", () => {
     // The function signature has no registry parameter — by design.
     // We verify by checking that no permutation of the available inputs produces ACTIVE.
     const maximal = clearedHandover({ activationAuthorized: true });
-    const a = evaluateFeedActivationState(maximal, true, NOT_SHUTTING_DOWN, false);
+    const a = evaluateFeedActivationState(maximal, true, NOT_SHUTTING_DOWN, false, true);
     // Best possible result is READY_FOR_OWNER_ACTIVATION, not ACTIVE.
     expect(a.state).not.toBe("ACTIVE" as string);
   });
@@ -154,10 +155,10 @@ describe("P08T A1-A10 — Feed activation safety", () => {
   it("A6 valid Kite session alone cannot activate", () => {
     // Kite session is not an input to this function — by design.
     // Even the highest-trust handover never reaches ACTIVE.
-    const a = evaluateFeedActivationState(clearedHandover(), true, NOT_SHUTTING_DOWN, false);
+    const a = evaluateFeedActivationState(clearedHandover(), true, NOT_SHUTTING_DOWN, false, true);
     expect(a.state).not.toBe("ACTIVE" as string);
     // And proof mode makes it worse:
-    const ap = evaluateFeedActivationState(clearedHandover(), true, NOT_SHUTTING_DOWN, true);
+    const ap = evaluateFeedActivationState(clearedHandover(), true, NOT_SHUTTING_DOWN, true, true);
     expect(ap.state).toBe("REFUSED");
   });
 
@@ -178,7 +179,7 @@ describe("P08T A1-A10 — Feed activation safety", () => {
       feedDisabledAtBoot: true,
       activationAuthorized: false,
     });
-    const a = evaluateFeedActivationState(minimal, true, NOT_SHUTTING_DOWN, false);
+    const a = evaluateFeedActivationState(minimal, true, NOT_SHUTTING_DOWN, false, true);
     expect(a.state).not.toBe("ACTIVE" as string);
     expect(a.state).not.toBe("READY_FOR_OWNER_ACTIVATION");
     expect(a.blockerCode).not.toBeNull();
@@ -187,14 +188,14 @@ describe("P08T A1-A10 — Feed activation safety", () => {
   it("A8 malformed activation evidence fails closed", () => {
     // feedDisabledAtBoot=false is a regression — must be refused.
     const regressed = activeHandover({ feedDisabledAtBoot: false });
-    const a = evaluateFeedActivationState(regressed, true, NOT_SHUTTING_DOWN, false);
+    const a = evaluateFeedActivationState(regressed, true, NOT_SHUTTING_DOWN, false, true);
     expect(a.state).toBe("REFUSED");
     expect(a.blockerCode).toBe("FEED_NOT_DISABLED_AT_BOOT");
   });
 
   it("A9 proof mode cannot activate", () => {
     const best = clearedHandover({ activationAuthorized: true });
-    const a = evaluateFeedActivationState(best, true, NOT_SHUTTING_DOWN, true);
+    const a = evaluateFeedActivationState(best, true, NOT_SHUTTING_DOWN, true, true);
     expect(a.state).toBe("REFUSED");
     expect(a.blockerCode).toBe("PROOF_MODE_CANNOT_ACTIVATE_FEED");
   });
@@ -211,6 +212,7 @@ describe("P08T A1-A10 — Feed activation safety", () => {
             topologyReady,
             NOT_SHUTTING_DOWN,
             proofMode,
+            true,
           );
           expect(a.state).not.toBe("ACTIVE" as string);
         }
@@ -231,7 +233,7 @@ describe("P08T H1-H9 — Deployment handover", () => {
       previousDeploymentId: "old-deploy",
       previousDeploymentConfirmedInactive: false,
     });
-    const a = evaluateFeedActivationState(h, true, NOT_SHUTTING_DOWN, false);
+    const a = evaluateFeedActivationState(h, true, NOT_SHUTTING_DOWN, false, true);
     expect(a.state).toBe("HANDOVER_CLEARANCE_PENDING");
     expect(a.blockerCode).toBe("PREVIOUS_DEPLOYMENT_IDENTITY_NOT_CONFIRMED_INACTIVE");
     expect(a.handoverCleared).toBe(false);
@@ -245,7 +247,7 @@ describe("P08T H1-H9 — Deployment handover", () => {
       previousDeploymentConfirmedInactive: false,
       activationAuthorized: true,
     });
-    const a = evaluateFeedActivationState(h, true, NOT_SHUTTING_DOWN, false);
+    const a = evaluateFeedActivationState(h, true, NOT_SHUTTING_DOWN, false, true);
     expect(a.blockerCode).toBe("PREVIOUS_DEPLOYMENT_IDENTITY_NOT_CONFIRMED_INACTIVE");
   });
 
@@ -253,7 +255,7 @@ describe("P08T H1-H9 — Deployment handover", () => {
     const h = clearedHandover({
       confirmationBoundToDeploymentId: "DIFFERENT-deploy-id",
     });
-    const a = evaluateFeedActivationState(h, true, NOT_SHUTTING_DOWN, false);
+    const a = evaluateFeedActivationState(h, true, NOT_SHUTTING_DOWN, false, true);
     expect(a.state).toBe("HANDOVER_CLEARANCE_PENDING");
     expect(a.blockerCode).toBe("DEPLOYMENT_HANDOVER_NOT_CLEARED");
     expect(a.handoverCleared).toBe(false);
@@ -263,7 +265,7 @@ describe("P08T H1-H9 — Deployment handover", () => {
     const h = clearedHandover({
       confirmationBoundToBootId: "DIFFERENT-boot-id",
     });
-    const a = evaluateFeedActivationState(h, true, NOT_SHUTTING_DOWN, false);
+    const a = evaluateFeedActivationState(h, true, NOT_SHUTTING_DOWN, false, true);
     expect(a.state).toBe("HANDOVER_CLEARANCE_PENDING");
     expect(a.blockerCode).toBe("DEPLOYMENT_HANDOVER_NOT_CLEARED");
   });
@@ -276,14 +278,14 @@ describe("P08T H1-H9 — Deployment handover", () => {
       confirmationBoundToDeploymentId: "deploy-A", // wrong
       confirmationBoundToBootId: "boot-A",         // wrong
     });
-    const a = evaluateFeedActivationState(h, true, NOT_SHUTTING_DOWN, false);
+    const a = evaluateFeedActivationState(h, true, NOT_SHUTTING_DOWN, false, true);
     expect(a.handoverCleared).toBe(false);
     expect(a.state).toBe("HANDOVER_CLEARANCE_PENDING");
   });
 
   it("H6 source config plus DB lease remains insufficient", () => {
     const h = clearedHandover({ confirmationSource: "DB_LEASE" });
-    const a = evaluateFeedActivationState(h, true, NOT_SHUTTING_DOWN, false);
+    const a = evaluateFeedActivationState(h, true, NOT_SHUTTING_DOWN, false, true);
     expect(a.handoverCleared).toBe(false);
     expect(a.blockerCode).toBe("DEPLOYMENT_HANDOVER_NOT_CLEARED");
   });
@@ -291,14 +293,14 @@ describe("P08T H1-H9 — Deployment handover", () => {
   it("H7 advisory lock remains insufficient", () => {
     for (const source of ["ADVISORY_LOCK", "PG_ADVISORY_LOCK", "DB_LOCK", "HEARTBEAT"]) {
       const h = clearedHandover({ confirmationSource: source });
-      const a = evaluateFeedActivationState(h, true, NOT_SHUTTING_DOWN, false);
+      const a = evaluateFeedActivationState(h, true, NOT_SHUTTING_DOWN, false, true);
       expect(a.handoverCleared).toBe(false);
     }
   });
 
   it("H8 correct future evidence may reach READY_FOR_OWNER_ACTIVATION, not ACTIVE", () => {
     const h = clearedHandover({ activationAuthorized: true });
-    const a = evaluateFeedActivationState(h, true, NOT_SHUTTING_DOWN, false);
+    const a = evaluateFeedActivationState(h, true, NOT_SHUTTING_DOWN, false, true);
     expect(a.state).toBe("READY_FOR_OWNER_ACTIVATION");
     expect(a.blockerCode).toBeNull();
     // ACTIVE is still unreachable.
@@ -310,7 +312,7 @@ describe("P08T H1-H9 — Deployment handover", () => {
   it("H9 owner authorization missing remains blocked", () => {
     // Everything else is fine but activationAuthorized=false.
     const h = clearedHandover({ activationAuthorized: false });
-    const a = evaluateFeedActivationState(h, true, NOT_SHUTTING_DOWN, false);
+    const a = evaluateFeedActivationState(h, true, NOT_SHUTTING_DOWN, false, true);
     expect(a.state).toBe("OWNER_AUTHORIZATION_PENDING");
     expect(a.blockerCode).toBe("OWNER_FEED_ACTIVATION_NOT_AUTHORIZED");
     expect(a.ownerAuthorizationPresent).toBe(false);
@@ -362,7 +364,7 @@ describe("P08T S1-S9 — Shutdown integration", () => {
 
     // The state machine must also respect this.
     const h = clearedHandover({ activationAuthorized: true });
-    const a = evaluateFeedActivationState(h, true, "SHUTTING_DOWN", false);
+    const a = evaluateFeedActivationState(h, true, "SHUTTING_DOWN", false, true);
     expect(a.state).toBe("SHUTTING_DOWN");
     expect(a.blockerCode).toBe("PROCESS_SHUTTING_DOWN");
   });
@@ -457,7 +459,7 @@ describe("P08T C1-C8 — Compatibility and safety", () => {
   it("C2 provider-free proof mode remains isolated", () => {
     // Proof mode forces REFUSED — never reaches the topology or handover checks.
     const allTrue = clearedHandover({ activationAuthorized: true });
-    const a = evaluateFeedActivationState(allTrue, true, NOT_SHUTTING_DOWN, true);
+    const a = evaluateFeedActivationState(allTrue, true, NOT_SHUTTING_DOWN, true, true);
     expect(a.state).toBe("REFUSED");
     expect(a.blockerCode).toBe("PROOF_MODE_CANNOT_ACTIVATE_FEED");
   });
@@ -539,6 +541,48 @@ describe("P08T C1-C8 — Compatibility and safety", () => {
       declaredReplicaCount: null,
     });
     expect(autoscaleAdmission.singleWriterStructurallyGuaranteed).toBe(false);
+  });
+
+  it("A11 feed activation fails closed when shutdown coordinator is not installed", () => {
+    // Best-case handover + topology, but shutdown not installed: must be refused
+    // at the very first gate, before topology or handover checks run.
+    const h = clearedHandover({ activationAuthorized: true });
+    const a = evaluateFeedActivationState(h, true, NOT_SHUTTING_DOWN, false, false);
+    expect(a.state).toBe("REFUSED");
+    expect(a.blockerCode).toBe("SHUTDOWN_NOT_INSTALLED");
+    expect(a.notes).toContain("SHUTDOWN_COORDINATOR_NOT_INSTALLED");
+    // ACTIVE and READY_FOR_OWNER_ACTIVATION are both unreachable.
+    expect(a.state).not.toBe("ACTIVE" as string);
+    expect(a.state).not.toBe("READY_FOR_OWNER_ACTIVATION");
+  });
+
+  it("A12 once shutdown is installed the lifecycle gate passes; all other Phase 0.8A gates remain", () => {
+    // Lifecycle prerequisite clears with shutdownInstalled=true; the function
+    // then applies topology, handover, and owner-auth gates exactly as before.
+    const noTopology = evaluateFeedActivationState(
+      activeHandover(),
+      false,
+      NOT_SHUTTING_DOWN,
+      false,
+      true,
+    );
+    expect(noTopology.state).toBe("TOPOLOGY_EVIDENCE_PENDING");
+    expect(noTopology.blockerCode).toBe("RUNTIME_SINGLETON_EVIDENCE_NOT_YET_OBSERVED");
+
+    const noAuth = evaluateFeedActivationState(
+      clearedHandover({ activationAuthorized: false }),
+      true,
+      NOT_SHUTTING_DOWN,
+      false,
+      true,
+    );
+    expect(noAuth.state).toBe("OWNER_AUTHORIZATION_PENDING");
+    expect(noAuth.blockerCode).toBe("OWNER_FEED_ACTIVATION_NOT_AUTHORIZED");
+
+    // ACTIVE is still unreachable after the lifecycle gate clears.
+    const best = evaluateFeedActivationState(clearedHandover({ activationAuthorized: true }), true, NOT_SHUTTING_DOWN, false, true);
+    expect(best.state).not.toBe("ACTIVE" as string);
+    expect(best.state).toBe("READY_FOR_OWNER_ACTIVATION");
   });
 
   it("C8 all four safety locks remain exactly false as boolean", async () => {

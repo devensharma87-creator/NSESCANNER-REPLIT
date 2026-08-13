@@ -482,6 +482,36 @@ describe("P08T S1-S5 — safety and compatibility", () => {
     expect(parseProductionRunArgs(artifact)?.[0]).toBe("node");
   });
 
+  it("S6 the runbook no longer names local main or a fixed commit as the production rollback target", () => {
+    const runbook = readFileSync(
+      resolve(WORKSPACE_ROOT, "docs/PHASE_0_8T_RESERVED_VM_TOPOLOGY_RUNBOOK.md"),
+      "utf8",
+    );
+    // A hardcoded commit SHA as the rollback target is forbidden: the runbook
+    // must require a live capture from the production identity endpoint.
+    expect(runbook).not.toMatch(/rollback target.*e37a4a32/i);
+    expect(runbook).not.toMatch(/Record rollback target.*main/i);
+    // The runbook must mention live pre-publish capture.
+    expect(runbook).toContain("PREPUBLISH_BLOCKED");
+    expect(runbook).toContain("commitSha");
+    expect(runbook).toContain("deploymentId");
+  });
+
+  it("S7 the runbook requires live pre-publish production identity evidence before publish", () => {
+    const runbook = readFileSync(
+      resolve(WORKSPACE_ROOT, "docs/PHASE_0_8T_RESERVED_VM_TOPOLOGY_RUNBOOK.md"),
+      "utf8",
+    );
+    // Required fields in the pre-publish evidence record.
+    for (const field of ["commitSha", "buildTime", "bootTime", "apiBuildId", "deploymentId"]) {
+      expect(runbook).toContain(field);
+    }
+    // Rollback procedure must verify identity after restore, not just restore.
+    expect(runbook).toContain("matches the rollback target");
+    // Branch ancestry and local Git state are not substitutes.
+    expect(runbook).toMatch(/branch ancestry|local Git state|local .* cannot substitute/i);
+  });
+
   it("S5 all four owner safety locks remain false", () => {
     const candle = readFileSync(resolve(process.cwd(), "src/lib/candleEvaluationControl.ts"), "utf8");
     const v2 = readFileSync(resolve(process.cwd(), "src/lib/v2PaperLocks.ts"), "utf8");

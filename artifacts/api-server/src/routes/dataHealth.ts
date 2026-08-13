@@ -44,6 +44,7 @@ import {
   describeShutdownReadiness,
   getBootId,
   getInstalledShutdownPhase,
+  isShutdownInstalled,
 } from "../lib/lifecycle/gracefulShutdown";
 import {
   buildBootHandoverEvidence,
@@ -267,6 +268,7 @@ router.get("/data-health/topology", requireOwnerStrict, (req, res) => {
       assessment.topologyReady,
       shutdownPhase,
       proofMode,
+      isShutdownInstalled(),
     );
 
     res.json({

@@ -1,5 +1,5 @@
 /**
- * PHASE 0.8T — GRACEFUL SHUTDOWN BOUNDARY (PREPARED, NOT INSTALLED)
+ * PHASE 0.8T — GRACEFUL SHUTDOWN BOUNDARY (INSTALLED BEFORE server.listen())
  *
  * A Reserved VM is replaced, not duplicated — but "replaced" is a sequence, not
  * an instant. Replit sends SIGTERM to the old instance while the new one is
@@ -8,15 +8,15 @@
  * exact window in which two processes could both hold Kite feeds against one
  * API key, and the provider counts sockets per key.
  *
- * This module is the boundary that closes that window, prepared in advance:
+ * This module is the boundary that closes that window. index.ts installs it
+ * synchronously after createServer(app) and BEFORE server.listen(), closing
+ * the startup window in which a SIGTERM could arrive without a handler:
  *
  *   signal → stop admitting feed activation → mark shutting down → run the feed
  *   close hook → wait, bounded → close HTTP → report an explicit result.
  *
  * WHAT IT DELIBERATELY DOES NOT DO
  * --------------------------------
- *   - It is not installed. `index.ts` does not import it, so a normal boot is
- *     byte-for-byte the boot it was before this phase.
  *   - It contains no Kite logic and constructs no socket. The close hook is an
  *     injected no-op that HONESTLY reports "nothing was owned", so a future
  *     wiring mistake shows up as NOT_OWNED rather than as fake success.
@@ -283,11 +283,28 @@ export interface ShutdownReadiness {
 let _installedController: ShutdownController | null = null;
 
 /**
- * Register the controller that was installed at boot. Called once by index.ts
- * immediately after installShutdownSignalHandlers. Idempotent for tests.
+ * Register the controller that was installed at boot. Called by index.ts
+ * synchronously before server.listen(). Idempotent: a second call is a no-op
+ * that returns false, preventing duplicate signal handlers across any code path
+ * that could evaluate this module more than once.
+ *
+ * Returns true on the first (effective) installation, false on all subsequent
+ * calls. Callers MUST NOT install a second controller; the first one wins.
  */
-export function registerShutdownController(controller: ShutdownController): void {
+export function registerShutdownController(controller: ShutdownController): boolean {
+  if (_installedController !== null) return false;
   _installedController = controller;
+  return true;
+}
+
+/**
+ * Fail-closed lifecycle gate: returns true only when a shutdown coordinator
+ * has been registered at boot. Feed activation must check this before
+ * proceeding — activation without a shutdown handler leaves no way to clean
+ * up the feed on SIGTERM/SIGINT.
+ */
+export function isShutdownInstalled(): boolean {
+  return _installedController !== null;
 }
 
 /** Returns the current phase of the installed controller, or "RUNNING". */
