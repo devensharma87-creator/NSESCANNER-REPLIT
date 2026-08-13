@@ -9,7 +9,9 @@
  *      No HTTP listener is ever opened on invalid config.
  *   4. Dynamic import of app.ts (which loads all routes, schedulers, providers).
  *      App module is never initialized on invalid configuration.
- *   5. Start HTTP listener.
+ *   5. Await the read-only instrument-registry restoration, so no HTTP consumer
+ *      can observe the registry before restoration has settled.
+ *   6. Start HTTP listener.
  *
  * CONFIG_ONLY=1 mode (test/probe only):
  *   Exit immediately after step 3 (validation pass) without initializing
@@ -59,26 +61,31 @@ if (process.env["CONFIG_ONLY"] === "1") {
 // app.ts — routes, schedulers, providers — run at this point.
 const { default: app } = await import("./app.js");
 
-// Step 5 — Start listener.
+// Step 5 — Restore the authoritative instrument universe (read-only, L2),
+// BEFORE the listener opens.
+//
+// Awaited on purpose (Phase 0.7B). Restoration settles in one bounded query
+// pair against the durable store — no provider call, no subscription, no write
+// — and no HTTP consumer may be able to observe the registry mid-decision. A
+// detached restore let a request arriving in that window read an empty universe
+// that is indistinguishable from a genuinely unconfigured one.
+//
+// Still NON-FATAL: the registry is a coverage-reporting input, never a trading
+// dependency. A refusal degrades coverage to UNIVERSE_NOT_CONFIGURED and the
+// server serves; every acceptance gate (checksum, record-set hash, record
+// count, calendar commitment, schema and policy version) is re-applied inside
+// the loader, so an unverifiable generation is never adopted.
+try {
+  const { loadLatestAcceptedGeneration } = await import("./lib/registry/manifestStore.js");
+  await loadLatestAcceptedGeneration("STARTUP_L2_RESTORE");
+} catch {
+  // Already logged and recorded as a terminal restoration state by the loader.
+}
+
+// Step 6 — Start listener.
 app.listen(port, (err?: Error) => {
   if (err) {
     process.stderr.write(`Error listening on port ${port}: ${err.message}\n`);
     process.exit(1);
   }
 });
-
-// Step 6 — Restore the authoritative instrument universe (read-only, L2).
-//
-// Detached and non-fatal ON PURPOSE: the registry is a coverage-reporting
-// input, never a trading dependency, so a restore failure must degrade coverage
-// to UNIVERSE_NOT_CONFIGURED rather than prevent the server from serving. Every
-// acceptance gate (checksum, schema version, policy version) is re-applied
-// inside the loader, so an unverifiable generation is simply not adopted.
-void (async () => {
-  try {
-    const { loadLatestAcceptedGeneration } = await import("./lib/registry/manifestStore.js");
-    await loadLatestAcceptedGeneration("STARTUP_L2_RESTORE");
-  } catch {
-    // Already logged by the loader. Coverage stays UNIVERSE_NOT_CONFIGURED.
-  }
-})();

@@ -1,3 +1,5 @@
+- [Registry boot restoration contract](registry-boot-restoration.md) — DDL in a loader makes it a writer; an outage ≠ nothing there; a refusal must revoke earlier state; settled ≠ empty; integrity before authority.
+- [No provider-free boot mode in api-server](provider-free-boot-gap.md) — providers start at route-import time; no supported isolation switch, so "clean boot, zero provider calls" proofs are blocked until one is built.
 - [Exchange qualification at the source](exchange-qualification-at-source.md) — declare the exchange once where established, thread it, gate inside the writer; five ways that gate is still bypassable.
 - [Preview bypass fakes auth in dev](preview-bypass-fake-auth.md) — VITE_PREVIEW_BYPASS renders a signed-in shell with no cookie so owner APIs 401; env var beats the git-ignored .env file; check /api/auth/status first.
 - [Hot-path copy = explicit type contract](hot-path-copy-contract.md) — two outcomes only: copy or reject fail-closed; "share and count" is not an invariant; read every field by descriptor, never obj.field; proxies are the honest boundary.

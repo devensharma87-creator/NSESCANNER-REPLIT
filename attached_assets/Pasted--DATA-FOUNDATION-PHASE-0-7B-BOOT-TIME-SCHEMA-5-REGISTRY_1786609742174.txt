@@ -1,0 +1,431 @@
+# DATA FOUNDATION — PHASE 0.7B
+
+## BOOT-TIME SCHEMA-5 REGISTRY RESTORATION AND AUTHORITY CONTINUITY
+
+### EXECUTION AND COST CONTRACT
+
+This is one tightly bounded vertical implementation phase. Complete it in one pass.
+
+Do not reopen the Schema-5 registry, calendar, identity or retention designs already accepted. Reuse existing contracts and evidence.
+
+Execution order:
+
+1. Inspect the existing boot and restoration path.
+2. Capture the exact current failure or missing integration.
+3. Implement the minimum correction.
+4. Run targeted tests and TypeScript once.
+5. Perform one controlled development boot proof.
+6. Independently review the changed diff.
+7. Correct genuine review findings.
+8. Rerun only affected targeted checks.
+9. Report and stop.
+
+Do not conduct another broad audit. Do not run full suites, production builds, browsers or repeated server restarts.
+
+---
+
+## A. AUTHORIZED OBJECTIVE
+
+Prove that a clean API-server process can restore the latest compatible Schema-5 authoritative instrument registry from the development PostgreSQL durable store before any consumer relies on registry coverage.
+
+Boot restoration must:
+
+* Read the latest compatible Schema-5 generation.
+* Verify its stored checksum and record-set integrity.
+* Verify the embedded calendar commitment.
+* Re-evaluate calendar and BSE authority at the actual boot time.
+* Restore the exact generation identity and record count without rebuilding it.
+* Make the restored registry available to the coverage bridge and data-health surfaces.
+* Distinguish data integrity from current authority.
+* Fail closed when the generation is missing, incompatible, corrupt, expired or unverifiable.
+* Perform zero provider subscriptions.
+* Perform zero registry/database writes.
+* Keep all safety locks disabled.
+
+This phase does not require the restored generation to be currently authoritative. If the stored BSE authority has expired at midnight IST, the correct runtime result is `LAST_KNOWN`, `STALE` or the existing equivalent—not a fabricated authoritative state.
+
+---
+
+## B. STRICT SCOPE
+
+Authorized:
+
+* API-server boot orchestration directly related to registry restoration.
+* Existing registry durable loader.
+* Existing calendar-commitment verification.
+* Existing coverage bridge and market-data-health initialization.
+* Minimal additive restoration diagnostics.
+* Targeted tests.
+* One controlled development process boot after targeted checks pass.
+* Read-only development database queries required for before/after proof.
+
+Not authorized:
+
+* Registry rebuild
+* Calendar rebuild
+* Official-source download
+* Provider API call
+* Kite/Upstox/Yahoo/IndianAPI connection
+* WebSocket or subscription expansion
+* Database insert, update, delete, DDL or migration
+* Production database access
+* Production deployment
+* Candle processing or backfill
+* Indicator, signal, paper-trade or order changes
+* F&O or Swing implementation
+* Safety-lock activation
+* Dependency, lockfile or unrelated configuration changes
+* Full package suites
+* Production builds
+* Browser sessions
+* Push, merge, deployment or history rewriting
+
+If a real boot cannot be isolated from provider calls using an existing supported mechanism, stop before starting it:
+
+`PHASE_0_7B_BLOCKED — PROVIDER_FREE_BOOT_PROOF_CANNOT_BE_ISOLATED`
+
+Do not invent an unsafe workaround.
+
+---
+
+## C. PRE-MODIFICATION INVENTORY
+
+Trace only the relevant boot path and report:
+
+1. API-server entry point.
+2. Existing registry initialization function.
+3. PostgreSQL loader.
+4. Checksum verification boundary.
+5. Calendar-commitment verification boundary.
+6. Current-time authority evaluation.
+7. L0/in-memory installation point.
+8. Coverage-bridge initialization.
+9. Market-data-health consumer.
+10. Every boot task that can call an external provider or subscribe to a feed.
+11. The existing supported method for disabling those tasks during proof.
+12. Whether registry consumers can execute before restoration completes.
+
+Classify each statement as:
+
+* `OBSERVED`
+* `TESTED`
+* `INFERRED`
+* `NOT_YET_VERIFIED`
+
+Do not edit until the boot ordering and side-effect boundaries are known.
+
+---
+
+## D. REQUIRED BOOT CONTRACT
+
+The registry boot state must be explicit and deterministic. Reuse existing names where equivalent states already exist.
+
+Expected outcomes must distinguish:
+
+* `RESTORED_CURRENT`
+* `RESTORED_LAST_KNOWN`
+* `NOT_CONFIGURED`
+* `INCOMPATIBLE_SCHEMA`
+* `CHECKSUM_MISMATCH`
+* `CALENDAR_COMMITMENT_INVALID`
+* `AUTHORITY_EXPIRED`
+* `DATABASE_UNAVAILABLE`
+* `RESTORE_FAILED`
+
+Do not create duplicate status vocabularies unnecessarily.
+
+A generation may enter the in-memory registry only when:
+
+1. Schema version is exactly supported.
+2. Policy versions are supported.
+3. Stored payload parses successfully.
+4. Payload checksum matches.
+5. Record-set hash and count reconciliation pass.
+6. Embedded calendar commitment verifies.
+7. Generation identity matches its committed content.
+
+Current authority must then be evaluated separately:
+
+* Integrity valid + current authority valid → current authoritative state.
+* Integrity valid + authority expired → last-known/stale state.
+* Integrity invalid → do not install as trusted registry.
+* No compatible generation → not configured/fail closed.
+* Database failure → unavailable/fail closed.
+
+Never change a stored checksum or generation identity during restoration.
+
+---
+
+## E. BOOT ORDERING
+
+The restored registry must be installed—or restoration must reach an explicit terminal failure state—before any consumer can claim:
+
+* authoritative universe coverage;
+* complete market-data coverage;
+* trade-grade readiness;
+* scanner-universe authority;
+* subscription-denominator authority.
+
+Provider startup is outside this phase and must remain disabled for the controlled proof.
+
+If existing application startup allows consumers to race ahead of restoration, correct the sequencing using the smallest existing startup mechanism. Do not add arbitrary sleeps, polling loops or new schedulers.
+
+A restoration failure must not crash unrelated informational API availability unless the existing contract requires it. It must instead expose an honest unavailable/blocker state.
+
+---
+
+## F. NO-WRITE GUARANTEE
+
+Boot restoration must be read-only.
+
+Before and after the controlled boot, capture from the development database:
+
+* total registry snapshot count;
+* latest snapshot ID;
+* latest generation ID;
+* schema version;
+* validation result;
+* saved timestamp.
+
+The values must remain identical.
+
+Audit the boot restoration path for:
+
+* `INSERT`
+* `UPDATE`
+* `DELETE`
+* `TRUNCATE`
+* `ALTER`
+* `CREATE`
+* retention calls
+* source refresh calls
+* registry rebuild calls
+
+A schema-ensure or `CREATE TABLE IF NOT EXISTS` operation is still a database write and is not authorized for this proof.
+
+If the current loader necessarily performs DDL or another write, stop and report:
+
+`PHASE_0_7B_BLOCKED — BOOT_RESTORE_PATH_IS_NOT_READ_ONLY`
+
+Do not execute it merely because it is idempotent.
+
+---
+
+## G. REQUIRED TARGETED TESTS
+
+Tests must exercise production restoration functions, not a hand-written replica.
+
+At minimum prove:
+
+1. Valid Schema-5 generation restores.
+2. Restored generation ID is unchanged.
+3. Restored record count is unchanged.
+4. Valid current authority yields current state.
+5. Valid but expired BSE authority yields last-known/stale state.
+6. Unknown calendar year fails closed.
+7. Schema 1–4 generations are rejected.
+8. Unsupported policy version is rejected.
+9. Payload-checksum mismatch is rejected.
+10. Record-set hash mismatch is rejected.
+11. Record-count mismatch is rejected.
+12. Calendar-commitment checksum mismatch is rejected.
+13. Fabricated latest-completed-session claim is rejected.
+14. Database unavailable yields an explicit unavailable state.
+15. No compatible row yields not-configured state.
+16. Consumer cannot claim complete or trade-grade coverage before restoration settles.
+17. Restore failure does not silently create an empty authoritative universe.
+18. Restoration performs no mutating SQL.
+19. Restoration does not call providers or subscription functions.
+20. Repeated restoration is deterministic and does not duplicate records.
+21. All four safety locks remain `false as boolean`.
+
+Use existing fixtures and accepted Schema-5 contracts.
+
+---
+
+## H. CONTROLLED DEVELOPMENT BOOT PROOF
+
+Run this only after targeted tests and TypeScript pass.
+
+Requirements:
+
+* Exactly one clean development API-server process start.
+* Use an existing supported mode that disables providers, schedulers and subscriptions.
+* Do not connect to Kite, Upstox, IndianAPI, Yahoo, NSE or BSE.
+* Do not start WebSockets.
+* Do not rebuild or refresh the registry.
+* Do not modify the database.
+* Do not run a browser.
+* Stop the proof process after evidence is captured if it is separate from the normal development workflow.
+
+Capture:
+
+1. Process boot identifier and start time.
+2. Restoration start and finish order.
+3. Database environment identity showing development only.
+4. Selected snapshot ID and generation ID.
+5. Schema and policy versions.
+6. Restored record count.
+7. Payload/checksum verification result.
+8. Calendar-commitment verification result.
+9. Authority-at-boot result.
+10. Coverage-bridge state.
+11. Market-data-health state.
+12. Provider-call count: zero.
+13. Subscribe/unsubscribe count: zero.
+14. Database before/after identity proving no write.
+15. Any blocker code.
+
+Do not expect `CURRENT` if the stored reference has legitimately expired. Honest stale restoration is a successful boot-continuity proof.
+
+---
+
+## I. DATA-HEALTH DISCLOSURE
+
+Expose only safe additive diagnostics through the existing health/status surface, if not already present:
+
+* restoration state;
+* generation ID;
+* schema version;
+* record count;
+* cache/durable source;
+* restored timestamp;
+* authority state;
+* blocker code;
+* last successful restoration time.
+
+Do not expose:
+
+* database credentials;
+* provider tokens;
+* raw payloads;
+* secrets;
+* full calendar documents;
+* internal exception stacks on public routes.
+
+If adding a public field would change a generated contract, stop and report before changing generated files.
+
+---
+
+## J. INDEPENDENT DIFF REVIEW
+
+After implementation and targeted verification, review only the phase diff for:
+
+* consumers racing ahead of restoration;
+* installation before checksum verification;
+* stored authority trusted without current-time evaluation;
+* stale generation labelled authoritative;
+* fail-open empty registry;
+* hidden database writes;
+* provider calls during boot proof;
+* duplicate initialization;
+* logging of sensitive data;
+* unrelated changes;
+* new timers or schedulers;
+* safety-lock changes.
+
+Correct genuine findings, then rerun only affected targeted tests and TypeScript once.
+
+---
+
+## K. COST CONTROL
+
+Maximum intended compute:
+
+* One focused source inventory
+* One implementation pass
+* One targeted test batch
+* Relevant TypeScript check
+* One independent diff review
+* One affected-test rerun only if corrections are made
+* One controlled provider-free development boot
+* Read-only database before/after checks
+
+Explicitly prohibited:
+
+* Full api-server suite
+* Full scanner suite
+* Production builds
+* Browser/Playwright
+* Repeated boots
+* Repeated database checks
+* Provider sweeps
+* Exchange downloads
+* Registry rebuild
+* Performance benchmark
+* Unrelated audits
+
+---
+
+## L. CHANGE AND COMMIT CONTROL
+
+Do not commit, push, merge, deploy, reset, revert, rebase or cherry-pick.
+
+Before checkpoint authorization, report:
+
+* exact changed-file list;
+* purpose of every changed file;
+* runtime versus test-only changes;
+* public-contract impact;
+* diff summary;
+* Git status;
+* auto-commit status.
+
+If Replit auto-commits source files, stop and report:
+
+* commit SHA;
+* author;
+* exact files;
+* whether anything outside this phase was captured;
+* whether `main`, origin or production changed.
+
+Do not repair history without authorization.
+
+---
+
+## M. SAFETY LOCKS
+
+Confirm exactly:
+
+```ts
+FNO_PAPER_V2_RUNTIME_AUTHORIZED = false as boolean
+SWING_PAPER_V2_RUNTIME_AUTHORIZED = false as boolean
+FULL_NSE_WAREHOUSE_POPULATION_AUTHORIZED = false as boolean
+SCANNER_KITE_CANDLE_EVALUATION_AUTHORIZED = false as boolean
+```
+
+No feed expansion, evaluation or trading activation is authorized.
+
+---
+
+## N. REQUIRED FINAL REPORT
+
+Report:
+
+1. Original boot gap/root cause.
+2. Before/after boot sequence.
+3. Exact restoration contract.
+4. Integrity verification results.
+5. Current-authority evaluation result.
+6. Development snapshot selected.
+7. Coverage-bridge and health states.
+8. Database before/after no-write evidence.
+9. Provider and subscription counts.
+10. Targeted tests and TypeScript results.
+11. Controlled boot evidence.
+12. Independent review findings and corrections.
+13. Exact changed-file list and diff.
+14. Public-contract impact.
+15. Git and auto-commit status.
+16. Four safety-lock values.
+17. Anything not verified.
+
+Required verdict only if successful:
+
+`SCHEMA_5_REGISTRY_BOOT_RESTORATION_VERIFIED_IN_DEVELOPMENT — INTEGRITY_AND_CURRENT_AUTHORITY_SEPARATED — EXPIRED_AUTHORITY_FAILS_CLOSED — ZERO_DATABASE_WRITES — ZERO_PROVIDER_OR_SUBSCRIPTION_SIDE_EFFECTS — OWNER_CHECKPOINT_AUTHORIZATION_REQUIRED`
+
+If blocked:
+
+`PHASE_0_7B_BLOCKED — <EXACT_BLOCKER>`
+
+Stop after the report. Do not begin the three-WebSocket Kite coverage phase, production migration, candle provenance work, F&O, Swing or deployment.

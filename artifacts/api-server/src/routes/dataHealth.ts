@@ -16,6 +16,10 @@ import { buildMarketDataHealth } from "../lib/marketDataHealth";
 import { buildBackboneReport } from "../lib/backboneHealth";
 import { buildGlobalDataHealth } from "../lib/globalDataHealth";
 import { requireOwnerStrict } from "../lib/userAuth";
+import {
+  getActiveGenerationAuthority,
+  getRegistryRestorationDiagnostics,
+} from "../lib/registry/manifestStore";
 
 const router: IRouter = Router();
 
@@ -64,6 +68,39 @@ router.get("/data-health/backbone", requireOwnerStrict, async (req, res) => {
   } catch (err) {
     req.log.error({ err }, "data-health/backbone failed");
     res.status(500).json({ error: "backbone health check failed" });
+  }
+});
+
+/**
+ * GET /api/data-health/registry — OWNER-ONLY instrument-registry boot state.
+ *
+ * PHASE 0.7B. Reports what the boot-time restoration actually concluded:
+ * whether it has settled, which durable layer answered, the generation identity
+ * and record count that were verified, whether that generation may speak for
+ * NOW (integrity and current authority are separate facts), and the machine
+ * readable blocker code when it may not.
+ *
+ * Pure in-memory read — no DB query, no provider call, no mutation. Carries no
+ * manifest payload, no record contents and no credentials.
+ */
+router.get("/data-health/registry", requireOwnerStrict, (req, res) => {
+  try {
+    const restoration = getRegistryRestorationDiagnostics();
+    const { authority, mayAuthorize } = getActiveGenerationAuthority();
+    res.json({
+      restoration,
+      // Re-evaluated at read time; it expires at a calendar boundary, not on a
+      // timer, so this is deliberately not the same fact as `restoration.state`.
+      currentAuthority: {
+        state: authority?.state ?? null,
+        mayAuthorize,
+        reasons: authority?.reasons ?? [],
+        evaluatedAt: authority ? new Date(authority.evaluatedAtMs).toISOString() : null,
+      },
+    });
+  } catch (err) {
+    req.log.error({ err }, "data-health/registry failed");
+    res.status(500).json({ error: "registry health check failed" });
   }
 });
 

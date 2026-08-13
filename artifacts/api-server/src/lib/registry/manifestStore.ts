@@ -330,6 +330,123 @@ export function getActiveGeneration(): RegistryGeneration | null {
   return _memory;
 }
 
+// ───────────────────────────────────────────────────────────────────────────
+// PHASE 0.7B — BOOT RESTORATION STATE
+//
+// Restoration has to answer two different questions and never conflate them:
+//   INTEGRITY  — do the stored bytes still describe the generation they claim?
+//                Immutable; evaluated against the payload, never the clock.
+//   AUTHORITY  — may that generation speak for NOW? Evaluated at the actual
+//                boot instant and re-evaluated at every calendar boundary.
+//
+// A consumer must also be able to tell "restoration has not run yet" from
+// "restoration ran and found nothing". Before it settles, no caller may claim
+// authoritative coverage — an empty registry at t=0 is an unanswered question,
+// not an answered one.
+// ───────────────────────────────────────────────────────────────────────────
+
+export type RegistryRestorationState =
+  /** Restoration has not been attempted yet in this process. Not settled. */
+  | "NOT_ATTEMPTED"
+  /** Installed, integrity verified, calendar authoritative for right now. */
+  | "RESTORED_CURRENT"
+  /** Installed, integrity verified, but its calendar no longer speaks for now. */
+  | "RESTORED_LAST_KNOWN"
+  /** Nothing durable to restore (no table, no compatible row, no disk blob). */
+  | "NOT_CONFIGURED"
+  /** Stored generation was built under a different schema or policy version. */
+  | "INCOMPATIBLE_SCHEMA"
+  /** Payload checksum, record-set hash or record count disagreed. */
+  | "CHECKSUM_MISMATCH"
+  /** The embedded trading-calendar commitment does not verify. */
+  | "CALENDAR_COMMITMENT_INVALID"
+  /** Reserved for authority-only refusals; carried as a blocker code today. */
+  | "AUTHORITY_EXPIRED"
+  /** The durable store could not be reached or queried. */
+  | "DATABASE_UNAVAILABLE"
+  /** Anything else — always explicit, never a silent empty universe. */
+  | "RESTORE_FAILED";
+
+/** Terminal states. Anything else means restoration has not settled. */
+const SETTLED_STATES: ReadonlySet<RegistryRestorationState> = new Set<RegistryRestorationState>([
+  "RESTORED_CURRENT",
+  "RESTORED_LAST_KNOWN",
+  "NOT_CONFIGURED",
+  "INCOMPATIBLE_SCHEMA",
+  "CHECKSUM_MISMATCH",
+  "CALENDAR_COMMITMENT_INVALID",
+  "AUTHORITY_EXPIRED",
+  "DATABASE_UNAVAILABLE",
+  "RESTORE_FAILED",
+]);
+
+/**
+ * Safe additive diagnostics. Deliberately carries NO payload, NO record
+ * contents, NO connection string and NO exception stack — only the identity
+ * and verdict of the restoration attempt.
+ */
+export interface RegistryRestorationDiagnostics {
+  readonly state: RegistryRestorationState;
+  /** True once restoration reached a terminal state (installed or refused). */
+  readonly settled: boolean;
+  readonly source: "L2_POSTGRESQL" | "L1_DISK" | null;
+  readonly registryGenerationId: string | null;
+  readonly schemaVersion: number | null;
+  readonly policyVersion: number | null;
+  readonly recordCount: number | null;
+  readonly authorityState: CalendarAuthorityEvaluation["state"] | null;
+  /** Machine-readable refusal/limitation code; null when fully current. */
+  readonly blockerCode: string | null;
+  readonly attemptedAt: string | null;
+  readonly restoredAt: string | null;
+  readonly lastSuccessfulRestorationAt: string | null;
+  /** Caller-supplied reason string for the attempt (e.g. STARTUP_L2_RESTORE). */
+  readonly reason: string | null;
+}
+
+const NOT_ATTEMPTED: RegistryRestorationDiagnostics = Object.freeze({
+  state: "NOT_ATTEMPTED" as const,
+  settled: false,
+  source: null,
+  registryGenerationId: null,
+  schemaVersion: null,
+  policyVersion: null,
+  recordCount: null,
+  authorityState: null,
+  blockerCode: null,
+  attemptedAt: null,
+  restoredAt: null,
+  lastSuccessfulRestorationAt: null,
+  reason: null,
+});
+
+let _restoration: RegistryRestorationDiagnostics = NOT_ATTEMPTED;
+
+export function getRegistryRestorationDiagnostics(): RegistryRestorationDiagnostics {
+  return _restoration;
+}
+
+/** Has boot restoration reached a terminal state in this process? */
+export function isRegistryRestorationSettled(): boolean {
+  return _restoration.settled;
+}
+
+/**
+ * COVERAGE BOUNDARY ENTRY POINT.
+ *
+ * Coverage consumers must read the registry through this function, never
+ * `getActiveGeneration()`. Before restoration settles it returns null, so a
+ * consumer racing the boot sequence sees "not configured" instead of an empty
+ * universe it might mistake for a complete one.
+ */
+export function getSettledActiveGeneration(): RegistryGeneration | null {
+  return _restoration.settled ? _memory : null;
+}
+
+export function _resetRestorationStateForTest(): void {
+  _restoration = NOT_ATTEMPTED;
+}
+
 /**
  * IN-MEMORY AUTHORITY BOUNDARY.
  *
@@ -392,56 +509,104 @@ export function _setActiveGenerationForTest(gen: RegistryGeneration | null): voi
 }
 
 /**
+ * Outcome of re-verifying one durable candidate. `generation` is non-null only
+ * when every integrity gate passed; the calendar's CURRENT/LAST_KNOWN verdict
+ * is reported separately so a caller can never read "loaded" as "authoritative".
+ */
+export interface LoadedGenerationVerdict {
+  readonly generation: RegistryGeneration | null;
+  readonly state: RegistryRestorationState;
+  readonly blockerCode: string | null;
+  readonly authority: CalendarAuthorityEvaluation | null;
+}
+
+/**
  * Re-verify a candidate loaded from any durable layer. Shared by L1 and L2 so
  * disk and database are held to exactly the same bar.
+ *
+ * ORDER MATTERS: integrity first (immutable, payload-only), authority second
+ * (clock-dependent). Nothing is installed before the checksum, the record-set
+ * hash, the record count AND the embedded calendar commitment have verified.
  */
-export function acceptLoadedGeneration(
+export function evaluateLoadedGeneration(
   candidate: RegistryGeneration,
   origin: "L1_DISK" | "L2_POSTGRESQL",
   nowMs: number = Date.now(),
-): RegistryGeneration | null {
+): LoadedGenerationVerdict {
   const m = candidate.manifest;
+  const refuse = (
+    state: RegistryRestorationState,
+    blockerCode: string,
+    message: string,
+    extra: Record<string, unknown> = {},
+  ): LoadedGenerationVerdict => {
+    logger.warn({ origin, blockerCode, ...extra }, message);
+    return { generation: null, state, blockerCode, authority: null };
+  };
+
   if (m.schemaVersion !== MANIFEST_SCHEMA_VERSION || m.policyVersion !== CLASSIFICATION_POLICY_VERSION) {
-    logger.warn(
-      { origin, schemaVersion: m.schemaVersion, policyVersion: m.policyVersion },
+    return refuse(
+      "INCOMPATIBLE_SCHEMA",
+      m.schemaVersion !== MANIFEST_SCHEMA_VERSION ? "SCHEMA_VERSION_UNSUPPORTED" : "POLICY_VERSION_UNSUPPORTED",
       "Instrument registry: stored generation rejected — schema/policy version mismatch",
+      { schemaVersion: m.schemaVersion, policyVersion: m.policyVersion },
     );
-    return null;
   }
   if (!isManifestAccepted(m)) {
-    logger.warn({ origin }, "Instrument registry: stored generation rejected — not ACCEPTED");
-    return null;
+    return refuse(
+      "RESTORE_FAILED",
+      "MANIFEST_NOT_ACCEPTED",
+      "Instrument registry: stored generation rejected — not ACCEPTED",
+    );
   }
   if (!verifyManifestChecksum(m)) {
-    logger.warn({ origin }, "Instrument registry: stored generation rejected — checksum mismatch");
-    return null;
+    return refuse(
+      "CHECKSUM_MISMATCH",
+      "MANIFEST_CHECKSUM_MISMATCH",
+      "Instrument registry: stored generation rejected — checksum mismatch",
+    );
   }
   if (computeEligibleLiveSetHash(candidate.records) !== m.eligibleLiveSetHash) {
-    logger.warn({ origin }, "Instrument registry: stored generation rejected — records do not match manifest hash");
-    return null;
+    return refuse(
+      "CHECKSUM_MISMATCH",
+      "ELIGIBLE_LIVE_SET_HASH_MISMATCH",
+      "Instrument registry: stored generation rejected — records do not match manifest hash",
+    );
   }
   if (computeRecordSetHash(candidate.records) !== m.recordSetHash) {
-    logger.warn(
-      { origin },
+    return refuse(
+      "CHECKSUM_MISMATCH",
+      "RECORD_SET_HASH_MISMATCH",
       "Instrument registry: stored generation rejected — full record set does not match its commitment",
     );
-    return null;
   }
   if (candidate.records.length !== m.totalOfficialRecords + m.indexCount) {
-    logger.warn(
-      { origin, loaded: candidate.records.length, expected: m.totalOfficialRecords + m.indexCount },
+    return refuse(
+      "CHECKSUM_MISMATCH",
+      "RECORD_COUNT_MISMATCH",
       "Instrument registry: stored generation rejected — record count disagrees with the manifest",
+      { loaded: candidate.records.length, expected: m.totalOfficialRecords + m.indexCount },
     );
-    return null;
   }
 
   // COLD-LOAD AUTHORITY BOUNDARY (both L1 disk and L2 PostgreSQL).
   //
-  // The generation is still returned when its calendar has expired: last-known
-  // data keeps its display value, and its stored checksums are NOT rewritten
-  // just because the clock moved. What it loses is the right to authorize —
-  // which the coverage boundary enforces by re-asking the same question there.
+  // An intact generation is still installed when its calendar has expired:
+  // last-known data keeps its display value, and its stored checksums are NOT
+  // rewritten just because the clock moved. What it loses is the right to
+  // authorize — the coverage boundary re-asks the same question there.
+  //
+  // A commitment that does not VERIFY is a different matter: those bytes do not
+  // describe the calendar they claim, so the generation is not installed at all.
   const authority = evaluateCalendarAuthorityNow(m.tradingCalendar, nowMs);
+  if (authority.state === "STALE") {
+    return refuse(
+      "CALENDAR_COMMITMENT_INVALID",
+      "CALENDAR_COMMITMENT_UNVERIFIABLE",
+      "Instrument registry: stored generation rejected — embedded calendar commitment does not verify",
+      { registryGenerationId: m.registryGenerationId, reasons: authority.reasons },
+    );
+  }
   if (authority.state !== "CURRENT_AUTHORITATIVE") {
     logger.warn(
       {
@@ -453,62 +618,182 @@ export function acceptLoadedGeneration(
       },
       "Instrument registry: stored generation loaded as LAST KNOWN — its trading calendar is not authoritative now",
     );
+    return {
+      generation: candidate,
+      state: "RESTORED_LAST_KNOWN",
+      blockerCode: "AUTHORITY_EXPIRED",
+      authority,
+    };
   }
-  return candidate;
+  return { generation: candidate, state: "RESTORED_CURRENT", blockerCode: null, authority };
+}
+
+/**
+ * Back-compatible wrapper: the candidate itself when every integrity gate
+ * passed (whether or not it may still authorize), otherwise null.
+ */
+export function acceptLoadedGeneration(
+  candidate: RegistryGeneration,
+  origin: "L1_DISK" | "L2_POSTGRESQL",
+  nowMs: number = Date.now(),
+): RegistryGeneration | null {
+  return evaluateLoadedGeneration(candidate, origin, nowMs).generation;
+}
+
+/** Record a terminal restoration verdict. Never rewrites stored data. */
+function settleRestoration(
+  partial: Omit<RegistryRestorationDiagnostics, "settled" | "lastSuccessfulRestorationAt">,
+): void {
+  const installed = partial.state === "RESTORED_CURRENT" || partial.state === "RESTORED_LAST_KNOWN";
+  _restoration = Object.freeze({
+    ...partial,
+    settled: SETTLED_STATES.has(partial.state),
+    lastSuccessfulRestorationAt: installed
+      ? partial.restoredAt
+      : _restoration.lastSuccessfulRestorationAt,
+  });
 }
 
 /**
  * Cold start: PostgreSQL first (authoritative and cross-replica), then disk.
  * Returns null when nothing durable and valid exists — the caller must then
  * report an unconfigured universe rather than inventing one.
+ *
+ * READ-ONLY (Phase 0.7B). This path issues SELECTs only: no INSERT, UPDATE,
+ * DELETE, TRUNCATE, ALTER or CREATE — not even an idempotent schema-ensure.
+ * An absent table is a fact to report (NOT_CONFIGURED), not a thing to fix
+ * during a restore; the writer path owns the DDL. It also performs no provider
+ * call and no subscription: every input comes from the durable store.
+ *
+ * Whatever happens, a terminal state is recorded before returning, so a
+ * consumer can always tell "not restored yet" from "restored and empty".
  */
 export async function loadLatestAcceptedGeneration(reason: string): Promise<RegistryGeneration | null> {
+  const attemptedAt = new Date().toISOString();
+
+  const install = (
+    verdict: LoadedGenerationVerdict,
+    source: "L2_POSTGRESQL" | "L1_DISK",
+    gen: RegistryGeneration,
+  ): RegistryGeneration => {
+    _memory = gen;
+    const restoredAt = new Date().toISOString();
+    settleRestoration({
+      state: verdict.state,
+      source,
+      registryGenerationId: gen.manifest.registryGenerationId,
+      schemaVersion: gen.manifest.schemaVersion,
+      policyVersion: gen.manifest.policyVersion,
+      recordCount: gen.records.length,
+      authorityState: verdict.authority?.state ?? null,
+      blockerCode: verdict.blockerCode,
+      attemptedAt,
+      restoredAt,
+      reason,
+    });
+    logger.info(
+      {
+        reason,
+        registryGenerationId: gen.manifest.registryGenerationId,
+        records: gen.records.length,
+        restorationState: verdict.state,
+        authorityState: verdict.authority?.state ?? null,
+        source,
+        diagnosticEvent: "REGISTRY_BOOT_RESTORED",
+      },
+      source === "L2_POSTGRESQL"
+        ? "Instrument registry: restored from PostgreSQL (L2)"
+        : "Instrument registry: restored from disk (L1)",
+    );
+    return gen;
+  };
+
+  const refused = (state: RegistryRestorationState, blockerCode: string | null): null => {
+    // FAIL CLOSED, INCLUDING AGAINST OURSELVES. A refusal must also revoke any
+    // generation an earlier restoration installed: once this boot cannot vouch
+    // for the durable store, a previously restored universe is no longer a
+    // claim this process is entitled to keep serving as authoritative.
+    _memory = null;
+    _resetAuthorityMemoForTest();
+    settleRestoration({
+      state,
+      source: null,
+      registryGenerationId: null,
+      schemaVersion: null,
+      policyVersion: null,
+      recordCount: null,
+      authorityState: null,
+      blockerCode,
+      attemptedAt,
+      restoredAt: null,
+      reason,
+    });
+    return null;
+  };
+
   try {
-    await ensureRegistrySchema();
-    const res = await db.execute(sql`
-      SELECT manifest, records
-      FROM instrument_universe_manifests
-      WHERE acceptance_status = 'ACCEPTED'
-        AND schema_version = ${MANIFEST_SCHEMA_VERSION}
-        AND policy_version = ${CLASSIFICATION_POLICY_VERSION}
-        AND record_count >= ${MIN_RECORDS_FOR_COMMIT}
-      ORDER BY generated_at DESC
-      LIMIT 1
-    `);
-    const row = (res.rows ?? [])[0] as
-      | { manifest: InstrumentUniverseManifest; records: RegistryRecord[] }
-      | undefined;
-    if (row) {
-      const accepted = acceptLoadedGeneration(
-        { manifest: row.manifest, records: row.records },
-        "L2_POSTGRESQL",
+    // Read-only existence probe. `to_regclass` returns NULL instead of raising
+    // when the relation is absent, so a missing table is an answer rather than
+    // an exception — and no DDL is issued to create one.
+    const present = await db.execute(sql`SELECT to_regclass('public.instrument_universe_manifests') AS reg`);
+    const reg = ((present.rows ?? [])[0] as { reg: string | null } | undefined)?.reg ?? null;
+    if (reg === null) {
+      logger.warn(
+        { reason, diagnosticEvent: "REGISTRY_BOOT_TABLE_ABSENT" },
+        "Instrument registry: durable table does not exist — restoration reports NOT_CONFIGURED (no DDL is issued on the read path)",
       );
-      if (accepted) {
-        _memory = accepted;
-        logger.info(
-          { reason, registryGenerationId: accepted.manifest.registryGenerationId },
-          "Instrument registry: restored from PostgreSQL (L2)",
+    } else {
+      const res = await db.execute(sql`
+        SELECT manifest, records
+        FROM instrument_universe_manifests
+        WHERE acceptance_status = 'ACCEPTED'
+          AND schema_version = ${MANIFEST_SCHEMA_VERSION}
+          AND policy_version = ${CLASSIFICATION_POLICY_VERSION}
+          AND record_count >= ${MIN_RECORDS_FOR_COMMIT}
+        ORDER BY generated_at DESC
+        LIMIT 1
+      `);
+      const row = (res.rows ?? [])[0] as
+        | { manifest: InstrumentUniverseManifest; records: RegistryRecord[] }
+        | undefined;
+      if (row) {
+        const verdict = evaluateLoadedGeneration(
+          { manifest: row.manifest, records: row.records },
+          "L2_POSTGRESQL",
         );
-        return accepted;
+        if (verdict.generation) return install(verdict, "L2_POSTGRESQL", verdict.generation);
+        // An unverifiable row is a terminal answer for this boot: falling
+        // through to disk could install an older generation while reporting a
+        // clean state, hiding the corruption that has to be seen.
+        return refused(verdict.state, verdict.blockerCode);
       }
     }
   } catch (err) {
-    logger.warn({ err, reason }, "Instrument registry: L2 load failed (non-fatal, trying disk)");
+    // AN OUTAGE IS NOT A "NOTHING THERE". The durable store is the authority on
+    // which generation is current; while it is unreachable, a disk blob could
+    // be any older generation, and installing it would report a healthy restore
+    // over an unanswered question. Fail closed and say so.
+    logger.warn(
+      { err, reason, diagnosticEvent: "REGISTRY_BOOT_STORE_UNAVAILABLE" },
+      "Instrument registry: durable store unreachable — restoration fails closed (L1 disk is NOT substituted)",
+    );
+    return refused("DATABASE_UNAVAILABLE", "DURABLE_STORE_QUERY_FAILED");
   }
 
+  // Reached only when the store answered cleanly and had nothing compatible to
+  // give: no table, or no row meeting the acceptance/version/floor predicates.
+  // Disk is a legitimate fallback for that answer, and is held to the same bar.
   try {
     const blob = loadBlob<RegistryGeneration>(DISK_NAME, DISK_VERSION);
     if (blob?.payload) {
-      const accepted = acceptLoadedGeneration(blob.payload, "L1_DISK");
-      if (accepted) {
-        _memory = accepted;
-        logger.info({ reason }, "Instrument registry: restored from disk (L1)");
-        return accepted;
-      }
+      const verdict = evaluateLoadedGeneration(blob.payload, "L1_DISK");
+      if (verdict.generation) return install(verdict, "L1_DISK", verdict.generation);
+      return refused(verdict.state, verdict.blockerCode);
     }
   } catch (err) {
     logger.warn({ err, reason }, "Instrument registry: L1 disk load failed (non-fatal)");
+    return refused("RESTORE_FAILED", "DISK_CACHE_READ_FAILED");
   }
 
-  return null;
+  return refused("NOT_CONFIGURED", "NO_COMPATIBLE_GENERATION");
 }
