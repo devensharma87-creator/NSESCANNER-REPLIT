@@ -40,7 +40,16 @@ import {
   readProductionRunArgsFromDisk,
   readRuntimeTopologyEvidence,
 } from "../lib/registry/runtimeTopologyEvidence";
-import { describeShutdownReadiness, getBootId } from "../lib/lifecycle/gracefulShutdown";
+import {
+  describeShutdownReadiness,
+  getBootId,
+  getInstalledShutdownPhase,
+} from "../lib/lifecycle/gracefulShutdown";
+import {
+  buildBootHandoverEvidence,
+  evaluateFeedActivationState,
+  FEED_ACTIVATION_DISABLED_AT_BOOT,
+} from "../lib/lifecycle/feedActivationContract";
 
 const router: IRouter = Router();
 
@@ -236,12 +245,29 @@ router.get("/data-health/topology", requireOwnerStrict, (req, res) => {
     const runCommandArgs = readProductionRunArgsFromDisk(moduleDir);
     const proofMode = isDataFoundationBootProofMode();
 
+    const bootId = getBootId();
     const evidence = readRuntimeTopologyEvidence(process.env, {
       declaredDeploymentTarget,
       runCommandArgs,
       proofMode,
     });
     const assessment = evaluatePhase08tOwnership({ declaredDeploymentTarget, evidence });
+
+    // Feed activation state — evaluated against the boot-time handover evidence
+    // and the current shutdown phase. Safe metadata only: no API keys, no env
+    // values, no credentials.
+    const handover = buildBootHandoverEvidence(
+      process.env,
+      bootId,
+      evidence.attestationSource === "VERIFIED_PLATFORM_ATTESTATION",
+    );
+    const shutdownPhase = getInstalledShutdownPhase();
+    const activation = evaluateFeedActivationState(
+      handover,
+      assessment.topologyReady,
+      shutdownPhase,
+      proofMode,
+    );
 
     res.json({
       phase: "PHASE_0_8T",
@@ -254,7 +280,7 @@ router.get("/data-health/topology", requireOwnerStrict, (req, res) => {
         deploymentIdentityPresent: assessment.runtime.deploymentIdentityPresent,
         apiKeyOwnerId: evidence.apiKeyOwnerId,
         processId: process.pid,
-        bootId: getBootId(),
+        bootId,
         proofMode,
       },
       topology: {
@@ -278,7 +304,38 @@ router.get("/data-health/topology", requireOwnerStrict, (req, res) => {
         declaredTopology: assessment.declaredAdmission.topology.topology,
         declaredBlockerCode: assessment.declaredAdmission.blockerCode,
       },
-      shutdown: describeShutdownReadiness(),
+      // Feed activation state machine — never exposes raw env values.
+      feedActivation: {
+        state: activation.state,
+        blockerCode: activation.blockerCode,
+        feedDisabledAtBoot: activation.feedDisabledAtBoot,
+        feedDisabledConstant: FEED_ACTIVATION_DISABLED_AT_BOOT,
+        handoverCleared: activation.handoverCleared,
+        ownerAuthorizationPresent: activation.ownerAuthorizationPresent,
+        currentDeploymentIdPresent: handover.currentDeploymentId !== null,
+        previousDeploymentIdPresent: handover.previousDeploymentId !== null,
+        previousDeploymentConfirmedInactive: handover.previousDeploymentConfirmedInactive,
+        activationAuthorized: handover.activationAuthorized,
+        notes: activation.notes,
+      },
+      // Deployment handover metadata — no credentials, no env values.
+      handover: {
+        currentBootId: handover.currentBootId,
+        currentProcessId: handover.currentProcessId,
+        currentStartedAt: handover.currentStartedAt,
+        topologyAttested: handover.topologyAttested,
+        feedDisabledAtBoot: handover.feedDisabledAtBoot,
+        activationAuthorized: handover.activationAuthorized,
+        currentDeploymentIdPresent: handover.currentDeploymentId !== null,
+        previousDeploymentIdPresent: handover.previousDeploymentId !== null,
+        previousDeploymentConfirmedInactive: handover.previousDeploymentConfirmedInactive,
+        confirmationSource: handover.confirmationSource,
+        confirmedAt: handover.confirmedAt,
+      },
+      shutdown: {
+        ...describeShutdownReadiness(),
+        currentPhase: shutdownPhase,
+      },
     });
   } catch (err) {
     req.log.error({ err }, "data-health/topology failed");

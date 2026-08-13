@@ -25,6 +25,12 @@ import {
   getBootCapabilities,
   isDataFoundationBootProofMode,
 } from "./lib/bootCapabilities.js";
+import {
+  createShutdownController,
+  installShutdownSignalHandlers,
+  NO_OP_FEED_CLOSE_HOOK,
+  registerShutdownController,
+} from "./lib/lifecycle/gracefulShutdown.js";
 
 // Step 0 — DATA_FOUNDATION_BOOT_PROOF admissibility.
 // Deliberately the FIRST thing that runs: this module imports nothing but the
@@ -116,10 +122,38 @@ proofMark("RESTORATION_SETTLED");
 // Step 6 — Start listener. In boot-proof mode, state plainly what this process
 // is and is not doing, so the log is self-describing evidence.
 proofMark("CAPABILITIES", ` capabilities=${JSON.stringify(getBootCapabilities())}`);
-app.listen(port, (err?: Error) => {
+const server = app.listen(port, (err?: Error) => {
   if (err) {
     process.stderr.write(`Error listening on port ${port}: ${err.message}\n`);
     process.exit(1);
   }
   proofMark("LISTENING", ` port=${port}`);
+
+  // Step 7 — Install graceful shutdown. Created inside the listen callback so
+  // closeHttp has a reference to `server` (which is only assigned after
+  // app.listen() returns, but the callback runs after that assignment).
+  //
+  // Ordering contract (Phase 0.8T):
+  //   signal → SHUTTING_DOWN → feed hook (no-op, NOT_OWNED) → HTTP close
+  //
+  // The feed hook is the Phase 0.8T no-op: it owns no socket, says so
+  // honestly, and is replaced in Phase 0.8B when socket construction is
+  // authorised. Shutdown DOES NOT call process.exit itself; the onExit
+  // callback does, after the result is written to the process.
+  const shutdownController = createShutdownController({
+    closeFeed: NO_OP_FEED_CLOSE_HOOK,
+    closeHttp: () =>
+      new Promise<void>((resolve, reject) => {
+        server.close((e) => (e ? reject(e) : resolve()));
+      }),
+    // Feeds get 5 s to confirm closure; HTTP gets another 5 s for keep-alive
+    // connections to drain. Neither wait is unbounded.
+    feedCloseTimeoutMs: 5_000,
+    httpCloseTimeoutMs: 5_000,
+  });
+  installShutdownSignalHandlers(shutdownController, process, (code) => {
+    process.exit(code);
+  });
+  registerShutdownController(shutdownController);
+  proofMark("SHUTDOWN_INSTALLED");
 });

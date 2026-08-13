@@ -270,18 +270,38 @@ export function getBootId(): string {
 /** Describes readiness of the boundary for owner diagnostics. */
 export interface ShutdownReadiness {
   readonly prepared: true;
-  readonly installedAtBoot: false;
+  /** True once installShutdownSignalHandlers has been called at boot. */
+  readonly installedAtBoot: boolean;
   readonly feedCloseHook: "NO_OP_PHASE_0_8T";
   readonly signals: readonly string[];
   readonly feedCloseTimeoutMs: number;
+  /** Current shutdown phase of the installed controller, or RUNNING if none. */
+  readonly currentPhase: ShutdownPhase;
+}
+
+/** Module-level registry of the installed controller (one per process). */
+let _installedController: ShutdownController | null = null;
+
+/**
+ * Register the controller that was installed at boot. Called once by index.ts
+ * immediately after installShutdownSignalHandlers. Idempotent for tests.
+ */
+export function registerShutdownController(controller: ShutdownController): void {
+  _installedController = controller;
+}
+
+/** Returns the current phase of the installed controller, or "RUNNING". */
+export function getInstalledShutdownPhase(): ShutdownPhase {
+  return _installedController?.phase() ?? "RUNNING";
 }
 
 export function describeShutdownReadiness(): ShutdownReadiness {
   return Object.freeze({
     prepared: true as const,
-    installedAtBoot: false as const,
+    installedAtBoot: _installedController !== null,
     feedCloseHook: "NO_OP_PHASE_0_8T" as const,
     signals: SHUTDOWN_SIGNALS,
     feedCloseTimeoutMs: DEFAULT_FEED_CLOSE_TIMEOUT_MS,
+    currentPhase: _installedController?.phase() ?? "RUNNING",
   });
 }

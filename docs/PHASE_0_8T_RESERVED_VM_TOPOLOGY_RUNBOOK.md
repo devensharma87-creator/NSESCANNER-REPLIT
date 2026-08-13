@@ -1,141 +1,249 @@
-# Phase 0.8T — Reserved VM singleton topology runbook
+# PHASE 0.8T — RESERVED VM TOPOLOGY RUNBOOK
 
-**Status:** prepared in development. Nothing published, nothing deployed, no billing action taken.
-**Date:** 2026-08-13.
-
-Every claim below is labelled with its evidence class:
-`OBSERVED_CONFIG` (read from this repository), `OBSERVED_PLATFORM` (read from the running
-workspace), `OFFICIAL_DOCUMENTATION` (docs.replit.com), `INFERRED`, `NOT_YET_VERIFIED`.
+**Status:** DEVELOPMENT PREPARATION COMPLETE — AWAITING OWNER CHECKPOINT AUTHORIZATION  
+**Branch:** pack33c-p1-1-isolated (no commits by agent; platform auto-commits tracked separately)  
+**main:** e37a4a32 (unchanged)
 
 ---
 
-## 1. Why this phase exists
+## 1. What Changed in Phase 0.8T
 
-A live Kite feed is not like an HTTP handler. The provider counts WebSocket connections **per API
-key**, and a second process holding the same key does not queue behind the first — it competes with
-it, and the resulting subscription state is silently wrong. So the feed can only be activated by a
-deployment topology in which a second instance of this process **cannot exist**, not one in which a
-second instance is merely unlikely or is talked out of running by a lock.
+### Configuration change (inert until publish)
 
-Phase 0.8A established that no application-level mechanism can supply that guarantee
-(`REJECTED_OWNERSHIP_MECHANISMS`: process-local lock, Postgres advisory lock, DB lease row, leader
-election). Each of them is a claim made *inside* one process about what other processes are doing.
-The guarantee has to come from the platform. That is the whole content of this phase.
+| Property | Before | After | Effect |
+|---|---|---|---|
+| `.replit` `deploymentTarget` | `"autoscale"` | `"vm"` | Publish will target Reserved VM |
 
-## 2. Current topology (OBSERVED_CONFIG)
+The change is read only at publish time. The running Autoscale deployment is untouched.
 
-| Property | Value | Source |
-| --- | --- | --- |
-| Deployment target (before) | `autoscale` | `.replit` `[deployment]` |
-| Router | `application` | `.replit` `[deployment]` |
-| Post-build | `pnpm store prune` (CI=true) | `.replit` `[deployment.postBuild]` |
-| API build | `pnpm --filter @workspace/api-server run build` (NODE_ENV=production) | `artifacts/api-server/.replit-artifact/artifact.toml` |
-| API run | `node --enable-source-maps artifacts/api-server/dist/index.mjs` | same |
-| Port | `PORT=8080`, `localPort = 8080`, path prefix `/api` | same |
-| Health check | `/api/healthz` (startup) | same |
-| Other artifacts | `scanner` (21235), `global` (20474) — static builds | respective `artifact.toml` |
+### New code (zero boot side effects)
 
-Autoscale is disqualifying for a feed owner on two independent counts (OFFICIAL_DOCUMENTATION):
-it may run **more than one instance concurrently**, and it **scales to zero** when idle. Either one
-alone makes "exactly one always-connected process" impossible.
+| File | Kind | Purpose |
+|---|---|---|
+| `src/lib/lifecycle/feedActivationContract.ts` | runtime | Feed activation state machine and handover evidence contract |
+| `src/lib/lifecycle/gracefulShutdown.ts` | runtime | Graceful shutdown boundary — NOW INSTALLED at boot |
+| `src/lib/registry/runtimeTopologyEvidence.ts` | runtime | Runtime topology evidence and Phase 0.8T contract |
+| `src/routes/dataHealth.ts` | runtime | `GET /api/data-health/topology` (owner-only) extended with activation/handover state |
+| `src/index.ts` | runtime | Shutdown coordinator installed (SIGTERM/SIGINT handlers wired) |
+| `src/lib/lifecycle/p08t.feedActivation.test.ts` | test | 36 activation/handover/shutdown/safety tests |
+| `src/lib/registry/p08t.topologyAdmission.test.ts` | test | 32 topology/evidence tests |
+| `src/lib/lifecycle/gracefulShutdown.p08t.test.ts` | test | 8 shutdown lifecycle tests |
+| `docs/PHASE_0_8T_RESERVED_VM_TOPOLOGY_RUNBOOK.md` | docs | This file |
 
-## 3. Target topology (OFFICIAL_DOCUMENTATION)
+---
 
-Reserved VM is a dedicated virtual machine that runs continuously, does not autoscale, and does not
-sleep. It is the documented choice for always-on APIs, bots and long-lived connections — i.e. exactly the
-"one process, always connected" shape a market feed needs. "Max machines" is an Autoscale-only
-setting and does not apply.
+## 2. Republish Overlap Risk
 
-One caveat that matters more here than anywhere else (OFFICIAL_DOCUMENTATION): on **republish**,
-traffic moves from the old instance to the new one and the old instance is sent `SIGTERM` to shut
-down gracefully. So a Reserved VM guarantees one *steady-state* process, not one process at every
-instant — there is a bounded overlap window during cutover. That window is why the graceful-shutdown
-boundary in this phase exists, and why the old process must release the feed before the new one may
-claim it (Phase 0.8B).
+Reserved VM is NOT zero-overlap. On every publish:
 
-## 4. The minimum configuration change
+1. Replit starts the **new** process.
+2. Replit sends SIGTERM to the **old** process.
+3. There is a bounded window in which **both processes exist**.
 
-Exactly one functional line changed, in `.replit`:
+If both automatically open Kite WebSockets, the same API key could temporarily own six connections. Phase 0.8T prevents this by:
 
-```diff
- [deployment]
- router = "application"
--deploymentTarget = "autoscale"
-+deploymentTarget = "vm"
+- Feed activation defaults to `DISABLED_BY_DEFAULT` at every boot.
+- The state machine requires explicit owner clearance of the handover before activation can be requested.
+- The old process's shutdown coordinator closes HTTP, then emits an honest result.
+- ACTIVE is unreachable by construction in this phase.
+
+---
+
+## 3. Feed Activation State Machine
+
+```
+DISABLED_BY_DEFAULT         ← every boot starts here
+    ↓ (topology evidence arrives)
+TOPOLOGY_EVIDENCE_PENDING   ← no runtime attestation yet
+    ↓ (Reserved VM evidence confirmed)
+HANDOVER_CLEARANCE_PENDING  ← previous deployment not yet confirmed inactive
+    ↓ (owner verifies old process gone)
+OWNER_AUTHORIZATION_PENDING ← owner hasn't explicitly authorised
+    ↓ (owner authorises)
+READY_FOR_OWNER_ACTIVATION  ← Phase 0.8T ceiling; never goes further
+ACTIVE                      ← defined; unreachable in Phase 0.8T
+SHUTTING_DOWN               ← entered on SIGTERM/SIGINT
+REFUSED                     ← proof mode, regression, or permanent violation
 ```
 
-`deploymentTarget` is a documented `.replit` key, and `"vm"` is the documented value for Reserved VM
-(OFFICIAL_DOCUMENTATION). No other field was added, renamed or invented; build command, run command,
-port, path prefix and health check are untouched, so the deployment contract is otherwise identical.
+Single-factor attacks that CANNOT activate the feed (each checked):
+- `NODE_ENV=production`
+- `.replit` `deploymentTarget = "vm"` (source configuration)
+- Runtime topology attestation alone
+- Current registry authority
+- Valid Kite session
+- DB lease / advisory lock / heartbeat
+- Elapsed time
 
-**This change is inert until someone publishes.** The currently running production deployment keeps
-its existing Autoscale configuration; `.replit` is read at publish time, not by the running service.
+---
 
-### What cannot be set from a file (OFFICIAL_DOCUMENTATION)
+## 4. Deployment Handover Contract
 
-Machine size (vCPU/RAM) is chosen in the Publishing UI, not in `.replit`. The owner must therefore
-complete the selection by hand:
+```typescript
+DeploymentHandoverEvidence {
+  currentDeploymentId               // null on first deploy until env key confirmed
+  previousDeploymentId              // null = first deployment (vacuously cleared)
+  currentBootId                     // randomUUID for this incarnation
+  currentProcessId                  // process.pid
+  currentStartedAt                  // ISO-8601
+  topologyAttested                  // VERIFIED_PLATFORM_ATTESTATION only
+  previousDeploymentConfirmedInactive  // MUST be explicit evidence
+  confirmationSource                // "OWNER_MANUAL_VERIFICATION" | "OWNER_CONFIRMED_VIA_DIAGNOSTICS"
+  confirmationBoundToDeploymentId   // must === currentDeploymentId
+  confirmationBoundToBootId         // must === currentBootId
+  confirmedAt                       // ISO-8601
+  feedDisabledAtBoot                // ALWAYS true in Phase 0.8T
+  activationAuthorized              // ALWAYS false at boot
+}
+```
 
-1. Open the **Publishing** / Deployments pane in the workspace.
-2. Choose **Reserved VM** as the deployment type (it should already be pre-selected from `.replit`;
-   if it is not, select it explicitly and treat the mismatch as a finding).
-3. Open **Adjust settings** → machine power, and pick the size from the table in §5.
-4. Confirm the run command shown matches
-   `node --enable-source-maps artifacts/api-server/dist/index.mjs` and the health path `/api/healthz`.
-5. Publish. **Not part of this phase** — publishing requires explicit owner authorization.
+### Why locks/leases are insufficient
 
-## 5. Cost (OFFICIAL_DOCUMENTATION — `docs.replit.com/billing/aug-cloud-billing-updates`, prices effective 2026-08-01)
+DB advisory locks, pg leases, and heartbeats confirm database connectivity. They do not confirm that the old process's WebSocket connections to Kite are closed. A process can hold an advisory lock while its sockets remain open. Only explicit owner verification (checking the old process list, the Kite console, and the diagnostics endpoint) constitutes valid confirmation.
 
-Monthly figures are hourly × 24 × 30 = 720 h, rounded to the cent; taxes excluded ("prices subject
-to tax depending on your location").
+---
 
-| Machine | Hourly | ≈ Monthly (720 h) |
-| --- | --- | --- |
-| 0.5 vCPU / 2 GiB | $0.0208 | $14.98 |
-| **1 vCPU / 4 GiB (dedicated)** | **$0.0486** | **$34.99** |
-| 2 vCPU / 8 GiB | $0.0694 | $49.97 |
-| 4 vCPU / 16 GiB | $0.1806 | $130.03 |
-| 8 vCPU / 32 GiB | $0.3611 | $259.99 |
-| 16 vCPU / 64 GiB | $0.7222 | $519.98 |
+## 5. Graceful Shutdown — Installed Ordering
 
-Recommended starting size: **1 vCPU / 4 GiB ≈ $34.99/month** (INFERRED from the workload: one Node
-process serving a low-traffic owner-facing API plus, later, a small number of WebSocket
-connections). It can be resized later from the same UI.
+SIGTERM or SIGINT →  
+1. Atomically set `phase = SHUTTING_DOWN`  
+2. Refuse new feed activation (`isFeedActivationPermitted() → false`)  
+3. Invoke registered feed-close hook (Phase 0.8T: NO_OP, reports NOT_OWNED)  
+4. Await hook — bounded to `feedCloseTimeoutMs` (5 000 ms)  
+5. Close HTTP listener — bounded to `httpCloseTimeoutMs` (5 000 ms)  
+6. Emit `ShutdownResult` (exitCode 0 if feed NOT_OWNED + HTTP closed, else 1)  
+7. `process.exit(exitCode)` via injected callback  
 
-Autoscale, for comparison (OFFICIAL_DOCUMENTATION): $1/month base + $0.60 per million compute units
-+ $0.40 per million requests + $0.05/GiB outbound. Monthly plan credits are $25 (Core) / $40 (Teams)
-and **do not roll over**.
+Duplicate signals: idempotent — second and later signals return the first run's promise.
 
-**NOT_YET_VERIFIED:** the account's actual current Autoscale spend, and therefore the exact net delta
-of the switch. The agent cannot read account billing. The owner can read it at
-**Settings → Account → Account usage**. A Reserved VM is a *fixed* monthly charge that accrues
-whether or not the service is used — that is the point (it never sleeps), and it is the cost
-trade-off being accepted.
+---
 
-## 6. Rollback
+## 6. Runtime Attestation Collection Plan
 
-| Step | Action | Blast radius |
-| --- | --- | --- |
-| Revert configuration | Set `deploymentTarget = "autoscale"` in `.replit` | None until republish |
-| Revert running service | Republish | Returns to Autoscale billing and topology |
-| Revert code | The Phase 0.8T modules are additive and unreferenced at boot; deleting them changes no running behaviour | None |
+### Stage 1 — Feed-disabled Reserved VM deployment (after owner authorises publish)
 
-There is no data migration, no schema change and no provider state involved, so rollback is a
-configuration edit plus a republish. Note that while running on Reserved VM the fixed charge accrues
-until the republish completes.
+1. Publish with Reserved VM selected (see §7).  
+2. Keep feed activation disabled (default — nothing to do).  
+3. Call `GET /api/data-health/topology` with owner cookie.  
+4. Record the **names** of environment variables present (never values).  
+5. Independently classify each name: Replit platform metadata vs application secret.  
+6. Classify only safe platform-metadata keys as candidates for `VERIFIED_PLATFORM_ATTESTATION_KEYS`.  
+7. Verify `isDeployment: true` in the response.  
+8. Verify `processTopology: SINGLE_ENTRYPOINT_ARGV`.  
+9. Verify `feedActivation.state` is `TOPOLOGY_EVIDENCE_PENDING` (attestation list still empty).  
+10. Confirm zero Kite sockets: Kite console + process `lsof` (no WebSocket FDs).  
+11. Confirm old Autoscale process is inactive: Replit dashboard.  
+12. Leave feed disabled. Return for Stage 2.  
 
-## 7. What is still unproven (and why ownership stays refused)
+### Stage 2 — Code recognition (separate owner decision)
 
-Three of the ownership requirements are statements about a *running deployment*, and no amount of
-configuration can stand in for them:
+1. Add confirmed safe env-var names to `VERIFIED_PLATFORM_ATTESTATION_KEYS`.  
+2. Review with owner before committing.  
+3. Redeploy (feed still disabled).  
+4. Verify `attestationSource: VERIFIED_PLATFORM_ATTESTATION` in response.  
+5. Supply explicit handover confirmation matching current deploymentId + bootId.  
+6. Verify state reaches `READY_FOR_OWNER_ACTIVATION` — never `ACTIVE`.  
+7. Request separate owner authorisation before any Phase 0.8B work.  
 
-- restart **replaces** rather than overlaps (only observable across an actual republish);
-- a deployment identity is available to the runtime (no such variable is exposed in the workspace —
-  `REPLIT_DEPLOYMENT` itself is absent here, OBSERVED_PLATFORM);
-- health checks and platform restarts cannot produce two concurrent owners.
+---
 
-Accordingly `evaluatePhase08tOwnership` refuses with
-`RUNTIME_SINGLETON_EVIDENCE_NOT_YET_OBSERVED`, and `ownershipAdmitted` is a literal `false` in the
-type system. After an actual Reserved VM publish, the owner-only endpoint
-`GET /api/data-health/topology` reports what the running process can actually observe — that is the
-evidence this phase is waiting for, and it cannot be produced in development.
+## 7. First Reserved VM Deployment Procedure
+
+> ⚠️ Every step that involves clicking Publish creates a Replit charge. Confirm pricing before proceeding.
+
+**Pre-flight (before opening Publish UI)**
+
+1. `[A]` Confirm current production commit via `GET /api/build-info` (owner-only).  
+2. `[A]` Record rollback target: `main` at `e37a4a32` (the last pre-Phase-0.8T commit).  
+3. `[A]` Confirm `feedActivation.state` is `TOPOLOGY_EVIDENCE_PENDING` or `DISABLED_BY_DEFAULT` on the diagnostics route.  
+4. `[A]` Confirm all four safety locks are `false` via the test suite or source inspection.  
+
+**Publish (creates a charge)**
+
+5. `[O]` Open the Publish UI (Replit header → Deploy / Publish).  
+6. `[O]` Select **Reserved VM** (not Autoscale).  
+7. `[O]` Select machine size — 1 vCPU / 4 GiB recommended ($0.0486/h ≈ $34.99/mo at 720 h).  
+8. `[O]` Confirm the price shown matches the documented rate before clicking Publish.  
+9. `[O]` Click Publish. Old Autoscale instance will receive SIGTERM.  
+
+**Verification (after Publish)**
+
+10. `[A]` Wait for build to complete and health check to pass.  
+11. `[A]` `GET /api/healthz` → 200.  
+12. `[A]` `GET /api/data-health/topology` (owner cookie) → `isDeployment: true`, `feedActivation.state` not `ACTIVE`.  
+13. `[A]` Confirm build identity via `GET /api/build-info` matches the published commit.  
+14. `[A]` Record safe env-var names from topology response (never values).  
+15. `[A]` Confirm `feedDisabledAtBoot: true` in the response.  
+16. `[A]` Verify no Kite sockets: check Kite API console for active connections.  
+17. `[A]` Verify old Autoscale process is inactive (Replit dashboard shows no running Autoscale instance).  
+
+**Leave feed disabled. Do not proceed to Stage 2 without separate owner sign-off.**
+
+`[A]` = agent action (safe, no charge)  
+`[O]` = owner action required
+
+---
+
+## 8. Every Later Redeployment Procedure
+
+> Each publish creates a new Reserved VM charge until the old instance is replaced.
+
+1. `[A]` Verify current `feedActivation.state` (should not be `ACTIVE` in Phase 0.8T).  
+2. `[A]` Record `currentDeploymentId` and `currentBootId` from topology diagnostic.  
+3. `[O]` Authorise publish.  
+4. **Platform**: old process receives SIGTERM → graceful shutdown runs (feed NOT_OWNED, HTTP closes within 10 s total).  
+5. `[A]` Verify old shutdown result: check that the old process's log emitted `SHUTDOWN_INSTALLED` + clean exit.  
+6. `[A]` Verify new process health: `GET /api/healthz` → 200.  
+7. `[A]` Verify new process is feed-disabled: `feedActivation.state` ≠ `ACTIVE`.  
+8. `[A]` Verify new `currentDeploymentId` ≠ old one.  
+9. `[A]` Re-confirm registry/Kite/session evidence as needed for the new deployment's topology response.  
+10. `[O]` Request separate owner activation if Phase 0.8B has been reached and the new process is to own the feed.  
+11. **Never** auto-reactivate from a previous process's persisted state.  
+
+---
+
+## 9. Rollback Procedure
+
+### Rollback to Autoscale (revert deploymentTarget)
+
+1. `[O]` Open Publish UI → switch deployment type back to Autoscale.  
+2. `[O]` Click Publish. **Creates a charge** for the Autoscale instance.  
+3. Reserved VM billing stops when the Reserved VM instance is replaced.  
+4. `[A]` Verify `GET /api/healthz` → 200 and `GET /api/data-health/topology` shows Autoscale topology.  
+
+### Rollback to pre-Phase-0.8T code
+
+1. `[O]` Open Replit Checkpoints. Find the checkpoint at or before commit `e37a4a32`.  
+2. `[O]` Restore checkpoint. **This reverts ALL Phase 0.8T code.**  
+3. `[O]` Publish the restored code with Autoscale.  
+
+### Steps that create additional Replit charges
+
+- Every Publish (any type): build compute.  
+- Running a Reserved VM: per-second billing from first publish until explicitly stopped/switched.  
+- Switching from Reserved VM to Autoscale: Autoscale compute units from the first request.  
+
+---
+
+## 10. Cost Reference
+
+| Tier | vCPU | GiB RAM | Rate | Monthly (720 h) |
+|---|---|---|---|---|
+| Entry | 0.5 | 2 | $0.0208/h | ≈ $14.98 |
+| **Recommended** | **1** | **4** | **$0.0486/h** | **≈ $34.99** |
+| Standard | 2 | 8 | $0.0694/h | ≈ $49.97 |
+| Large | 4 | 16 | $0.1806/h | ≈ $130.03 |
+| XL | 8 | 32 | $0.3611/h | ≈ $259.99 |
+| 2XL | 16 | 64 | $0.7222/h | ≈ $519.98 |
+
+Taxes excluded. Verify current rates at Settings → Billing before publishing.  
+Actual current Autoscale spend: **NOT_YET_VERIFIED** — check Settings → Account → Account usage.
+
+---
+
+## 11. Owner Actions Required
+
+1. Review this runbook and the Phase 0.8T code diff.
+2. Authorize the development checkpoint.
+3. When ready to deploy: follow §7 (First Reserved VM Deployment Procedure) step by step.
+4. After collecting runtime attestation: follow Stage 2 (§6) and obtain a separate owner decision before Phase 0.8B.

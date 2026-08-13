@@ -404,6 +404,7 @@ describe("P08T S1-S5 — safety and compatibility", () => {
   const NEW_SOURCES = [
     resolve(REGISTRY_DIR, "runtimeTopologyEvidence.ts"),
     resolve(process.cwd(), "src/lib/lifecycle/gracefulShutdown.ts"),
+    resolve(process.cwd(), "src/lib/lifecycle/feedActivationContract.ts"),
   ];
 
   function codeOf(file: string): string {
@@ -413,16 +414,25 @@ describe("P08T S1-S5 — safety and compatibility", () => {
       .join("\n");
   }
 
-  it("S1 a normal boot is unchanged — nothing from this phase is installed at boot", () => {
+  it("S1 shutdown coordinator is installed at boot; app.ts has no topology imports", () => {
     const index = readFileSync(resolve(process.cwd(), "src/index.ts"), "utf8");
     const app = readFileSync(resolve(process.cwd(), "src/app.ts"), "utf8");
-    for (const src of [index, app]) {
-      expect(src).not.toContain("gracefulShutdown");
-      expect(src).not.toContain("installShutdownSignalHandlers");
-      expect(src).not.toContain("runtimeTopologyEvidence");
-    }
-    // The boundary is prepared, and it says so honestly.
-    expect(codeOf(NEW_SOURCES[1])).toContain("installedAtBoot: false");
+
+    // index.ts MUST import gracefulShutdown now that the coordinator is installed.
+    expect(index).toContain("gracefulShutdown");
+    expect(index).toContain("installShutdownSignalHandlers");
+    expect(index).toContain("registerShutdownController");
+    // Topology evidence itself is not imported in index.ts (only the shutdown boundary).
+    expect(index).not.toContain("runtimeTopologyEvidence");
+
+    // app.ts must have no topology or shutdown imports (routes do, not app.ts).
+    expect(app).not.toContain("gracefulShutdown");
+    expect(app).not.toContain("runtimeTopologyEvidence");
+
+    // The shutdown module correctly reports its install state via the registry.
+    const shutdownSrc = codeOf(NEW_SOURCES[1]);
+    expect(shutdownSrc).toContain("registerShutdownController");
+    expect(shutdownSrc).toContain("_installedController");
   });
 
   it("S2 the new modules reach no provider, socket, database or scheduler", () => {

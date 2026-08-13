@@ -261,13 +261,14 @@ describe("P08T L1-L7 — shutdown lifecycle", () => {
     }
 
     const readiness = describeShutdownReadiness();
-    expect(readiness).toEqual({
-      prepared: true,
-      installedAtBoot: false,
-      feedCloseHook: "NO_OP_PHASE_0_8T",
-      signals: SHUTDOWN_SIGNALS,
-      feedCloseTimeoutMs: DEFAULT_FEED_CLOSE_TIMEOUT_MS,
-    });
+    expect(readiness.prepared).toBe(true);
+    expect(readiness.feedCloseHook).toBe("NO_OP_PHASE_0_8T");
+    expect(readiness.signals).toEqual(SHUTDOWN_SIGNALS);
+    expect(readiness.feedCloseTimeoutMs).toBe(DEFAULT_FEED_CLOSE_TIMEOUT_MS);
+    // In a test process, index.ts is never imported so registerShutdownController
+    // is not called. installedAtBoot reflects this correctly.
+    expect(readiness.installedAtBoot).toBe(false);
+    expect(typeof readiness.currentPhase).toBe("string");
     // Boot id distinguishes incarnations; it is stable within a process and is
     // never used as an ownership credential.
     expect(getBootId()).toBe(getBootId());
