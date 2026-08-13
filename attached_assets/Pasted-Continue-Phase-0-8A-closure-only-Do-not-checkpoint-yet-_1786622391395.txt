@@ -1,0 +1,111 @@
+Continue Phase 0.8A closure only. Do not checkpoint yet.
+
+A. Correct shard balancing
+Preserve deterministic input-order-independent planning.
+Place all required indices in shard 0 first.
+Distribute remaining mapped identities deterministically across all three shards.
+When capacity permits, final shard counts must differ by no more than one, except where index-priority placement mathematically requires a larger difference.
+No shard may exceed 3,000.
+Do not optimize by filling one shard to 3,000 before using the next.
+Preserve stable token-to-shard assignment for identical manifest content.
+Membership changes must change the relevant hashes.
+
+Add targeted boundaries:
+
+1 token;
+3 tokens;
+4 tokens;
+3,000 tokens;
+3,001 tokens;
+7,876 tokens;
+8,999 tokens;
+9,000 tokens;
+9,001 tokens;
+index-heavy synthetic input;
+reversed input order.
+
+For 3,001 ordinary tokens, the plan should be balanced approximately [1001,1000,1000], not [3000,1,0].
+
+B. Execute the real classifier read-only
+
+Use the existing read-only Schema-5 loader or another production manifest input path that performs only to_regclass and SELECT.
+
+Do not:
+
+restore into or mutate a running global slot if unnecessary;
+perform DDL;
+rebuild the registry;
+download sources;
+write to the database;
+refresh authority;
+call providers.
+
+If the current loader still performs DDL, show the exact call path and stop:
+
+PHASE_0_8A_BLOCKED — REAL_MANIFEST_CLASSIFICATION_PATH_NOT_READ_ONLY
+
+Otherwise, run the actual production classifier and shard planner against durable generation:
+
+P06-b1632484542c83eb
+
+Its expired authority must continue to produce:
+
+CANDIDATE_LAST_KNOWN
+activationAuthorized = false
+blocker = REGISTRY_AUTHORITY_NOT_CURRENT
+C. Capture exact real-generation output
+
+Report:
+
+All eight classification bucket counts.
+totalRegistryRecords reconciliation.
+LIVE_REQUIRED reconciliation.
+Exact mapped and unmapped identity counts.
+Exact token-conflict and identity-invalid counts.
+Actual number of indices in the admitted set.
+Exact counts of shards 0, 1 and 2.
+Each shard hash.
+Complete-manifest hash.
+Subscription-set hash.
+Capacity and headroom.
+Proof that every mapped token occurs once.
+Proof that no token occurs twice.
+Proof that every required index is in shard 0.
+Candidate/activation state and every blocker.
+
+Do not print or expose the complete token/identity payload.
+
+D. Verify the owner-only endpoint
+
+Load the changed code using the cheapest supported isolated method without starting providers or schedulers. Reuse DATA_FOUNDATION_BOOT_PROOF=1 if a server is necessary.
+
+Verify:
+
+anonymous request → 401;
+authenticated owner request → 200;
+metadata matches the direct real-generation classifier output;
+no secrets or full instrument payload appear;
+provider/WebSocket/subscription/scheduler/DB-mutation counters remain zero.
+
+One isolated proof is sufficient. Do not use a browser.
+
+E. Verification limits
+
+Run only:
+
+affected Phase 0.8A tests;
+relevant TypeScript;
+one read-only real-generation classification;
+one authenticated diagnostic proof if required.
+
+No full suites, builds, provider calls, registry refreshes, database writes, subscriptions, deployment changes or production access.
+
+Do not commit, push, merge or deploy.
+
+Required verdict only after all real outputs reconcile:
+
+PHASE_0_8A_READY_FOR_CHECKPOINT — REAL_SCHEMA_5_GENERATION_CLASSIFIED_WITH_ZERO_REMAINDER — BALANCED_DETERMINISTIC_THREE_SHARD_PLAN_VERIFIED — OWNER_DIAGNOSTICS_VERIFIED — ACTIVATION_CORRECTLY_BLOCKED_BY_EXPIRED_AUTHORITY_AND_NON_SINGLETON_TOPOLOGY — ZERO_PROVIDER_SUBSCRIPTION_OR_DATABASE_SIDE_EFFECTS
+
+Otherwise:
+
+PHASE_0_8A_BLOCKED — REAL_MANIFEST_OR_SHARD_RECONCILIATION_NOT_VERIFIED

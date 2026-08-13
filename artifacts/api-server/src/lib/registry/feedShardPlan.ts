@@ -22,6 +22,17 @@
  * `PROVIDER_CAPACITY_EXCEEDED`. It does not truncate: a truncated plan that
  * reports success is a coverage lie, and the caller cannot tell it apart from a
  * complete one.
+ *
+ * BALANCE, NOT GREEDY FILL
+ * ------------------------
+ * The sockets are load-balanced, never filled one at a time. A greedy planner
+ * puts 3,001 instruments on [3000, 1, 0]: the first socket sits at its hard
+ * ceiling with no room for a single late listing, its reconnect replays 3,000
+ * subscriptions, and two-thirds of the provider's capacity idles. Balanced
+ * shards ([1001, 1000, 1000]) keep every socket the same distance from the
+ * ceiling and make a reconnect a third of the work. Shard 0 is the one
+ * exception: it holds every required index first, so index-priority placement
+ * may legitimately make it larger than an even share.
  */
 
 import { createHash } from "node:crypto";
@@ -33,7 +44,12 @@ export const MAX_SOCKETS = 3;
 export const MAX_TOKENS_PER_SOCKET = 3000;
 export const PROVIDER_TOKEN_CAPACITY = MAX_SOCKETS * MAX_TOKENS_PER_SOCKET;
 
-export const SHARD_POLICY_VERSION = 1;
+/**
+ * Bumped to 2 when greedy fill was replaced by balanced distribution. The
+ * version is part of every plan hash, so a plan built under the old layout can
+ * never be mistaken for one built under this policy.
+ */
+export const SHARD_POLICY_VERSION = 2;
 
 /**
  * Shard 0 carries the indices and is reconnected first. Full-coverage failover
@@ -116,6 +132,50 @@ export function orderForPlanning(admitted: readonly AdmittedInstrument[]): Admit
 }
 
 /**
+ * Deterministic shard sizes for `total` instruments of which the first
+ * `indexCount` (in canonical planning order) are required indices.
+ *
+ * Rules, in order of precedence:
+ *   1. no shard exceeds `MAX_TOKENS_PER_SOCKET`;
+ *   2. every required index is in shard 0;
+ *   3. the remaining instruments are spread as evenly as possible, so shard
+ *      sizes differ by at most one — except for the surplus that rule 2 forces
+ *      onto shard 0;
+ *   4. no empty shard is emitted (an idle socket is not a plan).
+ *
+ * Returns null when rule 1 and rule 2 cannot both hold — i.e. more required
+ * indices than a single socket can carry.
+ */
+export function computeShardSizes(total: number, indexCount: number): number[] | null {
+  if (total <= 0) return [];
+  if (indexCount > MAX_TOKENS_PER_SOCKET) return null;
+
+  const shardCount = Math.min(MAX_SOCKETS, total);
+  const base = Math.floor(total / shardCount);
+  const remainder = total % shardCount;
+  const sizes: number[] = [];
+  for (let i = 0; i < shardCount; i++) sizes.push(base + (i < remainder ? 1 : 0));
+
+  // Index priority can force shard 0 above its even share. Take the surplus
+  // from the *largest* trailing shard each time, so the trailing shards stay
+  // balanced among themselves rather than draining one of them first.
+  if (indexCount > sizes[0]) {
+    let deficit = indexCount - sizes[0];
+    sizes[0] = indexCount;
+    while (deficit > 0) {
+      let largest = 1;
+      for (let i = 2; i < sizes.length; i++) if (sizes[i] > sizes[largest]) largest = i;
+      if (largest >= sizes.length || sizes[largest] === 0) return null;
+      sizes[largest] -= 1;
+      deficit -= 1;
+    }
+  }
+
+  if (sizes.some((n) => n > MAX_TOKENS_PER_SOCKET)) return null;
+  return sizes.filter((n) => n > 0);
+}
+
+/**
  * Plan the shard layout for an admission manifest.
  *
  * The manifest may be CANDIDATE_LAST_KNOWN — planning an expired universe is
@@ -141,9 +201,17 @@ export function planFeedShards(manifest: SubscriptionAdmissionManifest): FeedSha
     return refused("PROVIDER_CAPACITY_EXCEEDED", manifest.registryGenerationId, total);
   }
 
+  const indexCount = ordered.filter((a) => a.segment === "INDEX").length;
+  const sizes = computeShardSizes(total, indexCount);
+  if (sizes === null) {
+    return refused("INDEX_PRIORITY_SHARD_OVERFLOW", manifest.registryGenerationId, total);
+  }
+
   const shards: FeedShard[] = [];
-  for (let shardId = 0; shardId * MAX_TOKENS_PER_SOCKET < total; shardId++) {
-    const slice = ordered.slice(shardId * MAX_TOKENS_PER_SOCKET, (shardId + 1) * MAX_TOKENS_PER_SOCKET);
+  let cursor = 0;
+  for (let shardId = 0; shardId < sizes.length; shardId++) {
+    const slice = ordered.slice(cursor, cursor + sizes[shardId]);
+    cursor += sizes[shardId];
     const pairs = slice.map((a) => `${a.canonicalInstrumentId}|${a.providerExchange}|${a.providerToken}`);
     shards.push(
       Object.freeze({

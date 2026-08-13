@@ -12,6 +12,7 @@ import {
   MAX_SOCKETS,
   MAX_TOKENS_PER_SOCKET,
   PROVIDER_TOKEN_CAPACITY,
+  computeShardSizes,
   orderForPlanning,
   planFeedShards,
 } from "./feedShardPlan";
@@ -82,19 +83,21 @@ function indexRecord(name: string, token: number): RegistryRecord {
 }
 
 describe("P08A S1-S5 — capacity arithmetic and determinism", () => {
-  it("S1 an admitted set of exactly one socket's worth plans a single shard", () => {
+  it("S1 one socket's worth is balanced across the sockets, never stacked onto the first", () => {
     const plan = planFeedShards(manifestOf(makeLiveRecords(MAX_TOKENS_PER_SOCKET)));
     expect(plan.state).toBe("PLANNED");
-    expect(plan.shards).toHaveLength(1);
-    expect(plan.shards[0].count).toBe(MAX_TOKENS_PER_SOCKET);
+    expect(plan.shards.map((s) => s.count)).toEqual([1000, 1000, 1000]);
     expect(plan.totalTokens).toBe(MAX_TOKENS_PER_SOCKET);
     expect(plan.headroom).toBe(PROVIDER_TOKEN_CAPACITY - MAX_TOKENS_PER_SOCKET);
   });
 
-  it("S2 one token past a socket boundary opens a second shard, never an oversized one", () => {
+  it("S2 3,001 instruments balance to [1001,1000,1000] — a greedy [3000,1,0] is a defect", () => {
     const plan = planFeedShards(manifestOf(makeLiveRecords(MAX_TOKENS_PER_SOCKET + 1)));
-    expect(plan.shards.map((s) => s.count)).toEqual([MAX_TOKENS_PER_SOCKET, 1]);
+    expect(plan.shards.map((s) => s.count)).toEqual([1001, 1000, 1000]);
     expect(plan.shards.every((s) => s.count <= MAX_TOKENS_PER_SOCKET)).toBe(true);
+    // No socket is parked at its ceiling while another idles.
+    const counts = plan.shards.map((s) => s.count);
+    expect(Math.max(...counts) - Math.min(...counts)).toBeLessThanOrEqual(1);
   });
 
   it("S3 a full 9,000-token universe fills exactly three sockets with zero headroom", () => {
@@ -151,10 +154,10 @@ describe("P08A S6-S10 — order independence, priority and authorization", () =>
       indexRecord("NIFTY BANK", 260105),
     ];
     const plan = planFeedShards(manifestOf(records));
-    expect(plan.shards).toHaveLength(2);
+    expect(plan.shards).toHaveLength(3);
     expect(plan.shards[0].identities.slice(0, 2)).toEqual(["NSE:INDEX:NIFTY 50", "NSE:INDEX:NIFTY BANK"]);
     // No index leaked into a later shard.
-    expect(plan.shards[1].identities.some((id) => id.includes(":INDEX:"))).toBe(false);
+    expect(plan.shards.slice(1).every((s) => !s.identities.some((id) => id.includes(":INDEX:")))).toBe(true);
   });
 
   it("S8 shard 0 is the priority socket and the others are standard", () => {
@@ -172,7 +175,7 @@ describe("P08A S6-S10 — order independence, priority and authorization", () =>
   it("S9 a candidate universe can be planned but never authorizes activation", () => {
     const plan = planFeedShards(manifestOf(makeLiveRecords(1_200), NEXT_DAY_MS));
     expect(plan.state).toBe("PLANNED");
-    expect(plan.shards).toHaveLength(1);
+    expect(plan.shards.map((s) => s.count)).toEqual([400, 400, 400]);
     expect(plan.activationAuthorized).toBe(false);
     // The activatable case, for contrast.
     expect(planFeedShards(manifestOf(makeLiveRecords(1_200), SAME_DAY_MS)).activationAuthorized).toBe(true);
@@ -200,5 +203,77 @@ describe("P08A S6-S10 — order independence, priority and authorization", () =>
       "NSE:EQUITY:B",
     ]);
     expect(JSON.stringify(input)).toBe(snapshot);
+  });
+});
+
+describe("P08A S11-S13 — balance boundaries, index-heavy input and order stability", () => {
+  /**
+   * The full boundary table the balancing rule has to hold at. Small sets must
+   * not open a socket per token beyond what exists; large ones must stay under
+   * the ceiling; the overflow case must refuse rather than drop anything.
+   */
+  it("S11 shard counts are balanced at every capacity boundary", () => {
+    // Below the durability floor a real generation cannot exist, so the tiny
+    // boundaries are held against the production sizing function itself.
+    expect(computeShardSizes(1, 0)).toEqual([1]);
+    expect(computeShardSizes(3, 0)).toEqual([1, 1, 1]);
+    expect(computeShardSizes(4, 0)).toEqual([2, 1, 1]);
+    expect(computeShardSizes(1, 1)).toEqual([1]);
+    expect(computeShardSizes(4, 3)).toEqual([3, 1]);
+
+    const cases: Array<{ n: number; expected: number[] }> = [
+      { n: 3_000, expected: [1000, 1000, 1000] },
+      { n: 3_001, expected: [1001, 1000, 1000] },
+      { n: 7_876, expected: [2626, 2625, 2625] },
+      { n: 8_999, expected: [3000, 3000, 2999] },
+      { n: 9_000, expected: [3000, 3000, 3000] },
+    ];
+    for (const { n, expected } of cases) {
+      const plan = planFeedShards(manifestOf(makeLiveRecords(n)));
+      expect(plan.state, `n=${n}`).toBe("PLANNED");
+      expect(plan.shards.map((s) => s.count), `n=${n}`).toEqual(expected);
+      // Every instrument placed exactly once, no shard over the ceiling.
+      const tokens = plan.shards.flatMap((s) => s.tokens);
+      expect(tokens, `n=${n}`).toHaveLength(n);
+      expect(new Set(tokens).size, `n=${n}`).toBe(n);
+      expect(plan.shards.every((s) => s.count > 0 && s.count <= MAX_TOKENS_PER_SOCKET), `n=${n}`).toBe(true);
+      expect(plan.totalTokens, `n=${n}`).toBe(n);
+      expect(plan.headroom, `n=${n}`).toBe(PROVIDER_TOKEN_CAPACITY - n);
+    }
+    // 9,001 is the first size that cannot be carried; it refuses, never trims.
+    const over = planFeedShards(manifestOf(makeLiveRecords(PROVIDER_TOKEN_CAPACITY + 1)));
+    expect(over.state).toBe("REFUSED");
+    expect(over.blockerCode).toBe("PROVIDER_CAPACITY_EXCEEDED");
+  });
+
+  it("S12 index-priority placement may make shard 0 larger, and the surplus is taken evenly", () => {
+    const indices = Array.from({ length: 2_000 }, (_, i) =>
+      indexRecord(`SYNTH INDEX ${String(i).padStart(4, "0")}`, 900_000 + i),
+    );
+    const plan = planFeedShards(manifestOf([...makeLiveRecords(1_000), ...indices]));
+    expect(plan.state).toBe("PLANNED");
+    // Even share would be 1,000 each; the 2,000 required indices force shard 0
+    // wider, and the surplus is drawn evenly from the trailing shards.
+    expect(plan.shards.map((s) => s.count)).toEqual([2000, 500, 500]);
+    expect(plan.shards[0].identities.every((id) => id.includes(":INDEX:"))).toBe(true);
+    expect(plan.shards.slice(1).every((s) => !s.identities.some((id) => id.includes(":INDEX:")))).toBe(true);
+    // The trailing shards remain balanced with respect to each other.
+    const trailing = plan.shards.slice(1).map((s) => s.count);
+    expect(Math.max(...trailing) - Math.min(...trailing)).toBeLessThanOrEqual(1);
+  });
+
+  it("S13 a 7,876-instrument universe is stable under reversed input order", () => {
+    const records = makeLiveRecords(7_876);
+    const forward = planFeedShards(manifestOf(records));
+    const reversed = planFeedShards(manifestOf([...records].reverse()));
+    expect(forward.shards.map((s) => s.count)).toEqual([2626, 2625, 2625]);
+    expect(reversed.completeManifestHash).toBe(forward.completeManifestHash);
+    expect(reversed.shards.map((s) => s.shardHash)).toEqual(forward.shards.map((s) => s.shardHash));
+    // Stable token-to-shard assignment for identical content...
+    expect(reversed.shards.map((s) => s.tokens)).toEqual(forward.shards.map((s) => s.tokens));
+    // ...and a membership change moves the relevant hashes.
+    const dropped = planFeedShards(manifestOf(records.slice(0, 7_875)));
+    expect(dropped.completeManifestHash).not.toBe(forward.completeManifestHash);
+    expect(dropped.shards[0].shardHash).not.toBe(forward.shards[0].shardHash);
   });
 });
