@@ -25,6 +25,7 @@ import {
   type CalendarAuthorityEvaluation,
   type TradingCalendarCommitment,
 } from "./exchangeCalendar";
+import { evaluateStoredBseReferenceAuthorityNow } from "./bseReferencePolicy";
 import type { RegistryGeneration } from "./manifestStore";
 
 /** Scope id must match the one Phase 0.5B already reserved for this universe. */
@@ -146,6 +147,18 @@ export function toAuthoritativeCoverageManifest(
   // expires. A 2026 calendar is still perfectly intact on 2027-01-01 — it just
   // no longer describes today, so it cannot hand out an authoritative universe.
   if (calendarAuthorityNow(manifest.tradingCalendar, nowMs).state !== "CURRENT_AUTHORITATIVE") {
+    return AUTHORITATIVE_UNIVERSE_NOT_CONFIGURED;
+  }
+
+  // The BSE reference verdict expires on its own clock — the approved policy
+  // binds it to a CURRENT-IST-DAY List of Scrips. The stored `state` field above
+  // records what was true when the generation was built; this re-asks the same
+  // question now. Without it, yesterday's universe supplies today's denominator
+  // for as long as the calendar happens to still agree.
+  if (
+    evaluateStoredBseReferenceAuthorityNow(auth, Date.parse(manifest.generatedAt), nowMs).state !==
+    "CURRENT_AUTHORITATIVE"
+  ) {
     return AUTHORITATIVE_UNIVERSE_NOT_CONFIGURED;
   }
 

@@ -36,7 +36,13 @@ const FIXTURE_NOW_MS = Date.parse("2026-08-12T09:30:00.000Z");
 
 const GEN = "p06-test-generation";
 const EFFECTIVE = "2026-08-12";
-const GENERATED_AT = "2026-08-12T04:00:00.000Z";
+/**
+ * The generation instant. It must not PRECEDE the evidence it commits: the BSE
+ * fixture's List of Scrips is retrieved at 15:00 IST, and a manifest persisted
+ * before its own source was fetched is inconsistent evidence that the authority
+ * boundary now (correctly) refuses.
+ */
+const GENERATED_AT = "2026-08-12T09:30:00.000Z";
 
 function nse(symbol: string, series: string, isin: string | null = "INE000A01001"): NseOfficialEquityRow {
   return { symbol, nameOfCompany: `${symbol} Ltd`, series, isin, dateOfListing: "2020-01-01" };

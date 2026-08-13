@@ -41,6 +41,10 @@ import {
   type InstrumentUniverseManifest,
 } from "./universeManifest";
 import { evaluateCalendarAuthorityNow, type CalendarAuthorityEvaluation } from "./exchangeCalendar";
+import {
+  evaluateStoredBseReferenceAuthorityNow,
+  type StoredBseReferenceAuthorityEvaluation,
+} from "./bseReferencePolicy";
 import type { RegistryRecord } from "./instrumentRegistry";
 
 /** Transaction-scoped advisory lock. Distinct from 7312847 / 8274613. */
@@ -460,6 +464,61 @@ let _authorityMemo: { readonly generationId: string; readonly evaluation: Calend
   null;
 let _lastLoggedAuthorityState: string | null = null;
 
+/**
+ * THE CURRENT-TIME AUTHORITY BOUNDARY — both questions, asked together.
+ *
+ * A generation's right to speak for NOW has two independent expiries, and
+ * asking only one of them is how stale data gets labelled current:
+ *
+ *   1. the committed TRADING CALENDAR must still cover today and must still
+ *      name the latest completed session the manifest reconciled to, and
+ *   2. the committed BSE REFERENCE verdict must still satisfy the approved
+ *      current-IST-day List-of-Scrips rule.
+ *
+ * The second is not implied by the first. A manifest built yesterday afternoon
+ * still agrees with the calendar all through today until today's session
+ * closes — but its List of Scrips was retrieved yesterday, so under the
+ * owner-approved policy it stopped being able to authorize at IST midnight.
+ *
+ * Pure and non-mutating: nothing here rewrites a stored verdict, a checksum or
+ * an evaluation instant. An expired generation keeps every figure it was
+ * persisted with and loses only the right to be believed about the present.
+ */
+export interface RegistryAuthorityNow {
+  readonly calendar: CalendarAuthorityEvaluation;
+  readonly bse: StoredBseReferenceAuthorityEvaluation;
+  /** The weaker of the two verdicts — what any consumer must act on. */
+  readonly combined: CalendarAuthorityEvaluation;
+}
+
+const AUTHORITY_RANK: Readonly<Record<string, number>> = Object.freeze({
+  CURRENT_AUTHORITATIVE: 0,
+  LAST_KNOWN: 1,
+  STALE: 2,
+});
+
+export function evaluateRegistryAuthorityNow(
+  manifest: InstrumentUniverseManifest,
+  nowMs: number,
+): RegistryAuthorityNow {
+  const calendar = evaluateCalendarAuthorityNow(manifest.tradingCalendar, nowMs);
+  const bse = evaluateStoredBseReferenceAuthorityNow(
+    manifest.bseReferenceAuthority,
+    Date.parse(manifest.generatedAt),
+    nowMs,
+  );
+  const weaker =
+    (AUTHORITY_RANK[bse.state] ?? 2) > (AUTHORITY_RANK[calendar.state] ?? 2) ? bse.state : calendar.state;
+  const combined: CalendarAuthorityEvaluation = Object.freeze({
+    ...calendar,
+    state: weaker,
+    reasons: Object.freeze([...calendar.reasons, ...bse.reasons].sort()),
+    // Whichever expiry comes first governs how long this verdict may be cached.
+    validUntilMs: Math.min(calendar.validUntilMs, bse.validUntilMs),
+  });
+  return { calendar, bse, combined };
+}
+
 export interface ActiveGenerationAuthority {
   readonly generation: RegistryGeneration | null;
   readonly authority: CalendarAuthorityEvaluation | null;
@@ -477,9 +536,7 @@ export function getActiveGenerationAuthority(nowMs: number = Date.now()): Active
     memo.generationId === id &&
     nowMs >= memo.evaluation.evaluatedAtMs &&
     nowMs < memo.evaluation.validUntilMs;
-  const evaluation = usable
-    ? memo!.evaluation
-    : evaluateCalendarAuthorityNow(gen.manifest.tradingCalendar, nowMs);
+  const evaluation = usable ? memo!.evaluation : evaluateRegistryAuthorityNow(gen.manifest, nowMs).combined;
   if (!usable) {
     _authorityMemo = { generationId: id, evaluation };
     const key = `${id}|${evaluation.state}`;
@@ -598,13 +655,24 @@ export function evaluateLoadedGeneration(
   //
   // A commitment that does not VERIFY is a different matter: those bytes do not
   // describe the calendar they claim, so the generation is not installed at all.
-  const authority = evaluateCalendarAuthorityNow(m.tradingCalendar, nowMs);
-  if (authority.state === "STALE") {
+  const { calendar, bse, combined: authority } = evaluateRegistryAuthorityNow(m, nowMs);
+  if (calendar.state === "STALE") {
     return refuse(
       "CALENDAR_COMMITMENT_INVALID",
       "CALENDAR_COMMITMENT_UNVERIFIABLE",
       "Instrument registry: stored generation rejected — embedded calendar commitment does not verify",
-      { registryGenerationId: m.registryGenerationId, reasons: authority.reasons },
+      { registryGenerationId: m.registryGenerationId, reasons: calendar.reasons },
+    );
+  }
+  // Committed BSE evidence that cannot be believed at all (missing, unparseable
+  // or dated after the generation carrying it) is an integrity inconsistency,
+  // not an expiry: refuse rather than serve it as last-known.
+  if (bse.state === "STALE") {
+    return refuse(
+      "RESTORE_FAILED",
+      "BSE_REFERENCE_EVIDENCE_INVALID",
+      "Instrument registry: stored generation rejected — committed BSE reference evidence is inconsistent",
+      { registryGenerationId: m.registryGenerationId, reasons: bse.reasons },
     );
   }
   if (authority.state !== "CURRENT_AUTHORITATIVE") {

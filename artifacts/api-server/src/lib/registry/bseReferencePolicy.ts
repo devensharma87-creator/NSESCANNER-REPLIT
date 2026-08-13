@@ -343,3 +343,184 @@ export interface LastKnownMembershipRow {
   readonly securityClass: string;
   readonly eligibilityTier: string;
 }
+
+// ── stored-verdict authority AT THE CURRENT INSTANT ──────────────────────────
+
+/**
+ * PHASE 0.7B — RE-ASKING THE POLICY QUESTION AT BOOT.
+ *
+ * `evaluateBseReferenceAuthority` answers "may this source set authorize a
+ * generation?" at the instant the generation is BUILT. That verdict is then
+ * persisted inside the manifest. The verdict is a fact about that instant, and
+ * a stored boolean cannot know that the day has since changed: rule 1 of the
+ * approved policy binds authority to CURRENT-IST-DAY retrieval of the List of
+ * Scrips, so a manifest built yesterday stops being current at IST midnight
+ * even though nothing about it changed and every checksum still verifies.
+ *
+ * This function re-applies exactly that rule to an already-committed verdict.
+ * It introduces NO new threshold, no grace period and no age limit — only the
+ * calendar-day identity the owner approved — and it is pure: no clock of its
+ * own, no I/O, no mutation of the stored verdict.
+ *
+ * STALE is reserved for evidence that cannot be believed at all (missing,
+ * unparseable, internally inconsistent, or dated after the generation that
+ * carries it). LAST_KNOWN means intact but expired: serve it, never authorize
+ * from it.
+ */
+export type StoredBseAuthorityState = "CURRENT_AUTHORITATIVE" | "LAST_KNOWN" | "STALE";
+
+export interface StoredBseReferenceAuthorityEvaluation {
+  readonly state: StoredBseAuthorityState;
+  readonly reasons: readonly string[];
+  /** IST date of the evaluation instant. */
+  readonly currentIstDate: string | null;
+  /** IST date on which the committed List of Scrips was retrieved. */
+  readonly listRetrievalIstDate: string | null;
+  readonly evaluatedAtMs: number;
+  /** Next IST midnight — the only instant at which this verdict can change. */
+  readonly validUntilMs: number;
+}
+
+/** The committed fields this boundary reads. Nothing else is consulted. */
+export interface StoredBseReferenceAuthority {
+  readonly state: BseReferenceAuthorityState | string;
+  readonly mayAuthorizeNewGeneration: boolean;
+  readonly listRetrievedAt: string | null;
+  readonly evaluatedIstDate: string | null;
+}
+
+/**
+ * The next IST-midnight instant strictly after `nowMs`.
+ *
+ * Deliberately calendar arithmetic, not a duration: this module carries no age
+ * threshold and no day-length constant. The boundary is "the next IST calendar
+ * date begins", which is what the approved policy actually says.
+ */
+export function nextIstMidnightAfter(nowMs: number): number {
+  const ist = new Date(nowMs + IST_OFFSET_MS);
+  return Date.UTC(ist.getUTCFullYear(), ist.getUTCMonth(), ist.getUTCDate() + 1) - IST_OFFSET_MS;
+}
+
+export function evaluateStoredBseReferenceAuthorityNow(
+  stored: StoredBseReferenceAuthority | null | undefined,
+  generationPersistedAtMs: number,
+  nowMs: number,
+): StoredBseReferenceAuthorityEvaluation {
+  const stale = (
+    reasons: readonly string[],
+    today: string | null,
+    retrievalIst: string | null,
+  ): StoredBseReferenceAuthorityEvaluation =>
+    Object.freeze({
+      state: "STALE" as const,
+      reasons: Object.freeze([...reasons].sort()),
+      currentIstDate: today,
+      listRetrievalIstDate: retrievalIst,
+      evaluatedAtMs: nowMs,
+      // No caching for unbelievable evidence: re-ask every time.
+      validUntilMs: nowMs,
+    });
+
+  if (!Number.isFinite(nowMs)) return stale(["evaluation clock is not a finite instant"], null, null);
+  const today = istDateString(nowMs);
+  if (!isRealIstDate(today)) {
+    return stale(["evaluation clock does not resolve to a real IST date"], null, null);
+  }
+  if (!stored) {
+    return stale(["manifest carries no committed BSE reference-authority verdict"], today, null);
+  }
+
+  const retrievedAtMs = stored.listRetrievedAt === null ? NaN : Date.parse(stored.listRetrievedAt);
+  if (!Number.isFinite(retrievedAtMs)) {
+    return stale(
+      ["committed BSE List-of-Scrips retrieval timestamp is missing or not a real instant"],
+      today,
+      null,
+    );
+  }
+  const retrievalIst = istDateString(retrievedAtMs);
+  if (!isRealIstDate(retrievalIst)) {
+    return stale(["committed BSE List-of-Scrips retrieval instant is not a real IST date"], today, null);
+  }
+
+  // Evidence dated after the generation that carries it cannot have been the
+  // evidence that produced it. Fail closed rather than explain it away — and
+  // an unparseable generation instant makes that relationship UNEVALUABLE,
+  // which is a refusal, not a pass.
+  if (!Number.isFinite(generationPersistedAtMs)) {
+    return stale(
+      ["generation persistence instant is not a real instant, so its evidence ordering cannot be checked"],
+      today,
+      retrievalIst,
+    );
+  }
+  if (retrievedAtMs > generationPersistedAtMs) {
+    return stale(
+      [
+        `committed BSE List-of-Scrips retrieval ${new Date(retrievedAtMs).toISOString()} is later than the ` +
+          `generation it belongs to (${new Date(generationPersistedAtMs).toISOString()})`,
+      ],
+      today,
+      retrievalIst,
+    );
+  }
+  // The committed verdict must say WHICH IST day it was decided on, and that
+  // day must be the day its own List was retrieved. A missing evaluation date
+  // is missing evidence, not a waiver.
+  if (
+    stored.evaluatedIstDate === null ||
+    !isRealIstDate(stored.evaluatedIstDate) ||
+    stored.evaluatedIstDate !== retrievalIst
+  ) {
+    return stale(
+      [
+        `committed BSE verdict records evaluation IST date ${String(stored.evaluatedIstDate)} but its List ` +
+          `was retrieved on IST ${retrievalIst}`,
+      ],
+      today,
+      retrievalIst,
+    );
+  }
+  if (retrievalIst > today) {
+    return stale(
+      [`committed BSE List-of-Scrips retrieval IST date ${retrievalIst} is in the future (today is ${today})`],
+      today,
+      retrievalIst,
+    );
+  }
+
+  const validUntilMs = nextIstMidnightAfter(nowMs);
+  const lastKnown = (reasons: readonly string[]): StoredBseReferenceAuthorityEvaluation =>
+    Object.freeze({
+      state: "LAST_KNOWN" as const,
+      reasons: Object.freeze([...reasons].sort()),
+      currentIstDate: today,
+      listRetrievalIstDate: retrievalIst,
+      evaluatedAtMs: nowMs,
+      validUntilMs,
+    });
+
+  if (stored.state !== "CURRENT_AUTHORITATIVE" || stored.mayAuthorizeNewGeneration !== true) {
+    return lastKnown([
+      `committed BSE reference verdict never authorized (state ${String(stored.state)}, ` +
+        `mayAuthorizeNewGeneration ${String(stored.mayAuthorizeNewGeneration)})`,
+    ]);
+  }
+
+  // RULE 1, re-applied. Authority ends at IST midnight of the retrieval day.
+  if (retrievalIst !== today) {
+    return lastKnown([
+      `${POLICY_ID}: BSE List of Scrips was retrieved on IST ${retrievalIst}; its authority expired at ` +
+        `IST midnight and today is ${today} — a current-day retrieval is required`,
+    ]);
+  }
+
+  return Object.freeze({
+    state: "CURRENT_AUTHORITATIVE" as const,
+    reasons: Object.freeze([] as string[]),
+    currentIstDate: today,
+    listRetrievalIstDate: retrievalIst,
+    evaluatedAtMs: nowMs,
+    validUntilMs,
+  });
+}
