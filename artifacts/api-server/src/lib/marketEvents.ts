@@ -1,6 +1,7 @@
 import { YahooFinance } from "./marketData/analyticsYahoo";
 import { UNIVERSE } from "./universe";
 import { logger } from "./logger";
+import { getBootCapabilities } from "./bootCapabilities";
 
 const yf = new YahooFinance({ suppressNotices: ["yahooSurvey", "ripHistorical"] });
 
@@ -447,7 +448,7 @@ export async function getMarketEvents(): Promise<MarketEventsResponse> {
 }
 
 // Warm cache on boot (guarded: skip in test env — P0.1B tripwire)
-if (process.env['NODE_ENV'] !== 'test') {
+if (process.env['NODE_ENV'] !== 'test' && getBootCapabilities().providerNetwork) {
   void getUpcomingEarnings().catch(() => undefined);
   setInterval(() => { void getUpcomingEarnings().catch(() => undefined); }, EARNINGS_TTL_MS);
 }

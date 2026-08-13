@@ -248,14 +248,18 @@ logGlobalAuthBootState();
 // Start the background data refresher for the global scanner. Best-effort —
 // pump errors are logged into `global_sync_logs` and surfaced via
 // /api/global/status, never thrown out of boot.
-scheduleBootJob("global-data-pump", BOOT_STAGGER_MS.globalDataPump, () =>
-  startGlobalDataPump().catch((err: unknown) => {
-    logger.error({ err: (err as Error).message }, "startGlobalDataPump failed at boot");
-    // Re-throw so scheduleBootJob's fail-open handler logs an accurate
-    // outcome instead of a misleading "boot job started". Still fail-open —
-    // the helper swallows it; boot is never blocked or crashed.
-    throw err;
-  }),
+scheduleBootJob(
+  "global-data-pump",
+  BOOT_STAGGER_MS.globalDataPump,
+  () =>
+    startGlobalDataPump().catch((err: unknown) => {
+      logger.error({ err: (err as Error).message }, "startGlobalDataPump failed at boot");
+      // Re-throw so scheduleBootJob's fail-open handler logs an accurate
+      // outcome instead of a misleading "boot job started". Still fail-open —
+      // the helper swallows it; boot is never blocked or crashed.
+      throw err;
+    }),
+  "providerNetwork",
 );
 // Background scheduler for "auto-run every N minutes" presets. Independent
 // from the data pump — it reads cached live prices / candles so it never
@@ -312,7 +316,7 @@ scheduleBootJob("eod-reconciliation", 100_000, () => {
 scheduleBootJob("telegram-bot-commands", 110_000, async () => {
   const { startTelegramBotCommands } = await import("./lib/telegramBotCommands");
   await startTelegramBotCommands();
-});
+}, "outboundNotifications");
 
 // B.8: additive nullable `writer_version` column on paper_trade_fo/eq.
 // Applied via `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` — safe on every
@@ -347,7 +351,7 @@ scheduleBootJob("paper-trade-charges-columns", 16_000, async () => {
 scheduleBootJob("kite-candle-store", 10_000, async () => {
   const { initKiteCandleStore } = await import("./lib/kiteCandle/kiteCandleStore");
   await initKiteCandleStore();
-});
+}, "providerNetwork");
 
 // W6-P4B5 observability only: read-only post-boot DB pool utilization snapshots
 // that bracket the W6-P4A stagger window. These ONLY read the pg pool's

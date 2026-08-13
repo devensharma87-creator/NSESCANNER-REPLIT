@@ -2,6 +2,7 @@ import type { NewsItem } from "@workspace/api-zod";
 import { getAllMarketNewsLive } from "./newsRss";
 import { resolveSymbols } from "./symbolAlias";
 import { getEntry as findUniverseEntry } from "./universe";
+import { getBootCapabilities } from "./bootCapabilities";
 
 /**
  * Stocks-to-Watch / Stocks-to-Avoid daily deck.
@@ -307,7 +308,7 @@ export async function getStocksToWatch(lookbackHours = 24): Promise<StocksToWatc
 }
 
 // background warm — non-blocking (guarded: skip in test env — P0.1B tripwire)
-if (process.env['NODE_ENV'] !== 'test') {
+if (process.env['NODE_ENV'] !== 'test' && getBootCapabilities().providerNetwork) {
   void getStocksToWatch().catch(() => undefined);
   setInterval(() => { void getStocksToWatch().catch(() => undefined); }, TTL_MS);
 }

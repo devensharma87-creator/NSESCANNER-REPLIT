@@ -47,6 +47,7 @@
 import { sql } from "drizzle-orm";
 import { getFiiDiiMonthly } from "./instFlows";
 import { db } from "@workspace/db";
+import { runIfCapable } from "./bootCapabilities";
 import { logger } from "./logger";
 import { getActiveSessionStatus } from "./kiteAuth";
 import { feedStatus } from "./kiteFeed";
@@ -1677,12 +1678,17 @@ export async function maybeRunPostMarketReport(): Promise<void> {
 // ── Module-load side-effect: ensure table + install 60s tick ─────────────────
 
 // Guard: skip in test environment to prevent pg.Pool connection in normal suite (P0.1B).
+// Also skipped in boot-proof mode: this is DDL (CREATE TABLE IF NOT EXISTS).
 if (process.env['NODE_ENV'] !== 'test') {
-  void ensureDailyReportRunsTable().catch(() => undefined);
+  runIfCapable("dailyReportRunsTableEnsure", "marketSchedulers", () => {
+    void ensureDailyReportRunsTable().catch(() => undefined);
+  });
 }
 
 const REPORT_TICK_MS = 60_000;
-setInterval(() => {
-  void maybeRunPreMarketReport().catch(() => undefined);
-  void maybeRunPostMarketReport().catch(() => undefined);
-}, REPORT_TICK_MS).unref?.();
+runIfCapable("dailyReportsTick", "outboundNotifications", () =>
+  setInterval(() => {
+    void maybeRunPreMarketReport().catch(() => undefined);
+    void maybeRunPostMarketReport().catch(() => undefined);
+  }, REPORT_TICK_MS).unref?.(),
+);

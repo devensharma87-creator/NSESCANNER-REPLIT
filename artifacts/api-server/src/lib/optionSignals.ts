@@ -10,6 +10,7 @@ import { ema, rsi, sessionVwap, volumeProfile, pivots, atr } from "./indicators"
 import { classifyRegimeWithHysteresis, type RegimeResult } from "./regimeClassifier";
 import { recordAtmIv, computeIvMetrics } from "./ivHistory";
 import { logger } from "./logger";
+import { runIfCapable } from "./bootCapabilities";
 import { logUpstreamReasoningBatch } from "./fnoSignalReasoningLogger";
 import { type OcRow, type OcSide } from "./optionChain";
 import { getOptionChain } from "./marketData/optionChainProvider";
@@ -2256,12 +2257,14 @@ function applyLock(s: OptionSignal): OptionSignal {
   return s;
 }
 // Sweep stale locks (older than 36h) once an hour to keep memory tidy.
+runIfCapable("optionSignalsLockSweep", "marketSchedulers", () =>
 setInterval(() => {
   const cutoff = Date.now() - 36 * 3600 * 1000;
   for (const [k, v] of lockStore.entries()) {
     if (v.lockedAt.getTime() < cutoff) lockStore.delete(k);
   }
-}, 60 * 60 * 1000).unref?.();
+}, 60 * 60 * 1000).unref?.(),
+);
 
 // ─── Detector cooldown map (F-27) ──────────────────────────────────────────
 // Prevents the same (setupKey, index, direction) detector setup from being
@@ -2364,6 +2367,7 @@ let lastForceExit1520Date: string | null = null;
 // still open on non-expiring indices).
 let lastForceExit1430ExpiryDate: string | null = null;
 
+runIfCapable("optionSignalsTriggerSweep", "providerNetwork", () =>
 setInterval(() => {
   if (triggerSweepRunning) return; // skip if previous tick still in flight
   if (computeMarketStatus(new Date()) !== "open") return;
@@ -2431,7 +2435,8 @@ setInterval(() => {
       triggerSweepRunning = false;
     }
   })();
-}, TRIGGER_SWEEP_INTERVAL_MS).unref?.();
+}, TRIGGER_SWEEP_INTERVAL_MS).unref?.(),
+);
 
 // ─── Option-level enrichment (current LTP / projected entry-T1-T2-SL) ────
 //

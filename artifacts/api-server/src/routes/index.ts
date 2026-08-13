@@ -44,6 +44,7 @@ import { startKiteReadinessScheduler } from "../lib/kiteReadinessScheduler";
 import { startSwingScanScheduler } from "../lib/swingScannerStore";
 import { startOptionSnapshotIngestor } from "../lib/optionChainSnapshotIngestor";
 import { startCandleWarehouse } from "../lib/candleWarehouseIngestor";
+import { runIfCapable } from "../lib/bootCapabilities";
 
 const router: IRouter = Router();
 
@@ -89,32 +90,34 @@ router.use(providerDiagnosticsRouter);  // /providers/* — owner-only (strict) 
 // W6-P4A: staggered to the back of the cold-start window (heaviest boot job —
 // 45-day NSE backfill) so it doesn't contend with the other boot jobs for the
 // shared DB pool. Internal 15-min refresh cadence + OI lookback unchanged.
-scheduleBootJob("inst-flows-refresher", BOOT_STAGGER_MS.instFlowsRefresher, startInstFlowsRefresher);
+scheduleBootJob("inst-flows-refresher", BOOT_STAGGER_MS.instFlowsRefresher, startInstFlowsRefresher, "providerNetwork");
 // Prime Kite F&O data (index quotes + candles + option chain) once at boot if a
 // session was resumed. Single-flight + debounced + fail-closed on no session
 // inside triggerKiteWarmup; scheduleBootJob's fail-open wrapper catches throws.
 scheduleBootJob("kite-warmup", BOOT_STAGGER_MS.kiteWarmup, async () => {
   await triggerKiteWarmup("boot");
-});
+}, "providerNetwork");
 // Try to resume Kite live feed if a valid session is already in the DB.
-void bootstrapKite();
+// Capability-gated: boot-proof mode must create no Kite session, no WebSocket
+// and no subscription, so the bootstrap is not invoked at all.
+runIfCapable("kiteFeedBootstrap", "providerNetwork", () => { void bootstrapKite(); });
 // Pre-open Kite reconnect safeguard — visibility-only escalating log if the
 // session is offline as the market open approaches (08:40–09:20 IST).
-startKiteReadinessScheduler();
+runIfCapable("kiteReadinessScheduler", "marketSchedulers", startKiteReadinessScheduler);
 // Swing-scanner scheduler — once-per-IST-day deep scan after 15:35 +
 // 15-min intraday LTP refresh during market hours. Single-replica
 // assumption (latches live in-process).
-startSwingScanScheduler();
+runIfCapable("swingScanScheduler", "marketSchedulers", startSwingScanScheduler);
 // Option-chain snapshot ingestor — gated by `OPTION_SNAPSHOT_ENABLED`
 // (or auto-detected REPLIT_DEPLOYMENT). Default-OFF in dev so writes
 // don't fight production. Write-only data layer — does not feed any
 // trading decision.
-startOptionSnapshotIngestor();
+runIfCapable("optionSnapshotIngestor", "ingestors", startOptionSnapshotIngestor);
 // Candle warehouse — daily EOD sync after 15:40 IST + 15-min intraday
 // during market hours. Gated by `CANDLE_WAREHOUSE_ENABLED` (auto-off
 // in dev). Write-only data substrate — does not feed any trading
 // decision (swing scanner / F&O signals continue to read from
 // fetchKiteHistoricalByToken directly).
-startCandleWarehouse();
+runIfCapable("candleWarehouseIngestor", "ingestors", startCandleWarehouse);
 
 export default router;

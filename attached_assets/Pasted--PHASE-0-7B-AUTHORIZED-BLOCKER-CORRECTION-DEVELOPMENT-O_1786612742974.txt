@@ -1,0 +1,283 @@
+# PHASE 0.7B — AUTHORIZED BLOCKER CORRECTION
+
+## DEVELOPMENT-ONLY PROVIDER-FREE BOOT MODE AND FINAL RUNTIME PROOF
+
+Continue Phase 0.7B only. Do not checkpoint the incomplete portion yet.
+
+### Authorized objective
+
+Implement the minimum supported boot mode required to start the real API server, restore Schema-5 from the development database and expose owner-only restoration diagnostics while guaranteeing:
+
+* zero external provider calls;
+* zero WebSocket creation;
+* zero subscribe/unsubscribe operations;
+* zero market-data schedulers;
+* zero ingestor activity;
+* zero registry writes;
+* zero database mutation.
+
+This mode exists only for deterministic development verification. It must not change normal development or production boot behaviour.
+
+---
+
+## A. MODE CONTRACT
+
+Use one explicit environment variable:
+
+```text
+DATA_FOUNDATION_BOOT_PROOF=1
+```
+
+Requirements:
+
+1. It must be evaluated before any provider bootstrap or scheduler side effect.
+2. It must be rejected when `NODE_ENV=production`.
+3. If enabled in production, startup must terminate before listening or contacting any provider.
+4. Default/unset behaviour must remain unchanged.
+5. It must not weaken authentication.
+6. It must not bypass registry integrity or current-authority validation.
+7. It must not inject fixtures or fabricated provider state.
+8. It must not change safety locks.
+9. It must not be a generic “disable everything” mode; explicitly enumerate what is suppressed and retained.
+
+Retained in proof mode:
+
+* normal application construction;
+* development database connection;
+* read-only Schema-5 restoration;
+* integrity verification;
+* current-time authority evaluation;
+* coverage bridge;
+* market-data health;
+* authentication;
+* owner-only registry-health endpoint;
+* HTTP listener.
+
+Suppressed in proof mode:
+
+* Kite bootstrap and authentication refresh;
+* Kite WebSockets;
+* quote subscriptions;
+* readiness/scan/provider schedulers;
+* candle and option ingestors;
+* global data pump;
+* Yahoo;
+* Binance;
+* Upstox;
+* IndianAPI;
+* NSE/BSE downloads;
+* Telegram/WhatsApp outbound delivery;
+* any other external network bootstrap discovered in the startup inventory.
+
+Do not claim isolation until every module-import and post-listen side effect is inventoried.
+
+---
+
+## B. IMPLEMENTATION REQUIREMENTS
+
+Prefer one central boot-capability contract imported by side-effect modules, for example:
+
+```ts
+isDataFoundationBootProofMode()
+assertBootProofModeAllowed()
+getBootCapabilities()
+```
+
+Do not scatter raw environment-string comparisons throughout the repository unless unavoidable.
+
+The capability contract should explicitly return whether these are permitted:
+
+* `providerNetwork`
+* `webSockets`
+* `subscriptions`
+* `marketSchedulers`
+* `ingestors`
+* `outboundNotifications`
+* `registryRestore`
+* `httpListener`
+
+All suppressed boot paths must log one safe structured event indicating they were intentionally disabled. Do not log credentials or raw payloads.
+
+Do not use:
+
+* temporary source edits;
+* unset credentials as isolation;
+* DNS/network failure as proof;
+* monkey-patched fake production modules;
+* arbitrary sleeps;
+* `CONFIG_ONLY`;
+* test fixtures during the real boot;
+* a different entry point that bypasses normal application initialization.
+
+The proof must use the real API-server entry point.
+
+---
+
+## C. REQUIRED TARGETED TESTS
+
+Add focused tests proving:
+
+1. Mode is off when the variable is unset.
+2. Mode is on only for the exact approved value.
+3. Mode is refused in production.
+4. Production refusal happens before provider initialization.
+5. Kite bootstrap is not called in proof mode.
+6. No WebSocket is constructed.
+7. No subscribe/unsubscribe function is called.
+8. Global Yahoo/Binance pump is not scheduled.
+9. Provider-readiness and scanner schedulers are not scheduled.
+10. Candle and option ingestors are not started.
+11. Outbound notification delivery is not started.
+12. Registry restoration still runs.
+13. HTTP listener still starts after restoration settles.
+14. Owner authentication remains active.
+15. Registry diagnostics remain owner-only.
+16. Default boot behaviour is unchanged when proof mode is absent.
+17. Proof mode performs no registry write or DDL.
+18. All four safety locks remain `false as boolean`.
+
+Test the real startup orchestration and provider bootstrap boundaries, not copied logic.
+
+---
+
+## D. CONTROLLED BOOT PROOF
+
+After targeted tests and TypeScript pass, execute exactly one clean boot:
+
+```text
+NODE_ENV=development
+DATA_FOUNDATION_BOOT_PROOF=1
+```
+
+Before starting, capture read-only development registry evidence:
+
+* database identity;
+* snapshot count;
+* latest snapshot ID;
+* generation ID;
+* schema version;
+* saved timestamp.
+
+Start the real API entry point and capture:
+
+* process ID and boot ID;
+* proof-mode activation;
+* suppressed-capability list;
+* restoration start time;
+* restoration completion time;
+* selected snapshot and generation;
+* schema/policy versions;
+* restored record count;
+* checksum results;
+* calendar-commitment result;
+* authority-at-boot result;
+* coverage-bridge state;
+* health state;
+* HTTP-listener start occurring after restoration settled.
+
+Authenticate as owner and call the owner-only registry-health endpoint once.
+
+Then stop only the proof process if it is separate from the existing development workflow.
+
+After stopping, repeat the read-only database evidence and prove:
+
+* same snapshot count;
+* same latest snapshot ID;
+* same generation ID;
+* same saved timestamp;
+* no schema change;
+* no row mutation.
+
+Also report observable counters:
+
+```text
+provider calls = 0
+WebSockets created = 0
+subscribe calls = 0
+unsubscribe calls = 0
+schedulers started = 0
+ingestors started = 0
+outbound notifications = 0
+registry/database mutations = 0
+```
+
+If any counter is non-zero, Phase 0.7B fails.
+
+---
+
+## E. INDEPENDENT REVIEW
+
+After the proof, review the complete Phase 0.7B diff for:
+
+* an unguarded import-time side effect;
+* proof mode accidentally usable in production;
+* normal boot behaviour changed;
+* authentication bypass;
+* restoration still racing with consumers;
+* hidden DDL/write;
+* stale authority labelled current;
+* disk masking a database outage;
+* prior authority surviving restoration refusal;
+* sensitive diagnostic exposure;
+* unrelated changes.
+
+Correct genuine findings and rerun only the affected targeted tests. Do not repeat the real boot unless the correction materially affected isolation or restoration; if it did, explain why one additional boot is unavoidable before running it.
+
+---
+
+## F. COST AND SCOPE CONTROLS
+
+Do not run:
+
+* full package suites;
+* production builds;
+* browser tests;
+* provider downloads;
+* registry rebuilds;
+* performance benchmarks;
+* production database queries;
+* production deployment.
+
+Do not modify:
+
+* subscriptions or sharding;
+* canonical quote service;
+* candles or indicators;
+* F&O or Swing;
+* migrations;
+* dependencies or lockfiles;
+* safety locks.
+
+Do not commit, push, merge or deploy.
+
+---
+
+## G. FINAL REPORT
+
+Report:
+
+1. Exact previous boot-isolation defect.
+2. Complete side-effect inventory.
+3. Central capability contract.
+4. Every suppressed and retained subsystem.
+5. Targeted tests and TypeScript results.
+6. Real boot command and process identity.
+7. Restoration evidence.
+8. Owner-only endpoint evidence.
+9. Before/after database evidence.
+10. All zero-side-effect counters.
+11. Independent review findings and corrections.
+12. Exact changed-file list and diff summary.
+13. Git and auto-commit status.
+14. Four safety-lock values.
+15. Anything not verified.
+
+Required verdict only if the real proof passes:
+
+`SCHEMA_5_REGISTRY_BOOT_RESTORATION_VERIFIED_IN_DEVELOPMENT — PROVIDER_FREE_BOOT_MODE_ENFORCED — RESTORATION_SETTLED_BEFORE_LISTEN — INTEGRITY_AND_CURRENT_AUTHORITY_SEPARATED — ZERO_DATABASE_WRITES — ZERO_PROVIDER_SUBSCRIPTION_OR_SCHEDULER_SIDE_EFFECTS — OWNER_CHECKPOINT_AUTHORIZATION_REQUIRED`
+
+Otherwise:
+
+`PHASE_0_7B_BLOCKED — <EXACT_REMAINING_BLOCKER>`
+
+Stop after reporting. Do not begin the three-WebSocket Kite coverage phase.

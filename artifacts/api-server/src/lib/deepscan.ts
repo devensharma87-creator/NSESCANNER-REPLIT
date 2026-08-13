@@ -35,7 +35,7 @@ async function refreshBhavcopySymbolsCache(): Promise<void> {
 // Kick off an initial refresh; nseBhavcopy.getDeliveryMap() handles caching
 // and inflight de-dup, so this is cheap to call any number of times.
 // Guard: skip in test environment (P0.1B tripwire — prevent sentinel connections).
-if (process.env['NODE_ENV'] !== 'test') {
+if (process.env['NODE_ENV'] !== 'test' && getBootCapabilities().providerNetwork) {
   void refreshBhavcopySymbolsCache();
   setInterval(() => { void refreshBhavcopySymbolsCache(); }, 15 * 60_000).unref();
 }
@@ -60,6 +60,7 @@ function rollingVwapSeries(
   return out;
 }
 import { logger } from "./logger";
+import { getBootCapabilities } from "./bootCapabilities";
 
 // Indian indices that the user can deep-scan. yahoo: ticker for chart fetch.
 export interface IndexDef {

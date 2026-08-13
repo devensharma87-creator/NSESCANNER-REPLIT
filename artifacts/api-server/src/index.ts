@@ -19,6 +19,28 @@
  */
 
 import { validateProductionConfig } from "./lib/productionConfigValidator.js";
+import {
+  assertBootProofModeAllowed,
+  BootProofModeForbiddenError,
+  getBootCapabilities,
+  isDataFoundationBootProofMode,
+} from "./lib/bootCapabilities.js";
+
+// Step 0 — DATA_FOUNDATION_BOOT_PROOF admissibility.
+// Deliberately the FIRST thing that runs: this module imports nothing but the
+// config validator and the capability contract, so a production process that
+// carries the development-only proof flag terminates here — before the app
+// module is imported, before any provider is contacted, before any listener.
+try {
+  assertBootProofModeAllowed(process.env);
+} catch (err) {
+  if (err instanceof BootProofModeForbiddenError) {
+    process.stderr.write(`${err.code}\n`);
+    process.stderr.write(`  ${err.message}\n`);
+    process.exit(1);
+  }
+  throw err;
+}
 
 // Step 1 — PORT
 const rawPort = process.env["PORT"];
@@ -75,17 +97,29 @@ const { default: app } = await import("./app.js");
 // server serves; every acceptance gate (checksum, record-set hash, record
 // count, calendar commitment, schema and policy version) is re-applied inside
 // the loader, so an unverifiable generation is never adopted.
+const proofMode = isDataFoundationBootProofMode();
+/** Proof-mode-only stdout marker. Silent (and unreachable) on a normal boot. */
+const proofMark = (event: string, extra = ""): void => {
+  if (!proofMode) return;
+  process.stdout.write(`BOOT_PROOF ${event} at=${new Date().toISOString()} pid=${process.pid}${extra}\n`);
+};
+
+proofMark("RESTORATION_START");
 try {
   const { loadLatestAcceptedGeneration } = await import("./lib/registry/manifestStore.js");
   await loadLatestAcceptedGeneration("STARTUP_L2_RESTORE");
 } catch {
   // Already logged and recorded as a terminal restoration state by the loader.
 }
+proofMark("RESTORATION_SETTLED");
 
-// Step 6 — Start listener.
+// Step 6 — Start listener. In boot-proof mode, state plainly what this process
+// is and is not doing, so the log is self-describing evidence.
+proofMark("CAPABILITIES", ` capabilities=${JSON.stringify(getBootCapabilities())}`);
 app.listen(port, (err?: Error) => {
   if (err) {
     process.stderr.write(`Error listening on port ${port}: ${err.message}\n`);
     process.exit(1);
   }
+  proofMark("LISTENING", ` port=${port}`);
 });

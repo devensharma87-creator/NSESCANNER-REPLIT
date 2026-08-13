@@ -11,6 +11,7 @@
  * - Pushes every tick to registered SSE listeners.
  */
 import { logger } from "./logger";
+import { getBootCapabilities, runIfCapable } from "./bootCapabilities";
 import { getActiveSession, getRestClient, autoMirrorSession, autoMirrorInstruments, type ActiveSession } from "./kiteAuth";
 import { NIFTY50_SYMBOLS } from "./watchlistLists";
 import { KiteTicker } from "kiteconnect";
@@ -50,11 +51,13 @@ export type { LiveTick, QuoteResolution };
 const subscriptionPort: SubscriptionPort = {
   isSubscribed: (t) => subscribedTokens.has(t),
   unsubscribe: (t) => {
+    if (!getBootCapabilities().subscriptions) throw new Error("subscriptions suppressed (boot proof mode)");
     if (!ticker) throw new Error("ticker unavailable");
     ticker.unsubscribe([t]);
   },
   markUnsubscribed: (t) => { subscribedTokens.delete(t); },
   subscribeToken: (t) => {
+    if (!getBootCapabilities().subscriptions) throw new Error("subscriptions suppressed (boot proof mode)");
     if (!ticker) throw new Error("ticker unavailable");
     ticker.subscribe([t]);
     ticker.setMode(ticker.modeQuote, [t]);
@@ -234,6 +237,13 @@ function handleTicks(ticks: any[]): void {
 /** Idempotently start the WebSocket and subscribe to the default symbol set. */
 export async function startTicker(session?: ActiveSession): Promise<boolean> {
   if (tickerStarted) return true;
+  // Boot-proof mode: no WebSocket may be constructed by ANY caller, not just
+  // the boot path. This is the last line of defence, at the only place in the
+  // repository where a KiteTicker is created.
+  if (!getBootCapabilities().webSockets) {
+    runIfCapable("kiteTickerConstruction", "webSockets", () => undefined);
+    return false;
+  }
   const sess = session ?? (await getActiveSession());
   if (!sess) return false;
   // A successful startTicker call (whether triggered by the daily login

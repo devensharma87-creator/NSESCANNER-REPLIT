@@ -1,5 +1,8 @@
 import type { DbPoolStats } from "@workspace/db";
 import { logger } from "./logger";
+import { runIfCapable, type BootCapabilityName } from "./bootCapabilities";
+
+
 
 /**
  * Boot-stagger offsets (ms) for heavy background subsystems.
@@ -28,8 +31,26 @@ export const BOOT_STAGGER_MS = {
  * - Fail-open: any error thrown or rejected by `fn` is caught and logged at
  *   warn level, never propagated (a failing boot job can never crash the app).
  * - Observable: logs when the job is scheduled and when it starts.
+ * - Capability-gated: in DATA_FOUNDATION_BOOT_PROOF mode the job is not
+ *   scheduled at all and one structured suppression event is logged instead.
+ *   `capability` says WHY a job is suppressed; every staggered boot job is
+ *   covered, including the idempotent column migrations and the alert-dedup
+ *   self-test, because proof mode must perform zero DDL and zero mutation.
  */
 export function scheduleBootJob(
+  label: string,
+  delayMs: number,
+  fn: () => void | Promise<void>,
+  capability: BootCapabilityName = "marketSchedulers",
+): NodeJS.Timeout | undefined {
+  // `undefined` — not a pre-cleared handle — when suppressed: creating a timer
+  // just to throw it away would make "zero timers created" untrue.
+  return runIfCapable(`bootJob:${label}`, capability, () =>
+    scheduleBootJobNow(label, delayMs, fn),
+  );
+}
+
+function scheduleBootJobNow(
   label: string,
   delayMs: number,
   fn: () => void | Promise<void>,
@@ -106,6 +127,10 @@ export function scheduleDbPoolStatsLog(
   label: string,
   delayMs: number,
   getStats: () => DbPoolStats | null,
-): NodeJS.Timeout {
-  return setTimeout(() => logDbPoolStats(label, getStats), delayMs);
+): NodeJS.Timeout | undefined {
+  // Read-only, but still a scheduled timer: proof mode wants a boot whose
+  // scheduler count is provably zero, not "zero except the harmless ones".
+  return runIfCapable(`dbPoolStatsLog:${label}`, "marketSchedulers", () =>
+    setTimeout(() => logDbPoolStats(label, getStats), delayMs),
+  );
 }

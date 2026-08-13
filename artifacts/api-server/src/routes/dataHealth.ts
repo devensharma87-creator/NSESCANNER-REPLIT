@@ -20,6 +20,11 @@ import {
   getActiveGenerationAuthority,
   getRegistryRestorationDiagnostics,
 } from "../lib/registry/manifestStore";
+import {
+  getBootCapabilities,
+  getSuppressedBootSideEffects,
+  isDataFoundationBootProofMode,
+} from "../lib/bootCapabilities";
 
 const router: IRouter = Router();
 
@@ -89,6 +94,14 @@ router.get("/data-health/registry", requireOwnerStrict, (req, res) => {
     const { authority, mayAuthorize } = getActiveGenerationAuthority();
     res.json({
       restoration,
+      // Boot-mode evidence: which capabilities this process booted with and
+      // which start-up side effects it declined. Names only — no credentials,
+      // no provider state, no payloads.
+      bootMode: {
+        dataFoundationBootProof: isDataFoundationBootProofMode(),
+        capabilities: getBootCapabilities(),
+        suppressedSideEffects: getSuppressedBootSideEffects(),
+      },
       // Re-evaluated at read time; it expires at a calendar boundary, not on a
       // timer, so this is deliberately not the same fact as `restoration.state`.
       currentAuthority: {

@@ -23,6 +23,7 @@ import { shouldDemoteSignal } from "../lib/scannerProvenance";
 import { buildScannerSourceHealth } from "../lib/scannerSourceHealth";
 import { getKiteReadiness } from "../lib/kiteReadiness";
 import { requireOwner, requireOwnerStrict, requireSubscriberOrOwner } from "../lib/userAuth";
+import { runIfCapable } from "../lib/bootCapabilities";
 import { SECTORS, UNIVERSE, getEntry, INDEX_CONSTITUENTS } from "../lib/universe";
 import { computeSectorCoverage } from "../lib/sectorCoverage";
 import { normalizeCanonicalExchange } from "../lib/canonicalInstrument";
@@ -1299,12 +1300,17 @@ router.get("/watchlist/basket/:basketKey", async (req, res, next) => {
 
 function round2(n: number): number { return Math.round(n * 100) / 100; }
 
-void scanAll().catch(() => undefined);
-setInterval(() => { void scanAll().catch(() => undefined); }, 60 * 1000);
+// Import-time watchlist sweep + 1-min cadence. Both hit upstream providers, so
+// both are capability-gated: in boot-proof mode this module is imported (routes
+// must still mount) but no provider call is ever made.
+runIfCapable("scannerWatchlistSweep", "providerNetwork", () => {
+  void scanAll().catch(() => undefined);
+  return setInterval(() => { void scanAll().catch(() => undefined); }, 60 * 1000);
+});
 
 // Full NSE EQ scanner — covers ~2,400+ symbols from the daily NSE bhavcopy
 // (live, not synthetic). Refresh cadence is 5 min so we don't crush Yahoo.
-startFullNseScannerBackground();
+runIfCapable("fullNseScannerBackground", "marketSchedulers", startFullNseScannerBackground);
 
 /** GET /api/scan/full-nse — full NSE EQ scan, optional sort/filter/paginate.
  *  Query params: sortBy (changePct|score|volume|rsi|symbol|price), order (asc|desc),

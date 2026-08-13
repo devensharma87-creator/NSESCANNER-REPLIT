@@ -25,6 +25,7 @@ import crypto from "crypto";
 import { sql } from "drizzle-orm";
 import { db } from "@workspace/db";
 import { logger } from "../logger";
+import { getBootCapabilities } from "../bootCapabilities";
 import type {
   CanonicalTradeEvent,
   NotificationDeliveryEntry,
@@ -88,7 +89,7 @@ export async function initNotificationLog(): Promise<void> {
 // Self-init at module load — same pattern as dailyReports.ts
 // Guard: skip in test environment (NODE_ENV=test set by vitest) to prevent
 // pg.Pool connection attempts in the normal test suite (P0.1B tripwire).
-if (process.env['NODE_ENV'] !== 'test') {
+if (process.env['NODE_ENV'] !== 'test' && getBootCapabilities().marketSchedulers) {
   void (async () => {
     try {
       await db.execute(TABLE_DDL);

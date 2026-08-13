@@ -1,5 +1,6 @@
 import { UNIVERSE } from "./universe";
 import { getAllSymbols } from "./marketData/referenceData";
+import { getBootCapabilities } from "./bootCapabilities";
 
 /**
  * Maps free-form company-name mentions in news headlines to canonical NSE symbols.
@@ -251,7 +252,8 @@ export async function resolveSymbols(text: string): Promise<ResolvedSymbol[]> {
   return Array.from(found.entries()).map(([symbol, matched]) => ({ symbol, matched }));
 }
 
-// warm (guarded: skip in test env — P0.1B tripwire)
-if (process.env['NODE_ENV'] !== 'test') {
+// warm (guarded: skip in test env — P0.1B tripwire; and in boot-proof mode,
+// where this reaches the NSE bhavcopy over the network at import time)
+if (process.env['NODE_ENV'] !== 'test' && getBootCapabilities().providerNetwork) {
   void getIndex().catch(() => undefined);
 }

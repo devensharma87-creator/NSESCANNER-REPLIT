@@ -23,6 +23,7 @@
  * restarted mid-day. Trade/PnL data is DB-backed and unaffected.
  */
 import { sql } from "drizzle-orm";
+import { runIfCapable } from "./bootCapabilities";
 import {
   db,
   paperDailySummaryFoTable,
@@ -358,6 +359,8 @@ export async function maybePersistEodDailySummary(): Promise<void> {
  * not keep the event loop alive in shutdown / test scenarios.
  */
 const EOD_TICK_MS = 60_000;
-setInterval(() => {
-  void maybePersistEodDailySummary();
-}, EOD_TICK_MS).unref?.();
+runIfCapable("paperDailySummaryFoEodTick", "marketSchedulers", () =>
+  setInterval(() => {
+    void maybePersistEodDailySummary();
+  }, EOD_TICK_MS).unref?.(),
+);
