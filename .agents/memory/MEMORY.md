@@ -1,4 +1,5 @@
 - [Registry boot restoration contract](registry-boot-restoration.md) — DDL in a loader makes it a writer; an outage ≠ nothing there; a refusal must revoke earlier state; settled ≠ empty; integrity before authority.
+- [Reserved VM singleton preparation](reserved-vm-singleton-preparation.md) — a config declaration is not a runtime attestation; an argv is not a process tree; bound every shutdown step, and a timeout is never success.
 - [Evidence scripts must assert, not print](evidence-scripts-must-assert.md) — exit code must carry the verdict incl. which input loaded; substring secret/payload scans and unbaselined handle counts give false verdicts.
 - [Admission boundary must re-apply the FULL commit gate set](admission-boundary-recheck-commit-gates.md) — re-deriving checksum + record-set hash is fail-open; every subset hash, count floor and per-row generation id must be recomputed too.
 - [Restored reference data has two expiry clocks](authority-two-expiries.md) — a valid calendar never implies valid source evidence; re-ask every expiry question at the same current-time boundary, never trust a stored verdict.

@@ -2,7 +2,15 @@ modules = ["nodejs-24", "python-3.11", "postgresql-16"]
 
 [deployment]
 router = "application"
-deploymentTarget = "autoscale"
+# PHASE 0.8T — PREPARED, NOT ACTIVE. This value takes effect only when the
+# owner publishes; the existing production deployment keeps running Autoscale
+# until then. Reserved VM ("vm") is required because a live Kite feed needs
+# exactly one always-on process: Autoscale may run concurrent replicas and
+# scales to zero, so no process can be the sole holder of the provider socket
+# budget. Machine size is chosen in the Publishing UI, not here.
+# Rollback: set this back to "autoscale" and republish.
+# Runbook: docs/PHASE_0_8T_RESERVED_VM_TOPOLOGY_RUNBOOK.md
+deploymentTarget = "vm"
 
 [deployment.postBuild]
 args = ["pnpm", "store", "prune"]

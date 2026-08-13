@@ -11,6 +11,8 @@
  *   - Reads existing in-process state only (no new DB or network calls beyond
  *     what getKiteReadiness() / getActiveSession() already do in the chain).
  */
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { Router, type IRouter } from "express";
 import { buildMarketDataHealth } from "../lib/marketDataHealth";
 import { buildBackboneReport } from "../lib/backboneHealth";
@@ -33,6 +35,12 @@ import {
   readTopologySignals,
 } from "../lib/registry/feedOwnershipAdmission";
 import { evaluateActivationGates } from "../lib/registry/feedActivationGates";
+import {
+  evaluatePhase08tOwnership,
+  readProductionRunArgsFromDisk,
+  readRuntimeTopologyEvidence,
+} from "../lib/registry/runtimeTopologyEvidence";
+import { describeShutdownReadiness, getBootId } from "../lib/lifecycle/gracefulShutdown";
 
 const router: IRouter = Router();
 
@@ -202,6 +210,79 @@ router.get("/data-health/subscription-admission", requireOwnerStrict, (req, res)
   } catch (err) {
     req.log.error({ err }, "data-health/subscription-admission failed");
     res.status(500).json({ error: "subscription admission check failed" });
+  }
+});
+
+/**
+ * GET /api/data-health/topology — OWNER-ONLY, PHASE 0.8T.
+ *
+ * Deployment topology as the RUNNING process can observe it, and what that
+ * means for a future single feed owner. It exists so the owner can tell, after
+ * a Reserved VM publish, whether the runtime evidence the ownership contract
+ * demands actually appeared — rather than inferring it from `.replit`.
+ *
+ * SAFETY. Metadata only: no API keys, no access tokens, no credentials, no
+ * environment values, no billing or account identifiers. The provider-key
+ * identity is a truncated one-way digest, never the key. Nothing is opened,
+ * written, scheduled or activated by this route, and the public health surface
+ * is untouched — anonymous callers get 401 from requireOwnerStrict.
+ */
+router.get("/data-health/topology", requireOwnerStrict, (req, res) => {
+  try {
+    // Walk up from THIS module's location: in production the process cwd is the
+    // repository root, where the api-server artifact manifest is not visible.
+    const moduleDir = path.dirname(fileURLToPath(import.meta.url));
+    const declaredDeploymentTarget = readDeclaredDeploymentTargetFromDisk(moduleDir);
+    const runCommandArgs = readProductionRunArgsFromDisk(moduleDir);
+    const proofMode = isDataFoundationBootProofMode();
+
+    const evidence = readRuntimeTopologyEvidence(process.env, {
+      declaredDeploymentTarget,
+      runCommandArgs,
+      proofMode,
+    });
+    const assessment = evaluatePhase08tOwnership({ declaredDeploymentTarget, evidence });
+
+    res.json({
+      phase: "PHASE_0_8T",
+      configuredDeploymentTarget: declaredDeploymentTarget,
+      configuredRunCommand: runCommandArgs,
+      runtime: {
+        isDeployment: evidence.isDeployment,
+        observedRuntimeTarget: evidence.observedRuntimeTarget,
+        observedReplicaCount: evidence.observedReplicaCount,
+        deploymentIdentityPresent: assessment.runtime.deploymentIdentityPresent,
+        apiKeyOwnerId: evidence.apiKeyOwnerId,
+        processId: process.pid,
+        bootId: getBootId(),
+        proofMode,
+      },
+      topology: {
+        topologyState: assessment.runtime.topologyState,
+        singletonEvidenceSource: assessment.runtime.evidenceSource,
+        platformAttestation: assessment.runtime.attestationSource,
+        entrypointChildProcessAudit: assessment.runtime.entrypointAudit,
+        singletonGuaranteed: assessment.runtime.singletonGuaranteed,
+        persistentProcessGuaranteed: assessment.runtime.persistentProcessGuaranteed,
+        processTopology: assessment.runtime.processTopology,
+        // The platform does not expose the deployment's CPU/RAM class to the
+        // process, so this is reported as unavailable rather than guessed.
+        resourceClass: null,
+        evidence: assessment.runtime.evidence,
+      },
+      feedOwnership: {
+        phase: assessment.phase,
+        ownershipAdmitted: assessment.ownershipAdmitted,
+        topologyReady: assessment.topologyReady,
+        blockerCode: assessment.blockerCode,
+        declaredTopology: assessment.declaredAdmission.topology.topology,
+        declaredBlockerCode: assessment.declaredAdmission.blockerCode,
+      },
+      shutdown: describeShutdownReadiness(),
+    });
+  } catch (err) {
+    req.log.error({ err }, "data-health/topology failed");
+    res.status(500).json({ error: "topology check failed" });
   }
 });
 
