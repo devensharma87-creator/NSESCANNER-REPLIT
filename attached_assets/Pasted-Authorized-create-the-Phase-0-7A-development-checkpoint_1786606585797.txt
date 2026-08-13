@@ -1,0 +1,49 @@
+Authorized: create the Phase 0.7A development checkpoint only.
+
+Do not perform further implementation, testing, builds, database operations, provider calls, restarts or browser sessions.
+
+Before committing:
+
+Inventory every modified and untracked file.
+Include only Phase 0.7A runtime source, schema declaration, migration/runbook, targeted tests and directly related evidence.
+Exclude uploaded directives, screenshots, unrelated memory and unrelated dirty files.
+Stop if any unrelated runtime, dependency, configuration or generated change is present.
+Confirm the migration SQL was not executed against production.
+Confirm production still requires a separate owner-authorized migration operation.
+Confirm the four safety locks remain exactly false as boolean.
+
+Record these mandatory blockers without fixing them:
+
+PAPER_TRADE_EQ_DATABASE_NSE_DEFAULT_REMAINS
+HISTORICAL_CANDLE_PROVENANCE_GATE_REQUIRED_BEFORE_PHASE_B
+PRODUCTION_CANDLE_EXCHANGE_DEFAULT_MIGRATION_PENDING
+BOOT_TIME_REGISTRY_RESTORE_NOT_RUNTIME_VERIFIED
+
+The checkpoint must not claim repository-wide elimination of every NSE default. Its accurate scope is:
+
+all nine identified Phase 0.7A consumer/resolver paths corrected;
+kite_candle_store NSE defaults removed from runtime DDL and Drizzle;
+all current candle writers require explicit exchange;
+ambiguous resolver requests fail closed;
+historical unverifiable candles remain non-actionable while Lock E is false.
+
+If Replit auto-commits, inspect the commit and retain it only if it contains the authorized scope plus inert directive/memory files. Stop for any unrelated runtime/schema/dependency/configuration file.
+
+After checkpoint, report:
+
+Commit SHA and author
+Exact committed-file list
+Excluded files
+Diff summary
+Git status
+Branch and main status
+Confirmation nothing was pushed, merged or deployed
+Production migration status
+Four safety-lock values
+The four retained blockers above
+
+Do not begin the next phase.
+
+Required verdict:
+
+PHASE_0_7A_DEVELOPMENT_CHECKPOINT_COMPLETE — IDENTIFIED_NSE_DEFAULTING_PATHS_CORRECTED — CANDLE_WRITERS_EXCHANGE_EXPLICIT — AMBIGUOUS_IDENTITY_FAILS_CLOSED — PRODUCTION_MIGRATION_AND_PHASE_B_PROVENANCE_GATE_PENDING — OWNER_NEXT_PHASE_AUTHORIZATION_REQUIRED
