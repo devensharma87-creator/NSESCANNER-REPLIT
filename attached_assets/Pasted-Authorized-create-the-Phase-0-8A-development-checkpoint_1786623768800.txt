@@ -1,0 +1,65 @@
+Authorized: create the Phase 0.8A development checkpoint only.
+
+Do not perform additional implementation, tests, TypeScript checks, evidence runs, database queries, provider calls, builds, boots, restarts or browser sessions. Accepted evidence stands.
+
+Before checkpointing:
+
+Inspect auto-commit 22cf2da2.
+Report its author, exact file list and diff summary.
+Confirm it contains only:
+authoritative subscription-manifest logic;
+feed-shard planning;
+feed-ownership admission;
+activation gates;
+owner-only diagnostics;
+targeted Phase 0.8A tests;
+directly related documentation/memory;
+inert owner directives.
+Stop if unrelated runtime, schema, migration, dependency, configuration or generated changes are present.
+Include the final uncommitted Phase 0.8A files:
+corrected feedShardPlan.ts;
+corrected shard tests;
+evidence scripts that produced the accepted real-generation and owner-endpoint proof;
+directly related memory corrections.
+Exclude uploaded directives unless already auto-committed as inert content.
+Do not alter or rewrite the auto-commit.
+
+Preserve these exact accepted results:
+
+totalRegistryRecords = 9,702
+LIVE_REQUIRED = 7,880
+LIVE_MAPPED = 7,876
+LIVE_UNMAPPED = 4
+capacity = 9,000
+headroom = 1,124
+shardCounts = [2,626, 2,625, 2,625]
+admittedIndices = 208
+classificationRemainder = 0
+
+Preserve these admission results:
+
+manifestState = CANDIDATE_LAST_KNOWN
+activationAuthorized = false
+registryBlocker = REGISTRY_AUTHORITY_NOT_CURRENT
+ownershipBlocker = FEED_OWNERSHIP_MULTI_REPLICA_TOPOLOGY
+Kite session = NOT_EVALUATED
+
+After checkpoint, report:
+
+Final commit SHA and author
+Exact contents of 22cf2da2
+Exact newly committed-file list
+Files intentionally excluded
+Diff summary
+Git status
+Branch, main and origin status
+Confirmation nothing was pushed, merged or deployed
+Confirmation of zero providers, WebSockets, subscriptions, schedulers and database writes
+Four frozen safety-lock values
+Remaining blockers
+
+Do not begin WebSocket implementation or change Replit deployment configuration.
+
+Required verdict:
+
+PHASE_0_8A_DEVELOPMENT_CHECKPOINT_COMPLETE — REAL_SCHEMA_5_MANIFEST_RECONCILED — BALANCED_DETERMINISTIC_THREE_SHARD_PLAN_RETAINED — ACTIVATION_BLOCKED_BY_EXPIRED_AUTHORITY_AND_NON_SINGLETON_TOPOLOGY — OWNER_NEXT_PHASE_AUTHORIZATION_REQUIRED
