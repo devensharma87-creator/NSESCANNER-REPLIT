@@ -117,13 +117,75 @@ describe("P08A O6-O9 — insufficiency, parsing, real topology, safety of eviden
     expect(parseDeclaredDeploymentTarget("")).toBeNull();
   });
 
-  it("O8 the real workspace topology is inspected read-only and classifies as autoscale", () => {
+  it("O8a autoscale fixture classifies as MULTI_REPLICA_POSSIBLE and is refused ownership", () => {
+    const body = '[deployment]\ndeploymentTarget = "autoscale"\n';
+    const declared = parseDeclaredDeploymentTarget(body);
+    expect(declared).toBe("autoscale");
+    const assessment = classifyDeploymentTopology(readTopologySignals({} as NodeJS.ProcessEnv, declared));
+    expect(assessment.topology).toBe("MULTI_REPLICA_POSSIBLE");
+    expect(assessment.multiReplicaPossible).toBe(true);
+    const admission = evaluateFeedOwnershipAdmission(readTopologySignals({} as NodeJS.ProcessEnv, declared));
+    expect(admission.ownershipAdmitted).toBe(false);
+    expect(admission.blockerCode).toBe("FEED_OWNERSHIP_MULTI_REPLICA_TOPOLOGY");
+  });
+
+  it("O8b vm fixture is STRUCTURAL_SINGLETON but still does not grant runtime ownership", () => {
+    // A `vm` declaration says the deployment *topology* allows a singleton.
+    // Runtime ownership is a separate gate (0.8A phase lock) — topology alone
+    // must never be read as permission to hold the feed.
+    const body = '[deployment]\ndeploymentTarget = "vm"\n';
+    const declared = parseDeclaredDeploymentTarget(body);
+    expect(declared).toBe("vm");
+    const assessment = classifyDeploymentTopology(readTopologySignals({} as NodeJS.ProcessEnv, declared));
+    expect(assessment.topology).toBe("STRUCTURAL_SINGLETON");
+    expect(assessment.multiReplicaPossible).toBe(false);
+    const admission = evaluateFeedOwnershipAdmission(readTopologySignals({} as NodeJS.ProcessEnv, declared));
+    expect(admission.singleWriterStructurallyGuaranteed).toBe(true);
+    expect(admission.ownershipAdmitted).toBe(false);
+    expect(admission.blockerCode).toBe("FEED_OWNERSHIP_ACTIVATION_NOT_AUTHORIZED_IN_PHASE_0_8A");
+  });
+
+  it("O8c missing or malformed deployment table fails closed as TOPOLOGY_UNKNOWN", () => {
+    // No [deployment] table.
+    expect(parseDeclaredDeploymentTarget("")).toBeNull();
+    expect(parseDeclaredDeploymentTarget('deploymentTarget = "vm"\n')).toBeNull();
+
+    // [deployment] table present but no deploymentTarget key.
+    expect(parseDeclaredDeploymentTarget("[deployment]\n")).toBeNull();
+
+    // Malformed value (no quotes).
+    expect(parseDeclaredDeploymentTarget("[deployment]\ndeploymentTarget = vm\n")).toBeNull();
+
+    for (const body of [
+      "",
+      "[deployment]\n",
+      'deploymentTarget = "vm"\n',
+      "[deployment]\ndeploymentTarget = vm\n",
+    ]) {
+      const declared = parseDeclaredDeploymentTarget(body);
+      const admission = evaluateFeedOwnershipAdmission(
+        readTopologySignals({} as NodeJS.ProcessEnv, declared),
+      );
+      expect(admission.ownershipAdmitted).toBe(false);
+      expect(admission.topology.topology).not.toBe("STRUCTURAL_SINGLETON");
+    }
+  });
+
+  it("O8d real workspace .replit is read-only and currently declares the committed vm target", () => {
+    // This assertion tracks what is actually committed, not a hardcoded
+    // expectation of what the workspace used to say. If the deployment target
+    // is legitimately changed, this test must be updated to match — it must
+    // never silently diverge from reality.
     const before = statSync(WORKSPACE_REPLIT);
     const declared = readDeclaredDeploymentTargetFromDisk(process.cwd());
-    expect(declared).toBe("autoscale");
+    // Phase 0.8T committed `deploymentTarget = "vm"` in .replit (commit e9c51849).
+    expect(declared).toBe("vm");
     const assessment = classifyDeploymentTopology(readTopologySignals(process.env, declared));
-    expect(assessment.topology).toBe("MULTI_REPLICA_POSSIBLE");
-    // Read-only: the inspected file is untouched.
+    // vm = STRUCTURAL_SINGLETON topology, but NOT runtime ownership.
+    expect(assessment.topology).toBe("STRUCTURAL_SINGLETON");
+    const admission = evaluateFeedOwnershipAdmission(readTopologySignals(process.env, declared));
+    expect(admission.ownershipAdmitted).toBe(false);
+    // Read-only: the inspected file must be untouched.
     const after = statSync(WORKSPACE_REPLIT);
     expect(after.mtimeMs).toBe(before.mtimeMs);
     expect(after.size).toBe(before.size);
