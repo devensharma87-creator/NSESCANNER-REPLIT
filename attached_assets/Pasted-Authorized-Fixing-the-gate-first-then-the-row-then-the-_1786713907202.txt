@@ -1,0 +1,40 @@
+Authorized. Fixing the gate first, then the row, then the single refresh.
+
+
+
+33 actions
+Now the build-time stamp fix and the pre-commit gate in runOnce.
+
+
+
+69 actions
+All three authorized actions are done. Here is the report.
+
+1. Timestamp gate — fixed
+
+Two defects, two fixes, both in the registry refresh path:
+
+The stamp. The generation was stamped with the run-start clock reading, so it always pre-dated the sources it was built from. It is now max(fresh clock at build time, latest source retrieval instant) — the max so a clock stepping backwards mid-run cannot re-create the inversion. A non-finite result refuses at GENERATION_BUILD.
+The gate's position. The cold-load authority boundary now also runs before the write, as a required generationIntegrity port (new stage PRE_COMMIT_INTEGRITY, reason PRE_COMMIT_GENERATION_INTEGRITY_INVALID). Production delegates to the same evaluateRegistryAuthorityNow the restoration path calls — injected as a dependency, not re-derived — and converts an evaluator that throws into a refusal. An inconsistent generation now costs a refusal instead of a stored, unloadable row.
+10 new tests (8 in a new 0.8E file, 2 in the production-composition suite) proving the writer is never reached, the stamp covers the latest retrieval, the commit clock is the one judged on, and diagnostics stay bounded. TSC clean; 435/435 registry tests pass. An independent review returned PASS; its two follow-ups (production-adapter throw test, evaluator identity binding) are the 2 extra tests I added.
+
+2. Poisoned row — deleted
+
+Deleted exactly id=10 / P06-01db8a3c3c3102ae / generated_at 2026-08-14 12:56:03.251+00 on the development DB, matched on all three columns. DELETE 1. Two rows remain, both ACCEPTED, latest reverted to P06-b1632484542c83eb (2026-08-12).
+
+3. One final registry refresh — run, and it refused
+
+Exactly one attempt, via a rebuilt throwaway harness (now deleted), guarded on non-production, owner authorization, and DB host helium.
+
+outcome  REFUSED
+stage    SOURCE_RETRIEVAL
+reason   OFFICIAL_SOURCE_RETRIEVAL_FAILED
+detail   SOURCE=BSE_LIST_OF_SCRIPS_ACTIVE
+sourcesFetched 3   elapsed 23.6 s
+
+Transport: 4 requests against the ceiling of 18 — 3 to nsearchives.nseindia.com, 1 to api.bseindia.com — and my out-of-process observation matched the composition's own ledger call for call. No Kite session call, no WebSocket, no other provider, no production DB.
+
+It did not reach the build step, so the timestamp fix was not exercised live — the run died earlier, on the BSE List-of-Scrips fetch. That is an upstream reachability failure, not the defect you authorized me to fix: the same window shows the running API server logging NSE equity security master: all upstream URLs unreachable and Yahoo chart timeouts, so outbound access to the exchange hosts is currently flaky. The store is clean and the gate is in place; proving the fix end to end needs one more authorized attempt, which I have not taken.
+
+Nothing else was touched — no checkpoint, publish, deploy, feed activation, or 0.8F. One thing to flag: HEAD moved from 99656ecd to e298104c on its own; that commit is a platform checkpoint of my earlier 0.8E working tree (registry, feed, memory files), not an attached_assets upload. Today's changes are uncommitted.
+
