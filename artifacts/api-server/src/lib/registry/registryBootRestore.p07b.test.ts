@@ -19,6 +19,102 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { readFileSync } from "node:fs";
 
+// ── Boot-ordering source guard ──────────────────────────────────────────────
+
+/**
+ * Remove comments while preserving string literals.
+ *
+ * index.ts DOCUMENTS the accepted ordering in prose, so its comments mention
+ * `server.listen()` twice. A scan that did not strip comments would find those
+ * mentions and conclude the entry point opens a listener it does not open.
+ */
+function stripCommentsKeepStrings(src: string): string {
+  let out = "";
+  let i = 0;
+  while (i < src.length) {
+    const c = src[i];
+    const next = src[i + 1];
+    if (c === "/" && next === "/") {
+      while (i < src.length && src[i] !== "\n") i++;
+      continue;
+    }
+    if (c === "/" && next === "*") {
+      i += 2;
+      while (i < src.length && !(src[i] === "*" && src[i + 1] === "/")) i++;
+      i += 2;
+      continue;
+    }
+    if (c === '"' || c === "'" || c === "`") {
+      const quote = c;
+      out += c;
+      i++;
+      while (i < src.length) {
+        if (src[i] === "\\") {
+          out += src[i] + (src[i + 1] ?? "");
+          i += 2;
+          continue;
+        }
+        out += src[i];
+        if (src[i] === quote) {
+          i++;
+          break;
+        }
+        i++;
+      }
+      continue;
+    }
+    out += c;
+    i++;
+  }
+  return out;
+}
+
+/**
+ * The accepted boot ordering, as two linked facts:
+ *
+ *   index.ts    restoration is AWAITED and SETTLES, then control passes to the
+ *               startup seam. The entry point never opens a listener itself.
+ *   the seam    shutdown protection is installed, marked, and only then is the
+ *               listener opened.
+ *
+ * Split this way because the listener call physically moved out of index.ts
+ * into `startupListenerPhase.ts`. Asserting only "index.ts contains no
+ * listen()" would be satisfied by deleting the listener entirely, so the seam's
+ * real call is located and ordered too.
+ *
+ * Both inputs must already be comment-stripped.
+ */
+function bootOrderingViolations(entry: string, seam: string): string[] {
+  const v: string[] = [];
+
+  if (/\b(?:app|server)\.listen\s*\(/.test(entry)) v.push("ENTRY_OPENS_LISTENER_DIRECTLY");
+
+  const restoreAt = entry.indexOf('await loadLatestAcceptedGeneration("STARTUP_L2_RESTORE")');
+  if (restoreAt < 0) v.push("RESTORATION_NOT_AWAITED");
+
+  const settledAt = entry.indexOf('proofMark("RESTORATION_SETTLED")');
+  if (settledAt < 0) v.push("RESTORATION_NEVER_MARKED_SETTLED");
+  else if (restoreAt >= 0 && settledAt < restoreAt) v.push("SETTLED_MARKED_BEFORE_RESTORE");
+
+  const phaseAt = entry.indexOf("runStartupListenerPhase({");
+  if (phaseAt < 0) v.push("ENTRY_DOES_NOT_DELEGATE_TO_STARTUP_SEAM");
+  else if (settledAt >= 0 && phaseAt < settledAt) v.push("STARTUP_PHASE_BEFORE_RESTORATION_SETTLED");
+
+  const installAt = seam.indexOf("opts.installLifecycle()");
+  const markAt = seam.indexOf('opts.proofMark("SHUTDOWN_INSTALLED")');
+  const listenAt = seam.indexOf("opts.server.listen(");
+  if (listenAt < 0) v.push("SEAM_HAS_NO_LISTENER_CALL");
+  if (installAt < 0) v.push("SEAM_DOES_NOT_INSTALL_LIFECYCLE");
+  if (markAt < 0) v.push("SEAM_DOES_NOT_MARK_SHUTDOWN_INSTALLED");
+  if (installAt >= 0 && listenAt >= 0 && listenAt < installAt) {
+    v.push("LISTEN_BEFORE_LIFECYCLE_INSTALL");
+  }
+  if (markAt >= 0 && listenAt >= 0 && listenAt < markAt) {
+    v.push("LISTEN_BEFORE_SHUTDOWN_INSTALLED");
+  }
+  return v;
+}
+
 // ── Fake durable store ──────────────────────────────────────────────────────
 
 interface Issued {
@@ -601,14 +697,60 @@ describe("P07B restore path side-effect contract", () => {
     expect(restoreBlock.toLowerCase()).not.toContain("kite");
   });
 
-  it("T27 restoration is awaited BEFORE the HTTP listener opens", () => {
-    const entry = readFileSync(new URL("../../index.ts", import.meta.url), "utf8");
-    const restoreAt = entry.indexOf("loadLatestAcceptedGeneration");
-    const listenAt = entry.indexOf("app.listen(");
-    expect(restoreAt).toBeGreaterThan(-1);
-    expect(listenAt).toBeGreaterThan(-1);
-    expect(restoreAt).toBeLessThan(listenAt);
-    expect(entry).toMatch(/await loadLatestAcceptedGeneration\("STARTUP_L2_RESTORE"\)/);
+  it("T27 restoration settles and shutdown protection installs BEFORE the listener opens", () => {
+    const entry = stripCommentsKeepStrings(
+      readFileSync(new URL("../../index.ts", import.meta.url), "utf8"),
+    );
+    const seam = stripCommentsKeepStrings(
+      readFileSync(new URL("../lifecycle/startupListenerPhase.ts", import.meta.url), "utf8"),
+    );
+    expect(bootOrderingViolations(entry, seam)).toEqual([]);
+  });
+
+  /**
+   * NON-VACUITY. The guard above is a source scan, so it must be shown to FAIL
+   * when the ordering it protects is broken — otherwise a future refactor could
+   * rename the listener call and the check would pass by finding nothing.
+   */
+  it("T27b the boot-ordering guard rejects each defect it protects against", () => {
+    const entry = stripCommentsKeepStrings(
+      readFileSync(new URL("../../index.ts", import.meta.url), "utf8"),
+    );
+    const seam = stripCommentsKeepStrings(
+      readFileSync(new URL("../lifecycle/startupListenerPhase.ts", import.meta.url), "utf8"),
+    );
+
+    // A listener opened directly from the entry point, bypassing the seam that
+    // guarantees shutdown protection is installed first.
+    expect(bootOrderingViolations(`${entry}\napp.listen(port);\n`, seam)).toContain(
+      "ENTRY_OPENS_LISTENER_DIRECTLY",
+    );
+    expect(bootOrderingViolations(`${entry}\nserver.listen(port);\n`, seam)).toContain(
+      "ENTRY_OPENS_LISTENER_DIRECTLY",
+    );
+
+    // Restoration no longer awaited before the startup phase is handed control.
+    expect(
+      bootOrderingViolations(
+        entry.replace('await loadLatestAcceptedGeneration("STARTUP_L2_RESTORE")', "void 0"),
+        seam,
+      ),
+    ).toContain("RESTORATION_NOT_AWAITED");
+
+    // Listener opened before shutdown protection is installed.
+    // Move the marker from before the listen call into the listen callback, so
+    // it is only reached once the port is already open.
+    const reordered = seam
+      .replace('opts.proofMark("SHUTDOWN_INSTALLED");', "")
+      .replace('opts.proofMark("LISTENING");', 'opts.proofMark("SHUTDOWN_INSTALLED");');
+    expect(bootOrderingViolations(entry, reordered)).toContain("LISTEN_BEFORE_SHUTDOWN_INSTALLED");
+
+    // A listener call that exists only in a COMMENT must not satisfy the guard,
+    // and must not be mistaken for a real one either. index.ts genuinely
+    // mentions `server.listen()` in its ordering comments.
+    expect(bootOrderingViolations(entry, seam.replace("opts.server.listen(", "// opts.listen("))).toContain(
+      "SEAM_HAS_NO_LISTENER_CALL",
+    );
   });
 
   it("T28 repeating the restoration is deterministic and creates nothing", async () => {

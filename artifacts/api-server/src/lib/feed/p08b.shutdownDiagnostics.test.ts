@@ -7,7 +7,7 @@
  */
 
 import { describe, it, expect, beforeEach } from "vitest";
-import { readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createFeedManagerForTesting } from "./feedManager";
@@ -234,7 +234,22 @@ describe("P0.8B Gate F — the production instance", () => {
     expect(src).toContain('await import("kiteconnect")');
   });
 
-  it("F16: no feed module other than the adapter IMPORTS the provider SDK", () => {
+  /**
+   * The SDK is confined to explicitly named boundary modules.
+   *
+   * Phase 0.8D added a SECOND legitimate consumer: the Kite session-validation
+   * production composition, whose entire purpose is to bind `getProfile()` to
+   * the real SDK. It is the same kind of module as the feed client adapter — a
+   * named provider boundary — so it joins the set rather than defeating it.
+   *
+   * The set is asserted exactly, so a third module cannot quietly appear.
+   */
+  const SDK_BOUNDARY_MODULES = [
+    "kiteFeedClientAdapter.ts",
+    "kiteSessionValidationProductionComposition.ts",
+  ];
+
+  it("F16: no feed module outside the named SDK boundary IMPORTS the provider SDK", () => {
     // Deliberately matches import/require syntax rather than the bare word:
     // the port's doc comment names the SDK precisely to explain that it must
     // never depend on it, and failing that comment would punish the documentation.
@@ -242,11 +257,36 @@ describe("P0.8B Gate F — the production instance", () => {
     const offenders: string[] = [];
     for (const file of readdirSync(FEED_DIR)) {
       if (!file.endsWith(".ts") || file.endsWith(".test.ts")) continue;
-      if (file === "kiteFeedClientAdapter.ts") continue;
+      if (SDK_BOUNDARY_MODULES.includes(file)) continue;
       const src = readFileSync(path.join(FEED_DIR, file), "utf8");
       if (importsSdk.test(src)) offenders.push(file);
     }
     expect(offenders).toEqual([]);
+  });
+
+  it("F16b: every SDK boundary module exists and defers the import", () => {
+    // Without this, widening the allowlist above would be a way to smuggle in a
+    // module-scope `import ... from "kiteconnect"` that executes on load.
+    for (const file of SDK_BOUNDARY_MODULES) {
+      const full = path.join(FEED_DIR, file);
+      expect(existsSync(full), `${file} is allowlisted but does not exist`).toBe(true);
+      const src = readFileSync(full, "utf8");
+      expect(src, `${file} must not import the SDK at module scope`).not.toMatch(
+        /^\s*import\s+[^;]*from\s+["']kiteconnect["']/m,
+      );
+      expect(src, `${file} must use the deferred dynamic import`).toContain(
+        'await import("kiteconnect")',
+      );
+    }
+  });
+
+  it("F16c: the SDK boundary set is exactly the approved modules", () => {
+    const importsSdk = /(?:from\s*["']kiteconnect["'])|(?:import\s*\(\s*["']kiteconnect["']\s*\))|(?:require\s*\(\s*["']kiteconnect["']\s*\))/;
+    const actual = readdirSync(FEED_DIR)
+      .filter((f) => f.endsWith(".ts") && !f.endsWith(".test.ts"))
+      .filter((f) => importsSdk.test(readFileSync(path.join(FEED_DIR, f), "utf8")))
+      .sort();
+    expect(actual).toEqual([...SDK_BOUNDARY_MODULES].sort());
   });
 });
 

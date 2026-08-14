@@ -11,6 +11,32 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
+/**
+ * Key-aware credential scan for owner-facing diagnostic payloads.
+ *
+ * Matches whole identifiers rather than substrings. The distinction matters in
+ * both directions: `apiKeyOwnerId` (the id of the account that owns the key —
+ * safe, and deliberately surfaced) contains "apiKey" but is not a credential,
+ * while `api_key` does not contain "apiKey" and IS one.
+ *
+ * Returns the labels of every credential-shaped key found, so a caller can
+ * assert an exact empty result instead of a boolean.
+ */
+function credentialKeyViolations(source: string): string[] {
+  const patterns: ReadonlyArray<readonly [string, RegExp]> = [
+    ["apiKey", /\bapiKey\b/],
+    ["api_key", /\bapi_key\b/],
+    ["accessToken", /\baccessToken\b/],
+    ["access_token", /\baccess_token\b/],
+    ["apiSecret", /\bapiSecret\b/],
+    ["api_secret", /\bapi_secret\b/],
+    ["SESSION_SECRET", /\bSESSION_SECRET\b/],
+    ["process.env.KITE", /process\.env\.KITE/],
+    ["process.env[KITE", /process\.env\[\s*["'`]KITE/],
+  ];
+  return patterns.filter(([, re]) => re.test(source)).map(([label]) => label);
+}
+
 import {
   buildSubscriptionAdmissionManifest,
   type SubscriptionAdmissionManifest,
@@ -170,9 +196,36 @@ describe("P08A P5-P8 — locks, route safety, gate honesty, purity", () => {
     expect(section).not.toMatch(/admitted:\s*manifest\.admitted/);
     expect(section).not.toMatch(/identities:\s*s\.identities/);
     expect(section).not.toMatch(/tokens:\s*s\.tokens/);
-    for (const forbidden of ["process.env.KITE", "accessToken", "apiKey", "api_secret", "SESSION_SECRET"]) {
-      expect(section).not.toContain(forbidden);
-    }
+    // Key-aware, not substring-based. `apiKeyOwnerId` is the id of the account
+    // that OWNS the key — an owner-identity field, deliberately surfaced so the
+    // operator can see which Kite account the deployment is bound to. It shares
+    // a prefix with `apiKey` and nothing else. A blanket substring ban on
+    // "apiKey" would reject it while still permitting `api_key`, so the scan
+    // matches whole identifiers instead.
+    expect(section).toContain("apiKeyOwnerId: evidence.apiKeyOwnerId");
+    expect(credentialKeyViolations(section)).toEqual([]);
+  });
+
+  /**
+   * NON-VACUITY. The scan must still catch the leak it exists to prevent, and
+   * must not have been widened into uselessness by the `apiKeyOwnerId` carve-out.
+   */
+  it("P7b the credential scan rejects real credential keys and accepts only the owner-identity field", () => {
+    expect(credentialKeyViolations("apiKeyOwnerId: evidence.apiKeyOwnerId")).toEqual([]);
+
+    expect(credentialKeyViolations("apiKey: creds.apiKey")).toContain("apiKey");
+    expect(credentialKeyViolations("{ api_key: creds.apiKey }")).toContain("api_key");
+    expect(credentialKeyViolations("accessToken: session.accessToken")).toContain("accessToken");
+    expect(credentialKeyViolations("access_token: t")).toContain("access_token");
+    expect(credentialKeyViolations("apiSecret: creds.apiSecret")).toContain("apiSecret");
+    expect(credentialKeyViolations("api_secret: s")).toContain("api_secret");
+    expect(credentialKeyViolations("secret: process.env.SESSION_SECRET")).toContain("SESSION_SECRET");
+    expect(credentialKeyViolations("const k = process.env.KITE_API_KEY;")).toContain("process.env.KITE");
+    expect(credentialKeyViolations('const k = process.env["KITE_API_KEY"];')).toContain("process.env[KITE");
+
+    // The carve-out is exactly one identifier wide: a credential hiding behind
+    // a similar name is still caught.
+    expect(credentialKeyViolations("apiKeyOwner: creds.apiKey")).toContain("apiKey");
   });
 
   it("P8 the whole admission chain is pure, and the Kite session is NOT_EVALUATED by name", () => {
