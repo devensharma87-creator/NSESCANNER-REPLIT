@@ -64,6 +64,7 @@ function makePorts(
     coldLoadOk: boolean;
     coldLoadId: string | null;
     promoted: boolean;
+    integrity: { ok: boolean; faultCodes: string[]; reasons: string[] };
     onBuild?: () => Promise<void>;
   }> = {},
 ): { ports: RegistryRefreshPorts; spy: Spy } {
@@ -154,6 +155,13 @@ function makePorts(
           generation: ok ? generation : null,
           unexplainedRemainderByExchange: over.remainder ?? { NSE: 0, BSE: 0 },
         };
+      },
+    },
+    // Accepted-fake pre-commit gate: PASSES by default so existing 0.8D
+    // expectations are unchanged, and can be overridden per-test.
+    generationIntegrity: {
+      evaluate() {
+        return over.integrity ?? { ok: true, faultCodes: [], reasons: [] };
       },
     },
     persistence: {

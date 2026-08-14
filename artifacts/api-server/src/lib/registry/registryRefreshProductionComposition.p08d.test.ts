@@ -41,6 +41,7 @@ import { boundedFetchBytes } from "./boundedSourceRetrieval";
 import { buildRegistry } from "./instrumentRegistry";
 import { buildUniverseManifest } from "./universeManifest";
 import {
+  evaluateRegistryAuthorityNow,
   getActiveGeneration,
   loadLatestAcceptedGeneration,
   saveRegistryGeneration,
@@ -245,6 +246,13 @@ function makeFakeDeps(
     buildUniverseManifest: ((input: any) => {
       log.push("BUILD_MANIFEST");
       return { registryGenerationId: input.registryGenerationId, acceptanceStatus: "ACCEPTED" } as any;
+    }) as any,
+
+    evaluateRegistryAuthorityNow: ((manifest: any, _nowMs: number) => {
+      log.push("EVAL_AUTHORITY_NOW");
+      void manifest;
+      const ok = { state: "CURRENT_AUTHORITATIVE", reasons: [], validUntilMs: Number.MAX_SAFE_INTEGER };
+      return { calendar: ok, bse: ok, combined: ok };
     }) as any,
 
     saveRegistryGeneration: (async (gen: any) => {
@@ -468,6 +476,9 @@ describe("P08D registry refresh production composition", () => {
     expect(d.evaluateCalendarAuthorityNow).toBe(evaluateCalendarAuthorityNow);
     expect(d.toTradingCalendarVerdict).toBe(toTradingCalendarVerdict);
     expect(d.validateBhavcopySession).toBe(validateBhavcopySession);
+    // 0.8E: the pre-commit gate is only worth anything if it is the SAME
+    // function the cold-load boundary calls. A look-alike here would drift.
+    expect(d.evaluateRegistryAuthorityNow).toBe(evaluateRegistryAuthorityNow);
     expect(d.saveRegistryGeneration).toBe(saveRegistryGeneration);
     expect(d.loadLatestAcceptedGeneration).toBe(loadLatestAcceptedGeneration);
     expect(d.getActiveGeneration).toBe(getActiveGeneration);
@@ -512,6 +523,9 @@ describe("P08D registry refresh production composition", () => {
       "BUILD_REGISTRY",
       "BSE_AUTHORITY",
       "BUILD_MANIFEST",
+      // 0.8E: the cold-load authority boundary is re-applied here, one step
+      // BEFORE the write, so an unloadable generation is never stored.
+      "EVAL_AUTHORITY_NOW",
       "SAVE",
       "LOAD:PHASE_0_8D_REFRESH_COLD_LOAD_VERIFICATION",
       "GET_ACTIVE",
@@ -573,6 +587,53 @@ describe("P08D registry refresh production composition", () => {
     expect(log).not.toContain("SAVE");
     expect(log).not.toContain("BUILD_REGISTRY");
     expect(log).not.toContain("COVERAGE");
+  });
+
+  it("C6b-2 the PRODUCTION pre-commit adapter refuses, and does not save, when the cold-load evaluator throws", async () => {
+    // The generic-port test proves the orchestrator cannot reach persistence.
+    // This one proves the PRODUCTION adapter converts an exploding evaluator
+    // into a coded refusal rather than letting it escape as an exception —
+    // an evaluator that cannot answer must never be read as "no objection".
+    const log: string[] = [];
+    const deps = makeFakeDeps(log, {
+      evaluateRegistryAuthorityNow: (() => {
+        log.push("EVAL_AUTHORITY_NOW");
+        throw new TypeError("evaluator exploded");
+      }) as any,
+    });
+
+    const result = await authorizedService(deps).runRefreshNow();
+
+    expect(result.ok).toBe(false);
+    expect(result.stage).toBe("PRE_COMMIT_INTEGRITY");
+    expect(result.reasonCode).toBe(REGISTRY_REFRESH_REASON.PRE_COMMIT_INTEGRITY_INVALID);
+    expect(result.detailsSafeForOwnerDiagnostics.join("|")).toContain("INTEGRITY_EVALUATOR_THREW");
+    expect(log).toContain("EVAL_AUTHORITY_NOW");
+    expect(log).not.toContain("SAVE");
+    expect(log).not.toContain("COVERAGE");
+    expect(result.durablyCommitted).toBe(false);
+    expect(result.promotedToActiveAuthority).toBe(false);
+  });
+
+  it("C6b-3 the PRODUCTION pre-commit adapter refuses a generation the cold-load boundary would reject", async () => {
+    const log: string[] = [];
+    const stale = { state: "STALE", reasons: ["evidence post-dates its generation"], validUntilMs: 0 };
+    const deps = makeFakeDeps(log, {
+      evaluateRegistryAuthorityNow: (() => {
+        log.push("EVAL_AUTHORITY_NOW");
+        return { calendar: stale, bse: stale, combined: stale };
+      }) as any,
+    });
+
+    const result = await authorizedService(deps).runRefreshNow();
+
+    expect(result.ok).toBe(false);
+    expect(result.stage).toBe("PRE_COMMIT_INTEGRITY");
+    const details = result.detailsSafeForOwnerDiagnostics;
+    expect(details).toContain("INTEGRITY=CALENDAR_COMMITMENT_UNVERIFIABLE");
+    expect(details).toContain("INTEGRITY=BSE_REFERENCE_EVIDENCE_INVALID");
+    // Nothing was written, so nothing has to be pruned or undone.
+    expect(log).not.toContain("SAVE");
   });
 
   it("C6c a durable write failure never promotes authority", async () => {

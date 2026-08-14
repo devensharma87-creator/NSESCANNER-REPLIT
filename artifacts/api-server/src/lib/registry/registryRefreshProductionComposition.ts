@@ -49,6 +49,7 @@ import {
   type CalendarResolution,
   type FetchedOfficialSource,
   type GenerationBuildOutcome,
+  type GenerationIntegrityVerdict,
   type RegistryRefreshPorts,
   type RegistryRefreshService,
   type SourceValidationVerdict,
@@ -77,6 +78,7 @@ import {
   buildUniverseManifest,
 } from "./universeManifest";
 import {
+  evaluateRegistryAuthorityNow,
   getActiveGeneration,
   loadLatestAcceptedGeneration,
   saveRegistryGeneration,
@@ -291,6 +293,12 @@ export interface ProductionRegistryRefreshDeps {
   readonly toTradingCalendarVerdict: typeof toTradingCalendarVerdict;
   readonly validateBhavcopySession: typeof validateBhavcopySession;
   // durable store + promotion
+  /**
+   * The COLD-LOAD authority evaluator, injected so the pre-commit gate and the
+   * restoration path judge a generation with one function rather than two
+   * implementations that can drift apart.
+   */
+  readonly evaluateRegistryAuthorityNow: typeof evaluateRegistryAuthorityNow;
   readonly saveRegistryGeneration: typeof saveRegistryGeneration;
   readonly loadLatestAcceptedGeneration: typeof loadLatestAcceptedGeneration;
   readonly getActiveGeneration: typeof getActiveGeneration;
@@ -320,6 +328,7 @@ export const PRODUCTION_REGISTRY_REFRESH_DEPS: ProductionRegistryRefreshDeps = O
   evaluateCalendarAuthorityNow,
   toTradingCalendarVerdict,
   validateBhavcopySession,
+  evaluateRegistryAuthorityNow,
   saveRegistryGeneration,
   loadLatestAcceptedGeneration,
   getActiveGeneration,
@@ -770,6 +779,50 @@ export function buildProductionRegistryRefreshPorts(
             unexplainedRemainderByExchange: {},
           }),
         );
+      },
+    },
+
+    /**
+     * PHASE 0.8E — the pre-commit re-application of the cold-load boundary.
+     *
+     * Deliberately delegated to the SAME evaluator `restoreGeneration` uses.
+     * Re-deriving the judgement here would be fail-open: the copy would drift,
+     * and a generation could pass the write gate while boot still refuses it.
+     *
+     * The verdict's own reason strings are our policy module's own sentences
+     * (timestamps and IST dates), never source bytes, so a bounded number of
+     * them may cross into owner diagnostics.
+     */
+    generationIntegrity: {
+      evaluate({ generation, nowMs }): GenerationIntegrityVerdict {
+        try {
+          const { calendar, bse, combined } = deps.evaluateRegistryAuthorityNow(
+            generation.manifest,
+            nowMs,
+          );
+          const faultCodes: string[] = [];
+          // Mirrors the cold-load boundary refusal-for-refusal.
+          if (calendar.state === "STALE") faultCodes.push("CALENDAR_COMMITMENT_UNVERIFIABLE");
+          if (bse.state === "STALE") faultCodes.push("BSE_REFERENCE_EVIDENCE_INVALID");
+          // A generation that would load only as LAST_KNOWN must not be written
+          // as a fresh authority: it could never be promoted.
+          if (combined.state !== "CURRENT_AUTHORITATIVE") {
+            faultCodes.push(`AUTHORITY_STATE_${combined.state}`);
+          }
+          return {
+            ok: faultCodes.length === 0,
+            faultCodes,
+            reasons: [...calendar.reasons, ...bse.reasons],
+          };
+        } catch (err) {
+          // An evaluator that throws leaves the question unanswered, and an
+          // unanswered integrity question is a refusal, never a pass.
+          return {
+            ok: false,
+            faultCodes: [`INTEGRITY_EVALUATOR_THREW:${failureLabel(err)}`],
+            reasons: [],
+          };
+        }
       },
     },
 

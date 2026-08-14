@@ -162,6 +162,29 @@ export interface GenerationBuilderPort {
   }): Promise<GenerationBuildOutcome>;
 }
 
+export interface GenerationIntegrityVerdict {
+  readonly ok: boolean;
+  /** Stable codes, mirroring the cold-load boundary's own refusal codes. */
+  readonly faultCodes: readonly string[];
+  /** Bounded, coded-or-short explanatory strings. Never a payload or a body. */
+  readonly reasons: readonly string[];
+}
+
+export interface GenerationIntegrityPort {
+  /**
+   * PHASE 0.8E — re-apply the COLD-LOAD authority boundary to the generation
+   * BEFORE it is written.
+   *
+   * MUST call the same evaluator the restoration path calls. A separate
+   * re-implementation here would be fail-open: it would drift from the real
+   * boundary and pass generations that boot then rejects.
+   */
+  evaluate(input: {
+    readonly generation: RegistryGeneration;
+    readonly nowMs: number;
+  }): GenerationIntegrityVerdict;
+}
+
 export interface GenerationPersistencePort {
   /** MUST be the accepted transactional store. No other write path is legal. */
   save(generation: RegistryGeneration): Promise<RegistryPersistenceResult>;
@@ -206,6 +229,7 @@ export interface RegistryRefreshPorts {
   readonly calendar: ExchangeCalendarPort;
   readonly bseAuthority: BseAuthorityPort;
   readonly generationBuilder: GenerationBuilderPort;
+  readonly generationIntegrity: GenerationIntegrityPort;
   readonly persistence: GenerationPersistencePort;
   readonly coldLoadVerifier: ColdLoadVerifierPort;
   readonly authorityPromotion: AuthorityPromotionPort;
@@ -239,6 +263,7 @@ export type RegistryRefreshStage =
   | "GENERATION_BUILD"
   | "RECONCILIATION"
   | "AUTHORITY_EXPIRY"
+  | "PRE_COMMIT_INTEGRITY"
   | "PERSISTENCE"
   | "COLD_LOAD_VERIFICATION"
   | "AUTHORITY_PROMOTION"
@@ -256,6 +281,7 @@ export const REGISTRY_REFRESH_REASON = Object.freeze({
   BUILD_FAILED: "GENERATION_BUILD_FAILED",
   UNEXPLAINED_REMAINDER: "NON_ZERO_UNEXPLAINED_REMAINDER",
   AUTHORITY_EXPIRED_AT_COMMIT: "REFERENCE_AUTHORITY_EXPIRED_AT_COMMIT",
+  PRE_COMMIT_INTEGRITY_INVALID: "PRE_COMMIT_GENERATION_INTEGRITY_INVALID",
   PERSISTENCE_FAILED: "DURABLE_PERSISTENCE_FAILED",
   COLD_LOAD_FAILED: "COLD_LOAD_VERIFICATION_FAILED",
   PROMOTION_FAILED: "ACTIVE_AUTHORITY_PROMOTION_FAILED",
@@ -543,10 +569,37 @@ async function runOnce(
   }
 
   // ── STEP 8: BUILD + RECONCILE THE SCHEMA-5 GENERATION ──────────────────
+  /**
+   * PHASE 0.8E — THE GENERATION IS AS OF ITS LAST INPUT, NOT ITS FIRST MOMENT.
+   *
+   * `startedAtMs` is read before any source is fetched, so a generation stamped
+   * with it always PRE-DATES its own evidence. The BSE reference rule — evidence
+   * dated after the generation carrying it cannot have produced it — then holds
+   * against every honest run, and the generation is rejected at cold load after
+   * it has already been written.
+   *
+   * The stamp is therefore the later of the current clock and the last retrieval
+   * instant. `Math.max` rather than the clock alone so that a clock that steps
+   * backwards mid-run cannot re-create the same inversion.
+   */
+  const lastRetrievalMs = fetched.reduce(
+    (max, s) => (Number.isFinite(s.retrievedAtMs) && s.retrievedAtMs > max ? s.retrievedAtMs : max),
+    Number.NEGATIVE_INFINITY,
+  );
+  const buildNowMs = Math.max(ports.clock.nowMs(), lastRetrievalMs);
+  if (!Number.isFinite(buildNowMs)) {
+    return refuse(
+      "GENERATION_BUILD",
+      REGISTRY_REFRESH_REASON.BUILD_FAILED,
+      ["BUILD=GENERATION_TIMESTAMP_UNRESOLVABLE"],
+      fetched.length,
+    );
+  }
+
   const built = await ports.generationBuilder.buildAndReconcile({
     sources: fetched,
     latestCompletedSessionDate: calendar.latestCompletedSessionDate,
-    nowMs: startedAtMs,
+    nowMs: buildNowMs,
   });
   if (!built.ok || built.generation === null) {
     return refuse(
@@ -595,6 +648,32 @@ async function runOnce(
       "AUTHORITY_EXPIRY",
       REGISTRY_REFRESH_REASON.AUTHORITY_EXPIRED_AT_COMMIT,
       expiredDetails,
+      fetched.length,
+    );
+  }
+
+  // ── STEP 10b: RE-APPLY THE COLD-LOAD BOUNDARY BEFORE WRITING ───────────
+  //
+  // The cold-load verifier already re-reads and re-judges the generation — but
+  // it runs AFTER the insert, so a generation that fails it is refused only
+  // once it is durably stored, ACCEPTED and newest. Retention may by then have
+  // pruned an older row to make space for one that boot will never load.
+  //
+  // A gate that runs after the write cannot prevent the write. This calls the
+  // SAME evaluator the restoration path uses, one step earlier, so an
+  // inconsistent generation costs a refusal instead of a poisoned store.
+  const integrity = ports.generationIntegrity.evaluate({
+    generation: built.generation,
+    nowMs: commitNowMs,
+  });
+  if (!integrity.ok) {
+    return refuse(
+      "PRE_COMMIT_INTEGRITY",
+      REGISTRY_REFRESH_REASON.PRE_COMMIT_INTEGRITY_INVALID,
+      [
+        ...integrity.faultCodes.slice(0, 4).map((c) => `INTEGRITY=${c}`),
+        ...integrity.reasons.slice(0, 3).map((r) => r.slice(0, 120)),
+      ],
       fetched.length,
     );
   }

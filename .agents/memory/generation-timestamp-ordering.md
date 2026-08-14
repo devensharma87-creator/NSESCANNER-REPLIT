@@ -1,24 +1,42 @@
 ---
-name: Generation timestamp must not precede its own source evidence
-description: Why a run-start clock stamp poisons a committed registry generation, and what the ordering rule has to be.
+name: Generation timestamp ordering and the pre-commit boundary
+description: Why a generation must be stamped as of its last input, and why the cold-load authority boundary has to be re-applied before the write.
 ---
 
-A generation whose `generatedAt` is taken at run start will be **earlier** than
-the retrieval timestamps of the sources it is built from, because the sources
-are fetched after the run begins. Any validator asserting "source evidence
-cannot post-date the generation it belongs to" then rejects the generation at
-cold-load — after it has already been persisted and marked ACCEPTED.
+## Rule 1 — a generation is as of its LAST input, never its first moment
 
-**Why it matters:** the row survives in the store as the newest ACCEPTED
-generation while being permanently unloadable. Boot restoration rejects it, and
-whether the previous good generation is still reachable depends on retention
-having kept it. Retention pruning at commit time can therefore turn one bad
-commit into a lost authority chain.
+Stamping a built artefact with the instant the run *started* makes it pre-date
+the evidence it was built from. Any rule of the form "evidence dated after the
+artefact carrying it cannot have produced it" then fires against every honest
+run.
 
-**How to apply:**
-- Stamp `generatedAt` from the LAST source retrieval (or later), never from run
-  start — the generation is not "as of" a moment before its own inputs existed.
-- Validate the ordering **before** persistence, not only at cold-load
-  verification. A gate that runs after the write cannot prevent the write.
-- Treat "committed but cold-load-rejected" as a state needing explicit cleanup
-  authorization; do not silently delete rows to make the store look clean.
+Derive the stamp as `max(fresh clock reading at build time, latest source
+retrieval instant)`. The `max` matters: a clock that steps backwards mid-run
+would otherwise re-create the same inversion.
+
+**Why:** the first authorized live registry refresh wrote an ACCEPTED, newest
+generation whose committed BSE List-of-Scrips retrieval was ~6 s later than the
+generation's own `generatedAt`. Boot refused it permanently, and retention had
+already pruned an older row to make space for it.
+
+**How to apply:** wherever an orchestrator threads a single `nowMs` through a
+whole run, ask which steps *happen after* that reading. Anything stamped with
+it is claiming to exist before its own inputs.
+
+## Rule 2 — a gate that runs after the write cannot prevent the write
+
+Cold-load / re-read verification that runs *after* persistence detects a bad
+artefact but cannot stop it being stored, promoted to newest, or displacing a
+good row under retention. Re-apply the same boundary one step earlier, before
+the write, and refuse there.
+
+Re-apply it by **calling the same evaluator**, injected as a dependency — never
+by re-deriving the judgement at the new site. A second implementation drifts,
+and drift here is fail-open: it passes artefacts that boot then rejects.
+
+An evaluator that throws leaves the question unanswered, and an unanswered
+integrity question is a refusal, never a pass.
+
+**How to apply:** test it by asserting the *writer was never called*, not by
+asserting the reason code — a reason-code assertion passes just as happily when
+the gate runs last and throws its verdict away.
