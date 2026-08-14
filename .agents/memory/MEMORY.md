@@ -1,3 +1,4 @@
+- [Phase 0.8D controlled operations](p08d-controlled-operations.md) — separate lock per operation; revoke on rejection but retain on timeout; re-ask expiry at commit; guard scans that include themselves are vacuous.
 - [Registry boot restoration contract](registry-boot-restoration.md) — DDL in a loader makes it a writer; an outage ≠ nothing there; a refusal must revoke earlier state; settled ≠ empty; integrity before authority.
 - [Bounded-socket feed lifecycle](socket-ceiling-lifecycle.md) — an emptied slot is not a released socket; budget = held+unreleased; serialize lifecycle ops; a returning call is not a provider ack.
 - [Reserved VM singleton preparation](reserved-vm-singleton-preparation.md) — a config declaration is not a runtime attestation; an argv is not a process tree; bound every shutdown step, and a timeout is never success.

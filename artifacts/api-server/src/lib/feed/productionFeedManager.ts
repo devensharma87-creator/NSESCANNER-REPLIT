@@ -84,6 +84,13 @@ import {
   FNO_PAPER_V2_RUNTIME_AUTHORIZED,
   SWING_PAPER_V2_RUNTIME_AUTHORIZED,
 } from "../v2PaperLocks";
+// PHASE 0.8D — diagnostics only. These are pure state readers; importing them
+// does NOT import an execution path, because the services are constructed by
+// factories that this module never calls.
+import { AUTHORITATIVE_REGISTRY_REFRESH_AUTHORIZED } from "../registry/registryRefreshControl";
+import { getRegistryRefreshOperationDiagnostics } from "../registry/registryRefreshOrchestrator";
+import { KITE_SESSION_VALIDATION_AUTHORIZED } from "./kiteSessionValidationControl";
+import { getKiteValidationOperationDiagnostics } from "./kiteSessionValidationAdapter";
 
 let instance: FeedManager | null = null;
 
@@ -845,12 +852,36 @@ export function buildActivationReadinessReport(nowMs: number): Record<string, un
       rejectedTickCount: diag.rejectedTickCount,
       startAttempts: diag.startAttempts,
     },
+    /**
+     * PHASE 0.8D — CONTROLLED OPERATIONS, DESCRIBED NOT TRIGGERED.
+     *
+     * Both entries are pure reads of module-scope state. Neither getter calls
+     * a port, contacts a provider or touches the database, so rendering this
+     * report can never start an operation. That property is the reason the
+     * diagnostics live behind dedicated `get*OperationDiagnostics()` functions
+     * instead of the services themselves being reachable from here: an
+     * endpoint that holds a service reference is one careless line away from
+     * being an execution route.
+     *
+     * There is deliberately NO execution route for either operation in this
+     * phase. `authorized: false` below is the compile-time constant, not a
+     * runtime toggle, so this surface reports a fact an operator cannot change
+     * by sending a request.
+     */
+    controlledOperations: {
+      registryRefresh: getRegistryRefreshOperationDiagnostics(),
+      kiteSessionValidation: getKiteValidationOperationDiagnostics(),
+      executionRouteExposed: false,
+      schedulerRegistered: false,
+    },
     locks: {
       FEED_RUNTIME_ACTIVATION_AUTHORIZED,
       FULL_NSE_WAREHOUSE_POPULATION_AUTHORIZED,
       SCANNER_KITE_CANDLE_EVALUATION_AUTHORIZED,
       FNO_PAPER_V2_RUNTIME_AUTHORIZED,
       SWING_PAPER_V2_RUNTIME_AUTHORIZED,
+      AUTHORITATIVE_REGISTRY_REFRESH_AUTHORIZED,
+      KITE_SESSION_VALIDATION_AUTHORIZED,
     },
   };
 }
