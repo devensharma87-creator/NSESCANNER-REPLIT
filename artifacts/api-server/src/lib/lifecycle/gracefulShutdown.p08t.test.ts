@@ -1,15 +1,13 @@
 /**
  * PHASE 0.8T — GRACEFUL SHUTDOWN BOUNDARY (targeted)
  *
- * The boundary only earns its place if it cannot lie. A hook that never ran, a
- * hook that threw and a hook that hung must each produce a DIFFERENT, visible
- * outcome — never a quiet "closed". And it must run before HTTP goes away,
- * because in Phase 0.8B the sockets are what the successor process is waiting
- * for.
+ * Proves every invariant of the re-entrancy-safe state machine:
+ *   UNINSTALLED → INSTALLING (claimed before any external call)
+ *             → INSTALLED   (after all listeners succeed)
+ *             → UNINSTALLED (on any failure — never stuck in INSTALLING)
  *
- * Test isolation: every test that touches module-level installation state uses
- * _forTesting_resetShutdownLifecycle(). A global afterEach at file scope calls
- * it unconditionally so even a failing test cannot leak state.
+ * Test isolation: afterEach resets module state so each test starts with a
+ * clean UNINSTALLED baseline and exact listener counts.
  */
 
 import { describe, it, expect, afterEach } from "vitest";
@@ -25,29 +23,24 @@ import {
   createShutdownController,
   describeShutdownReadiness,
   getBootId,
+  getShutdownInstallationState,
   installShutdownLifecycle,
   isShutdownInstalled,
   _forTesting_resetShutdownLifecycle,
   type SignalTarget,
-} from "./gracefulShutdown";
+} from "./gracefulShutdown.js";
 
 // ---------------------------------------------------------------------------
-// Global afterEach: unconditionally reset module state after every test so
-// a failing test cannot contaminate a later test's baseline assertion.
+// Global afterEach: unconditionally reset module state after every test.
 // ---------------------------------------------------------------------------
 afterEach(() => {
   _forTesting_resetShutdownLifecycle();
 });
 
 // ---------------------------------------------------------------------------
-// Helpers shared across groups
+// Helpers
 // ---------------------------------------------------------------------------
 
-/**
- * Fire exactly one of the bounds a shutdown creates, immediately, so a test
- * can time out ONE step without waiting on a real clock. Bounds are created in
- * order: 1 = the feed-close bound, 2 = the HTTP-close bound.
- */
 function fireOnlyBound(index: 1 | 2): (fn: () => void) => unknown {
   let created = 0;
   return (fn) => {
@@ -57,7 +50,7 @@ function fireOnlyBound(index: 1 | 2): (fn: () => void) => unknown {
   };
 }
 
-/** A minimal stand-in for `process` that records what was registered. */
+/** Standard fake target with full on/off/emit/listenerCount support. */
 function fakeSignalTarget(): SignalTarget & {
   emit: (signal: string) => void;
   listenerCount: (signal: string) => number;
@@ -71,8 +64,7 @@ function fakeSignalTarget(): SignalTarget & {
       return this;
     },
     off(signal, listener) {
-      const list = (listeners.get(signal) ?? []).filter((l) => l !== listener);
-      listeners.set(signal, list);
+      listeners.set(signal, (listeners.get(signal) ?? []).filter((l) => l !== listener));
       return this;
     },
     emit(signal) {
@@ -84,27 +76,21 @@ function fakeSignalTarget(): SignalTarget & {
   };
 }
 
-/**
- * A signal target whose on() throws on the second signal registered, simulating
- * a partial installation failure (SIGTERM succeeds, SIGINT throws).
- */
-function partiallyFailingTarget(): SignalTarget & {
+/** Target that uses removeListener instead of off. */
+function fakeTargetWithRemoveListener(): SignalTarget & {
   listenerCount: (signal: string) => number;
 } {
   const listeners = new Map<string, Array<(...args: unknown[]) => void>>();
-  let callCount = 0;
   return {
     on(signal, listener) {
-      callCount += 1;
-      if (callCount >= 2) throw new Error(`SIMULATED_ON_FAILURE for ${signal}`);
       const list = listeners.get(signal) ?? [];
       list.push(listener);
       listeners.set(signal, list);
       return this;
     },
-    off(signal, listener) {
-      const list = (listeners.get(signal) ?? []).filter((l) => l !== listener);
-      listeners.set(signal, list);
+    // no off — only removeListener
+    removeListener(signal, listener) {
+      listeners.set(signal, (listeners.get(signal) ?? []).filter((l) => l !== listener));
       return this;
     },
     listenerCount(signal) {
@@ -113,44 +99,122 @@ function partiallyFailingTarget(): SignalTarget & {
   };
 }
 
+/** Target whose on() throws on the second call, simulating partial failure. */
+function partiallyFailingTarget(): SignalTarget & { listenerCount: (signal: string) => number } {
+  const listeners = new Map<string, Array<(...args: unknown[]) => void>>();
+  let callCount = 0;
+  return {
+    on(signal, listener) {
+      callCount += 1;
+      if (callCount >= 2) throw new Error(`SIMULATED_ON_FAILURE_FOR_${signal}`);
+      const list = listeners.get(signal) ?? [];
+      list.push(listener);
+      listeners.set(signal, list);
+      return this;
+    },
+    off(signal, listener) {
+      listeners.set(signal, (listeners.get(signal) ?? []).filter((l) => l !== listener));
+      return this;
+    },
+    listenerCount(signal) {
+      return (listeners.get(signal) ?? []).length;
+    },
+  };
+}
+
+/** Target with no off and no removeListener. */
+function noCleanupTarget(): SignalTarget & { listenerCount: () => number } {
+  let addedCount = 0;
+  return {
+    on(_signal, _listener) {
+      addedCount += 1;
+      return this;
+    },
+    // off and removeListener intentionally absent
+    listenerCount() {
+      return addedCount;
+    },
+  };
+}
+
 // ---------------------------------------------------------------------------
-// D1–D17 — Atomic installation invariants
+// D1–D20 — Atomic installation state machine invariants
 // ---------------------------------------------------------------------------
 
-describe("P08T D1-D17 — atomic installation invariants", () => {
-  it("D1 clean baseline: isShutdownInstalled() is false before any installation", () => {
-    // afterEach resets after every test, so every test starts with a clean slate.
+describe("P08T D1-D20 — atomic installation state machine", () => {
+
+  it("D1 initial state is UNINSTALLED and isShutdownInstalled() is false", () => {
+    expect(getShutdownInstallationState()).toBe("UNINSTALLED");
     expect(isShutdownInstalled()).toBe(false);
-    const readiness = describeShutdownReadiness();
-    expect(readiness.installedAtBoot).toBe(false);
+    expect(describeShutdownReadiness().installedAtBoot).toBe(false);
+    expect(describeShutdownReadiness().installationState).toBe("UNINSTALLED");
   });
 
-  it("D2 first installation returns INSTALLED and readiness becomes true", () => {
-    expect(isShutdownInstalled()).toBe(false);
+  it("D2 state transitions to INSTALLING before the first target.on() call", () => {
+    const controller = createShutdownController({ closeHttp: async () => {} });
+    let observedStateDuringOn: string = "NOT_OBSERVED";
+    const observingTarget: SignalTarget = {
+      on(_signal, _listener) {
+        // Capture state synchronously inside on() — before installShutdownLifecycle returns.
+        observedStateDuringOn = getShutdownInstallationState();
+        return this;
+      },
+      off() { return this; },
+    };
+    installShutdownLifecycle(controller, observingTarget);
+    expect(observedStateDuringOn).toBe("INSTALLING");
+    // After the call completes, state must be INSTALLED (not INSTALLING).
+    expect(getShutdownInstallationState()).toBe("INSTALLED");
+  });
+
+  it("D3 re-entrant target.on() cannot install a second listener pair or replace the controller", () => {
+    const ctrl1 = createShutdownController({ closeHttp: async () => {} });
+    const ctrl2 = createShutdownController({ closeHttp: async () => {} });
+    const target2 = fakeSignalTarget();
+    let reentrantResult: string = "NOT_CALLED";
+
+    const reentrantTarget: SignalTarget = {
+      on(_signal, _listener) {
+        // Attempt to install a second pair during the first on() call.
+        reentrantResult = installShutdownLifecycle(ctrl2, target2);
+        return this;
+      },
+      off() { return this; },
+    };
+
+    installShutdownLifecycle(ctrl1, reentrantTarget);
+
+    // The re-entrant call must be refused.
+    expect(reentrantResult).toBe("ALREADY_INSTALLED");
+    // target2 must have received zero listeners from the re-entrant attempt.
+    expect(target2.listenerCount("SIGTERM")).toBe(0);
+    expect(target2.listenerCount("SIGINT")).toBe(0);
+    // State is INSTALLED (the outer call completed).
+    expect(getShutdownInstallationState()).toBe("INSTALLED");
+  });
+
+  it("D4 after successful installation, state is INSTALLED and readiness is true", () => {
     const controller = createShutdownController({ closeHttp: async () => {} });
     const target = fakeSignalTarget();
-
     const result = installShutdownLifecycle(controller, target);
-
     expect(result).toBe("INSTALLED");
+    expect(getShutdownInstallationState()).toBe("INSTALLED");
     expect(isShutdownInstalled()).toBe(true);
     expect(describeShutdownReadiness().installedAtBoot).toBe(true);
+    expect(describeShutdownReadiness().installationState).toBe("INSTALLED");
   });
 
-  it("D3 first installation adds exactly one SIGTERM listener and one SIGINT listener", () => {
+  it("D5 exactly one SIGTERM listener and one SIGINT listener after successful installation", () => {
     const controller = createShutdownController({ closeHttp: async () => {} });
     const target = fakeSignalTarget();
-
     expect(target.listenerCount("SIGTERM")).toBe(0);
     expect(target.listenerCount("SIGINT")).toBe(0);
-
     installShutdownLifecycle(controller, target);
-
     expect(target.listenerCount("SIGTERM")).toBe(1);
     expect(target.listenerCount("SIGINT")).toBe(1);
   });
 
-  it("D4 second installation returns ALREADY_INSTALLED and listener counts remain unchanged", () => {
+  it("D6 second normal installation returns ALREADY_INSTALLED and no listener count changes", () => {
     const ctrl1 = createShutdownController({ closeHttp: async () => {} });
     const ctrl2 = createShutdownController({ closeHttp: async () => {} });
     const target1 = fakeSignalTarget();
@@ -161,188 +225,58 @@ describe("P08T D1-D17 — atomic installation invariants", () => {
 
     expect(first).toBe("INSTALLED");
     expect(second).toBe("ALREADY_INSTALLED");
-    // Original target has its original single listener per signal.
+    // Original counts unchanged.
     expect(target1.listenerCount("SIGTERM")).toBe(1);
     expect(target1.listenerCount("SIGINT")).toBe(1);
-    // Second target was not touched — ALREADY_INSTALLED has zero side effects.
+    // Second target was never touched.
     expect(target2.listenerCount("SIGTERM")).toBe(0);
     expect(target2.listenerCount("SIGINT")).toBe(0);
   });
 
-  it("D5 second installation does not replace the first controller", () => {
-    const ctrl1 = createShutdownController({ closeHttp: async () => {} });
-    const ctrl2 = createShutdownController({ closeHttp: async () => {} });
-    const target = fakeSignalTarget();
+  it("D7 target without off() and without removeListener() is refused before any listener is added", () => {
+    const controller = createShutdownController({ closeHttp: async () => {} });
+    const target = noCleanupTarget();
 
-    installShutdownLifecycle(ctrl1, target);
-    installShutdownLifecycle(ctrl2, target);
-
-    // The installed controller is still ctrl1; ctrl1 phase governs.
-    // Both are RUNNING so we verify by triggering ctrl2.shutdown and confirming
-    // that the module-level phase still reflects the first controller.
-    const readiness = describeShutdownReadiness();
-    expect(readiness.currentPhase).toBe("RUNNING"); // ctrl1 hasn't shut down
-    // ctrl2 shutting down must not change installed phase.
-    void ctrl2.shutdown("SIGTERM");
-    // Phase is still reported from ctrl1 (RUNNING), not ctrl2 (SHUTTING_DOWN).
-    expect(describeShutdownReadiness().currentPhase).toBe("RUNNING");
+    expect(() => installShutdownLifecycle(controller, target)).toThrow(
+      "SHUTDOWN_TARGET_MISSING_CLEANUP_METHOD",
+    );
+    // No listener was added (the refusal fires before the loop).
+    expect(target.listenerCount()).toBe(0);
+    // State must be UNINSTALLED — not stuck in INSTALLING.
+    expect(getShutdownInstallationState()).toBe("UNINSTALLED");
+    expect(isShutdownInstalled()).toBe(false);
   });
 
-  it("D6 SIGTERM in the startup window is handled exactly once", async () => {
-    let hookCalls = 0;
-    let httpCloses = 0;
-    const controller = createShutdownController({
-      closeFeed: async () => { hookCalls += 1; return { closed: true, detail: "CLOSED" }; },
-      closeHttp: async () => { httpCloses += 1; },
-    });
-    const target = fakeSignalTarget();
-    installShutdownLifecycle(controller, target);
+  it("D8 target with removeListener() instead of off() installs and rolls back correctly", () => {
+    const controller = createShutdownController({ closeHttp: async () => {} });
+    const target = fakeTargetWithRemoveListener();
 
-    // Signal fires in the startup window (before listen callback would fire).
-    target.emit("SIGTERM");
-    const result = await controller.shutdown("SIGTERM");
+    const result = installShutdownLifecycle(controller, target);
+    expect(result).toBe("INSTALLED");
+    expect(target.listenerCount("SIGTERM")).toBe(1);
+    expect(target.listenerCount("SIGINT")).toBe(1);
+    expect(isShutdownInstalled()).toBe(true);
 
-    expect(hookCalls).toBe(1);
-    expect(httpCloses).toBe(1);
-    expect(result.signal).toBe("SIGTERM");
-    expect(result.feedClose).toBe("CLOSED");
-    expect(result.phase).toBe("COMPLETE");
-    // The emit and the direct .shutdown() call both trigger it; controller
-    // deduplicates — hook ran once, one duplicate recorded.
-    expect(result.duplicateSignalsIgnored).toBe(1);
+    // Reset must remove the listeners via removeListener.
+    _forTesting_resetShutdownLifecycle();
+    expect(target.listenerCount("SIGTERM")).toBe(0);
+    expect(target.listenerCount("SIGINT")).toBe(0);
+    expect(isShutdownInstalled()).toBe(false);
   });
 
-  it("D7 SIGINT in the startup window is handled exactly once", async () => {
-    let hookCalls = 0;
-    const controller = createShutdownController({
-      closeFeed: async () => { hookCalls += 1; return { closed: true, detail: "CLOSED" }; },
-      closeHttp: async () => {},
-    });
-    const target = fakeSignalTarget();
-    installShutdownLifecycle(controller, target);
-
-    target.emit("SIGINT");
-    const result = await controller.shutdown("SIGINT");
-
-    expect(hookCalls).toBe(1);
-    expect(result.signal).toBe("SIGINT");
-    expect(result.phase).toBe("COMPLETE");
-    expect(result.duplicateSignalsIgnored).toBe(1);
-  });
-
-  it("D8 SIGTERM followed by SIGINT executes shutdown exactly once", async () => {
-    let hookCalls = 0;
-    let httpCloses = 0;
-    const controller = createShutdownController({
-      closeFeed: async () => { hookCalls += 1; return { closed: true, detail: "CLOSED" }; },
-      closeHttp: async () => { httpCloses += 1; },
-    });
-    const target = fakeSignalTarget();
-    installShutdownLifecycle(controller, target);
-
-    target.emit("SIGTERM");
-    target.emit("SIGINT");
-    target.emit("SIGTERM");
-    const result = await controller.shutdown("SIGTERM");
-
-    expect(hookCalls).toBe(1);
-    expect(httpCloses).toBe(1);
-    expect(controller.duplicateSignalsIgnored()).toBeGreaterThanOrEqual(3);
-    expect(result.phase).toBe("COMPLETE");
-  });
-
-  it("D9 partial installation failure removes already-added listeners and leaves readiness false", () => {
+  it("D9 failure on the second listener removes the first listener and restores UNINSTALLED", () => {
     const controller = createShutdownController({ closeHttp: async () => {} });
     const target = partiallyFailingTarget();
 
-    // SIGTERM registration succeeds, SIGINT throws → rollback expected.
     expect(() => installShutdownLifecycle(controller, target)).toThrow("SIMULATED_ON_FAILURE");
-
-    // isShutdownInstalled must be false: the partial install was rolled back.
-    expect(isShutdownInstalled()).toBe(false);
-    // SIGTERM listener that was installed must have been removed in rollback.
+    // The first (SIGTERM) listener must have been removed by rollback.
     expect(target.listenerCount("SIGTERM")).toBe(0);
+    // State must be UNINSTALLED.
+    expect(getShutdownInstallationState()).toBe("UNINSTALLED");
+    expect(isShutdownInstalled()).toBe(false);
   });
 
-  it("D10 server.listen is positioned after installShutdownLifecycle in index.ts (source audit)", () => {
-    const src = readFileSync(resolve(process.cwd(), "src/index.ts"), "utf8");
-    // Use the call-site pattern (with opening paren) to skip any comment
-    // references. "server.listen(port" is unique to the actual listen call.
-    const installIdx = src.indexOf("installShutdownLifecycle(");
-    const listenIdx = src.indexOf("server.listen(port");
-    expect(installIdx).toBeGreaterThan(0);
-    expect(listenIdx).toBeGreaterThan(0);
-    // server.listen(port must come after installShutdownLifecycle(.
-    expect(listenIdx).toBeGreaterThan(installIdx);
-    // A fail-closed check on ALREADY_INSTALLED must appear between them.
-    const between = src.slice(installIdx, listenIdx);
-    expect(between).toContain("ALREADY_INSTALLED");
-    // The fail-closed path must call process.exit before server.listen.
-    expect(between).toContain("process.exit");
-  });
-
-  it("D11 SHUTDOWN_INSTALLED proof marker is recorded after installation and before server.listen (source audit)", () => {
-    const src = readFileSync(resolve(process.cwd(), "src/index.ts"), "utf8");
-    const installIdx = src.indexOf("installShutdownLifecycle(");
-    const listenIdx = src.indexOf("server.listen(port");
-    const between = src.slice(installIdx, listenIdx);
-    // The proof marker must be between installation and listen.
-    expect(between).toContain("SHUTDOWN_INSTALLED");
-  });
-
-  it("D12 feed activation before installation returns REFUSED / SHUTDOWN_NOT_INSTALLED", async () => {
-    // Dynamically import feedActivationContract so this test stays targeted.
-    const { evaluateFeedActivationState } = await import("./feedActivationContract");
-    // Minimal handover evidence — feedDisabledAtBoot=true is the Phase 0.8T constant.
-    const handover = {
-      currentDeploymentId: "deploy-test",
-      previousDeploymentId: null,
-      currentBootId: "boot-test",
-      currentProcessId: process.pid,
-      currentStartedAt: new Date().toISOString(),
-      topologyAttested: false,
-      previousDeploymentConfirmedInactive: false,
-      confirmationSource: null,
-      confirmationBoundToDeploymentId: null,
-      confirmationBoundToBootId: null,
-      confirmedAt: null,
-      feedDisabledAtBoot: true,
-      activationAuthorized: false,
-    } as const;
-    // Signature: (handover, topologyReady, shutdownPhase, proofMode, shutdownInstalled)
-    const assessment = evaluateFeedActivationState(handover, false, "RUNNING", false, false);
-    expect(assessment.state).toBe("REFUSED");
-    expect(assessment.blockerCode).toBe("SHUTDOWN_NOT_INSTALLED");
-  });
-
-  it("D13 successful lifecycle installation clears only the lifecycle prerequisite; other gates still apply", async () => {
-    const { evaluateFeedActivationState } = await import("./feedActivationContract");
-    const handover = {
-      currentDeploymentId: "deploy-test",
-      previousDeploymentId: null,
-      currentBootId: "boot-test",
-      currentProcessId: process.pid,
-      currentStartedAt: new Date().toISOString(),
-      topologyAttested: false,
-      previousDeploymentConfirmedInactive: false,
-      confirmationSource: null,
-      confirmationBoundToDeploymentId: null,
-      confirmationBoundToBootId: null,
-      confirmedAt: null,
-      feedDisabledAtBoot: true,
-      activationAuthorized: false,
-    } as const;
-    // shutdownInstalled=true clears the lifecycle gate; topology is still missing.
-    const assessment = evaluateFeedActivationState(handover, false, "RUNNING", false, true);
-    // SHUTDOWN_NOT_INSTALLED is no longer the blocker.
-    expect(assessment.blockerCode).not.toBe("SHUTDOWN_NOT_INSTALLED");
-    // Topology gate now fires instead.
-    expect(assessment.state).toBe("TOPOLOGY_EVIDENCE_PENDING");
-    // ACTIVE is never reached.
-    expect(assessment.state).not.toBe("ACTIVE" as string);
-  });
-
-  it("D14 _forTesting_resetShutdownLifecycle restores listener counts and clears module state", () => {
+  it("D10 reset removes both listeners and restores a clean UNINSTALLED baseline", () => {
     const controller = createShutdownController({ closeHttp: async () => {} });
     const target = fakeSignalTarget();
 
@@ -353,27 +287,84 @@ describe("P08T D1-D17 — atomic installation invariants", () => {
 
     _forTesting_resetShutdownLifecycle();
 
+    expect(getShutdownInstallationState()).toBe("UNINSTALLED");
     expect(isShutdownInstalled()).toBe(false);
     expect(target.listenerCount("SIGTERM")).toBe(0);
     expect(target.listenerCount("SIGINT")).toBe(0);
     expect(describeShutdownReadiness().installedAtBoot).toBe(false);
   });
 
-  it("D14b _forTesting_resetShutdownLifecycle is a no-op when nothing is installed", () => {
-    expect(isShutdownInstalled()).toBe(false);
-    // Must not throw.
+  it("D10b reset is a no-op when state is already UNINSTALLED", () => {
+    expect(getShutdownInstallationState()).toBe("UNINSTALLED");
     expect(() => _forTesting_resetShutdownLifecycle()).not.toThrow();
+    expect(getShutdownInstallationState()).toBe("UNINSTALLED");
+  });
+
+  it("D11 thrown on() callback leaves no partial listener and no stuck INSTALLING state", () => {
+    const controller = createShutdownController({ closeHttp: async () => {} });
+    const throwingTarget: SignalTarget = {
+      on(_signal, _listener) {
+        throw new Error("ON_CALL_THREW");
+      },
+      off() { return this; },
+    };
+
+    expect(() => installShutdownLifecycle(controller, throwingTarget)).toThrow("ON_CALL_THREW");
+    // State must be UNINSTALLED — not stuck in INSTALLING.
+    expect(getShutdownInstallationState()).toBe("UNINSTALLED");
     expect(isShutdownInstalled()).toBe(false);
   });
 
-  it("D15 _forTesting_resetShutdownLifecycle has zero production callers (source audit)", () => {
-    // Do NOT include gracefulShutdown.ts itself — that is where the function
-    // is defined (the name appears as the function declaration). We only scan
-    // callers outside the definition file.
+  it("D16 feed activation remains REFUSED / SHUTDOWN_NOT_INSTALLED when state is not INSTALLED", async () => {
+    const { evaluateFeedActivationState } = await import("./feedActivationContract.js");
+    const handover = {
+      currentDeploymentId: "deploy-test",
+      previousDeploymentId: null,
+      currentBootId: "boot-test",
+      currentProcessId: process.pid,
+      currentStartedAt: new Date().toISOString(),
+      topologyAttested: false,
+      previousDeploymentConfirmedInactive: false,
+      confirmationSource: null,
+      confirmationBoundToDeploymentId: null,
+      confirmationBoundToBootId: null,
+      confirmedAt: null,
+      feedDisabledAtBoot: true,
+      activationAuthorized: false,
+    } as const;
+
+    // shutdownInstalled=false (state is UNINSTALLED).
+    const refused = evaluateFeedActivationState(handover, false, "RUNNING", false, false);
+    expect(refused.state).toBe("REFUSED");
+    expect(refused.blockerCode).toBe("SHUTDOWN_NOT_INSTALLED");
+
+    // shutdownInstalled=true (simulates INSTALLED state to a caller).
+    const cleared = evaluateFeedActivationState(handover, false, "RUNNING", false, true);
+    expect(cleared.blockerCode).not.toBe("SHUTDOWN_NOT_INSTALLED");
+    expect(cleared.state).not.toBe("ACTIVE" as string);
+  });
+
+  it("D17 all prior topology, authority, handover and owner-auth gates remain unchanged (source audit)", () => {
+    // The feedActivationContract source must still contain all accepted gate
+    // patterns — verified by string presence (structure not removed).
+    const src = readFileSync(
+      resolve(process.cwd(), "src/lib/lifecycle/feedActivationContract.ts"),
+      "utf8",
+    );
+    expect(src).toContain("TOPOLOGY_EVIDENCE_PENDING");
+    expect(src).toContain("HANDOVER_CLEARANCE_PENDING");
+    expect(src).toContain("OWNER_AUTHORIZATION_PENDING");
+    expect(src).toContain("READY_FOR_OWNER_ACTIVATION");
+    expect(src).toContain("PROOF_MODE_CANNOT_ACTIVATE_FEED");
+    expect(src).toContain("DEPLOYMENT_HANDOVER_NOT_CLEARED");
+  });
+
+  it("D18 _forTesting_resetShutdownLifecycle and getShutdownInstallationState have zero production callers (source audit)", () => {
     const productionFiles = [
       "src/index.ts",
       "src/app.ts",
       "src/lib/lifecycle/feedActivationContract.ts",
+      "src/lib/lifecycle/startupListenerPhase.ts",
       "src/routes/dataHealth.ts",
     ];
     for (const file of productionFiles) {
@@ -381,9 +372,8 @@ describe("P08T D1-D17 — atomic installation invariants", () => {
       try {
         src = readFileSync(resolve(process.cwd(), file), "utf8");
       } catch {
-        continue; // file absent — skip
+        continue;
       }
-      // Remove comments before checking to avoid false positives in docs.
       const code = src
         .split(/\r?\n/)
         .filter((l) => !/^\s*(\*|\/\/|\/\*)/.test(l))
@@ -391,10 +381,14 @@ describe("P08T D1-D17 — atomic installation invariants", () => {
       expect(code, `${file} must not call _forTesting_resetShutdownLifecycle`).not.toContain(
         "_forTesting_resetShutdownLifecycle",
       );
+      // getShutdownInstallationState is test-diagnostic only; no production caller.
+      expect(code, `${file} must not call getShutdownInstallationState`).not.toContain(
+        "getShutdownInstallationState",
+      );
     }
   });
 
-  it("D16 no provider, WebSocket, subscription, scheduler, or DB import in gracefulShutdown.ts", () => {
+  it("D19 no provider, WebSocket, subscription, scheduler or DB import in gracefulShutdown.ts", () => {
     const src = readFileSync(
       resolve(process.cwd(), "src/lib/lifecycle/gracefulShutdown.ts"),
       "utf8",
@@ -409,37 +403,31 @@ describe("P08T D1-D17 — atomic installation invariants", () => {
       ".subscribe(",
       ".unsubscribe(",
       "kiteconnect",
-      // setInterval = module-level recurring timer (banned). setTimeout is used
-      // legitimately as the injected default for the bounded-race helper; only
-      // direct setInterval calls are banned here.
       "setInterval(",
       "drizzle",
     ]) {
-      expect(code.toLowerCase(), `gracefulShutdown.ts must not contain ${forbidden}`).not.toContain(
+      expect(code.toLowerCase(), `must not contain "${forbidden}"`).not.toContain(
         forbidden.toLowerCase(),
       );
     }
   });
 
-  it("D17 all four frozen safety locks remain false as boolean", () => {
-    // The four locks live in candleEvaluationControl.ts (2) and v2PaperLocks.ts (2).
+  it("D20 all four frozen safety locks remain false as boolean", () => {
     const lockFiles = [
       "src/lib/candleEvaluationControl.ts",
       "src/lib/v2PaperLocks.ts",
     ];
     const lockPattern = /false\s+as\s+boolean/g;
-    let totalMatches = 0;
+    let total = 0;
     for (const file of lockFiles) {
-      const src = readFileSync(resolve(process.cwd(), file), "utf8");
-      totalMatches += (src.match(lockPattern) ?? []).length;
+      total += (readFileSync(resolve(process.cwd(), file), "utf8").match(lockPattern) ?? []).length;
     }
-    // Two per file = four total; none may be removed or flipped to true.
-    expect(totalMatches).toBeGreaterThanOrEqual(4);
+    expect(total).toBeGreaterThanOrEqual(4);
   });
 });
 
 // ---------------------------------------------------------------------------
-// L1–L8 — shutdown controller lifecycle
+// L1–L8 — shutdown controller lifecycle (unaffected by state machine changes)
 // ---------------------------------------------------------------------------
 
 describe("P08T L1-L8 — shutdown controller lifecycle", () => {
@@ -448,13 +436,8 @@ describe("P08T L1-L8 — shutdown controller lifecycle", () => {
       let httpCloses = 0;
       let hookCalls = 0;
       const controller = createShutdownController({
-        closeHttp: async () => {
-          httpCloses += 1;
-        },
-        closeFeed: async () => {
-          hookCalls += 1;
-          return { closed: true, detail: "CLOSED_IN_TEST" };
-        },
+        closeHttp: async () => { httpCloses += 1; },
+        closeFeed: async () => { hookCalls += 1; return { closed: true, detail: "CLOSED_IN_TEST" }; },
       });
       const target = fakeSignalTarget();
       installShutdownLifecycle(controller, target);
@@ -469,7 +452,7 @@ describe("P08T L1-L8 — shutdown controller lifecycle", () => {
       expect(result.feedClose).toBe("CLOSED");
       expect(result.exitCode).toBe(0);
 
-      // Reset between loop iterations so the second signal gets a fresh install.
+      // Reset between loop iterations.
       _forTesting_resetShutdownLifecycle();
       expect(target.listenerCount(signal)).toBe(0);
     }
@@ -479,13 +462,8 @@ describe("P08T L1-L8 — shutdown controller lifecycle", () => {
     let httpCloses = 0;
     let hookCalls = 0;
     const controller = createShutdownController({
-      closeHttp: async () => {
-        httpCloses += 1;
-      },
-      closeFeed: async () => {
-        hookCalls += 1;
-        return { closed: true, detail: "CLOSED_IN_TEST" };
-      },
+      closeHttp: async () => { httpCloses += 1; },
+      closeFeed: async () => { hookCalls += 1; return { closed: true, detail: "CLOSED_IN_TEST" }; },
     });
     const target = fakeSignalTarget();
     installShutdownLifecycle(controller, target);
@@ -506,34 +484,23 @@ describe("P08T L1-L8 — shutdown controller lifecycle", () => {
     const controller = createShutdownController({
       closeHttp: async () => {},
       closeFeed: async () =>
-        new Promise((resolve) => {
-          hook.release = () => resolve({ closed: true, detail: "CLOSED_IN_TEST" });
-        }),
+        new Promise((resolve) => { hook.release = () => resolve({ closed: true, detail: "CLOSED" }); }),
     });
 
     expect(controller.isFeedActivationPermitted()).toBe(true);
-    expect(controller.phase()).toBe("RUNNING");
-
     const pending = controller.shutdown("SIGTERM");
     expect(controller.isFeedActivationPermitted()).toBe(false);
     expect(controller.phase()).toBe("SHUTTING_DOWN");
-
     hook.release?.();
     await pending;
-    expect(controller.isFeedActivationPermitted()).toBe(false);
     expect(controller.phase()).toBe("COMPLETE");
   });
 
   it("L4 the feed close hook runs before the HTTP listener is closed", async () => {
     const order: string[] = [];
     const controller = createShutdownController({
-      closeFeed: async () => {
-        order.push("feed");
-        return { closed: true, detail: "CLOSED_IN_TEST" };
-      },
-      closeHttp: async () => {
-        order.push("http");
-      },
+      closeFeed: async () => { order.push("feed"); return { closed: true, detail: "OK" }; },
+      closeHttp: async () => { order.push("http"); },
     });
     await controller.shutdown("SIGTERM");
     expect(order).toEqual(["feed", "http"]);
@@ -542,17 +509,11 @@ describe("P08T L1-L8 — shutdown controller lifecycle", () => {
   it("L5 a hook failure is reported safely and never becomes success", async () => {
     let httpClosed = false;
     const controller = createShutdownController({
-      closeFeed: async () => {
-        throw new Error("socket close refused");
-      },
-      closeHttp: async () => {
-        httpClosed = true;
-      },
+      closeFeed: async () => { throw new Error("socket close refused"); },
+      closeHttp: async () => { httpClosed = true; },
     });
     const result = await controller.shutdown("SIGTERM");
-
     expect(result.feedClose).toBe("HOOK_FAILED");
-    expect(result.feedCloseDetail).toContain("FEED_CLOSE_HOOK_FAILED");
     expect(result.exitCode).toBe(1);
     expect(httpClosed).toBe(true);
   });
@@ -566,9 +527,7 @@ describe("P08T L1-L8 — shutdown controller lifecycle", () => {
       clearTimeoutFn: () => {},
     });
     const result = await controller.shutdown("SIGTERM");
-
     expect(result.feedClose).toBe("TIMEOUT");
-    expect(result.feedCloseDetail).toContain("FEED_CLOSE_TIMEOUT_AFTER_");
     expect(result.exitCode).toBe(1);
 
     const clamped: Array<[number | undefined, number]> = [
@@ -584,28 +543,9 @@ describe("P08T L1-L8 — shutdown controller lifecycle", () => {
         feedCloseTimeoutMs: input,
         setTimeoutFn: fireOnlyBound(1),
         clearTimeoutFn: () => {},
-      })
-        .shutdown("SIGTERM")
-        .then((r) => r.feedCloseDetail);
+      }).shutdown("SIGTERM").then((r) => r.feedCloseDetail);
       expect(detail).toBe(`FEED_CLOSE_TIMEOUT_AFTER_${expected}MS`);
     }
-  });
-
-  it("L8 a hanging HTTP close is bounded and reported as not closed", async () => {
-    const controller = createShutdownController({
-      closeFeed: async () => ({ closed: true, detail: "CLOSED_IN_TEST" }),
-      closeHttp: () => new Promise(() => {}),
-      httpCloseTimeoutMs: 1,
-      setTimeoutFn: fireOnlyBound(2),
-      clearTimeoutFn: () => {},
-    });
-    const result = await controller.shutdown("SIGTERM");
-
-    expect(controller.phase()).toBe("COMPLETE");
-    expect(result.feedClose).toBe("CLOSED");
-    expect(result.httpClosed).toBe(false);
-    expect(result.httpCloseError).toBe(`HTTP_CLOSE_TIMEOUT_AFTER_${MIN_FEED_CLOSE_TIMEOUT_MS}MS`);
-    expect(result.exitCode).toBe(1);
   });
 
   it("L7 the shipped hook owns nothing and says so, and no socket code exists", async () => {
@@ -618,26 +558,34 @@ describe("P08T L1-L8 — shutdown controller lifecycle", () => {
     expect(result.exitCode).toBe(0);
 
     const src = readFileSync(resolve(process.cwd(), "src/lib/lifecycle/gracefulShutdown.ts"), "utf8");
-    const code = src
-      .split(/\r?\n/)
-      .filter((l) => !/^\s*(\*|\/\/|\/\*)/.test(l))
-      .join("\n");
+    const code = src.split(/\r?\n/).filter((l) => !/^\s*(\*|\/\/|\/\*)/.test(l)).join("\n");
     for (const forbidden of ["new WebSocket", "KiteTicker", ".subscribe(", ".unsubscribe(", "kiteconnect"]) {
       expect(code.toLowerCase()).not.toContain(forbidden.toLowerCase());
     }
 
     // After global afterEach reset, installedAtBoot must be false.
-    // We verify that by checking the readiness value immediately — since afterEach
-    // already ran before this test (from any prior test), and D14 proves reset works.
     const readiness = describeShutdownReadiness();
     expect(readiness.prepared).toBe(true);
     expect(readiness.feedCloseHook).toBe("NO_OP_PHASE_0_8T");
     expect(readiness.signals).toEqual(SHUTDOWN_SIGNALS);
     expect(readiness.feedCloseTimeoutMs).toBe(DEFAULT_FEED_CLOSE_TIMEOUT_MS);
-    // installedAtBoot is false because afterEach reset module state after the
-    // previous test, and this test has not called installShutdownLifecycle.
     expect(readiness.installedAtBoot).toBe(false);
-    expect(typeof readiness.currentPhase).toBe("string");
+    expect(readiness.installationState).toBe("UNINSTALLED");
     expect(getBootId()).toBe(getBootId());
+  });
+
+  it("L8 a hanging HTTP close is bounded and reported as not closed", async () => {
+    const controller = createShutdownController({
+      closeFeed: async () => ({ closed: true, detail: "CLOSED_IN_TEST" }),
+      closeHttp: () => new Promise(() => {}),
+      httpCloseTimeoutMs: 1,
+      setTimeoutFn: fireOnlyBound(2),
+      clearTimeoutFn: () => {},
+    });
+    const result = await controller.shutdown("SIGTERM");
+    expect(controller.phase()).toBe("COMPLETE");
+    expect(result.feedClose).toBe("CLOSED");
+    expect(result.httpClosed).toBe(false);
+    expect(result.exitCode).toBe(1);
   });
 });

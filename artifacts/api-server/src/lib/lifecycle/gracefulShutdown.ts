@@ -1,61 +1,46 @@
 /**
- * PHASE 0.8T — GRACEFUL SHUTDOWN BOUNDARY (INSTALLED BEFORE server.listen())
+ * PHASE 0.8T — GRACEFUL SHUTDOWN BOUNDARY
  *
- * A Reserved VM is replaced, not duplicated — but "replaced" is a sequence, not
- * an instant. Replit sends SIGTERM to the old instance while the new one is
- * already starting, so for a bounded window two processes exist. Today that
- * window is harmless: nothing owns a socket. From Phase 0.8B onwards it is the
- * exact window in which two processes could both hold Kite feeds against one
- * API key, and the provider counts sockets per key.
+ * A Reserved VM is replaced, not duplicated — but "replaced" is a sequence,
+ * not an instant. Replit sends SIGTERM to the old instance while the new one
+ * is already starting, so for a bounded window two processes exist. Today
+ * that window is harmless: nothing owns a socket. From Phase 0.8B onwards it
+ * is the exact window in which two processes could both hold Kite feeds against
+ * one API key, and the provider counts sockets per key.
  *
- * This module is the boundary that closes that window. index.ts calls
- * installShutdownLifecycle() synchronously after createServer(app) and BEFORE
- * server.listen(), closing the startup window in which a SIGTERM could arrive
- * without a handler:
+ * This module is the boundary. index.ts calls runStartupListenerPhase, which
+ * calls installShutdownLifecycle synchronously before server.listen():
  *
- *   signal → stop admitting feed activation → mark shutting down → run the feed
- *   close hook → wait, bounded → close HTTP → report an explicit result.
+ *   signal → stop admitting feed activation → mark shutting down → run the
+ *   feed close hook → wait, bounded → close HTTP → report an explicit result.
  *
  * WHAT IT DELIBERATELY DOES NOT DO
  * --------------------------------
- *   - It contains no Kite logic and constructs no socket. The close hook is an
- *     injected no-op that HONESTLY reports "nothing was owned", so a future
- *     wiring mistake shows up as NOT_OWNED rather than as fake success.
- *   - It never sleeps to "let things settle". Every wait is a bounded race that
- *     resolves as soon as the hook answers.
- *   - It does not call process.exit itself unless an exit function is injected.
+ *   - It contains no Kite logic and constructs no socket. The close hook is
+ *     the Phase 0.8T no-op that HONESTLY reports "nothing was owned".
+ *   - It never sleeps. Every wait is a bounded race.
+ *   - It does not call process.exit unless an exit function is injected.
  */
 
 import { randomUUID } from "node:crypto";
 
+// ---------------------------------------------------------------------------
+// Shutdown controller
+// ---------------------------------------------------------------------------
+
 /** Lifecycle phase of the process with respect to shutdown. */
 export type ShutdownPhase = "RUNNING" | "SHUTTING_DOWN" | "COMPLETE";
 
-/** How the feed close attempt ended. Never conflated with "the feed is safe". */
-export type FeedCloseOutcome =
-  /** No feed was owned — the Phase 0.8T reality. */
-  | "NOT_OWNED"
-  /** The hook confirmed every socket closed. */
-  | "CLOSED"
-  /** The hook threw or rejected. */
-  | "HOOK_FAILED"
-  /** The hook did not answer inside the bounded timeout. */
-  | "TIMEOUT";
+/** How the feed close attempt ended. */
+export type FeedCloseOutcome = "NOT_OWNED" | "CLOSED" | "HOOK_FAILED" | "TIMEOUT";
 
 export interface FeedCloseResult {
-  /** True ONLY when the hook itself confirms the sockets are closed. */
   readonly closed: boolean;
-  /** Non-sensitive detail string for the shutdown log. */
   readonly detail: string;
 }
 
-/** The Phase 0.8B seam. Receives the signal name; must be side-effect-free now. */
 export type FeedCloseHook = (signal: string) => Promise<FeedCloseResult>;
 
-/**
- * The only hook this phase ships. It owns nothing, so it closes nothing and
- * says so. It is not "success": callers see NOT_OWNED, which is the truth.
- */
 export const NO_OP_FEED_CLOSE_HOOK: FeedCloseHook = async () =>
   Object.freeze({ closed: false, detail: "NO_FEED_OWNED_PHASE_0_8T" });
 
@@ -70,37 +55,24 @@ export interface ShutdownResult {
   readonly duplicateSignalsIgnored: number;
 }
 
-/** Bounds for the feed-close wait. A timeout may never be unbounded. */
 export const MIN_FEED_CLOSE_TIMEOUT_MS = 100;
 export const MAX_FEED_CLOSE_TIMEOUT_MS = 30_000;
 export const DEFAULT_FEED_CLOSE_TIMEOUT_MS = 5_000;
 
 export interface ShutdownControllerOptions {
-  /** Defaults to the honest no-op hook. */
   readonly closeFeed?: FeedCloseHook;
-  /** Closes the HTTP listener. Runs AFTER the feed hook, never before. */
   readonly closeHttp: () => Promise<void>;
-  /** Clamped into [MIN, MAX]. */
   readonly feedCloseTimeoutMs?: number;
-  /**
-   * Clamped into [MIN, MAX]. A listener with a hanging keep-alive connection
-   * can leave `server.close()` pending forever, which would strand the process
-   * in SHUTTING_DOWN with no result at all — so this wait is bounded too.
-   */
   readonly httpCloseTimeoutMs?: number;
-  /** Injectable so tests need no real timers. */
   readonly setTimeoutFn?: (fn: () => void, ms: number) => unknown;
   readonly clearTimeoutFn?: (handle: unknown) => void;
-  /** Optional observer for the final result (logging, diagnostics). */
   readonly onResult?: (result: ShutdownResult) => void;
 }
 
 export interface ShutdownController {
-  /** False as soon as a signal arrives: no feed may be activated while dying. */
   readonly isFeedActivationPermitted: () => boolean;
   readonly phase: () => ShutdownPhase;
   readonly duplicateSignalsIgnored: () => number;
-  /** Idempotent: later calls return the FIRST run's promise, not a second run. */
   readonly shutdown: (signal: string) => Promise<ShutdownResult>;
 }
 
@@ -109,11 +81,6 @@ function clampTimeout(ms: number | undefined): number {
   return Math.min(MAX_FEED_CLOSE_TIMEOUT_MS, Math.max(MIN_FEED_CLOSE_TIMEOUT_MS, Math.trunc(ms)));
 }
 
-/**
- * Build a shutdown controller. Creating one registers NOTHING: no signal
- * handler, no timer, no listener. It becomes active only when `shutdown` is
- * called or handlers are installed explicitly.
- */
 export function createShutdownController(options: ShutdownControllerOptions): ShutdownController {
   const closeFeed = options.closeFeed ?? NO_OP_FEED_CLOSE_HOOK;
   const timeoutMs = clampTimeout(options.feedCloseTimeoutMs);
@@ -126,10 +93,6 @@ export function createShutdownController(options: ShutdownControllerOptions): Sh
   let duplicates = 0;
   let inFlight: Promise<ShutdownResult> | null = null;
 
-  /**
-   * Race a step against a bound. The timer is always cleared, so a step that
-   * finishes first never leaves a pending handle behind.
-   */
   async function withBound<T>(
     step: () => Promise<T>,
     onTimeout: () => T,
@@ -150,7 +113,6 @@ export function createShutdownController(options: ShutdownControllerOptions): Sh
     const attempt = async (): Promise<{ outcome: FeedCloseOutcome; detail: string }> => {
       try {
         const result = await closeFeed(signal);
-        // A hook that says it closed nothing is NOT_OWNED — never "closed".
         return result.closed
           ? { outcome: "CLOSED", detail: result.detail }
           : { outcome: "NOT_OWNED", detail: result.detail };
@@ -159,7 +121,6 @@ export function createShutdownController(options: ShutdownControllerOptions): Sh
         return { outcome: "HOOK_FAILED", detail: `FEED_CLOSE_HOOK_FAILED: ${message}` };
       }
     };
-
     return withBound(
       attempt,
       () => ({ outcome: "TIMEOUT" as const, detail: `FEED_CLOSE_TIMEOUT_AFTER_${timeoutMs}MS` }),
@@ -169,11 +130,6 @@ export function createShutdownController(options: ShutdownControllerOptions): Sh
 
   async function run(signal: string): Promise<ShutdownResult> {
     const feed = await runFeedClose(signal);
-
-    // HTTP closes only after the feed hook has answered or timed out, so a
-    // future socket owner always gets its chance before the process goes quiet.
-    // Bounded as well: a hanging listener must not strand the shutdown without
-    // a result, and a timeout is reported as NOT closed.
     const http = await withBound<{ closed: boolean; error: string | null }>(
       async () => {
         try {
@@ -186,18 +142,16 @@ export function createShutdownController(options: ShutdownControllerOptions): Sh
       () => ({ closed: false, error: `HTTP_CLOSE_TIMEOUT_AFTER_${httpTimeoutMs}MS` }),
       httpTimeoutMs,
     );
-    const httpClosed = http.closed;
-    const httpCloseError = http.error;
 
     phase = "COMPLETE";
-    const clean = (feed.outcome === "CLOSED" || feed.outcome === "NOT_OWNED") && httpClosed;
+    const clean = (feed.outcome === "CLOSED" || feed.outcome === "NOT_OWNED") && http.closed;
     const result: ShutdownResult = Object.freeze({
       signal,
       phase: "COMPLETE" as const,
       feedClose: feed.outcome,
       feedCloseDetail: feed.detail,
-      httpClosed,
-      httpCloseError,
+      httpClosed: http.closed,
+      httpCloseError: http.error,
       exitCode: clean ? 0 : 1,
       duplicateSignalsIgnored: duplicates,
     });
@@ -221,54 +175,103 @@ export function createShutdownController(options: ShutdownControllerOptions): Sh
   });
 }
 
-/** Minimal surface of `process` this module needs; injectable for tests. */
+// ---------------------------------------------------------------------------
+// Signal target contract
+// ---------------------------------------------------------------------------
+
+/**
+ * Minimal surface of `process` this module needs; injectable for tests.
+ *
+ * A validated removal method — `off` or `removeListener` — is required before
+ * any listener is installed. installShutdownLifecycle refuses if neither is
+ * present, guaranteeing rollback capability without optional chaining.
+ */
 export interface SignalTarget {
   on(signal: string, listener: (...args: unknown[]) => void): unknown;
-  off?(signal: string, listener: (...args: unknown[]) => void): unknown;
+  off?: (signal: string, listener: (...args: unknown[]) => void) => unknown;
+  removeListener?: (signal: string, listener: (...args: unknown[]) => void) => unknown;
 }
 
 export const SHUTDOWN_SIGNALS: readonly string[] = Object.freeze(["SIGTERM", "SIGINT"]);
 
 // ---------------------------------------------------------------------------
-// Atomic shutdown lifecycle installation
+// Lifecycle installation — explicit state machine
 // ---------------------------------------------------------------------------
 
 /** Return value of installShutdownLifecycle. */
 export type InstallShutdownLifecycleResult = "INSTALLED" | "ALREADY_INSTALLED";
 
-/** Module-level registry — exactly one per process, set only after all listeners succeed. */
+/**
+ * Explicit installation state.
+ *
+ *   UNINSTALLED → (first call) → INSTALLING → (all listeners added) → INSTALLED
+ *                                     ↓ (any failure)
+ *                               UNINSTALLED  (never stuck)
+ *
+ * Any synchronous re-entrant call from target.on() observes INSTALLING and
+ * returns ALREADY_INSTALLED immediately, preventing a second listener pair
+ * even if JavaScript's event loop has not returned yet.
+ */
+export type ShutdownInstallationState = "UNINSTALLED" | "INSTALLING" | "INSTALLED";
+
+type CleanupFn = (signal: string, listener: (...args: unknown[]) => void) => void;
+
+let _state: ShutdownInstallationState = "UNINSTALLED";
 let _installedController: ShutdownController | null = null;
-let _installedTarget: SignalTarget | null = null;
+let _installedCleanup: CleanupFn | null = null;
 let _installedListeners: Array<[string, (...args: unknown[]) => void]> = [];
 
 /**
  * Atomically install the shutdown lifecycle protection.
  *
- * This is the ONLY public API for wiring a controller to OS signals. It must
- * be called synchronously before server.listen() and only once per process.
+ * Re-entrancy safe: the exclusive claim (`_state = "INSTALLING"`) is acquired
+ * synchronously BEFORE the first call to external code (`target.on()`), so a
+ * re-entrant call from inside `on()` sees INSTALLING and returns
+ * ALREADY_INSTALLED without touching listeners.
  *
- * Atomicity guarantee:
- *   1. If already installed: returns ALREADY_INSTALLED with zero side effects.
- *      No additional listener is installed, no controller is replaced.
- *   2. Listener installation happens inside a try/catch. If any signal's
- *      `target.on()` throws, every listener already added in this call is
- *      removed via `target.off()` before the error propagates. The module-level
- *      controller remains null — isShutdownInstalled() stays false.
- *   3. _installedController is set ONLY after all listeners have been
- *      successfully installed. isShutdownInstalled() returns true only then.
+ * Rollback guaranteed: `off` or `removeListener` is resolved and validated
+ * BEFORE any listener is installed. If neither is available, the function
+ * throws with state restored to UNINSTALLED and zero listeners added. On any
+ * subsequent listener failure the resolved cleanup function is called
+ * unconditionally (no optional chaining) for every listener already installed.
  *
- * Callers MUST NOT invoke any lower-level listener-installation helper before
- * calling this function. There is no exported lower-level helper.
+ * State transitions:
+ *   1. UNINSTALLED → INSTALLING  (before first external call)
+ *   2. INSTALLING → INSTALLED    (after all listeners succeed)
+ *   3. INSTALLING → UNINSTALLED  (on any validation or listener failure)
+ *
+ * `isShutdownInstalled()` returns true only in state INSTALLED.
  */
 export function installShutdownLifecycle(
   controller: ShutdownController,
   target: SignalTarget,
   onExit?: (code: number) => void,
 ): InstallShutdownLifecycleResult {
-  // Step 1: atomic claim check — if already installed, return immediately.
-  if (_installedController !== null) return "ALREADY_INSTALLED";
+  // ── Step 1: re-entrancy safe claim ────────────────────────────────────────
+  // Any state other than UNINSTALLED refuses immediately — including INSTALLING
+  // (covers synchronous re-entrancy from inside target.on()).
+  if (_state !== "UNINSTALLED") return "ALREADY_INSTALLED";
 
-  // Step 2: install exactly one listener per signal. Roll back on any failure.
+  // ── Step 2: acquire exclusive claim BEFORE any external call ──────────────
+  _state = "INSTALLING";
+
+  // ── Step 3: resolve cleanup function before touching any listener ─────────
+  // Rollback requires a non-optional removal method. Resolve it now, before
+  // the listener loop, so no listener is ever added without a cleanup path.
+  let cleanup: CleanupFn;
+  if (typeof target.off === "function") {
+    cleanup = target.off.bind(target) as CleanupFn;
+  } else if (typeof target.removeListener === "function") {
+    cleanup = (target.removeListener as (s: string, l: (...args: unknown[]) => void) => unknown).bind(target) as CleanupFn;
+  } else {
+    // No cleanup method: refuse immediately, restore UNINSTALLED.
+    _state = "UNINSTALLED";
+    throw new Error(
+      "SHUTDOWN_TARGET_MISSING_CLEANUP_METHOD: target must expose off() or removeListener()",
+    );
+  }
+
+  // ── Step 4: install listeners with guaranteed rollback ────────────────────
   const listeners: Array<[string, (...args: unknown[]) => void]> = [];
   try {
     for (const signal of SHUTDOWN_SIGNALS) {
@@ -281,48 +284,40 @@ export function installShutdownLifecycle(
       listeners.push([signal, listener]);
     }
   } catch (err) {
-    // Partial installation: remove any listeners already added so the process
-    // is left in the same state as before this call. _installedController
-    // remains null: isShutdownInstalled() stays false.
-    for (const [sig, lst] of listeners) target.off?.(sig, lst);
+    // Remove every listener installed by this call — unconditionally, no
+    // optional chaining, because cleanup was verified callable above.
+    for (const [sig, lst] of listeners) cleanup(sig, lst);
+    // Clear all transient state and return to UNINSTALLED.
+    _state = "UNINSTALLED";
     throw err;
   }
 
-  // Step 3: all listeners installed — now claim ownership atomically.
+  // ── Step 5: complete installation atomically ──────────────────────────────
   _installedController = controller;
-  _installedTarget = target;
+  _installedCleanup = cleanup;
   _installedListeners = listeners;
+  _state = "INSTALLED";
   return "INSTALLED";
 }
 
+// ---------------------------------------------------------------------------
+// Public accessors
+// ---------------------------------------------------------------------------
+
 /**
- * Test-only lifecycle reset. Removes all installed signal listeners and
- * clears module state so the next test starts with a clean baseline.
- *
- * MUST have zero production callers. The `_forTesting_` prefix makes the
- * restriction unambiguous. Tests assert (via source scan) that no production
- * file calls this function.
- *
- * Safe to call when nothing is installed (no-op).
+ * Returns the current installation state. Exposed so tests can observe the
+ * INSTALLING transition and verify no state is ever stuck.
  */
-export function _forTesting_resetShutdownLifecycle(): void {
-  if (_installedController === null) return;
-  for (const [signal, listener] of _installedListeners) {
-    _installedTarget?.off?.(signal, listener);
-  }
-  _installedController = null;
-  _installedTarget = null;
-  _installedListeners = [];
+export function getShutdownInstallationState(): ShutdownInstallationState {
+  return _state;
 }
 
 /**
- * Fail-closed lifecycle gate: returns true only when installShutdownLifecycle
- * has completed successfully. Feed activation must check this before
- * proceeding — activation without a shutdown handler leaves no way to clean
- * up the feed on SIGTERM/SIGINT.
+ * Fail-closed lifecycle gate: true only when state is INSTALLED.
+ * Returns false during INSTALLING (re-entrant window) and after rollback.
  */
 export function isShutdownInstalled(): boolean {
-  return _installedController !== null;
+  return _state === "INSTALLED";
 }
 
 /** Returns the current phase of the installed controller, or "RUNNING". */
@@ -331,37 +326,57 @@ export function getInstalledShutdownPhase(): ShutdownPhase {
 }
 
 // ---------------------------------------------------------------------------
-// Diagnostics
+// Test reset
 // ---------------------------------------------------------------------------
 
 /**
- * Boot identity for owner diagnostics: distinguishes this process incarnation
- * from its predecessor across a restart. Computed lazily so importing this
- * module allocates nothing, and it is not an ownership credential — two
- * replicas would each have one.
+ * Test-only lifecycle reset. Removes installed listeners using the resolved
+ * cleanup function (unconditionally — the same function used in production
+ * rollback) and restores state to UNINSTALLED.
+ *
+ * MUST have zero production callers. The `_forTesting_` prefix enforces this.
+ * Tests assert via source scan that no production file calls this function.
+ * Safe to call when state is already UNINSTALLED (no-op).
  */
+export function _forTesting_resetShutdownLifecycle(): void {
+  if (_state === "UNINSTALLED") return;
+  if (_installedCleanup !== null) {
+    for (const [signal, listener] of _installedListeners) {
+      _installedCleanup(signal, listener);
+    }
+  }
+  _state = "UNINSTALLED";
+  _installedController = null;
+  _installedCleanup = null;
+  _installedListeners = [];
+}
+
+// ---------------------------------------------------------------------------
+// Diagnostics
+// ---------------------------------------------------------------------------
+
 let bootId: string | null = null;
 export function getBootId(): string {
   if (bootId === null) bootId = randomUUID();
   return bootId;
 }
 
-/** Describes readiness of the boundary for owner diagnostics. */
 export interface ShutdownReadiness {
   readonly prepared: true;
-  /** True once installShutdownLifecycle has completed successfully at boot. */
+  /** True only when installShutdownLifecycle has completed successfully. */
   readonly installedAtBoot: boolean;
+  readonly installationState: ShutdownInstallationState;
   readonly feedCloseHook: "NO_OP_PHASE_0_8T";
   readonly signals: readonly string[];
   readonly feedCloseTimeoutMs: number;
-  /** Current shutdown phase of the installed controller, or RUNNING if none. */
   readonly currentPhase: ShutdownPhase;
 }
 
 export function describeShutdownReadiness(): ShutdownReadiness {
   return Object.freeze({
     prepared: true as const,
-    installedAtBoot: _installedController !== null,
+    installedAtBoot: _state === "INSTALLED",
+    installationState: _state,
     feedCloseHook: "NO_OP_PHASE_0_8T" as const,
     signals: SHUTDOWN_SIGNALS,
     feedCloseTimeoutMs: DEFAULT_FEED_CLOSE_TIMEOUT_MS,

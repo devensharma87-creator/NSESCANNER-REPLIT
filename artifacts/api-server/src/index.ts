@@ -36,6 +36,7 @@ import {
   installShutdownLifecycle,
   NO_OP_FEED_CLOSE_HOOK,
 } from "./lib/lifecycle/gracefulShutdown.js";
+import { runStartupListenerPhase } from "./lib/lifecycle/startupListenerPhase.js";
 
 // Step 0 — DATA_FOUNDATION_BOOT_PROOF admissibility.
 // Deliberately the FIRST thing that runs: this module imports nothing but the
@@ -130,24 +131,17 @@ proofMark("RESTORATION_SETTLED");
 proofMark("CAPABILITIES", ` capabilities=${JSON.stringify(getBootCapabilities())}`);
 const server = createServer(app);
 
-// Step 7 — Install graceful shutdown ATOMICALLY, before server.listen().
+// Steps 7–8 — Install graceful shutdown and start listening via the shared
+// startup seam. runStartupListenerPhase is the same function imported by the
+// Phase 0.8T lifecycle tests, so the ordering guarantees proved behaviourally
+// in those tests hold here unconditionally.
 //
-// installShutdownLifecycle is a single atomic operation: it checks whether a
-// coordinator is already installed, then (only if not) installs exactly one
-// SIGTERM listener and one SIGINT listener, and only then records the
-// controller as installed. This closes two gaps from the previous design:
+// Accepted ordering:
+//   installLifecycle() → proofMark("SHUTDOWN_INSTALLED") → server.listen()
 //
-//   (a) Startup window: a SIGTERM/SIGINT arriving after createServer() but
-//       before server.listen() is now handled — the handler is in place before
-//       listen() is called.
-//   (b) Atomicity: listener installation and controller registration happen
-//       inside one function. There is no window where listeners are installed
-//       but the controller is not yet registered (the old two-step flaw).
-//
-// If installShutdownLifecycle returns ALREADY_INSTALLED, that indicates an
-// unexpected duplicate boot path — we fail closed without calling server.listen().
-// If it throws (partial listener installation), listeners are rolled back inside
-// the function and the error propagates here, also preventing server.listen().
+// If lifecycle installation fails (throw or ALREADY_INSTALLED refusal),
+// runStartupListenerPhase calls onStartupError and returns without ever
+// reaching server.listen().
 //
 // Ordering contract (Phase 0.8T):
 //   signal → SHUTTING_DOWN → feed hook (no-op, NOT_OWNED) → HTTP close
@@ -157,32 +151,20 @@ const shutdownController = createShutdownController({
     new Promise<void>((resolve, reject) => {
       server.close((e) => (e ? reject(e) : resolve()));
     }),
-  // Feeds get 5 s to confirm closure; HTTP gets another 5 s for keep-alive
-  // connections to drain. Neither wait is unbounded.
   feedCloseTimeoutMs: 5_000,
   httpCloseTimeoutMs: 5_000,
 });
-try {
-  const installResult = installShutdownLifecycle(shutdownController, process, (code) => {
-    process.exit(code);
-  });
-  if (installResult === "ALREADY_INSTALLED") {
-    process.stderr.write("FATAL: SHUTDOWN_LIFECYCLE_ALREADY_INSTALLED_BEFORE_BOOT\n");
-    process.exit(1);
-  }
-} catch (err) {
-  const msg = err instanceof Error ? err.message : String(err);
-  process.stderr.write(`FATAL: SHUTDOWN_LIFECYCLE_INSTALLATION_FAILED: ${msg}\n`);
-  process.exit(1);
-}
-proofMark("SHUTDOWN_INSTALLED");
 
-// Step 8 — Start listener. In boot-proof mode, state plainly what this process
-// is and is not doing, so the log is self-describing evidence.
-server.listen(port, (err?: Error) => {
-  if (err) {
-    process.stderr.write(`Error listening on port ${port}: ${err.message}\n`);
+runStartupListenerPhase({
+  installLifecycle: () =>
+    installShutdownLifecycle(shutdownController, process, (code) => {
+      process.exit(code);
+    }),
+  proofMark,
+  server,
+  port,
+  onStartupError: (msg) => {
+    process.stderr.write(`${msg}\n`);
     process.exit(1);
-  }
-  proofMark("LISTENING", ` port=${port}`);
+  },
 });
