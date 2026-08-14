@@ -35,6 +35,12 @@ import {
   readTopologySignals,
 } from "../lib/registry/feedOwnershipAdmission";
 import { evaluateActivationGates } from "../lib/registry/feedActivationGates";
+import { getProductionFeedManager } from "../lib/feed/productionFeedManager";
+import { admitShardPlan } from "../lib/feed/shardPlanInvariants";
+import {
+  buildFeedCoverageLedger,
+  observationStateForManager,
+} from "../lib/feed/feedCoverageLedger";
 import {
   evaluatePhase08tOwnership,
   readProductionRunArgsFromDisk,
@@ -342,6 +348,123 @@ router.get("/data-health/topology", requireOwnerStrict, (req, res) => {
   } catch (err) {
     req.log.error({ err }, "data-health/topology failed");
     res.status(500).json({ error: "topology check failed" });
+  }
+});
+
+/**
+ * GET /api/data-health/feed-foundation — OWNER-ONLY, PHASE 0.8B.
+ *
+ * The state of the three-shard feed manager: whether it holds any socket,
+ * which shards it would hold, whether the plan it would act on still satisfies
+ * its invariants, and how much of the committed universe is actually covered.
+ *
+ * WHAT THIS ROUTE DELIBERATELY DOES NOT RETURN
+ * --------------------------------------------
+ * No instrument identities, no provider tokens, no credentials, no session
+ * material, no raw provider payloads, and no raw error strings. Only coded
+ * blockers, counts and hashes. An owner diagnostic that echoes a provider error
+ * verbatim is an exfiltration path the moment a provider starts quoting request
+ * parameters back in its messages, so failures are reported as CODES and the
+ * detail text stays in the server log.
+ *
+ * COVERAGE IS EXPECTED TO READ ZERO HERE
+ * --------------------------------------
+ * While activation is unauthorised the manager owns nothing, so
+ * `observationState` reads DISABLED and every expected instrument is counted
+ * MISSING. That is the correct reading, not a defect: attributing the live
+ * store's existing quotes to a feed that never opened a socket would fabricate
+ * evidence of a running feed.
+ *
+ * Reads in-process state only. Opens no socket, contacts no provider, writes
+ * nothing, and cannot activate anything.
+ */
+router.get("/data-health/feed-foundation", requireOwnerStrict, (req, res) => {
+  try {
+    const nowMs = Date.now();
+    const manifest = getSubscriptionAdmissionManifestNow(nowMs);
+    const plan = planFeedShards(manifest);
+    const ownership = evaluateFeedOwnershipAdmission(
+      readTopologySignals(process.env, readDeclaredDeploymentTargetFromDisk(process.cwd())),
+    );
+    const gates = evaluateActivationGates({ manifest, plan, ownership });
+
+    const manager = getProductionFeedManager();
+    const diag = manager.diagnostics();
+    const admission = admitShardPlan(plan);
+
+    const coverage = buildFeedCoverageLedger({
+      plan,
+      observationState: observationStateForManager(diag.state),
+      nowMs,
+      freshnessWindowMs: 60_000,
+      registryGenerationId: manifest.registryGenerationId,
+      // Never consulted while the feed is not OBSERVED; supplied so the
+      // function has no reason to reach into the live store itself.
+      lookupLastTickMs: () => null,
+      lostShardIds: manager.lostShardIds(),
+    });
+
+    res.json({
+      phase: "PHASE_0_8B",
+      evaluatedAt: new Date(nowMs).toISOString(),
+      feedManager: {
+        state: diag.state,
+        blocker: diag.blocker,
+        activationAuthorizedConstant: diag.activationAuthorizedConstant,
+        maxSockets: diag.maxSockets,
+        clientsHeld: diag.clientsHeld,
+        // Non-zero means this process opened provider sockets it could not
+        // release. It is surfaced because the provider may still be counting
+        // them against the per-key ceiling.
+        unreleasedSockets: diag.unreleasedSockets,
+        // Distinguishes "the provider agreed" from "we sent the request".
+        subscriptionConfirmation: diag.subscriptionConfirmation,
+        lostShardIds: diag.lostShardIds,
+        acceptedTickCount: diag.acceptedTickCount,
+        rejectedTickCount: diag.rejectedTickCount,
+        startAttempts: diag.startAttempts,
+        planGenerationId: diag.planGenerationId,
+        shardSlots: diag.shards.map((s) => ({
+          shardId: s.shardId,
+          held: s.held,
+          clientState: s.clientState,
+          lost: s.lost,
+          expectedTokens: s.expectedTokens,
+        })),
+      },
+      shardPlanAdmission: {
+        admitted: admission.admitted,
+        blockers: admission.blockers,
+        observedTotalTokens: admission.observedTotalTokens,
+        observedShardCount: admission.observedShardCount,
+      },
+      coverage: {
+        observationState: coverage.observationState,
+        freshnessWindowMs: coverage.freshnessWindowMs,
+        expected: coverage.expected,
+        fresh: coverage.fresh,
+        stale: coverage.stale,
+        missing: coverage.missing,
+        identityEquationHolds: coverage.identityEquationHolds,
+        shardSumEquationHolds: coverage.shardSumEquationHolds,
+        equationsHold: coverage.equationsHold,
+        shards: coverage.shards.map((s) => ({
+          shardId: s.shardId,
+          expected: s.expected,
+          fresh: s.fresh,
+          stale: s.stale,
+          missing: s.missing,
+          equationHolds: s.equationHolds,
+        })),
+      },
+      activation: {
+        gatesPass: gates.allGatesPass,
+        blockingGateIds: gates.blockingGateIds,
+      },
+    });
+  } catch (err) {
+    req.log.error({ err }, "data-health/feed-foundation failed");
+    res.status(500).json({ error: "feed foundation check failed" });
   }
 });
 

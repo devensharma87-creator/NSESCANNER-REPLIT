@@ -34,9 +34,9 @@ import {
 import {
   createShutdownController,
   installShutdownLifecycle,
-  NO_OP_FEED_CLOSE_HOOK,
 } from "./lib/lifecycle/gracefulShutdown.js";
 import { runStartupListenerPhase } from "./lib/lifecycle/startupListenerPhase.js";
+import { productionFeedCloseHook } from "./lib/feed/productionFeedManager.js";
 
 // Step 0 — DATA_FOUNDATION_BOOT_PROOF admissibility.
 // Deliberately the FIRST thing that runs: this module imports nothing but the
@@ -144,9 +144,17 @@ const server = createServer(app);
 // reaching server.listen().
 //
 // Ordering contract (Phase 0.8T):
-//   signal → SHUTTING_DOWN → feed hook (no-op, NOT_OWNED) → HTTP close
+//   signal → SHUTTING_DOWN → feed hook → HTTP close
+//
+// Phase 0.8B replaced the no-op feed hook with the real three-shard manager's
+// close path. The observable outcome at this moment is unchanged — the manager
+// owns no sockets while activation is unauthorised, so it reports NOT_OWNED —
+// but the answer now comes from the component that actually holds sockets
+// rather than from a constant. If sockets are ever held and cannot be released,
+// the manager throws and this process exits non-zero instead of pretending a
+// clean shutdown.
 const shutdownController = createShutdownController({
-  closeFeed: NO_OP_FEED_CLOSE_HOOK,
+  closeFeed: productionFeedCloseHook,
   closeHttp: () =>
     new Promise<void>((resolve, reject) => {
       server.close((e) => (e ? reject(e) : resolve()));
