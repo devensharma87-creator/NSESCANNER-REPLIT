@@ -42,7 +42,7 @@ import { FNO_LIQUIDITY } from "../lib/paperAccount";
 import { getMissedSignals } from "../lib/paperTradingFO";
 import { getEnvironmentLabel } from "../lib/paperAutoTradeFlag";
 import { getReasoningLoggerHealth } from "../lib/fnoSignalReasoningLogger";
-import { feedStatus } from "../lib/kiteFeed";
+import { feedStatusForOwnerWire } from "../lib/kiteFeed";
 import { getActiveSessionStatus, getKiteCreds, type ActiveSessionStatus } from "../lib/kiteAuth";
 import { centralIndexQuotes } from "../lib/marketData/compat";
 import { fetchOptionChain } from "../lib/optionChain";
@@ -87,7 +87,9 @@ router.get("/fno/data-health", requireOwner, async (req, res, next) => {
       (): ActiveSessionStatus => ({ session: null, code: "DB_SESSION_READ_FAILED" }),
     );
     const session = sessionStatus.session;
-    const feed = feedStatus();
+    // Owner-facing serialization boundary: the tokenReconciliation subtree
+    // carries free-form detail strings, so it crosses the redactor first.
+    const feed = feedStatusForOwnerWire();
 
     const kite = {
       credsConfigured: !!creds,

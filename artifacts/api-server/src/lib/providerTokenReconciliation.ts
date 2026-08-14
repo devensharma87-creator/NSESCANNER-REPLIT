@@ -42,6 +42,7 @@
 import { instrumentRegistry } from "./canonicalInstrument";
 import { getQuoteByCanonicalId } from "./liveQuoteStore";
 import { getPolicy } from "./marketData/policy";
+import { redactForOwnerDiagnostics } from "./safeDiagnosticRedaction";
 
 /** The subscription side-effects a rebind needs. Implemented by kiteFeed. */
 export interface SubscriptionPort {
@@ -212,6 +213,32 @@ export function tokenReconciliationDiagnostics(
     lastTickTsById,
     nowMs,
     freshnessBudgetSec: getPolicy().freshnessBudgetSec,
+  });
+}
+
+/**
+ * Owner diagnostics as a REDACTED, emit-safe payload — Phase 0.8E.
+ *
+ * WHY a second serializer instead of changing `tokenReconciliationDiagnostics`:
+ * the typed builder above is consumed by callers that need the exact
+ * `OwnerTokenReconciliationDiagnostics` shape; changing its return type would
+ * ripple. This wrapper is the boundary that OWNER-FACING serializers should use
+ * when the payload is about to be emitted. It routes the payload through the
+ * structured, key-aware redactor.
+ *
+ * The redactor is the reason the old substring rule was retired: the top-level
+ * `tokenReconciliation` field name (and the safe count/state under it) is on the
+ * ALLOW list, so it SURVIVES — whereas the previous `/token/i` blanking would
+ * have destroyed it — while any credential-shaped key or value that ever leaked
+ * into a `detail` string is still removed, fail-closed.
+ */
+export function tokenReconciliationOwnerDiagnosticsRedacted(
+  nowMs: number = Date.now(),
+): unknown {
+  // Nest under `tokenReconciliation` so the allow-list survival is exercised at
+  // the wire-in, not only in tests, and so the owner payload is self-describing.
+  return redactForOwnerDiagnostics({
+    tokenReconciliation: tokenReconciliationDiagnostics(nowMs),
   });
 }
 

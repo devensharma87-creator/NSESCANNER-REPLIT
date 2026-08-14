@@ -98,8 +98,11 @@ import {
   type ExchangeCalendarGeneration,
 } from "./exchangeCalendar";
 import {
+  BSE_BUNDLE_IDENTITY_ANCHOR,
   BSE_EQUITY_SESSION_TIMINGS_PAGE,
   BSE_TRADING_HOLIDAYS_URL,
+  MIN_BSE_BUNDLE_BYTES,
+  MIN_NSE_TIMINGS_PAGE_BYTES,
   NSE_HOLIDAY_MASTER_URL,
   NSE_MARKET_TIMINGS_URL,
   bseUdiffUrlFor,
@@ -113,10 +116,77 @@ import {
   APPROVED_SOURCE_HOSTS,
   RETRIEVAL_MAX_BYTES,
   RETRIEVAL_TIMEOUT_MS,
+  type TransportBudget,
   boundedFetchBytes,
+  createTransportBudget,
   exchangeRequestHeaders,
 } from "./boundedSourceRetrieval";
+import {
+  type AuthoritativeDocumentSpec,
+  retrieveAuthoritativeDocument,
+} from "./authoritativeDocumentRetrieval";
+import {
+  CALENDAR_BLOCKER_CODE,
+  type CalendarSubBlocker,
+  classifyAssemblyBlocker,
+  classifyParserRejection,
+  classifyRetrievalFailure,
+} from "./calendarBlockerContract";
 import { logger } from "../logger";
+
+/**
+ * PHASE 0.8E — DECLARED PER-RUN EXCHANGE TRANSPORT PLAN
+ *
+ * The previous ceiling counted LOGICAL retrievals and therefore undercounted
+ * the real traffic: following redirects in the runtime hid three extra
+ * requests behind three "single" retrievals. A ceiling that cannot see a hop
+ * is not a ceiling.
+ *
+ * So the plan below is stated in requests that actually leave this process,
+ * broken out by kind, and the total is enforced before each one is issued.
+ *
+ *   base documents      10  = 6 required registry sources
+ *                            + 3 calendar documents (NSE holiday master,
+ *                              NSE market timings, BSE holidays shell)
+ *                            + 1 BSE UDiFF bhavcopy
+ *   discovered assets    1  = BSE's application bundle, discovered from the
+ *                             shell. ONE, not two: the holidays table and the
+ *                             session-timings row live in the SAME artefact,
+ *                             so it is retrieved once and handed to both
+ *                             parsers — the same "retrieve once, parse many"
+ *                             rule the orchestrator already applies.
+ *   redirect hops        7  = at most one per document, with headroom for the
+ *                             three hops observed in the first proof
+ *   ────────────────────────
+ *   total               18
+ */
+export const EXCHANGE_TRANSPORT_PLAN = Object.freeze({
+  plannedBaseDocuments: 10,
+  plannedDiscoveredAssets: 1,
+  plannedRedirectHops: 7,
+  maxTotalRequests: 18,
+});
+
+/**
+ * Ledger of the most recent composition's transport, for the owner report.
+ *
+ * Diagnostics-only and never read by a gate: a plan-versus-actual report must
+ * not be able to influence the decision it is reporting on.
+ */
+let _lastTransportBudget: TransportBudget | null = null;
+
+export function getLastExchangeTransportReport(): {
+  readonly plan: typeof EXCHANGE_TRANSPORT_PLAN;
+  readonly actualTotal: number;
+  readonly ledger: readonly { sourceId: string; hopKind: string; host: string }[];
+} | null {
+  if (_lastTransportBudget === null) return null;
+  return {
+    plan: EXCHANGE_TRANSPORT_PLAN,
+    actualTotal: _lastTransportBudget.spent,
+    ledger: _lastTransportBudget.ledger(),
+  };
+}
 
 export const REGISTRY_REFRESH_COMPOSITION_ID = "REGISTRY_REFRESH_PRODUCTION_COMPOSITION_V1";
 
@@ -317,10 +387,32 @@ const PORT_THREW = "PORT_IMPLEMENTATION_THREW";
  * strings and row payloads; a reason code that embedded them would leak source
  * material into logs and diagnostics.
  */
+/**
+ * PHASE 0.8E — `Error.name` is ATTACKER- AND SOURCE-INFLUENCED.
+ *
+ * A thrown value's `name` is just a writable string: a parser, driver or
+ * adapter can set it from response text, and some libraries do. Passing it
+ * through unchanged put arbitrary source material into a reason code that is
+ * then logged and shown to the owner. So the label is now drawn from a fixed
+ * vocabulary; anything else becomes one constant.
+ */
+const RECOGNISED_ERROR_NAMES: ReadonlySet<string> = new Set([
+  "Error",
+  "TypeError",
+  "RangeError",
+  "SyntaxError",
+  "ReferenceError",
+  "EvalError",
+  "URIError",
+  "AbortError",
+  "TimeoutError",
+  "AggregateError",
+  "OfficialSourceRetrievalError",
+]);
+
 function failureLabel(err: unknown): string {
-  return err instanceof Error && typeof err.name === "string" && err.name.length > 0
-    ? err.name
-    : "UNKNOWN_ERROR";
+  if (!(err instanceof Error) || typeof err.name !== "string") return "UNKNOWN_ERROR";
+  return RECOGNISED_ERROR_NAMES.has(err.name) ? err.name : "UNRECOGNISED_ERROR_TYPE";
 }
 
 async function guarded<T>(fn: () => Promise<T>, onThrow: (reasonCode: string) => T): Promise<T> {
@@ -364,6 +456,18 @@ export function buildProductionRegistryRefreshPorts(
 ): RegistryRefreshPorts {
   const scratch = emptyScratch();
 
+  /**
+   * One budget per RUN, not per composition.
+   *
+   * A service instance is reusable, so a budget created here and never
+   * replaced would let a failed attempt spend the next attempt's ceiling and
+   * would report two runs as one ledger. `runLifecycle.beginRun` swaps in a
+   * fresh one at the start of every actual attempt; the closures below read
+   * the variable at call time, so they always charge the current run.
+   */
+  let budget = createTransportBudget(EXCHANGE_TRANSPORT_PLAN.maxTotalRequests);
+  _lastTransportBudget = budget;
+
   const getPrior = async (): Promise<RegistryGeneration | null> => {
     if (!scratch.priorLoaded) {
       scratch.prior = await deps.loadLatestAcceptedGeneration("PRIOR_FIRST_SEEN_CARRY_FORWARD");
@@ -373,6 +477,7 @@ export function buildProductionRegistryRefreshPorts(
   };
 
   const retrieveText = async (
+    sourceId: string,
     url: string,
     allowedContentTypePrefixes: readonly string[],
   ): Promise<{ ok: true; text: string } | { ok: false; reasonCode: string }> => {
@@ -380,6 +485,9 @@ export function buildProductionRegistryRefreshPorts(
       url,
       allowedContentTypePrefixes,
       headers: exchangeRequestHeaders(url),
+      budget,
+      sourceId,
+      hopKind: "BASE_DOCUMENT",
     });
     if (!res.ok) return { ok: false, reasonCode: res.reasonCode };
     return { ok: true, text: res.bytes.toString(SOURCE_ENCODING) };
@@ -395,6 +503,9 @@ export function buildProductionRegistryRefreshPorts(
           url,
           allowedContentTypePrefixes: SOURCE_CONTENT_TYPES[sourceId],
           headers: exchangeRequestHeaders(url),
+          budget,
+          sourceId,
+          hopKind: "BASE_DOCUMENT",
         });
         if (!res.ok) throw new OfficialSourceRetrievalError(sourceId, res.reasonCode);
 
@@ -433,6 +544,10 @@ export function buildProductionRegistryRefreshPorts(
     // ── calendar + latest completed session ──────────────────────────────
     calendar: {
       async buildAndResolveLatestCompletedSession({ nowMs }): Promise<CalendarResolution> {
+        // PHASE 0.8E — every specific reason is accumulated, never overwritten.
+        // The first proof reported one word for a multi-source failure; this
+        // list is what makes the next attempt informed rather than a guess.
+        const subBlockers: CalendarSubBlocker[] = [];
         const unresolved = (
           reasonCode: string,
           calendarGenerationId: string | null = null,
@@ -442,54 +557,140 @@ export function buildProductionRegistryRefreshPorts(
           calendarGenerationId,
           latestCompletedSessionDate: null,
           calendarValidUntilMs: null,
+          subBlockers: Object.freeze([...subBlockers]),
         });
+
+        /**
+         * Record a parser verdict WITHOUT letting its detail text escape.
+         *
+         * Reads the shape defensively: a parse result that carries no
+         * provenance is itself reportable, and must not throw its way into the
+         * generic port-threw label that hides which source was involved.
+         */
+        const noteParserVerdict = (fallbackSourceId: string, parsed: unknown): void => {
+          const prov = (parsed as { provenance?: Record<string, unknown> } | null)?.provenance;
+          const state = typeof prov?.validationResult === "string" ? prov.validationResult : null;
+          if (state === "ACCEPTED") return;
+          subBlockers.push({
+            code:
+              state === null
+                ? CALENDAR_BLOCKER_CODE.UNCLASSIFIED_CALENDAR_BLOCKER
+                : classifyParserRejection(
+                    state,
+                    typeof prov?.rejectionDetail === "string" ? prov.rejectionDetail : null,
+                  ),
+            sourceId: typeof prov?.sourceId === "string" ? prov.sourceId : fallbackSourceId,
+            stage: "SOURCE_VALIDATION",
+            sourceValidationState: state,
+            observedBytes: typeof prov?.contentBytes === "number" ? prov.contentBytes : null,
+            requiredBytes: null,
+          });
+        };
+
         return guarded(async () => {
           const retrievedAt = new Date(nowMs).toISOString();
           const calendarYear = Number(retrievedAt.slice(0, 4));
+          const docDeps = { fetchBytes: deps.fetchBytes, budget, encoding: SOURCE_ENCODING };
 
-          const [nseHoliday, bseHoliday, nseTimings, bseTimings] = await Promise.all([
-            retrieveText(NSE_HOLIDAY_MASTER_URL, JSON_CONTENT_TYPES),
-            retrieveText(BSE_TRADING_HOLIDAYS_URL, [...SCRIPT_CONTENT_TYPES, ...HTML_CONTENT_TYPES]),
-            retrieveText(NSE_MARKET_TIMINGS_URL, [...HTML_CONTENT_TYPES, "text/plain"]),
-            retrieveText(BSE_EQUITY_SESSION_TIMINGS_PAGE, [
-              ...SCRIPT_CONTENT_TYPES,
-              ...HTML_CONTENT_TYPES,
-            ]),
-          ]);
+          /**
+           * BSE serves `listholi.aspx` and `tra_trading.aspx` as application
+           * SHELLS. The accepted Phase 0.6A parsers are written against BSE's
+           * application bundle — >= 1 MiB and carrying the published equity
+           * trading-holidays caption — which is exactly why they refused in the
+           * first proof. Both the holidays table and the continuous-session row
+           * live in that ONE artefact, so it is discovered and retrieved once.
+           */
+          const bseBundleSpec: AuthoritativeDocumentSpec = {
+            sourceId: "BSE_APPLICATION_BUNDLE",
+            url: BSE_TRADING_HOLIDAYS_URL,
+            documentContentTypePrefixes: [...SCRIPT_CONTENT_TYPES, ...HTML_CONTENT_TYPES],
+            artefact: {
+              minBytes: MIN_BSE_BUNDLE_BYTES,
+              identityAnchor: BSE_BUNDLE_IDENTITY_ANCHOR,
+            },
+            discovery: {
+              // Anchored on the ROLE of the chunk, never on a build hash: the
+              // hash segment stays a wildcard so a BSE rebuild cannot turn a
+              // correct rule into a stale hardcoded filename.
+              basenamePattern: /^main[.-][A-Za-z0-9_-]*\.js$/i,
+              contentTypePrefixes: SCRIPT_CONTENT_TYPES,
+              maxBytes: RETRIEVAL_MAX_BYTES,
+            },
+          };
+          const nseHolidaySpec: AuthoritativeDocumentSpec = {
+            sourceId: "NSE_HOLIDAY_MASTER",
+            url: NSE_HOLIDAY_MASTER_URL,
+            documentContentTypePrefixes: JSON_CONTENT_TYPES,
+            artefact: null,
+            discovery: null,
+          };
+          /**
+           * NSE publishes its timings as server-rendered HTML, and the accepted
+           * parser requires a terminated HTML document with label/value rows.
+           * Discovery is therefore DISABLED here: no script bundle could ever
+           * satisfy that parser, so "find a bundle" would be a guess that
+           * cannot help. A shell here is reported as a shell.
+           */
+          const nseTimingsSpec: AuthoritativeDocumentSpec = {
+            sourceId: "NSE_MARKET_TIMINGS",
+            url: NSE_MARKET_TIMINGS_URL,
+            documentContentTypePrefixes: [...HTML_CONTENT_TYPES, "text/plain"],
+            artefact: { minBytes: MIN_NSE_TIMINGS_PAGE_BYTES },
+            discovery: null,
+          };
 
-          for (const [label, r] of [
-            ["NSE_HOLIDAY_MASTER", nseHoliday],
-            ["BSE_TRADING_HOLIDAYS", bseHoliday],
-            ["NSE_MARKET_TIMINGS", nseTimings],
-            ["BSE_SESSION_TIMINGS", bseTimings],
-          ] as const) {
-            if (!r.ok) {
-              return unresolved(
-                `${REGISTRY_COMPOSITION_REASON.CALENDAR_SOURCE_RETRIEVAL_FAILED}:${label}:${r.reasonCode}`,
-              );
-            }
+          // Sequential, so budget attribution per source is deterministic, and
+          // ALL THREE are attempted even after one fails — a run that stops at
+          // the first failure can only ever report one blocker.
+          const nseHoliday = await retrieveAuthoritativeDocument(nseHolidaySpec, docDeps);
+          const nseTimings = await retrieveAuthoritativeDocument(nseTimingsSpec, docDeps);
+          const bseBundle = await retrieveAuthoritativeDocument(bseBundleSpec, docDeps);
+
+          for (const r of [nseHoliday, nseTimings, bseBundle]) {
+            if (r.ok) continue;
+            subBlockers.push({
+              code: classifyRetrievalFailure(r.reasonCode, r.transportReasonCode),
+              sourceId: r.sourceId,
+              stage:
+                r.reasonCode === "DOCUMENT_RETRIEVAL_FAILED" ? "TRANSPORT" : "ARTEFACT_DISCOVERY",
+              sourceValidationState: r.transportReasonCode,
+              observedBytes: r.observedBytes,
+              requiredBytes: r.requiredBytes,
+            });
           }
-          if (!nseHoliday.ok || !bseHoliday.ok || !nseTimings.ok || !bseTimings.ok) {
+          if (!nseHoliday.ok || !nseTimings.ok || !bseBundle.ok) {
             return unresolved(REGISTRY_COMPOSITION_REASON.CALENDAR_SOURCE_RETRIEVAL_FAILED);
           }
 
+          const parsedSources = [
+            deps.parseNseHolidayMaster(nseHoliday.text, { retrievedAt, calendarYear }),
+            deps.parseBseTradingHolidayPage(bseBundle.text, { retrievedAt, calendarYear }),
+          ];
+          const parsedTimings = [
+            deps.parseNseMarketTimings(nseTimings.text, {
+              retrievedAt,
+              effectiveYear: calendarYear,
+              sourceUrl: NSE_MARKET_TIMINGS_URL,
+            }),
+            deps.parseBseSessionTimings(bseBundle.text, {
+              retrievedAt,
+              effectiveYear: calendarYear,
+              // The URL the bytes actually came from, not the shell we asked
+              // for. Provenance must name the artefact that was parsed.
+              sourceUrl: bseBundle.authoritativeUrl,
+            }),
+          ];
+
+          // Record EVERY non-accepted source before judging the calendar, so
+          // two simultaneous rejections are both retained.
+          noteParserVerdict("NSE_HOLIDAY_MASTER", parsedSources[0]);
+          noteParserVerdict("BSE_TRADING_HOLIDAYS", parsedSources[1]);
+          noteParserVerdict("NSE_MARKET_TIMINGS", parsedTimings[0]);
+          noteParserVerdict("BSE_SESSION_TIMINGS", parsedTimings[1]);
+
           const calendar = deps.buildExchangeCalendar({
-            sources: [
-              deps.parseNseHolidayMaster(nseHoliday.text, { retrievedAt, calendarYear }),
-              deps.parseBseTradingHolidayPage(bseHoliday.text, { retrievedAt, calendarYear }),
-            ],
-            timings: [
-              deps.parseNseMarketTimings(nseTimings.text, {
-                retrievedAt,
-                effectiveYear: calendarYear,
-                sourceUrl: NSE_MARKET_TIMINGS_URL,
-              }),
-              deps.parseBseSessionTimings(bseTimings.text, {
-                retrievedAt,
-                effectiveYear: calendarYear,
-                sourceUrl: BSE_EQUITY_SESSION_TIMINGS_PAGE,
-              }),
-            ],
+            sources: parsedSources,
+            timings: parsedTimings,
             exchanges: ["NSE", "BSE"],
             years: [calendarYear],
             generatedAt: retrievedAt,
@@ -497,6 +698,16 @@ export function buildProductionRegistryRefreshPorts(
           scratch.calendar = calendar;
 
           if (!calendar.valid) {
+            for (const text of calendar.blockers ?? []) {
+              subBlockers.push({
+                code: classifyAssemblyBlocker(text),
+                sourceId: "EXCHANGE_CALENDAR",
+                stage: "CALENDAR_ASSEMBLY",
+                sourceValidationState: null,
+                observedBytes: null,
+                requiredBytes: null,
+              });
+            }
             return unresolved(
               REGISTRY_COMPOSITION_REASON.CALENDAR_INVALID,
               calendar.calendarGenerationId,
@@ -507,6 +718,14 @@ export function buildProductionRegistryRefreshPorts(
           // BSE session, so that is the session the whole refresh is pinned to.
           const latest = deps.getLatestCompletedTradingSession(calendar, "BSE", nowMs);
           if (!latest.ok) {
+            subBlockers.push({
+              code: CALENDAR_BLOCKER_CODE.LATEST_SESSION_UNRESOLVED,
+              sourceId: "BSE_LATEST_COMPLETED_SESSION",
+              stage: "SESSION_RESOLUTION",
+              sourceValidationState: null,
+              observedBytes: null,
+              requiredBytes: null,
+            });
             return unresolved(
               `${REGISTRY_COMPOSITION_REASON.LATEST_COMPLETED_SESSION_UNKNOWN}:${latest.reason}`,
               calendar.calendarGenerationId,
@@ -523,6 +742,7 @@ export function buildProductionRegistryRefreshPorts(
             calendarGenerationId: calendar.calendarGenerationId,
             latestCompletedSessionDate: latest.session.tradingDate,
             calendarValidUntilMs: authority.validUntilMs,
+            subBlockers: Object.freeze([]),
           };
         }, unresolved);
       },
@@ -584,6 +804,15 @@ export function buildProductionRegistryRefreshPorts(
           async () => promoteImpl(generationId, nowMs),
           (reasonCode) => ({ promoted: false, reasonCode }),
         );
+      },
+    },
+
+    // Fresh transport scope for every attempt: the ceiling and the evidence
+    // ledger both mean "this run", never "since this object was built".
+    runLifecycle: {
+      beginRun(): void {
+        budget = createTransportBudget(EXCHANGE_TRANSPORT_PLAN.maxTotalRequests);
+        _lastTransportBudget = budget;
       },
     },
 
@@ -709,7 +938,7 @@ export function buildProductionRegistryRefreshPorts(
         // way round. Picking a recent file and then asking which session it
         // belongs to would quietly reconcile to a stale session.
         const udiffUrl = bseUdiffUrlFor(latestCompletedSessionDate);
-        const retrieved = await retrieveText(udiffUrl, CSV_CONTENT_TYPES);
+        const retrieved = await retrieveText("BSE_UDIFF_BHAVCOPY", udiffUrl, CSV_CONTENT_TYPES);
         if (!retrieved.ok) {
           return {
             authorized: false,

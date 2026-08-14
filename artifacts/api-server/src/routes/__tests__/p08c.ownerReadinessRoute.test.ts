@@ -270,7 +270,14 @@ describe("Phase 0.8C correction — authenticated owner readiness route", () => 
     //    public reference data, not to an auth token. Excusing the name without
     //    inspecting the value would make this assertion decorative, so the
     //    exception costs an extra check rather than removing one.
-    const ALLOWED_CREDENTIAL_SHAPED_KEYS = new Set(["tokenReconciliation"]);
+    // `requiredTokenCount` (Phase 0.8E shard-plan capacity evidence) is the
+    // second allowed exception, on the same terms: "token" there means an
+    // exchange INSTRUMENT token, and the field is a COUNT of them. It is
+    // allowed by name only because 2b2 below proves the value is numeric.
+    const ALLOWED_CREDENTIAL_SHAPED_KEYS = new Set([
+      "tokenReconciliation",
+      "requiredTokenCount",
+    ]);
     const forbiddenKey =
       /(token|secret|password|passwd|cookie|apikey|api_key|authorization|bearer|credential|session_id|accesskey)/i;
     const keys: string[] = [];
@@ -301,6 +308,28 @@ describe("Phase 0.8C correction — authenticated owner readiness route", () => 
       if (typeof v === "number" || typeof v === "boolean") continue;
       expect(typeof v, `tokenReconciliation.${k} must be a coded string`).toBe("string");
       expect(v as string, `tokenReconciliation.${k}`).toMatch(/^[A-Z0-9_]{1,64}$/);
+    }
+
+    // 2b2. The other allowlisted name must be a count, never a value. A number
+    //      (or null when no plan exists) cannot carry credential material; a
+    //      string here would mean the name was excused for the wrong reason.
+    const capacityCounts: unknown[] = [];
+    const collectCounts = (node: unknown): void => {
+      if (Array.isArray(node)) {
+        node.forEach(collectCounts);
+        return;
+      }
+      if (node !== null && typeof node === "object") {
+        for (const [k, v] of Object.entries(node)) {
+          if (k === "requiredTokenCount") capacityCounts.push(v);
+          collectCounts(v);
+        }
+      }
+    };
+    collectCounts(body);
+    expect(capacityCounts.length).toBeGreaterThan(0);
+    for (const v of capacityCounts) {
+      expect(v === null || typeof v === "number", "requiredTokenCount must be a count").toBe(true);
     }
 
     // 2c. No string value ANYWHERE in the tree looks like opaque credential

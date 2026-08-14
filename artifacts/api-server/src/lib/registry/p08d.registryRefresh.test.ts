@@ -128,6 +128,7 @@ function makePorts(
           latestCompletedSessionDate: ok ? "2026-08-13" : null,
           calendarValidUntilMs:
             over.calendarValidUntilMs === undefined ? null : over.calendarValidUntilMs,
+          subBlockers: [],
         };
       },
     },

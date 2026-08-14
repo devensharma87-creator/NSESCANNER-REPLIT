@@ -45,7 +45,16 @@ import {
 } from "./feedManager";
 import { REFUSING_FEED_CLIENT_FACTORY } from "./feedClientPort";
 import { getSubscriptionAdmissionManifestNow } from "../registry/subscriptionManifest";
-import { planFeedShards, SHARD_POLICY_VERSION } from "../registry/feedShardPlan";
+import {
+  planFeedShards,
+  PROVIDER_TOKEN_CAPACITY,
+  SHARD_POLICY_VERSION,
+  type FeedShardPlan,
+} from "../registry/feedShardPlan";
+import {
+  admitShardPlan,
+  type ShardAdmissionBlocker,
+} from "./shardPlanInvariants";
 import { evaluateActivationGates } from "../registry/feedActivationGates";
 import {
   getActiveGenerationAuthority,
@@ -88,7 +97,7 @@ import {
 // does NOT import an execution path, because the services are constructed by
 // factories that this module never calls.
 import { AUTHORITATIVE_REGISTRY_REFRESH_AUTHORIZED } from "../registry/registryRefreshControl";
-import { getRegistryRefreshOperationDiagnostics } from "../registry/registryRefreshOrchestrator";
+import { getRegistryRefreshOperationDiagnosticsRedacted } from "../registry/registryRefreshOrchestrator";
 import { KITE_SESSION_VALIDATION_AUTHORIZED } from "./kiteSessionValidationControl";
 import { getKiteValidationOperationDiagnostics } from "./kiteSessionValidationAdapter";
 
@@ -405,6 +414,191 @@ export function evaluateRegistryAuthorityEvidence(
   };
 }
 
+// ── Section H: shard-plan capacity evidence ────────────────────────────────
+
+/**
+ * The provider token capacity, derived — not hardcoded.
+ *
+ * One Kite API key permits `MAX_SOCKETS` concurrent sockets of
+ * `MAX_TOKENS_PER_SOCKET` tokens each, so the ceiling is their product. It is
+ * re-exported here (as the planner's own `PROVIDER_TOKEN_CAPACITY`) purely so
+ * this gate's honesty is legible at a glance: the "9,000" in the owner
+ * directive is `3 * 3000`, and if either constant ever changes this gate moves
+ * with it rather than lying about a stale number.
+ */
+export const SHARD_PLAN_PROVIDER_TOKEN_CAPACITY = PROVIDER_TOKEN_CAPACITY;
+
+/**
+ * Blockers from `admitShardPlan` that mean "this plan asks for more socket or
+ * token budget than the provider grants" — i.e. an ACTUALLY COMPUTED capacity
+ * overflow, as opposed to a structural defect in the plan's shape.
+ *
+ * These are the only admission blockers that may surface as
+ * `PROVIDER_CAPACITY_EXCEEDED`. Everything else `admitShardPlan` can report is
+ * a structural fault and must NOT be collapsed into the capacity reason.
+ */
+const CAPACITY_ADMISSION_BLOCKERS: ReadonlySet<ShardAdmissionBlocker> = new Set<
+  ShardAdmissionBlocker
+>(["SOCKET_CEILING_EXCEEDED", "SHARD_TOKEN_CEILING_EXCEEDED"]);
+
+export interface ShardPlanCapacityEvidence {
+  readonly state: EvidenceState;
+  readonly reasonCode: string;
+  /** The token/subscription requirement, when one could actually be computed. */
+  readonly requiredTokenCount: number | null;
+  /** The derived provider ceiling (MAX_SOCKETS * MAX_TOKENS_PER_SOCKET). */
+  readonly capacity: number;
+  /** capacity - required, when required is known; otherwise null. */
+  readonly headroom: number | null;
+  readonly details: readonly string[];
+}
+
+/**
+ * Judge the SHARD_PLAN_CAPACITY_ADMITTED gate HONESTLY.
+ *
+ * THE DEFECT THIS REPLACES
+ * ------------------------
+ * The gate used to stamp the fixed literal "SHARD_PLAN_EXCEEDS_PROVIDER_CAPACITY"
+ * on EVERY non-PASS outcome. When there is no registry generation / manifest /
+ * shard plan at all, that reported MISSING evidence as a PROVEN capacity
+ * overflow — a diagnostic that describes an absence as a specific,
+ * hard-to-hit failure the operator never actually caused.
+ *
+ * THE HONEST REASON TABLE
+ * -----------------------
+ *   - no plan (REFUSED for a "nothing to plan" reason) -> NOT_EVALUATED,
+ *     reasonCode SHARD_PLAN_UNAVAILABLE. Never a capacity reason.
+ *   - a real, computed requirement strictly ABOVE `capacity`     -> FAIL,
+ *     reasonCode PROVIDER_CAPACITY_EXCEEDED.
+ *   - a plan that exists but is structurally malformed           -> FAIL,
+ *     reasonCode SHARD_PLAN_MALFORMED (carrying the admission blocker).
+ *   - an admitted plan at or below `capacity`                    -> PASS,
+ *     carrying exact required/capacity/headroom metadata.
+ *
+ * This does NOT relax the gate. Every non-PASS path still fails closed; only
+ * the REASON changes to match reality. The re-proof runs `admitShardPlan`
+ * against the plan's own contents rather than trusting `plan.state`.
+ */
+export function judgeShardPlanCapacity(plan: FeedShardPlan): ShardPlanCapacityEvidence {
+  const capacity = SHARD_PLAN_PROVIDER_TOKEN_CAPACITY;
+
+  // A REFUSED plan is not automatically an overflow. The planner refuses for
+  // several distinct reasons, and only one of them is a real capacity breach.
+  if (plan.state === "REFUSED") {
+    // The planner already computed a token count above capacity: this is the
+    // one REFUSED case that is a genuine, proven overflow.
+    if (plan.blockerCode === "PROVIDER_CAPACITY_EXCEEDED") {
+      const required = plan.totalTokens;
+      return {
+        state: "FAIL",
+        reasonCode: "PROVIDER_CAPACITY_EXCEEDED",
+        requiredTokenCount: required,
+        capacity,
+        headroom: capacity - required,
+        details: [
+          `REQUIRED_TOKENS=${required}`,
+          `CAPACITY=${capacity}`,
+          "COMPUTED_REQUIREMENT_STRICTLY_ABOVE_PROVIDER_CAPACITY",
+        ],
+      };
+    }
+    // A plan that got far enough to be shaped and THEN failed a structural
+    // planner rule (e.g. index-priority overflow) is malformed, not absent.
+    if (plan.blockerCode === "INDEX_PRIORITY_SHARD_OVERFLOW") {
+      return {
+        state: "FAIL",
+        reasonCode: "SHARD_PLAN_MALFORMED",
+        requiredTokenCount: plan.totalTokens > 0 ? plan.totalTokens : null,
+        capacity,
+        headroom: null,
+        details: [`PLANNER_BLOCKER=${plan.blockerCode}`, "PLAN_IS_STRUCTURALLY_UNSOUND"],
+      };
+    }
+    // Everything else — manifest unavailable, no admitted instruments, no
+    // generation — is MISSING evidence, not a capacity overflow. State
+    // NOT_EVALUATED because nothing was actually measured against the ceiling.
+    return {
+      state: "NOT_EVALUATED",
+      reasonCode: "SHARD_PLAN_UNAVAILABLE",
+      requiredTokenCount: null,
+      capacity,
+      headroom: null,
+      details: [
+        `PLANNER_BLOCKER=${plan.blockerCode ?? "NONE"}`,
+        "NO_REGISTRY_GENERATION_MANIFEST_OR_SHARD_PLAN_TO_MEASURE",
+      ],
+    };
+  }
+
+  // A PLANNED plan is re-proven from its own contents, never trusted by label.
+  const admission = admitShardPlan(plan);
+  if (!admission.admitted) {
+    const capacityBlockers = admission.blockers.filter((b) => CAPACITY_ADMISSION_BLOCKERS.has(b));
+    // If — and only if — every blocker is a capacity ceiling breach do we call
+    // it a capacity overflow. Any structural blocker present makes it malformed.
+    if (capacityBlockers.length === admission.blockers.length && capacityBlockers.length > 0) {
+      const required = admission.observedTotalTokens;
+      return {
+        state: "FAIL",
+        reasonCode: "PROVIDER_CAPACITY_EXCEEDED",
+        requiredTokenCount: required,
+        capacity,
+        headroom: capacity - required,
+        details: [
+          `REQUIRED_TOKENS=${required}`,
+          `CAPACITY=${capacity}`,
+          `CAPACITY_BLOCKERS=${capacityBlockers.join(",")}`,
+        ],
+      };
+    }
+    return {
+      state: "FAIL",
+      reasonCode: "SHARD_PLAN_MALFORMED",
+      requiredTokenCount: admission.observedTotalTokens,
+      capacity,
+      // Headroom is meaningless for a malformed plan; do not fabricate one.
+      headroom: null,
+      details: [
+        `ADMISSION_BLOCKERS=${admission.blockers.join(",")}`,
+        "PLAN_FAILED_ADMISSION_FOR_A_NON_CAPACITY_REASON",
+      ],
+    };
+  }
+
+  // Admitted. Defensive final capacity re-check against the RECOMPUTED token
+  // count — a plan admitted by the invariant checker must still not exceed the
+  // ceiling. This can only trigger if the ceilings above ever disagree; it
+  // fails closed as a true, computed overflow if so.
+  const required = admission.observedTotalTokens;
+  if (required > capacity) {
+    return {
+      state: "FAIL",
+      reasonCode: "PROVIDER_CAPACITY_EXCEEDED",
+      requiredTokenCount: required,
+      capacity,
+      headroom: capacity - required,
+      details: [
+        `REQUIRED_TOKENS=${required}`,
+        `CAPACITY=${capacity}`,
+        "ADMITTED_PLAN_STILL_EXCEEDS_CAPACITY",
+      ],
+    };
+  }
+
+  return {
+    state: "PASS",
+    reasonCode: "SHARD_PLAN_CAPACITY_ADMITTED",
+    requiredTokenCount: required,
+    capacity,
+    headroom: capacity - required,
+    details: [
+      `REQUIRED_TOKENS=${required}`,
+      `CAPACITY=${capacity}`,
+      `HEADROOM=${capacity - required}`,
+    ],
+  };
+}
+
 // ── The full decision ──────────────────────────────────────────────────────
 
 /**
@@ -419,6 +613,7 @@ export interface ProductionActivationSnapshot {
   readonly singleton: SingletonAttestationVerdict;
   readonly authority: RegistryAuthorityEvidence;
   readonly kiteSession: KiteSessionEvidenceVerdict;
+  readonly shardCapacity: ShardPlanCapacityEvidence;
 }
 
 /**
@@ -494,6 +689,9 @@ export function buildProductionActivationSnapshot(nowMs: number): ProductionActi
       : "FAIL";
 
   const genId = plan.registryGenerationId;
+
+  // ── Section H: honest shard-plan capacity re-proof ──
+  const shardCapacity = judgeShardPlanCapacity(plan);
 
   const gates: FeedActivationGate[] = [
     // 1. compile-time lock
@@ -638,14 +836,28 @@ export function buildProductionActivationSnapshot(nowMs: number): ProductionActi
       details: kiteSession.detailsSafeForOwnerDiagnostics,
     }),
     // 9. deterministic shard / capacity re-proof
+    //
+    // PHASE 0.8E — the reason is now DERIVED from an actual re-proof of the
+    // plan (`judgeShardPlanCapacity` -> `admitShardPlan`), not a fixed literal.
+    // When there is no plan at all the gate reports SHARD_PLAN_UNAVAILABLE
+    // (missing evidence), never a capacity overflow it did not observe. Only a
+    // computed requirement strictly above the derived provider capacity reports
+    // PROVIDER_CAPACITY_EXCEEDED. Structural faults get SHARD_PLAN_MALFORMED.
+    // The gate still fails closed in every non-PASS case; only the honesty of
+    // the reason changed. `sourceIdentity` stays the generation id so the
+    // cross-generation binding in `judgeEvidence` is unaffected.
     gate({
       gateId: "SHARD_PLAN_CAPACITY_ADMITTED",
-      state: mapOldGateState(oldStateMap.get("SHARD_PLAN_WITHIN_PROVIDER_CAPACITY")),
-      reasonCode: "SHARD_PLAN_EXCEEDS_PROVIDER_CAPACITY",
+      state: shardCapacity.state,
+      reasonCode: shardCapacity.reasonCode,
       evaluatedAt: nowMs,
       validUntil: null,
       sourceKind: "SHARD_PLAN",
       sourceIdentity: genId,
+      // PASS carries the exact capacity metadata the owner directive requires;
+      // non-PASS carries the honest, distinct diagnostic detail.
+      details: shardCapacity.details,
+      passReasonCode: "SHARD_PLAN_CAPACITY_ADMITTED",
     }),
   ];
 
@@ -663,6 +875,7 @@ export function buildProductionActivationSnapshot(nowMs: number): ProductionActi
     singleton,
     authority,
     kiteSession,
+    shardCapacity,
   };
 }
 
@@ -842,6 +1055,19 @@ export function buildActivationReadinessReport(nowMs: number): Record<string, un
       validatedAtMs: snap.kiteSession.validatedAtMs,
       validUntilMs: snap.kiteSession.validUntilMs,
     },
+    // PHASE 0.8E — the shard-plan capacity gate rendered with its HONEST reason
+    // and exact capacity accounting. `blockerCode` is null on PASS; on a true
+    // overflow it is PROVIDER_CAPACITY_EXCEEDED; when no plan exists it is
+    // SHARD_PLAN_UNAVAILABLE (never a capacity claim); a structural fault is
+    // SHARD_PLAN_MALFORMED. `headroom` is capacity - required, or null when no
+    // requirement could be computed.
+    shardPlanCapacity: {
+      state: snap.shardCapacity.state,
+      blockerCode: snap.shardCapacity.state === "PASS" ? null : snap.shardCapacity.reasonCode,
+      requiredTokenCount: snap.shardCapacity.requiredTokenCount,
+      capacity: snap.shardCapacity.capacity,
+      headroom: snap.shardCapacity.headroom,
+    },
     feedManager: {
       state: diag.state,
       blocker: diag.blocker,
@@ -869,7 +1095,8 @@ export function buildActivationReadinessReport(nowMs: number): Record<string, un
      * by sending a request.
      */
     controlledOperations: {
-      registryRefresh: getRegistryRefreshOperationDiagnostics(),
+      // Emitted to the owner, so it crosses the redaction boundary first.
+      registryRefresh: getRegistryRefreshOperationDiagnosticsRedacted(),
       kiteSessionValidation: getKiteValidationOperationDiagnostics(),
       executionRouteExposed: false,
       schedulerRegistered: false,

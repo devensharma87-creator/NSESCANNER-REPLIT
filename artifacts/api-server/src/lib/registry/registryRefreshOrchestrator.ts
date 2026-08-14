@@ -47,6 +47,9 @@ import {
   REGISTRY_REFRESH_AUTHORIZATION_ID,
 } from "./registryRefreshControl";
 import { SingleFlightGuard } from "../operationalSingleFlight";
+import { redactForOwnerDiagnostics } from "../safeDiagnosticRedaction";
+import type { CalendarSubBlocker } from "./calendarBlockerContract";
+import { formatSubBlockers } from "./calendarBlockerContract";
 
 /**
  * Every source a complete generation requires. A refresh is all-or-nothing:
@@ -113,6 +116,14 @@ export interface CalendarResolution {
   readonly latestCompletedSessionDate: string | null;
   /** When this calendar stops speaking for the present. */
   readonly calendarValidUntilMs: number | null;
+  /**
+   * PHASE 0.8E — every specific reason the calendar failed, not just the first.
+   *
+   * A run can fail on several sources at once for unrelated reasons. Reporting
+   * one and discarding the rest turns a diagnosable outage into a sequence of
+   * guesses, so the whole bounded, coded list is carried up.
+   */
+  readonly subBlockers: readonly CalendarSubBlocker[];
 }
 
 export interface ExchangeCalendarPort {
@@ -199,6 +210,22 @@ export interface RegistryRefreshPorts {
   readonly coldLoadVerifier: ColdLoadVerifierPort;
   readonly authorityPromotion: AuthorityPromotionPort;
   readonly audit: RefreshAuditPort;
+  /**
+   * PHASE 0.8E — called once at the START of each actual refresh attempt.
+   *
+   * A service instance is reusable, so anything scoped to "a run" cannot be
+   * scoped to construction. A per-run transport ceiling built at construction
+   * time would let a failed first attempt spend the authorized retry's budget
+   * and would merge two runs into one evidence ledger.
+   *
+   * Optional so existing compositions and test fakes remain valid: a
+   * composition with nothing run-scoped simply has nothing to reset.
+   */
+  readonly runLifecycle?: RunLifecyclePort;
+}
+
+export interface RunLifecyclePort {
+  beginRun(input: { readonly startedAtMs: number }): void;
 }
 
 // ── result contract ──────────────────────────────────────────────────────────
@@ -250,6 +277,12 @@ export interface RegistryRefreshResult {
   readonly completedAtMs: number;
   /** Coded, secret-free strings only. Never a URL body, credential or raw error. */
   readonly detailsSafeForOwnerDiagnostics: readonly string[];
+  /**
+   * Specific calendar blockers, retained whenever the run failed on the
+   * calendar. Empty for every other stage — never null, so a consumer cannot
+   * mistake "this stage has no calendar blockers" for "we did not look".
+   */
+  readonly calendarSubBlockers: readonly CalendarSubBlocker[];
 }
 
 // ── diagnostics state ────────────────────────────────────────────────────────
@@ -296,6 +329,22 @@ export function getRegistryRefreshOperationDiagnostics(): {
   });
 }
 
+/**
+ * Owner refresh diagnostics as a REDACTED, emit-safe payload — Phase 0.8E.
+ *
+ * The typed `getRegistryRefreshOperationDiagnostics()` above is consumed by
+ * callers that need the exact shape, so it is left untouched. This is the
+ * boundary an owner-facing serializer should use before emitting: it routes the
+ * payload through the structured, key-aware redactor. The diagnostics here are
+ * already coded and secret-free by construction; the redactor is defense in
+ * depth against a future `detail`/`reasonCode` string that accidentally carries
+ * credential-shaped content. `governingLockId` (a lock constant NAME, not a
+ * credential) survives because it is not an exact deny-set key.
+ */
+export function getRegistryRefreshOperationDiagnosticsRedacted(): unknown {
+  return redactForOwnerDiagnostics(getRegistryRefreshOperationDiagnostics());
+}
+
 /** Test-only. Never called by production code. */
 export function __resetRegistryRefreshDiagnosticsForTests(): void {
   _lastResult = null;
@@ -315,6 +364,7 @@ function refusal(
   completedAtMs: number,
   details: readonly string[],
   sourcesFetched = 0,
+  calendarSubBlockers: readonly CalendarSubBlocker[] = [],
 ): RegistryRefreshResult {
   return Object.freeze({
     ok: false,
@@ -329,6 +379,7 @@ function refusal(
     startedAtMs,
     completedAtMs,
     detailsSafeForOwnerDiagnostics: Object.freeze([...details]),
+    calendarSubBlockers: Object.freeze([...calendarSubBlockers]),
   });
 }
 
@@ -370,6 +421,10 @@ async function runOnce(
   ports: RegistryRefreshPorts,
   startedAtMs: number,
 ): Promise<RegistryRefreshResult> {
+  // Before ANY port can issue an external request, hand the composition a
+  // clean run scope. Placed first so no work can be charged to a stale one.
+  ports.runLifecycle?.beginRun({ startedAtMs });
+
   const emit = (r: RegistryRefreshResult): RegistryRefreshResult => {
     ports.audit.record({
       stage: r.stage,
@@ -384,7 +439,19 @@ async function runOnce(
     reasonCode: string,
     details: readonly string[],
     sourcesFetched = 0,
-  ) => emit(refusal(stage, reasonCode, startedAtMs, ports.clock.nowMs(), details, sourcesFetched));
+    calendarSubBlockers: readonly CalendarSubBlocker[] = [],
+  ) =>
+    emit(
+      refusal(
+        stage,
+        reasonCode,
+        startedAtMs,
+        ports.clock.nowMs(),
+        details,
+        sourcesFetched,
+        calendarSubBlockers,
+      ),
+    );
 
   // ── STEP 3: RETRIEVE EACH REQUIRED SOURCE EXACTLY ONCE ─────────────────
   //
@@ -448,11 +515,16 @@ async function runOnce(
   // ── STEP 6: CALENDAR + LATEST COMPLETED SESSION ────────────────────────
   const calendar = await ports.calendar.buildAndResolveLatestCompletedSession({ nowMs: startedAtMs });
   if (!calendar.ok || calendar.latestCompletedSessionDate === null) {
+    // The top-level reason stays STABLE (`EXCHANGE_CALENDAR_UNRESOLVED`) so
+    // every existing consumer and gate keeps working, while the specific,
+    // per-source blockers travel alongside it instead of being discarded.
+    const subBlockers = calendar.subBlockers ?? [];
     return refuse(
       "CALENDAR_RESOLUTION",
       REGISTRY_REFRESH_REASON.CALENDAR_UNRESOLVED,
-      [`CALENDAR=${calendar.reasonCode ?? "UNRESOLVED"}`],
+      [`CALENDAR=${calendar.reasonCode ?? "UNRESOLVED"}`, ...formatSubBlockers(subBlockers)],
       fetched.length,
+      subBlockers,
     );
   }
 
@@ -568,6 +640,7 @@ async function runOnce(
         `SKIPPED=${persisted.skippedReason}`,
         "RETENTION_APPLIED=false",
       ]),
+      calendarSubBlockers: Object.freeze([]),
     });
     return emit(r);
   }
@@ -629,6 +702,7 @@ async function runOnce(
         "RETENTION_APPLIED=true",
         "COLD_LOAD_VERIFIED=true",
       ]),
+      calendarSubBlockers: Object.freeze([]),
     }),
   );
 }

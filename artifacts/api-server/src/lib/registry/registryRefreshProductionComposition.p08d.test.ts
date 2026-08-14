@@ -138,8 +138,15 @@ const URL_BODIES = new Map<string, string>([
     (id) => [SOURCE_URLS[id], SOURCE_BODIES[id]] as [string, string],
   ),
   [NSE_HOLIDAY_MASTER_URL, "{}"],
-  [BSE_TRADING_HOLIDAYS_URL, "<html></html>"],
-  [NSE_MARKET_TIMINGS_URL, "<html></html>"],
+  // PHASE 0.8E: BSE serves an application SHELL; the authoritative artefact is
+  // the bundle it references. These fakes satisfy the retrieval contract so
+  // this test keeps exercising ORDERING rather than re-testing retrieval.
+  [BSE_TRADING_HOLIDAYS_URL, `<html><script src="/static/main.abc.js"></script></html>`],
+  [
+    "https://www.bseindia.com/static/main.abc.js",
+    `/* Display table for Trading Holidays for 2026 - Equity Segment */${"a".repeat(1024 * 1024)}`,
+  ],
+  [NSE_MARKET_TIMINGS_URL, `<html><body>${"t".repeat(32 * 1024)}</body></html>`],
   [BSE_EQUITY_SESSION_TIMINGS_PAGE, "<html></html>"],
   [bseUdiffUrlFor(SESSION_DATE), "udiff"],
 ]);

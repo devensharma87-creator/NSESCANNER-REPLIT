@@ -570,7 +570,8 @@ export const MIN_TIMING_BODY_BYTES = 512;
 export const MIN_NSE_TIMINGS_PAGE_BYTES = 32 * 1024;
 export const MIN_BSE_BUNDLE_BYTES = 1024 * 1024;
 /** Year-agnostic: the caption proves the artefact, not which year it covers. */
-const BSE_BUNDLE_IDENTITY_ANCHOR = /Display table for Trading Holidays for \d{4} - Equity Segment/i;
+export const BSE_BUNDLE_IDENTITY_ANCHOR =
+  /Display table for Trading Holidays for \d{4} - Equity Segment/i;
 
 export interface TimingParseOptions {
   readonly retrievedAt: string;

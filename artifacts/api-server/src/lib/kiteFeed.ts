@@ -29,6 +29,7 @@ import {
   type OwnerTokenReconciliationDiagnostics,
   type SubscriptionPort,
 } from "./providerTokenReconciliation";
+import { redactForOwnerDiagnostics } from "./safeDiagnosticRedaction";
 import {
   upsertQuote,
   getQuoteBySymbol,
@@ -553,6 +554,29 @@ export function feedStatus(): {
     lastDisconnectAt: lastDisconnect ? new Date(lastDisconnect).toISOString() : null,
     lastError,
     tokenReconciliation: tokenReconciliationDiagnostics(),
+  };
+}
+
+/**
+ * PHASE 0.8E — the SERIALIZATION boundary for feed status.
+ *
+ * `feedStatus()` above is the in-process view: other modules read its typed
+ * fields and must keep them. But `tokenReconciliation` carries free-form
+ * `detail` strings written by many call sites, and a diagnostic string is
+ * exactly where a credential eventually turns up. So anything about to be
+ * WRITTEN to an owner response goes through the structured redactor first.
+ *
+ * Key-aware, not substring-based: the safe `tokenReconciliation` shape and its
+ * counts survive; credential-shaped keys and values do not.
+ */
+export function feedStatusForOwnerWire(): Omit<
+  ReturnType<typeof feedStatus>,
+  "tokenReconciliation"
+> & { tokenReconciliation: unknown } {
+  const status = feedStatus();
+  return {
+    ...status,
+    tokenReconciliation: redactForOwnerDiagnostics(status.tokenReconciliation),
   };
 }
 

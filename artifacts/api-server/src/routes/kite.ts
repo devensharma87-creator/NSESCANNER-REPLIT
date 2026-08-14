@@ -1,7 +1,7 @@
 import { Router, type IRouter } from "express";
 import crypto from "node:crypto";
 import { buildLoginUrl, clearSession, completeLogin, forceRefreshInstruments, getActiveSession, getKiteCreds, storeImportedSession, exportInstrumentsCache, type ExportedSession } from "../lib/kiteAuth";
-import { addTickListener, feedStatus, getAllLiveQuotes, resolveLiveQuoteBySymbol, startTicker, stopTicker, subscribe } from "../lib/kiteFeed";
+import { addTickListener, feedStatusForOwnerWire, getAllLiveQuotes, resolveLiveQuoteBySymbol, startTicker, stopTicker, subscribe } from "../lib/kiteFeed";
 import { getKiteReadiness } from "../lib/kiteReadiness";
 import { requireOwner, requireOwnerStrict } from "../lib/userAuth";
 import { triggerKiteWarmup } from "../lib/kiteWarmup";
@@ -56,7 +56,7 @@ router.get("/kite/status", async (_req, res) => {
     userName: session?.userName ?? null,
     loginTime: session?.loginTime?.toISOString() ?? null,
     expiresAt: session?.expiresAt?.toISOString() ?? null,
-    feed: feedStatus(),
+    feed: feedStatusForOwnerWire(),
     readiness: await getKiteReadiness(),
   });
 });
@@ -301,11 +301,11 @@ router.post("/kite/import-session", async (req, res) => {
 router.post("/kite/subscribe", async (req, res) => {
   const symbols = Array.isArray(req.body?.symbols) ? (req.body.symbols as string[]) : [];
   const added = await subscribe(symbols);
-  res.json({ added, status: feedStatus() });
+  res.json({ added, status: feedStatusForOwnerWire() });
 });
 
 router.get("/kite/quotes", (_req, res) => {
-  res.json({ quotes: getAllLiveQuotes(), status: feedStatus() });
+  res.json({ quotes: getAllLiveQuotes(), status: feedStatusForOwnerWire() });
 });
 
 router.get("/kite/quote/:symbol", (req, res) => {
