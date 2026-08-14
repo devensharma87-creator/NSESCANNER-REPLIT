@@ -37,18 +37,9 @@ import {
 import { evaluateActivationGates } from "../lib/registry/feedActivationGates";
 import {
   buildProductionActivationSnapshot,
+  buildActivationReadinessReport,
   getProductionFeedManager,
 } from "../lib/feed/productionFeedManager";
-import { FEED_RUNTIME_ACTIVATION_AUTHORIZED } from "../lib/feed/feedManager";
-import { judgeAllRequiredEvidence } from "../lib/feed/activationEvidence";
-import {
-  FULL_NSE_WAREHOUSE_POPULATION_AUTHORIZED,
-  SCANNER_KITE_CANDLE_EVALUATION_AUTHORIZED,
-} from "../lib/candleEvaluationControl";
-import {
-  FNO_PAPER_V2_RUNTIME_AUTHORIZED,
-  SWING_PAPER_V2_RUNTIME_AUTHORIZED,
-} from "../lib/v2PaperLocks";
 import { admitShardPlan } from "../lib/feed/shardPlanInvariants";
 import {
   buildFeedCoverageLedger,
@@ -396,129 +387,10 @@ router.get("/data-health/topology", requireOwnerStrict, (req, res) => {
  */
 router.get("/data-health/activation-readiness", requireOwnerStrict, (req, res) => {
   try {
-    const nowMs = Date.now();
-    const snap = buildProductionActivationSnapshot(nowMs);
-    const diag = getProductionFeedManager().diagnostics();
-
-    const gates = snap.decision.gates.map((g) => ({
-      gateId: g.gateId,
-      state: g.state,
-      blockerCode: g.state === "PASS" ? null : (g.reasonCode ?? g.blockerCode ?? g.gateId),
-      evaluatedAt: g.evaluatedAt ?? null,
-      validUntil: g.validUntil ?? null,
-      // Present so an operator can see WHY a gate has no expiry, rather than
-      // having to infer it from a null.
-      expirySemantics:
-        g.validUntil === null || g.validUntil === undefined
-          ? "NO_TIME_BASED_AUTHORITY_POSSIBLE"
-          : nowMs >= g.validUntil
-            ? "EXPIRED"
-            : "WITHIN_VALIDITY_BOUNDARY",
-      sourceKind: g.sourceKind ?? "NOT_AVAILABLE",
-      sourceIdentity: g.sourceIdentity ?? null,
-      details: g.detailsSafeForOwnerDiagnostics ?? [],
-    }));
-
-    // Derive blockers with the SAME aggregate judgment the manager uses at the
-    // side-effect boundary — not from gate state alone. A gate can read PASS
-    // and still be refused because it expired, was stamped in the future, or
-    // describes another generation. Reporting only `state !== "PASS"` would
-    // show an operator zero blockers while the feed refuses to start, which is
-    // precisely the confusion this endpoint exists to eliminate.
-    const aggregate = judgeAllRequiredEvidence(
-      snap.decision.gates,
-      nowMs,
-      snap.decision.registryGenerationId,
-    );
-    const blockingCodes = aggregate.admitted ? [] : [...aggregate.blockingCodes];
-    const blockingGateIds = gates.filter((g) => g.state !== "PASS").map((g) => g.gateId);
-
-    // Cross-generation / hash agreement, reported explicitly rather than being
-    // folded into a single gate, because a mismatch here means the gates above
-    // were each evaluated correctly but about DIFFERENT things.
-    const plan = snap.decision.plan;
-    const generationIds = new Set(
-      gates.map((g) => g.sourceIdentity).filter((v): v is string => typeof v === "string"),
-    );
-    const consistency = {
-      decisionGenerationId: snap.decision.registryGenerationId,
-      planGenerationId: plan.registryGenerationId,
-      generationIdsAgree:
-        snap.decision.registryGenerationId === plan.registryGenerationId &&
-        generationIds.size <= 1,
-      distinctEvidenceGenerationCount: generationIds.size,
-      subscriptionSetHashPresent: snap.decision.subscriptionSetHash !== null,
-      completeManifestHashPresent: snap.decision.completeManifestHash !== null,
-      completeManifestHashAgreesWithPlan:
-        snap.decision.completeManifestHash === plan.completeManifestHash,
-    };
-
-    res.json({
-      phase: "PHASE_0_8C_ACTIVATION_READINESS",
-      evaluatedAtMs: snap.evaluatedAtMs,
-      // The whole point of the surface. Never computed from a cached boolean.
-      overall: "REFUSED",
-      /** Gates whose own state is not PASS. */
-      blockingGateIds,
-      /**
-       * The authoritative refusal list: `GATE_ID:REASON`, including gates that
-       * SAY pass but are inadmissible. Always a superset of blockingGateIds.
-       */
-      blockingCodes,
-      evidenceAdmittedByBoundary: aggregate.admitted,
-      gates,
-      consistency,
-      shutdown: {
-        state: snap.shutdown.state,
-        blockerCode: snap.shutdown.reasonCode,
-        installationState: snap.shutdown.installationState,
-        phase: snap.shutdown.phase,
-      },
-      tokenReconciliation: {
-        state: snap.reconciliation.state,
-        blockerCode: snap.reconciliation.reasonCode,
-        pendingCount: snap.reconciliation.pendingCount,
-      },
-      runtimeSingleton: {
-        state: snap.singleton.state,
-        attested: snap.singleton.attested,
-        blockerCode: snap.singleton.blockerCode,
-        // Repository intent, shown as context so it is never mistaken for proof.
-        declaredDeploymentTarget: snap.singleton.declaredDeploymentTarget,
-        declaredSingletonButUnproven: snap.singleton.declaredSingletonButUnproven,
-        recognisedAttestationFields: snap.singleton.recognisedFields,
-        unrecognisedAttestationFields: snap.singleton.unrecognisedFields,
-      },
-      registryAuthority: {
-        state: snap.authority.state,
-        blockerCode: snap.authority.reasonCode,
-        authorityState: snap.authority.authorityState,
-        validUntilMs: snap.authority.validUntilMs,
-      },
-      kiteSession: {
-        state: snap.kiteSession.state,
-        blockerCode: snap.kiteSession.blockerCode,
-        providerConfirmedAtMs: snap.kiteSession.providerConfirmedAtMs,
-        validUntilMs: snap.kiteSession.validUntilMs,
-      },
-      feedManager: {
-        state: diag.state,
-        blocker: diag.blocker,
-        clientsHeld: diag.clientsHeld,
-        unreleasedSockets: diag.unreleasedSockets,
-        maxSockets: diag.maxSockets,
-        acceptedTickCount: diag.acceptedTickCount,
-        rejectedTickCount: diag.rejectedTickCount,
-        startAttempts: diag.startAttempts,
-      },
-      locks: {
-        FEED_RUNTIME_ACTIVATION_AUTHORIZED,
-        FULL_NSE_WAREHOUSE_POPULATION_AUTHORIZED,
-        SCANNER_KITE_CANDLE_EVALUATION_AUTHORIZED,
-        FNO_PAPER_V2_RUNTIME_AUTHORIZED,
-        SWING_PAPER_V2_RUNTIME_AUTHORIZED,
-      },
-    });
+    // The whole payload is built by the evaluator, at one instant. This handler
+    // authenticates and serialises; it shapes nothing, so it cannot drift from
+    // the boundary's own view of readiness.
+    res.json(buildActivationReadinessReport(Date.now()));
   } catch (err) {
     req.log.error({ err }, "data-health/activation-readiness failed");
     res.status(500).json({ error: "activation readiness check failed" });

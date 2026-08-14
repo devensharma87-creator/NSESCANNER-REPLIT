@@ -46,6 +46,9 @@ import {
   evaluateKiteSessionEvidence,
   getAcceptedKiteSessionValidationRecord,
   KITE_SESSION_BLOCKER,
+  APPROVED_KITE_VALIDATION_PORT_ID,
+  type KiteSessionValidationRecord,
+  type KiteSessionRecordState,
 } from "./kiteSessionEvidence";
 import {
   evaluateShutdownReadiness,
@@ -77,6 +80,26 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 const NOW = 1_800_000_000_000;
+
+/** A structurally admissible Kite validation record, for judge-only tests. */
+function kiteRecord(over: {
+  validatedAtMs: number;
+  validUntilMs: number;
+  recordState?: KiteSessionRecordState;
+}): KiteSessionValidationRecord {
+  return {
+    provider: "KITE",
+    recordState: over.recordState ?? "VALID",
+    validatedAtMs: over.validatedAtMs,
+    validUntilMs: over.validUntilMs,
+    validationPathId: "TEST_PATH",
+    provenance: {
+      producedByPortId: APPROVED_KITE_VALIDATION_PORT_ID,
+      adapterId: "TEST_ADAPTER",
+      acceptedAtMs: over.validatedAtMs,
+    },
+  };
+}
 
 function fakeSignalTarget(): SignalTarget {
   return { on() { return this; }, off() { return this; } };
@@ -427,12 +450,7 @@ describe("PHASE 0.8C — activation readiness evidence", () => {
 
     // A confirmation whose validity boundary has passed is EXPIRED, not VALID.
     const expired = evaluateKiteSessionEvidence({
-      validationRecord: {
-        providerConfirmedAtMs: NOW - 10_000,
-        validUntilMs: NOW - 1,
-        providerOutcome: "CONFIRMED",
-        validationPathId: "TEST_PATH",
-      },
+      validationRecord: kiteRecord({ validatedAtMs: NOW - 10_000, validUntilMs: NOW - 1 }),
       credentialsConfigured: true,
       nowMs: NOW,
     });
@@ -442,12 +460,11 @@ describe("PHASE 0.8C — activation readiness evidence", () => {
     // An explicit provider rejection is INVALID, distinct from NOT_EVALUATED.
     expect(
       evaluateKiteSessionEvidence({
-        validationRecord: {
-          providerConfirmedAtMs: NOW - 10_000,
+        validationRecord: kiteRecord({
+          validatedAtMs: NOW - 10_000,
           validUntilMs: NOW + 10_000,
-          providerOutcome: "REJECTED",
-          validationPathId: "TEST_PATH",
-        },
+          recordState: "INVALID",
+        }),
         credentialsConfigured: true,
         nowMs: NOW,
       }).state,
@@ -456,12 +473,7 @@ describe("PHASE 0.8C — activation readiness evidence", () => {
     // Only a live, confirmed, unexpired record is VALID.
     expect(
       evaluateKiteSessionEvidence({
-        validationRecord: {
-          providerConfirmedAtMs: NOW - 10_000,
-          validUntilMs: NOW + 10_000,
-          providerOutcome: "CONFIRMED",
-          validationPathId: "TEST_PATH",
-        },
+        validationRecord: kiteRecord({ validatedAtMs: NOW - 10_000, validUntilMs: NOW + 10_000 }),
         credentialsConfigured: true,
         nowMs: NOW,
       }).valid,
