@@ -1,0 +1,171 @@
+# PHASE 0\.8T — ATOMIC SHUTDOWN INSTALLATION CORRECTION
+
+Use **Economy mode**\. This is a narrowly bounded correction\. Do not reopen accepted Phase 0\.8T topology, rollback\-identity, cost, registry, subscription\-manifest, sharding, or authority work\.
+
+## Current checkpoint blocker
+
+The reported duplicate\-listener protection is not proven\.
+
+Current ordering is reported as:
+
+```ts
+installShutdownSignalHandlers(controller, process, ...);
+registerShutdownController(controller);
+```
+
+`registerShutdownController()` may be idempotent, but its check occurs **after** signal listeners have already been installed\. A second invocation can therefore add duplicate `SIGTERM`/`SIGINT` listeners before registration returns `false`\.
+
+The test suite also weakened a meaningful assertion from `installedAtBoot === false` to merely checking that it is a Boolean\. That hides persistent module\-state contamination instead of controlling it\.
+
+Required interim verdict:
+
+`PHASE_0_8T_CHECKPOINT_BLOCKED — SHUTDOWN_SIGNAL_INSTALLATION_NOT_ATOMIC — DUPLICATE_LISTENER_PREVENTION_NOT_PROVEN`
+
+## Objective
+
+Make shutdown lifecycle installation one atomic, idempotent operation and prove it with isolated tests\. Preserve the already accepted ordering: restoration settles, server object is created, shutdown protection is installed, and only then is `server.listen()` called\.
+
+## Non\-negotiable scope
+
+Permitted changes only:
+
+- `artifacts/api-server/src/lib/lifecycle/gracefulShutdown.ts`
+- the minimum corresponding startup wiring in `artifacts/api-server/src/index.ts`
+- directly affected Phase 0\.8T lifecycle tests
+- the Phase 0\.8T report or related memory note solely to correct the evidence record
+
+Prohibited:
+
+- no deployment, Publish, Reserved VM purchase, billing, DNS, or secret change
+- no production or provider request
+- no Kite login, `KiteTicker`, WebSocket, subscribe/unsubscribe, scheduler, registry refresh, database read/write, schema change, dependency change, generated\-file change, F&O, Swing, candle, indicator, or feed implementation
+- no API\-server restart or controlled boot
+- no full test suite, production build, browser test, or repeated broad review
+- no commit, push, merge, rebase, reset, revert, cherry\-pick, or history rewrite without separate authorization
+- all four safety locks must remain exactly `false as boolean`
+
+## A\. Implement one atomic installation boundary
+
+Create or refactor to one production API that atomically owns all of the following:
+
+1. checks whether shutdown lifecycle protection is already installed;
+2. claims/stores the installed controller;
+3. installs exactly one `SIGTERM` listener and exactly one `SIGINT` listener;
+4. exposes lifecycle readiness only after both listeners are successfully installed;
+5. returns an explicit result such as `INSTALLED` or `ALREADY_INSTALLED`;
+6. returns a disposer only if production lifecycle design actually needs one—do not add unused complexity\.
+
+Acceptable design examples include:
+
+- a single `installShutdownLifecycle(...)` function that performs the check, registration, and signal\-listener installation atomically; or
+- a registration function that returns an exclusive installation claim, with listeners installed only when that claim succeeds\.
+
+The public production startup path must not call a low\-level listener installer before winning the registration claim\.
+
+### Required invariants
+
+- First installation: controller stored and exactly one listener per signal added\.
+- Second installation: no controller replacement, no additional listener, no timer, and no other allocation with lifecycle side effects\.
+- If listener installation throws partway through, readiness must remain false and any partially installed listener must be removed before the error is propagated or returned\.
+- `isShutdownInstalled()` may return true only after complete successful installation\.
+- Future feed activation continues to fail with `SHUTDOWN_NOT_INSTALLED` until complete installation succeeds\.
+- No caller can separately invoke a low\-level exported function to bypass atomicity\. Make internal helpers non\-exported unless another proven production caller requires them\.
+- Signal handling remains once\-only even if both SIGTERM and SIGINT arrive\.
+- Preserve bounded order: refuse activation → stop future feed hook → close HTTP listener → honestly report timeout/failure\.
+
+## B\. Preserve correct startup ordering
+
+The accepted order must remain:
+
+1. registry restoration settles;
+2. HTTP server object is created without listening;
+3. the atomic shutdown lifecycle installation succeeds;
+4. a proof marker/readiness state records installation;
+5. `server.listen(...)` is called;
+6. listening callback executes later\.
+
+If atomic installation fails, do not call `server.listen()`\. Fail closed with a stable blocker/error code and a non\-zero startup outcome through the existing entry\-point error boundary\.
+
+Do not start or register any market\-data feed\.
+
+## C\. Repair test isolation instead of weakening assertions
+
+Restore a meaningful baseline assertion\. Do not accept `typeof installedAtBoot === "boolean"` as proof\.
+
+Use one safe test\-isolation mechanism:
+
+- a clearly named `_forTesting_resetShutdownLifecycle()` that removes installed test listeners and clears module state; or
+- per\-test isolated module loading that guarantees fresh module state\.
+
+The reset must have zero production callers\. If a reset helper is used, prove repo\-wide that only tests call it\.
+
+Every test must clean up its signal listeners even when an assertion fails\. Do not mutate the real process listener set without deterministic restoration\.
+
+## D\. Required targeted tests
+
+Add or correct focused tests proving:
+
+1. clean baseline: `isShutdownInstalled() === false`;
+2. first atomic installation returns `INSTALLED` and readiness becomes true;
+3. first installation adds exactly one SIGTERM and one SIGINT listener;
+4. second installation returns `ALREADY_INSTALLED` and listener counts remain unchanged;
+5. second installation does not replace the first controller;
+6. SIGTERM in the startup window is handled exactly once;
+7. SIGINT in the startup window is handled exactly once;
+8. SIGTERM followed by SIGINT still executes shutdown exactly once;
+9. partial installation failure removes any listener already added and leaves readiness false;
+10. `server.listen()` is not called if lifecycle installation fails;
+11. `server.listen()` is called only after lifecycle readiness becomes true;
+12. feed activation before installation returns `REFUSED / SHUTDOWN_NOT_INSTALLED`;
+13. successful lifecycle installation clears only that prerequisite; topology, authority, Kite\-session, handover and owner\-authorization gates remain unchanged;
+14. the test reset/isolation restores listener counts and module state after every test;
+15. `_forTesting_resetShutdownLifecycle`, if added, has zero production callers;
+16. no provider, WebSocket, subscription, scheduler, database, deployment, or billing behavior was introduced;
+17. all four frozen safety locks remain `false as boolean`\.
+
+Do not make tests pass by relaxing expected states, depending on test order, or checking only types\.
+
+## E\. Correct the evidence record
+
+The final report must explicitly correct these earlier claims:
+
+- The previous `registerShutdownController()` idempotency did **not** by itself prevent duplicate signal listeners because listener installation happened first\.
+- The earlier weakening of the baseline test hid shared module state and is withdrawn\.
+- The API\-server restart performed during the prior correction exceeded the no\-restart instruction\. Disclose it as a scope violation; do not repeat it\.
+
+Do not claim runtime or boot proof from this pass\. This pass is targeted code/test evidence only\.
+
+## F\. Verification budget
+
+Run only:
+
+- directly affected Phase 0\.8T graceful\-shutdown tests;
+- directly affected feed\-activation lifecycle tests;
+- API\-server `tsc --noEmit`;
+- `git diff --check`;
+- one independent diff review\.
+
+If review finds a genuine defect, fix it and rerun only affected targeted checks\. Do not run a server, boot proof, full suite, production build, browser, provider proof, or database evidence pass\.
+
+## G\. Required report
+
+Report concisely:
+
+1. exact files changed;
+2. old defective ordering and new atomic ordering;
+3. atomic installation result contract;
+4. rollback behavior if partial listener installation fails;
+5. proof that duplicate listener counts remain unchanged;
+6. test\-isolation/reset method and proof of zero production callers;
+7. startup ordering relative to `server.listen()`;
+8. targeted tests, TypeScript and `git diff --check` results;
+9. independent\-review findings and corrections;
+10. explicit disclosure of the previous unauthorized restart and confirmation it was not repeated;
+11. Git status, branch, HEAD and any platform auto\-commit;
+12. confirmation that nothing was deployed, purchased, pushed, merged, activated, or written to a database;
+13. confirmation that all four safety locks remain false;
+14. remaining blockers: final checkpoint, Reserved VM publication, runtime singleton attestation, current registry authority, Kite\-session validation and owner activation authorization\.
+
+Stop with:
+
+`PHASE_0_8T_READY_FOR_FINAL_CHECKPOINT — SHUTDOWN_LIFECYCLE_INSTALLATION_ATOMIC_AND_IDEMPOTENT — EXACTLY_ONE_SIGNAL_LISTENER_PER_SIGNAL_PROVEN — TEST_STATE_ISOLATED — STARTUP_REFUSES_TO_LISTEN_WITHOUT_LIFECYCLE_PROTECTION — ZERO_RUNTIME_OR_FEED_SIDE_EFFECTS — OWNER_CHECKPOINT_AUTHORIZATION_REQUIRED`

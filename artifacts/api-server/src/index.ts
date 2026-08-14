@@ -33,9 +33,8 @@ import {
 } from "./lib/bootCapabilities.js";
 import {
   createShutdownController,
-  installShutdownSignalHandlers,
+  installShutdownLifecycle,
   NO_OP_FEED_CLOSE_HOOK,
-  registerShutdownController,
 } from "./lib/lifecycle/gracefulShutdown.js";
 
 // Step 0 — DATA_FOUNDATION_BOOT_PROOF admissibility.
@@ -131,24 +130,27 @@ proofMark("RESTORATION_SETTLED");
 proofMark("CAPABILITIES", ` capabilities=${JSON.stringify(getBootCapabilities())}`);
 const server = createServer(app);
 
-// Step 7 — Install graceful shutdown SYNCHRONOUSLY, before server.listen().
+// Step 7 — Install graceful shutdown ATOMICALLY, before server.listen().
 //
-// This is the Phase 0.8T correction: the coordinator is installed as soon as
-// the server object exists, NOT inside the listen callback. Any SIGTERM/SIGINT
-// arriving in the startup window (after createServer, before the listen
-// callback fires) is now handled correctly.
+// installShutdownLifecycle is a single atomic operation: it checks whether a
+// coordinator is already installed, then (only if not) installs exactly one
+// SIGTERM listener and one SIGINT listener, and only then records the
+// controller as installed. This closes two gaps from the previous design:
+//
+//   (a) Startup window: a SIGTERM/SIGINT arriving after createServer() but
+//       before server.listen() is now handled — the handler is in place before
+//       listen() is called.
+//   (b) Atomicity: listener installation and controller registration happen
+//       inside one function. There is no window where listeners are installed
+//       but the controller is not yet registered (the old two-step flaw).
+//
+// If installShutdownLifecycle returns ALREADY_INSTALLED, that indicates an
+// unexpected duplicate boot path — we fail closed without calling server.listen().
+// If it throws (partial listener installation), listeners are rolled back inside
+// the function and the error propagates here, also preventing server.listen().
 //
 // Ordering contract (Phase 0.8T):
 //   signal → SHUTTING_DOWN → feed hook (no-op, NOT_OWNED) → HTTP close
-//
-// The feed hook is the Phase 0.8T no-op: it owns no socket, says so honestly,
-// and is replaced in Phase 0.8B when socket construction is authorised.
-// Shutdown DOES NOT call process.exit itself; the onExit callback does,
-// after the result is written.
-//
-// registerShutdownController is idempotent: a second call is a no-op and
-// returns false, so there is no risk of duplicate handlers if this module is
-// somehow evaluated more than once.
 const shutdownController = createShutdownController({
   closeFeed: NO_OP_FEED_CLOSE_HOOK,
   closeHttp: () =>
@@ -160,10 +162,19 @@ const shutdownController = createShutdownController({
   feedCloseTimeoutMs: 5_000,
   httpCloseTimeoutMs: 5_000,
 });
-installShutdownSignalHandlers(shutdownController, process, (code) => {
-  process.exit(code);
-});
-registerShutdownController(shutdownController);
+try {
+  const installResult = installShutdownLifecycle(shutdownController, process, (code) => {
+    process.exit(code);
+  });
+  if (installResult === "ALREADY_INSTALLED") {
+    process.stderr.write("FATAL: SHUTDOWN_LIFECYCLE_ALREADY_INSTALLED_BEFORE_BOOT\n");
+    process.exit(1);
+  }
+} catch (err) {
+  const msg = err instanceof Error ? err.message : String(err);
+  process.stderr.write(`FATAL: SHUTDOWN_LIFECYCLE_INSTALLATION_FAILED: ${msg}\n`);
+  process.exit(1);
+}
 proofMark("SHUTDOWN_INSTALLED");
 
 // Step 8 — Start listener. In boot-proof mode, state plainly what this process

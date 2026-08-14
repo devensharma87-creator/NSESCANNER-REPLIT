@@ -420,8 +420,10 @@ describe("P08T S1-S5 — safety and compatibility", () => {
 
     // index.ts MUST import gracefulShutdown now that the coordinator is installed.
     expect(index).toContain("gracefulShutdown");
-    expect(index).toContain("installShutdownSignalHandlers");
-    expect(index).toContain("registerShutdownController");
+    // index.ts uses the single atomic API — not the removed two-step functions.
+    expect(index).toContain("installShutdownLifecycle");
+    expect(index).not.toContain("installShutdownSignalHandlers");
+    expect(index).not.toContain("registerShutdownController");
     // Topology evidence itself is not imported in index.ts (only the shutdown boundary).
     expect(index).not.toContain("runtimeTopologyEvidence");
 
@@ -429,9 +431,10 @@ describe("P08T S1-S5 — safety and compatibility", () => {
     expect(app).not.toContain("gracefulShutdown");
     expect(app).not.toContain("runtimeTopologyEvidence");
 
-    // The shutdown module correctly reports its install state via the registry.
+    // The shutdown module exposes the atomic install API and the test reset.
     const shutdownSrc = codeOf(NEW_SOURCES[1]);
-    expect(shutdownSrc).toContain("registerShutdownController");
+    expect(shutdownSrc).toContain("installShutdownLifecycle");
+    expect(shutdownSrc).toContain("_forTesting_resetShutdownLifecycle");
     expect(shutdownSrc).toContain("_installedController");
   });
 

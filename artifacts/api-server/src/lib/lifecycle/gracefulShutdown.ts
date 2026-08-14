@@ -8,9 +8,10 @@
  * exact window in which two processes could both hold Kite feeds against one
  * API key, and the provider counts sockets per key.
  *
- * This module is the boundary that closes that window. index.ts installs it
- * synchronously after createServer(app) and BEFORE server.listen(), closing
- * the startup window in which a SIGTERM could arrive without a handler:
+ * This module is the boundary that closes that window. index.ts calls
+ * installShutdownLifecycle() synchronously after createServer(app) and BEFORE
+ * server.listen(), closing the startup window in which a SIGTERM could arrive
+ * without a handler:
  *
  *   signal → stop admitting feed activation → mark shutting down → run the feed
  *   close hook → wait, bounded → close HTTP → report an explicit result.
@@ -228,32 +229,110 @@ export interface SignalTarget {
 
 export const SHUTDOWN_SIGNALS: readonly string[] = Object.freeze(["SIGTERM", "SIGINT"]);
 
+// ---------------------------------------------------------------------------
+// Atomic shutdown lifecycle installation
+// ---------------------------------------------------------------------------
+
+/** Return value of installShutdownLifecycle. */
+export type InstallShutdownLifecycleResult = "INSTALLED" | "ALREADY_INSTALLED";
+
+/** Module-level registry — exactly one per process, set only after all listeners succeed. */
+let _installedController: ShutdownController | null = null;
+let _installedTarget: SignalTarget | null = null;
+let _installedListeners: Array<[string, (...args: unknown[]) => void]> = [];
+
 /**
- * Install signal handlers for an existing controller.
+ * Atomically install the shutdown lifecycle protection.
  *
- * NOT called at boot in Phase 0.8T. Phase 0.8B wires this once, next to the
- * listener it owns. Returns an uninstall function so a test leaves no handler
- * behind.
+ * This is the ONLY public API for wiring a controller to OS signals. It must
+ * be called synchronously before server.listen() and only once per process.
+ *
+ * Atomicity guarantee:
+ *   1. If already installed: returns ALREADY_INSTALLED with zero side effects.
+ *      No additional listener is installed, no controller is replaced.
+ *   2. Listener installation happens inside a try/catch. If any signal's
+ *      `target.on()` throws, every listener already added in this call is
+ *      removed via `target.off()` before the error propagates. The module-level
+ *      controller remains null — isShutdownInstalled() stays false.
+ *   3. _installedController is set ONLY after all listeners have been
+ *      successfully installed. isShutdownInstalled() returns true only then.
+ *
+ * Callers MUST NOT invoke any lower-level listener-installation helper before
+ * calling this function. There is no exported lower-level helper.
  */
-export function installShutdownSignalHandlers(
+export function installShutdownLifecycle(
   controller: ShutdownController,
   target: SignalTarget,
   onExit?: (code: number) => void,
-): () => void {
-  const registered: Array<[string, (...args: unknown[]) => void]> = [];
-  for (const signal of SHUTDOWN_SIGNALS) {
-    const listener = (): void => {
-      void controller.shutdown(signal).then((result) => {
-        onExit?.(result.exitCode);
-      });
-    };
-    target.on(signal, listener);
-    registered.push([signal, listener]);
+): InstallShutdownLifecycleResult {
+  // Step 1: atomic claim check — if already installed, return immediately.
+  if (_installedController !== null) return "ALREADY_INSTALLED";
+
+  // Step 2: install exactly one listener per signal. Roll back on any failure.
+  const listeners: Array<[string, (...args: unknown[]) => void]> = [];
+  try {
+    for (const signal of SHUTDOWN_SIGNALS) {
+      const listener = (): void => {
+        void controller.shutdown(signal).then((result) => {
+          onExit?.(result.exitCode);
+        });
+      };
+      target.on(signal, listener);
+      listeners.push([signal, listener]);
+    }
+  } catch (err) {
+    // Partial installation: remove any listeners already added so the process
+    // is left in the same state as before this call. _installedController
+    // remains null: isShutdownInstalled() stays false.
+    for (const [sig, lst] of listeners) target.off?.(sig, lst);
+    throw err;
   }
-  return () => {
-    for (const [signal, listener] of registered) target.off?.(signal, listener);
-  };
+
+  // Step 3: all listeners installed — now claim ownership atomically.
+  _installedController = controller;
+  _installedTarget = target;
+  _installedListeners = listeners;
+  return "INSTALLED";
 }
+
+/**
+ * Test-only lifecycle reset. Removes all installed signal listeners and
+ * clears module state so the next test starts with a clean baseline.
+ *
+ * MUST have zero production callers. The `_forTesting_` prefix makes the
+ * restriction unambiguous. Tests assert (via source scan) that no production
+ * file calls this function.
+ *
+ * Safe to call when nothing is installed (no-op).
+ */
+export function _forTesting_resetShutdownLifecycle(): void {
+  if (_installedController === null) return;
+  for (const [signal, listener] of _installedListeners) {
+    _installedTarget?.off?.(signal, listener);
+  }
+  _installedController = null;
+  _installedTarget = null;
+  _installedListeners = [];
+}
+
+/**
+ * Fail-closed lifecycle gate: returns true only when installShutdownLifecycle
+ * has completed successfully. Feed activation must check this before
+ * proceeding — activation without a shutdown handler leaves no way to clean
+ * up the feed on SIGTERM/SIGINT.
+ */
+export function isShutdownInstalled(): boolean {
+  return _installedController !== null;
+}
+
+/** Returns the current phase of the installed controller, or "RUNNING". */
+export function getInstalledShutdownPhase(): ShutdownPhase {
+  return _installedController?.phase() ?? "RUNNING";
+}
+
+// ---------------------------------------------------------------------------
+// Diagnostics
+// ---------------------------------------------------------------------------
 
 /**
  * Boot identity for owner diagnostics: distinguishes this process incarnation
@@ -270,46 +349,13 @@ export function getBootId(): string {
 /** Describes readiness of the boundary for owner diagnostics. */
 export interface ShutdownReadiness {
   readonly prepared: true;
-  /** True once installShutdownSignalHandlers has been called at boot. */
+  /** True once installShutdownLifecycle has completed successfully at boot. */
   readonly installedAtBoot: boolean;
   readonly feedCloseHook: "NO_OP_PHASE_0_8T";
   readonly signals: readonly string[];
   readonly feedCloseTimeoutMs: number;
   /** Current shutdown phase of the installed controller, or RUNNING if none. */
   readonly currentPhase: ShutdownPhase;
-}
-
-/** Module-level registry of the installed controller (one per process). */
-let _installedController: ShutdownController | null = null;
-
-/**
- * Register the controller that was installed at boot. Called by index.ts
- * synchronously before server.listen(). Idempotent: a second call is a no-op
- * that returns false, preventing duplicate signal handlers across any code path
- * that could evaluate this module more than once.
- *
- * Returns true on the first (effective) installation, false on all subsequent
- * calls. Callers MUST NOT install a second controller; the first one wins.
- */
-export function registerShutdownController(controller: ShutdownController): boolean {
-  if (_installedController !== null) return false;
-  _installedController = controller;
-  return true;
-}
-
-/**
- * Fail-closed lifecycle gate: returns true only when a shutdown coordinator
- * has been registered at boot. Feed activation must check this before
- * proceeding — activation without a shutdown handler leaves no way to clean
- * up the feed on SIGTERM/SIGINT.
- */
-export function isShutdownInstalled(): boolean {
-  return _installedController !== null;
-}
-
-/** Returns the current phase of the installed controller, or "RUNNING". */
-export function getInstalledShutdownPhase(): ShutdownPhase {
-  return _installedController?.phase() ?? "RUNNING";
 }
 
 export function describeShutdownReadiness(): ShutdownReadiness {

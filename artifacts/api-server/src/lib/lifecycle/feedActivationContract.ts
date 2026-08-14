@@ -216,7 +216,7 @@ function isHandoverCleared(h: DeploymentHandoverEvidence): boolean {
  * @param shutdownPhase   Current phase of the shutdown coordinator.
  * @param proofMode       True when booted with side-effects suppressed.
  * @param shutdownInstalled  True when the shutdown coordinator has been
- *                        registered at boot via registerShutdownController().
+ *                        installed at boot via installShutdownLifecycle().
  *                        Feed activation is refused when this is false: a feed
  *                        opened without a shutdown handler cannot be closed on
  *                        SIGTERM/SIGINT, which is the exact overlap hazard this

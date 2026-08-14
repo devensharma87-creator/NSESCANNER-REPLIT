@@ -22,7 +22,6 @@ import {
   createShutdownController,
   describeShutdownReadiness,
   NO_OP_FEED_CLOSE_HOOK,
-  installShutdownSignalHandlers,
   type ShutdownController,
   type SignalTarget,
 } from "./gracefulShutdown.js";
@@ -330,7 +329,7 @@ describe("P08T S1-S9 — Shutdown integration", () => {
     const controller = stubController({
       onResult: (r) => calls.push(r.signal),
     });
-    installShutdownSignalHandlers(controller, fakeProcess);
+    // S1 tests controller lifecycle directly — no module-level install needed.
     await controller.shutdown("SIGTERM");
     expect(controller.phase()).toBe("COMPLETE");
     expect(calls).toEqual(["SIGTERM"]);
