@@ -34,6 +34,9 @@ describe("P0.8B Gate A — the phase lock", () => {
   it("A2: start() under the real lock lands in DISABLED with the lock blocker", async () => {
     const h = makeFakeClientHarness();
     const m = createFeedManager({
+      // Required by the production factory since Phase 0.8C; returns null so
+      // these tests still exercise the pre-0.8C refusal path unchanged.
+      preClientConstructionRecheck: () => null,
       clientFactory: h.factory,
       getActivation: () => decision(),
       getCurrentGenerationId: () => TEST_GENERATION_ID,
@@ -47,6 +50,9 @@ describe("P0.8B Gate A — the phase lock", () => {
   it("A3: an unauthorised start constructs no client at all", async () => {
     const h = makeFakeClientHarness();
     const m = createFeedManager({
+      // Required by the production factory since Phase 0.8C; returns null so
+      // these tests still exercise the pre-0.8C refusal path unchanged.
+      preClientConstructionRecheck: () => null,
       clientFactory: h.factory,
       getActivation: () => decision(),
       getCurrentGenerationId: () => TEST_GENERATION_ID,
@@ -60,6 +66,9 @@ describe("P0.8B Gate A — the phase lock", () => {
     const h = makeFakeClientHarness();
     let reads = 0;
     const m = createFeedManager({
+      // Required by the production factory since Phase 0.8C; returns null so
+      // these tests still exercise the pre-0.8C refusal path unchanged.
+      preClientConstructionRecheck: () => null,
       clientFactory: h.factory,
       getActivation: () => {
         reads++;

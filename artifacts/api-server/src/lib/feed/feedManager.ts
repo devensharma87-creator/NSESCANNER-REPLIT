@@ -68,6 +68,12 @@ import { MAX_SOCKETS } from "../registry/feedShardPlan";
 import type { FeedShardPlan } from "../registry/feedShardPlan";
 import { admitShardPlan, type ShardAdmissionBlocker } from "./shardPlanInvariants";
 import { ingestTick, type TickAdmissionContext, type TickRejectReason } from "./tickIngestion";
+import {
+  judgeAllRequiredEvidence,
+  EVIDENCE_BLOCKER as EVIDENCE_BLOCKER_VALUES,
+  type ActivationEvidence as ActivationEvidenceType,
+  type EvidenceState,
+} from "./activationEvidence";
 
 /**
  * THE RUNTIME LOCK.
@@ -96,6 +102,8 @@ export type FeedManagerBlocker =
   | "ACTIVATION_GENERATION_MISMATCH"
   | "ACTIVATION_MANIFEST_HASH_MISSING"
   | "ACTIVATION_MANIFEST_HASH_MISMATCH"
+  | "ACTIVATION_EVIDENCE_CONTRADICTORY"
+  | "ACTIVATION_EVIDENCE_MALFORMED"
   | "SHARD_PLAN_NOT_ADMISSIBLE"
   | "SOCKET_CEILING_WOULD_BE_EXCEEDED"
   | "CLIENT_CONSTRUCTION_FAILED"
@@ -108,58 +116,40 @@ export type FeedManagerBlocker =
   | "SOCKET_RELEASE_FAILED";
 
 // ── Structured activation gates ────────────────────────────────────────────
+//
+// PHASE 0.8C: the gate contract and the rules for judging it live in
+// `activationEvidence.ts`, and this module imports them. The dependency runs
+// one way (manager → evidence) so exactly ONE implementation decides whether
+// evidence may be acted upon.
+//
+// An earlier revision of this phase kept a second, inline copy of those rules
+// here. The two drifted: the copy in `activationEvidence.ts` rejected omitted
+// fields and non-finite timestamps, while the copy that actually guarded the
+// socket accepted them. The weaker copy was the one that mattered. Hence the
+// re-exports below rather than a parallel definition.
+
+export type {
+  FeedActivationGateId,
+  EvidenceSourceKind,
+  ActivationEvidence,
+} from "./activationEvidence";
+export {
+  REQUIRED_ACTIVATION_GATE_IDS,
+  EVIDENCE_BLOCKER,
+  ALLOWED_SOURCE_KIND_BY_GATE,
+  GENERATION_SCOPED_SOURCE_KINDS,
+} from "./activationEvidence";
+
+export type ActivationGateDecisionState = EvidenceState;
 
 /**
- * Stable identifiers for every gate the manager must see PASS before creating
- * a single socket. These are checked by the manager itself — never trusted
- * from a caller-supplied summary boolean.
+ * A gate as carried on a `StructuredActivationDecision`.
+ *
+ * This is the evidence envelope itself — every field required. Producers must
+ * decide; the boundary cannot distinguish "did not decide" from "decided yes"
+ * unless the type forbids the former.
  */
-export type FeedActivationGateId =
-  | "REGISTRY_RESTORATION_SETTLED"
-  | "REGISTRY_AUTHORITY_CURRENT"
-  | "REGISTRY_SCHEMA_AND_POLICY_SUPPORTED"
-  | "SUBSCRIPTION_MANIFEST_ACCEPTED"
-  | "REGISTRY_GENERATION_ID_PRESENT"
-  | "SUBSCRIPTION_SET_HASH_PRESENT"
-  | "COMPLETE_MANIFEST_HASH_PRESENT"
-  | "SHARD_POLICY_VERSION_SUPPORTED"
-  | "SHARD_PLAN_CAPACITY_ADMITTED"
-  | "FEED_OWNERSHIP_SINGLETON_ATTESTED"
-  | "SHUTDOWN_LIFECYCLE_INSTALLED"
-  | "KITE_SESSION_VALID"
-  | "TOKEN_RECONCILIATION_CLEAR"
-  | "OWNER_ACTIVATION_AUTHORIZATION"
-  | "COMPILE_TIME_FEED_LOCK";
-
-export type ActivationGateDecisionState = "PASS" | "FAIL" | "NOT_EVALUATED";
-
-export interface FeedActivationGate {
-  readonly gateId: FeedActivationGateId;
-  readonly state: ActivationGateDecisionState;
-  readonly blockerCode?: string;
-}
-
-/**
- * Every gate the manager requires. A gate missing from the supplied array is
- * treated as NOT_EVALUATED (same as FAIL — never counts as passing).
- */
-export const REQUIRED_ACTIVATION_GATE_IDS: readonly FeedActivationGateId[] = [
-  "REGISTRY_RESTORATION_SETTLED",
-  "REGISTRY_AUTHORITY_CURRENT",
-  "REGISTRY_SCHEMA_AND_POLICY_SUPPORTED",
-  "SUBSCRIPTION_MANIFEST_ACCEPTED",
-  "REGISTRY_GENERATION_ID_PRESENT",
-  "SUBSCRIPTION_SET_HASH_PRESENT",
-  "COMPLETE_MANIFEST_HASH_PRESENT",
-  "SHARD_POLICY_VERSION_SUPPORTED",
-  "SHARD_PLAN_CAPACITY_ADMITTED",
-  "FEED_OWNERSHIP_SINGLETON_ATTESTED",
-  "SHUTDOWN_LIFECYCLE_INSTALLED",
-  "KITE_SESSION_VALID",
-  "TOKEN_RECONCILIATION_CLEAR",
-  "OWNER_ACTIVATION_AUTHORIZATION",
-  "COMPILE_TIME_FEED_LOCK",
-] as const;
+export type FeedActivationGate = ActivationEvidenceType;
 
 /**
  * Structured activation decision — the input to start().
@@ -189,6 +179,20 @@ export interface FeedManagerOptions {
   readonly now?: () => number;
   /** Observability sink. Never throws into the tick path. */
   readonly onRejectedTick?: (reason: TickRejectReason, detail: string) => void;
+  /**
+   * PHASE 0.8C — the last check before a socket could exist.
+   *
+   * Every gate above is evaluated microseconds earlier, but one fact can flip
+   * inside that window with no registry involvement: this process beginning to
+   * shut down. A start() that raced a SIGTERM would otherwise construct
+   * sockets the shutdown sequence has already stopped waiting for, leaving the
+   * provider counting connections nothing will ever release.
+   *
+   * Returns a stable blocker code to refuse, or null to proceed. Called
+   * immediately before EVERY `clientFactory` invocation, including the
+   * reconnect replacement path.
+   */
+  readonly preClientConstructionRecheck?: () => string | null;
 }
 
 export interface StartOutcome {
@@ -564,19 +568,41 @@ function createFeedManagerInternal(options: FeedManagerOptions, enforceCompileTi
     }
 
     // ── Re-derive allPassed from each gate state. Never trust a summary boolean. ──
-    // A gate not present in the array is treated as NOT_EVALUATED which counts as FAIL.
+    //
+    // PHASE 0.8C: each gate is now judged as an EVIDENCE ENVELOPE at the actual
+    // boundary instant. Four ways a gate that says "PASS" is still refused:
+    //   - it expired (`validUntil` has passed) — an expired PASS is not a pass;
+    //   - it was stamped in the future — a clock/fabrication problem, not freshness;
+    //   - it describes a different registry generation than the one being activated;
+    //   - another entry for the same gate disagrees with it.
+    // A gate not present in the array is NOT_EVALUATED, which counts as FAIL.
     {
-      const gateMap = new Map(decision.gates.map((g) => [g.gateId, g]));
-      const blockingCodes: string[] = [];
-      for (const id of REQUIRED_ACTIVATION_GATE_IDS) {
-        const gate = gateMap.get(id);
-        if (!gate || gate.state !== "PASS") {
-          blockingCodes.push(gate?.blockerCode ?? id);
-        }
-      }
-      if (blockingCodes.length > 0) {
-        set("WAITING_FOR_GATES", "ACTIVATION_GATES_NOT_PASSED", blockingCodes.join(", "));
-        return Object.freeze({ started: false, state, blocker, detail, shardsConnected: 0, rollbackErrors: Object.freeze([]) });
+      const aggregate = judgeAllRequiredEvidence(
+        decision.gates,
+        now(),
+        decision.registryGenerationId,
+      );
+      if (!aggregate.admitted) {
+        set(
+          // A structural rejection (duplicate/contradictory/malformed entries)
+          // is a producer bug, not a gate that is merely not yet satisfied, so
+          // it is reported as FAILED rather than WAITING_FOR_GATES.
+          aggregate.structural ? "FAILED" : "WAITING_FOR_GATES",
+          aggregate.structural
+            ? (aggregate.blockingCodes[0]!.includes(EVIDENCE_BLOCKER_VALUES.CONTRADICTORY)
+                ? "ACTIVATION_EVIDENCE_CONTRADICTORY"
+                : "ACTIVATION_EVIDENCE_MALFORMED")
+            : "ACTIVATION_GATES_NOT_PASSED",
+          aggregate.blockingCodes.join(", "),
+        );
+        return Object.freeze({
+          started: false,
+          state,
+          blocker,
+          detail,
+          shardsConnected: 0,
+          rollbackErrors: Object.freeze([]),
+        });
       }
     }
 
@@ -620,6 +646,16 @@ function createFeedManagerInternal(options: FeedManagerOptions, enforceCompileTi
 
     for (const shard of decision.plan.shards) {
       const shardId = shard.shardId;
+
+      // Re-read live process lifecycle state at the true side-effect boundary.
+      // Checked per shard, not once before the loop: the loop awaits network
+      // I/O, so a signal can arrive between two shards.
+      const recheck = options.preClientConstructionRecheck?.() ?? null;
+      if (recheck !== null) {
+        failure = { blocker: "SHUTDOWN_IN_PROGRESS", detail: `pre-construction recheck refused: ${recheck}` };
+        break;
+      }
+
       let client: FeedClientPort;
       try {
         client = await options.clientFactory({
@@ -801,6 +837,49 @@ function createFeedManagerInternal(options: FeedManagerOptions, enforceCompileTi
       };
     }
 
+    // Same boundary recheck as start(): a reconnect must not resurrect a
+    // socket while the process is tearing down.
+    const replacementRecheck = options.preClientConstructionRecheck?.() ?? null;
+    if (replacementRecheck !== null) {
+      return { ok: false, detail: `replacement refused: ${replacementRecheck}` };
+    }
+
+    // ── Re-judge the FULL activation evidence set before reconnecting. ──
+    //
+    // A reconnect is a client construction, and therefore the same side effect
+    // start() guards — but it happens arbitrarily long after start() ran. In
+    // between, the registry authority can expire, the generation can roll, the
+    // Kite session can lapse and token reconciliation can go pending. Relying
+    // on the admission granted at start() would mean the longer the process
+    // runs, the staler the evidence a new socket rests on — the exact inversion
+    // of what a freshness boundary is for.
+    //
+    // Evidence is re-derived from `getActivation()` rather than reused, so this
+    // reflects the state NOW, not a cached verdict.
+    {
+      const fresh = options.getActivation();
+      const aggregate = judgeAllRequiredEvidence(
+        fresh.gates,
+        now(),
+        fresh.registryGenerationId,
+      );
+      if (!aggregate.admitted) {
+        return {
+          ok: false,
+          detail: `replacement refused: activation evidence no longer admits a new socket: ${aggregate.blockingCodes.join(", ")}`,
+        };
+      }
+      // A generation roll invalidates the plan this shard belongs to. Replacing
+      // a socket for a retired generation would subscribe tokens the committed
+      // universe no longer describes.
+      if (fresh.registryGenerationId !== planGenerationId) {
+        return {
+          ok: false,
+          detail: `replacement refused: registry generation changed since start (plan ${planGenerationId ?? "none"}, current ${fresh.registryGenerationId ?? "none"})`,
+        };
+      }
+    }
+
     let client: FeedClientPort;
     try {
       client = await options.clientFactory({
@@ -951,7 +1030,21 @@ function createFeedManagerInternal(options: FeedManagerOptions, enforceCompileTi
  * reading or acting on the activation decision. Even if all 15 gates in the
  * StructuredActivationDecision report PASS, start() refuses while the lock is false.
  */
-export function createFeedManager(options: FeedManagerOptions): FeedManager {
+/**
+ * PRODUCTION feed manager factory.
+ *
+ * `preClientConstructionRecheck` is REQUIRED here, though it is optional on
+ * `FeedManagerOptions` so that test managers can omit it. The gate set is
+ * evaluated before any socket work begins, but the start loop then awaits
+ * network I/O per shard — a shutdown signal arriving mid-loop must still stop
+ * the next construction. Making the callback mandatory at this entry point
+ * means a future production wiring cannot silently drop that recheck.
+ */
+export function createFeedManager(
+  options: FeedManagerOptions & {
+    readonly preClientConstructionRecheck: () => string | null;
+  },
+): FeedManager {
   return createFeedManagerInternal(options, true);
 }
 

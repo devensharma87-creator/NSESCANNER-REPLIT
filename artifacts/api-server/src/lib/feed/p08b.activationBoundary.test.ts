@@ -318,6 +318,9 @@ describe("P0.8B Gate H — compile-time lock vs test factory", () => {
     const h = makeFakeClientHarness();
     const dec = makeAllPassDecision(PLAN_3);
     const m = createFeedManager({
+      // Required by the production factory since Phase 0.8C; returns null so
+      // these tests still exercise the pre-0.8C refusal path unchanged.
+      preClientConstructionRecheck: () => null,
       clientFactory: h.factory,
       getActivation: () => dec,
       getCurrentGenerationId: () => TEST_GENERATION_ID,

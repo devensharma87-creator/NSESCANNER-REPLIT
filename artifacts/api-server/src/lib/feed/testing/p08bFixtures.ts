@@ -29,6 +29,8 @@ import {
 import {
   createFeedManagerForTesting,
   REQUIRED_ACTIVATION_GATE_IDS,
+  ALLOWED_SOURCE_KIND_BY_GATE,
+  GENERATION_SCOPED_SOURCE_KINDS,
   type FeedActivationGate,
   type FeedActivationGateId,
   type FeedManagerOptions,
@@ -254,12 +256,49 @@ export function makeFakeClientHarness(behavior: FakeClientBehavior = {}): FakeCl
 // Structured activation decision helpers
 // ---------------------------------------------------------------------------
 
-/** Return a gate array where every required gate is PASS. */
-export function makeAllPassGates(): FeedActivationGate[] {
-  return REQUIRED_ACTIVATION_GATE_IDS.map((gateId) => ({
+/**
+ * PHASE 0.8C: fixture gates are full evidence envelopes, because the envelope
+ * fields are required on the type — a producer that omits one has not decided,
+ * and the boundary refuses.
+ *
+ * The source kind is taken from `ALLOWED_SOURCE_KIND_BY_GATE` rather than
+ * hard-coded, and generation-scoped gates are bound to the plan's actual
+ * generation id. An earlier revision of these fixtures labelled every gate
+ * `COMPILE_TIME_CONSTANT` with a null identity, which silently opted the whole
+ * 0.8B suite out of the cross-generation check — the fixtures would still have
+ * passed if that check had been deleted.
+ *
+ * `evaluatedAt: 1` is the earliest representable non-zero instant, so the
+ * "evidence must not be stamped in the future" rule holds under every injected
+ * test clock, including the fixed ones.
+ */
+const FIXTURE_EVALUATED_AT = 1;
+
+function fixtureGate(
+  gateId: FeedActivationGateId,
+  state: "PASS" | "FAIL" | "NOT_EVALUATED",
+  generationId: string | null,
+  reasonCode?: string,
+): FeedActivationGate {
+  const sourceKind = ALLOWED_SOURCE_KIND_BY_GATE[gateId];
+  return {
     gateId,
-    state: "PASS" as const,
-  }));
+    state,
+    reasonCode: reasonCode ?? (state === "PASS" ? `${gateId}_OK` : gateId),
+    blockerCode: state === "PASS" ? undefined : (reasonCode ?? gateId),
+    evaluatedAt: FIXTURE_EVALUATED_AT,
+    validUntil: null,
+    sourceKind,
+    sourceIdentity: GENERATION_SCOPED_SOURCE_KINDS.has(sourceKind) ? generationId : null,
+    detailsSafeForOwnerDiagnostics: [],
+  };
+}
+
+/** Return a gate array where every required gate is PASS. */
+export function makeAllPassGates(generationId: string | null): FeedActivationGate[] {
+  return REQUIRED_ACTIVATION_GATE_IDS.map((gateId) =>
+    fixtureGate(gateId, "PASS", generationId),
+  );
 }
 
 /**
@@ -269,7 +308,7 @@ export function makeAllPassGates(): FeedActivationGate[] {
 export function makeAllPassDecision(plan: FeedShardPlan): StructuredActivationDecision {
   return {
     plan,
-    gates: makeAllPassGates(),
+    gates: makeAllPassGates(plan.registryGenerationId),
     registryGenerationId: plan.registryGenerationId,
     subscriptionSetHash: "sub-hash-test",
     completeManifestHash: plan.completeManifestHash,
@@ -287,11 +326,11 @@ export function makeDecisionWithFailedGate(
 ): StructuredActivationDecision {
   return {
     plan,
-    gates: REQUIRED_ACTIVATION_GATE_IDS.map((gateId) => ({
-      gateId,
-      state: (gateId === failedGateId ? "FAIL" : "PASS") as "PASS" | "FAIL",
-      blockerCode: gateId === failedGateId ? (blockerCode ?? failedGateId) : undefined,
-    })),
+    gates: REQUIRED_ACTIVATION_GATE_IDS.map((gateId) =>
+      gateId === failedGateId
+        ? fixtureGate(gateId, "FAIL", plan.registryGenerationId, blockerCode ?? failedGateId)
+        : fixtureGate(gateId, "PASS", plan.registryGenerationId),
+    ),
     registryGenerationId: plan.registryGenerationId,
     subscriptionSetHash: "sub-hash-test",
     completeManifestHash: plan.completeManifestHash,
@@ -308,10 +347,9 @@ export function makeDecisionWithMissingGate(
 ): StructuredActivationDecision {
   return {
     plan,
-    gates: REQUIRED_ACTIVATION_GATE_IDS.filter((id) => id !== missingGateId).map((gateId) => ({
-      gateId,
-      state: "PASS" as const,
-    })),
+    gates: REQUIRED_ACTIVATION_GATE_IDS.filter((id) => id !== missingGateId).map((gateId) =>
+      fixtureGate(gateId, "PASS", plan.registryGenerationId),
+    ),
     registryGenerationId: plan.registryGenerationId,
     subscriptionSetHash: "sub-hash-test",
     completeManifestHash: plan.completeManifestHash,
@@ -327,10 +365,9 @@ export function makeDecisionWithNotEvaluatedGate(
 ): StructuredActivationDecision {
   return {
     plan,
-    gates: REQUIRED_ACTIVATION_GATE_IDS.map((id) => ({
-      gateId: id,
-      state: (id === gateId ? "NOT_EVALUATED" : "PASS") as "PASS" | "NOT_EVALUATED",
-    })),
+    gates: REQUIRED_ACTIVATION_GATE_IDS.map((id) =>
+      fixtureGate(id, id === gateId ? "NOT_EVALUATED" : "PASS", plan.registryGenerationId),
+    ),
     registryGenerationId: plan.registryGenerationId,
     subscriptionSetHash: "sub-hash-test",
     completeManifestHash: plan.completeManifestHash,
