@@ -208,7 +208,7 @@ function handleTicks(ticks: any[]): void {
       close,
       volume: t.volume_traded ?? t.volume,
       changePercent: close && close > 0 ? +(((ltp - close) / close) * 100).toFixed(2) : undefined,
-      ts: now,
+      receivedTimestamp: now,
     });
     if (!stored.ok) continue;
     const tick = stored.tick;

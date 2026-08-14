@@ -8,24 +8,23 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { createFeedManager, type FeedActivationDecision } from "./feedManager";
+import { createFeedManagerForTesting } from "./feedManager";
 import { MAX_SOCKETS } from "../registry/feedShardPlan";
-import { makeFakeClientHarness, makePlan, TEST_GENERATION_ID } from "./testing/p08bFixtures";
+import {
+  makeFakeClientHarness,
+  makePlan,
+  makeAllPassDecision,
+  TEST_GENERATION_ID,
+} from "./testing/p08bFixtures";
 import type { FakeClientBehavior } from "./testing/p08bFixtures";
 
 function build(behavior: FakeClientBehavior = {}) {
   const h = makeFakeClientHarness(behavior);
-  const dec: FeedActivationDecision = {
-    plan: makePlan([3, 3, 3]),
-    gatesPass: true,
-    blockingGateIds: [],
-    registryGenerationId: TEST_GENERATION_ID,
-  };
-  const m = createFeedManager({
+  const dec = makeAllPassDecision(makePlan([3, 3, 3]));
+  const m = createFeedManagerForTesting({
     clientFactory: h.factory,
     getActivation: () => dec,
     getCurrentGenerationId: () => TEST_GENERATION_ID,
-    _forTesting_authorizeActivation: true,
   });
   return { h, m, dec };
 }
@@ -37,13 +36,8 @@ function build(behavior: FakeClientBehavior = {}) {
  */
 function buildSlowClose(opts: { readonly refuseCloseOn?: number; readonly delayMs?: number } = {}) {
   const h = makeFakeClientHarness();
-  const dec: FeedActivationDecision = {
-    plan: makePlan([3, 3, 3]),
-    gatesPass: true,
-    blockingGateIds: [],
-    registryGenerationId: TEST_GENERATION_ID,
-  };
-  const m = createFeedManager({
+  const dec = makeAllPassDecision(makePlan([3, 3, 3]));
+  const m = createFeedManagerForTesting({
     clientFactory: async (spec) => {
       const client = await h.factory(spec);
       return {
@@ -59,7 +53,6 @@ function buildSlowClose(opts: { readonly refuseCloseOn?: number; readonly delayM
     },
     getActivation: () => dec,
     getCurrentGenerationId: () => TEST_GENERATION_ID,
-    _forTesting_authorizeActivation: true,
   });
   return { h, m };
 }
@@ -223,14 +216,9 @@ describe("P0.8B Gate C — replacing a shard", () => {
     // Use a harness where only the replacement is short instead.
     void h;
     const h2 = makeFakeClientHarness();
-    const dec: FeedActivationDecision = {
-      plan: makePlan([3, 3, 3]),
-      gatesPass: true,
-      blockingGateIds: [],
-      registryGenerationId: TEST_GENERATION_ID,
-    };
+    const dec2 = makeAllPassDecision(makePlan([3, 3, 3]));
     let shortNow = false;
-    const m2 = createFeedManager({
+    const m2 = createFeedManagerForTesting({
       clientFactory: async (spec) => {
         const client = await h2.factory(spec);
         return {
@@ -246,9 +234,8 @@ describe("P0.8B Gate C — replacing a shard", () => {
               : client.subscribe(tokens),
         };
       },
-      getActivation: () => dec,
+      getActivation: () => dec2,
       getCurrentGenerationId: () => TEST_GENERATION_ID,
-      _forTesting_authorizeActivation: true,
     });
 
     await m2.start();
@@ -303,14 +290,9 @@ describe("P0.8B Gate C — replacing a shard", () => {
 
   it("C13: a replacement whose connect fails leaves the manager DEGRADED, not FAILED", async () => {
     const h = makeFakeClientHarness();
-    const dec: FeedActivationDecision = {
-      plan: makePlan([2, 2, 2]),
-      gatesPass: true,
-      blockingGateIds: [],
-      registryGenerationId: TEST_GENERATION_ID,
-    };
+    const dec13 = makeAllPassDecision(makePlan([2, 2, 2]));
     let failConnect = false;
-    const m = createFeedManager({
+    const m = createFeedManagerForTesting({
       clientFactory: async (spec) => {
         const client = await h.factory(spec);
         return {
@@ -321,9 +303,8 @@ describe("P0.8B Gate C — replacing a shard", () => {
               : client.connect(),
         };
       },
-      getActivation: () => dec,
+      getActivation: () => dec13,
       getCurrentGenerationId: () => TEST_GENERATION_ID,
-      _forTesting_authorizeActivation: true,
     });
 
     await m.start();

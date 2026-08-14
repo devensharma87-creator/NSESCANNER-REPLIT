@@ -37,6 +37,14 @@
  * claims — the first says "no shares traded", the second says "not reported".
  * A field that IS present but unusable rejects the whole tick rather than being
  * quietly dropped, since dropping it would fabricate the absent case.
+ *
+ * CANONICAL PROVENANCE
+ * --------------------
+ * Every accepted tick is stored with the full canonical provenance context:
+ * the registry generation it was resolved under, the shard that delivered it,
+ * and the manifest hashes that bind it to an accepted feed session. This
+ * provenance is injected via TickAdmissionContext rather than being read from
+ * module state, keeping ingestion pure and testable.
  */
 
 import type { FeedTickEnvelope } from "./feedClientPort";
@@ -74,6 +82,16 @@ export interface TickAdmissionContext {
   readonly currentGenerationId: string | null;
   /** token -> shardId, for every token this manager subscribes. */
   readonly tokenToShardId: ReadonlyMap<number, number>;
+  /**
+   * Returns the shardHash for the given shard from the active plan.
+   * Used to populate subscriptionSetHash on the canonical quote record.
+   */
+  readonly getShardHash: (shardId: number) => string | null;
+  /**
+   * Complete manifest hash across all shards from the active plan.
+   * Null when no plan is active.
+   */
+  readonly completeManifestHash: string | null;
 }
 
 /**
@@ -94,7 +112,24 @@ function readOptionalNumber(raw: unknown): OptionalRead {
   return { kind: "VALUE", value: raw };
 }
 
-const OPTIONAL_FIELDS = ["open", "high", "low", "close", "volume", "changePercent"] as const;
+/**
+ * Optional numeric fields copied from the envelope to the store.
+ * These are market-value fields only — identity fields (providerExchangeToken)
+ * come from the canonical registry, not from the envelope.
+ */
+const OPTIONAL_FIELDS = [
+  "open",
+  "high",
+  "low",
+  "close",
+  "volume",
+  "changePercent",
+  "oi",
+  "oiDayHigh",
+  "oiDayLow",
+  "buyQty",
+  "sellQty",
+] as const;
 type OptionalField = (typeof OPTIONAL_FIELDS)[number];
 
 /**
@@ -157,8 +192,14 @@ export function ingestTick(
   if (typeof envelope.ltp !== "number" || !Number.isFinite(envelope.ltp)) {
     return { ok: false, reason: "INVALID_PRICE", detail: String(envelope.ltp) };
   }
-  if (typeof envelope.ts !== "number" || !Number.isFinite(envelope.ts) || envelope.ts <= 0) {
-    return { ok: false, reason: "INVALID_TIMESTAMP", detail: String(envelope.ts) };
+
+  // receivedTimestamp is the local adapter receipt time and must always be
+  // present and valid. exchangeTimestamp is optional (absent when the provider
+  // did not supply one) and is never required — a missing exchange timestamp
+  // cannot be fabricated.
+  const receivedTimestamp = envelope.receivedTimestamp;
+  if (typeof receivedTimestamp !== "number" || !Number.isFinite(receivedTimestamp) || receivedTimestamp <= 0) {
+    return { ok: false, reason: "INVALID_TIMESTAMP", detail: `receivedTimestamp=${String(receivedTimestamp)}` };
   }
 
   const input: {
@@ -167,7 +208,12 @@ export function ingestTick(
     providerInstrumentToken: token,
     provider: "KITE",
     ltp: envelope.ltp,
-    ts: envelope.ts,
+    receivedTimestamp,
+    exchangeTimestamp: envelope.exchangeTimestamp,
+    registryGenerationId: ctx.planGenerationId,
+    subscriptionSetHash: ctx.getShardHash(shardId),
+    completeManifestHash: ctx.completeManifestHash,
+    shardId,
   };
 
   for (const field of OPTIONAL_FIELDS) {

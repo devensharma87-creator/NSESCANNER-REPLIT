@@ -92,6 +92,10 @@ export type FeedManagerState =
 export type FeedManagerBlocker =
   | "FEED_RUNTIME_ACTIVATION_NOT_AUTHORIZED"
   | "ACTIVATION_GATES_NOT_PASSED"
+  | "ACTIVATION_GENERATION_MISSING"
+  | "ACTIVATION_GENERATION_MISMATCH"
+  | "ACTIVATION_MANIFEST_HASH_MISSING"
+  | "ACTIVATION_MANIFEST_HASH_MISMATCH"
   | "SHARD_PLAN_NOT_ADMISSIBLE"
   | "SOCKET_CEILING_WOULD_BE_EXCEEDED"
   | "CLIENT_CONSTRUCTION_FAILED"
@@ -103,37 +107,88 @@ export type FeedManagerBlocker =
   | "SHARD_LOST_DURING_STARTUP"
   | "SOCKET_RELEASE_FAILED";
 
-/** What the manager must be told before it may act. Injected, never read. */
-export interface FeedActivationDecision {
+// ── Structured activation gates ────────────────────────────────────────────
+
+/**
+ * Stable identifiers for every gate the manager must see PASS before creating
+ * a single socket. These are checked by the manager itself — never trusted
+ * from a caller-supplied summary boolean.
+ */
+export type FeedActivationGateId =
+  | "REGISTRY_RESTORATION_SETTLED"
+  | "REGISTRY_AUTHORITY_CURRENT"
+  | "REGISTRY_SCHEMA_AND_POLICY_SUPPORTED"
+  | "SUBSCRIPTION_MANIFEST_ACCEPTED"
+  | "REGISTRY_GENERATION_ID_PRESENT"
+  | "SUBSCRIPTION_SET_HASH_PRESENT"
+  | "COMPLETE_MANIFEST_HASH_PRESENT"
+  | "SHARD_POLICY_VERSION_SUPPORTED"
+  | "SHARD_PLAN_CAPACITY_ADMITTED"
+  | "FEED_OWNERSHIP_SINGLETON_ATTESTED"
+  | "SHUTDOWN_LIFECYCLE_INSTALLED"
+  | "KITE_SESSION_VALID"
+  | "TOKEN_RECONCILIATION_CLEAR"
+  | "OWNER_ACTIVATION_AUTHORIZATION"
+  | "COMPILE_TIME_FEED_LOCK";
+
+export type ActivationGateDecisionState = "PASS" | "FAIL" | "NOT_EVALUATED";
+
+export interface FeedActivationGate {
+  readonly gateId: FeedActivationGateId;
+  readonly state: ActivationGateDecisionState;
+  readonly blockerCode?: string;
+}
+
+/**
+ * Every gate the manager requires. A gate missing from the supplied array is
+ * treated as NOT_EVALUATED (same as FAIL — never counts as passing).
+ */
+export const REQUIRED_ACTIVATION_GATE_IDS: readonly FeedActivationGateId[] = [
+  "REGISTRY_RESTORATION_SETTLED",
+  "REGISTRY_AUTHORITY_CURRENT",
+  "REGISTRY_SCHEMA_AND_POLICY_SUPPORTED",
+  "SUBSCRIPTION_MANIFEST_ACCEPTED",
+  "REGISTRY_GENERATION_ID_PRESENT",
+  "SUBSCRIPTION_SET_HASH_PRESENT",
+  "COMPLETE_MANIFEST_HASH_PRESENT",
+  "SHARD_POLICY_VERSION_SUPPORTED",
+  "SHARD_PLAN_CAPACITY_ADMITTED",
+  "FEED_OWNERSHIP_SINGLETON_ATTESTED",
+  "SHUTDOWN_LIFECYCLE_INSTALLED",
+  "KITE_SESSION_VALID",
+  "TOKEN_RECONCILIATION_CLEAR",
+  "OWNER_ACTIVATION_AUTHORIZATION",
+  "COMPILE_TIME_FEED_LOCK",
+] as const;
+
+/**
+ * Structured activation decision — the input to start().
+ *
+ * The manager DERIVES allPassed by inspecting every gate in `gates`.
+ * It never trusts a caller-supplied summary boolean. In addition it
+ * cross-validates `registryGenerationId` against `plan.registryGenerationId`
+ * and `completeManifestHash` against `plan.completeManifestHash` so those
+ * cross-checks cannot be defeated by passing matching gate values alone.
+ */
+export interface StructuredActivationDecision {
   readonly plan: FeedShardPlan;
-  /** True only when EVERY Phase 0.8A activation gate passed. */
-  readonly gatesPass: boolean;
-  readonly blockingGateIds: readonly string[];
+  readonly gates: readonly FeedActivationGate[];
+  /** Cross-validated against plan.registryGenerationId inside start(). */
   readonly registryGenerationId: string | null;
+  /** Non-null required for SUBSCRIPTION_SET_HASH_PRESENT gate to pass. */
+  readonly subscriptionSetHash: string | null;
+  /** Cross-validated against plan.completeManifestHash inside start(). */
+  readonly completeManifestHash: string | null;
 }
 
 export interface FeedManagerOptions {
   readonly clientFactory: FeedClientFactory;
-  readonly getActivation: () => FeedActivationDecision;
+  readonly getActivation: () => StructuredActivationDecision;
   /** Generation the registry resolves against right now; bound per tick. */
   readonly getCurrentGenerationId: () => string | null;
   readonly now?: () => number;
   /** Observability sink. Never throws into the tick path. */
   readonly onRejectedTick?: (reason: TickRejectReason, detail: string) => void;
-  /**
-   * TEST-ONLY activation override.
-   *
-   * The state machine below is worthless if it cannot be exercised, and
-   * `FEED_RUNTIME_ACTIVATION_AUTHORIZED` is a compile-time false — so without
-   * a seam every startup, rollback and reconnect path would ship unproven.
-   *
-   * The name is deliberately ugly so that any production use is obvious in
-   * review, and `productionFeedManager.ts` never sets it — a test asserts that
-   * by reading the file. Setting this true does NOT bypass the activation
-   * gates, the shard-plan invariants, or the subscription completeness check;
-   * it only stands in for the phase lock.
-   */
-  readonly _forTesting_authorizeActivation?: boolean;
 }
 
 export interface StartOutcome {
@@ -223,7 +278,7 @@ function sameTokenSet(requested: readonly number[], accepted: readonly number[])
   return want.size === 0;
 }
 
-export function createFeedManager(options: FeedManagerOptions): FeedManager {
+function createFeedManagerInternal(options: FeedManagerOptions, enforceCompileTimeLock: boolean): FeedManager {
   const now = options.now ?? (() => Date.now());
 
   let state: FeedManagerState = "DISABLED";
@@ -316,6 +371,9 @@ export function createFeedManager(options: FeedManagerOptions): FeedManager {
       planGenerationId,
       currentGenerationId: options.getCurrentGenerationId(),
       tokenToShardId,
+      getShardHash: (shardId) =>
+        activePlan?.shards.find((s) => s.shardId === shardId)?.shardHash ?? null,
+      completeManifestHash: activePlan?.completeManifestHash ?? null,
     };
   }
 
@@ -456,10 +514,8 @@ export function createFeedManager(options: FeedManagerOptions): FeedManager {
       });
     }
 
-    // ── The runtime lock. Checked before anything is read or constructed. ──
-    const activationPermitted =
-      FEED_RUNTIME_ACTIVATION_AUTHORIZED || options._forTesting_authorizeActivation === true;
-    if (!activationPermitted) {
+    // ── The compile-time lock. Only enforced by createFeedManager (not the test factory). ──
+    if (enforceCompileTimeLock && !FEED_RUNTIME_ACTIVATION_AUTHORIZED) {
       set(
         "DISABLED",
         "FEED_RUNTIME_ACTIVATION_NOT_AUTHORIZED",
@@ -477,20 +533,51 @@ export function createFeedManager(options: FeedManagerOptions): FeedManager {
 
     const decision = options.getActivation();
 
-    if (!decision.gatesPass) {
+    // ── Cross-validate registryGenerationId against the plan (inside the mutex). ──
+    // Done independently of the gate array so matching gate values cannot substitute
+    // for a correctly bound decision.
+    if (decision.registryGenerationId === null) {
+      set("FAILED", "ACTIVATION_GENERATION_MISSING", "registryGenerationId is null in decision");
+      return Object.freeze({ started: false, state, blocker, detail, shardsConnected: 0, rollbackErrors: Object.freeze([]) });
+    }
+    if (decision.registryGenerationId !== decision.plan.registryGenerationId) {
       set(
-        "WAITING_FOR_GATES",
-        "ACTIVATION_GATES_NOT_PASSED",
-        decision.blockingGateIds.join(", ") || "one or more activation gates are not PASS",
+        "FAILED",
+        "ACTIVATION_GENERATION_MISMATCH",
+        `decision gen=${decision.registryGenerationId} plan gen=${decision.plan.registryGenerationId ?? "null"}`,
       );
-      return Object.freeze({
-        started: false,
-        state,
-        blocker,
-        detail,
-        shardsConnected: 0,
-        rollbackErrors: Object.freeze([]),
-      });
+      return Object.freeze({ started: false, state, blocker, detail, shardsConnected: 0, rollbackErrors: Object.freeze([]) });
+    }
+
+    // ── Cross-validate completeManifestHash against the plan. ──
+    if (decision.completeManifestHash === null) {
+      set("FAILED", "ACTIVATION_MANIFEST_HASH_MISSING", "completeManifestHash is null in decision");
+      return Object.freeze({ started: false, state, blocker, detail, shardsConnected: 0, rollbackErrors: Object.freeze([]) });
+    }
+    if (decision.completeManifestHash !== decision.plan.completeManifestHash) {
+      set(
+        "FAILED",
+        "ACTIVATION_MANIFEST_HASH_MISMATCH",
+        "decision manifest hash differs from plan manifest hash",
+      );
+      return Object.freeze({ started: false, state, blocker, detail, shardsConnected: 0, rollbackErrors: Object.freeze([]) });
+    }
+
+    // ── Re-derive allPassed from each gate state. Never trust a summary boolean. ──
+    // A gate not present in the array is treated as NOT_EVALUATED which counts as FAIL.
+    {
+      const gateMap = new Map(decision.gates.map((g) => [g.gateId, g]));
+      const blockingCodes: string[] = [];
+      for (const id of REQUIRED_ACTIVATION_GATE_IDS) {
+        const gate = gateMap.get(id);
+        if (!gate || gate.state !== "PASS") {
+          blockingCodes.push(gate?.blockerCode ?? id);
+        }
+      }
+      if (blockingCodes.length > 0) {
+        set("WAITING_FOR_GATES", "ACTIVATION_GATES_NOT_PASSED", blockingCodes.join(", "));
+        return Object.freeze({ started: false, state, blocker, detail, shardsConnected: 0, rollbackErrors: Object.freeze([]) });
+      }
     }
 
     // Re-prove the plan from its own contents immediately before acting.
@@ -855,4 +942,30 @@ export function createFeedManager(options: FeedManagerOptions): FeedManager {
     subscribedTokenMap: () => new Map(tokenToShardId),
     lostShardIds: () => new Set(lost),
   });
+}
+
+/**
+ * Production feed manager factory.
+ *
+ * Enforces the `FEED_RUNTIME_ACTIVATION_AUTHORIZED` compile-time lock before
+ * reading or acting on the activation decision. Even if all 15 gates in the
+ * StructuredActivationDecision report PASS, start() refuses while the lock is false.
+ */
+export function createFeedManager(options: FeedManagerOptions): FeedManager {
+  return createFeedManagerInternal(options, true);
+}
+
+/**
+ * TEST-ONLY feed manager factory.
+ *
+ * Bypasses ONLY the `FEED_RUNTIME_ACTIVATION_AUTHORIZED` compile-time lock.
+ * All other checks — including the COMPILE_TIME_FEED_LOCK gate inside the
+ * structured decision, the generation/hash cross-validates, and the full gate
+ * iteration — are still enforced from the caller-supplied evidence.
+ *
+ * Production code must NEVER import or call this export. A test in
+ * `p08b.activationBoundary.test.ts` asserts zero production callers repo-wide.
+ */
+export function createFeedManagerForTesting(options: FeedManagerOptions): FeedManager {
+  return createFeedManagerInternal(options, false);
 }

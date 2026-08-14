@@ -1,5 +1,5 @@
 /**
- * Live quote store — Data Foundation Phase 0.5A.
+ * Live quote store — Data Foundation Phase 0.5A / 0.8B.
  *
  * Keyed by the EXCHANGE_QUALIFIED_RUNTIME_QUOTE_IDENTITY minted in
  * canonicalInstrument.ts. That identity is a runtime quote key, NOT an
@@ -14,9 +14,28 @@
  * part in deciding where a quote is stored. A tick whose token is not in the
  * canonical registry is rejected outright — it can never reach the store.
  *
- * Freshness semantics are unchanged by this phase: this module stores and
- * returns ticks with their timestamps and does not classify anything as LIVE.
- * Presence in this map is not a freshness claim.
+ * CANONICAL PROVENANCE CONTRACT
+ * -----------------------------
+ * Every stored quote carries the full identity and provenance context required
+ * to evaluate its authority:
+ *   - Identity fields from the canonical registry (exchange, segment, isin, …)
+ *   - Both timestamps kept distinct: exchangeTimestamp (provider-supplied,
+ *     null when absent) and receivedTimestamp (local receipt time, always present)
+ *   - Registry generation id, shard id, and manifest hashes from the feed session
+ *   - Honest status fields: validationStatus, freshnessState, conflictStatus
+ *   - lastValidTimestamp: the receivedTimestamp of the PREVIOUS accepted quote
+ *     for this instrument, so callers can detect gaps without fabricating data
+ *
+ * LEGACY WRITES
+ * -------------
+ * The kiteFeed legacy path calls upsertQuote without provenance context. Those
+ * writes receive validationStatus "LEGACY_UNVALIDATED" and null provenance
+ * fields. This is honest: the legacy path does not pass through the Phase 0.8B
+ * ingestion gate chain.
+ *
+ * Freshness semantics are unchanged: this module stores and returns ticks with
+ * their timestamps and does not classify anything as LIVE. Presence in this
+ * map is not a freshness claim.
  */
 import {
   instrumentRegistry,
@@ -29,7 +48,29 @@ import {
 export type QuoteProvider = "KITE";
 const APPROVED_PROVIDERS = new Set<string>(["KITE"]);
 
+/**
+ * Freshness state of a stored quote.
+ *
+ * NOT_EVALUATED is honest for Phase 0.8B: freshness requires a live session
+ * clock and freshness policy that the disabled feed cannot supply.
+ * LEGACY_UNVALIDATED is used for writes through the pre-0.8B code path.
+ */
+export type QuoteFreshnessState = "NOT_EVALUATED" | "LEGACY_UNVALIDATED";
+
+/**
+ * Conflict status of a stored quote.
+ *
+ * NOT_EVALUATED is the correct state when cross-provider validation was not
+ * performed. Defaulting to NO_CONFLICT when conflict was never evaluated is
+ * dishonest — it implies validation that did not happen.
+ */
+export type QuoteConflictStatus = "NOT_EVALUATED";
+
+/** Validation path through which the quote was accepted. */
+export type QuoteValidationStatus = "ACCEPTED" | "LEGACY_UNVALIDATED";
+
 export interface LiveTick {
+  // ── Identity ──────────────────────────────────────────────────────────────
   /** Canonical storage identity. Exchange-qualified; never symbol-derived. */
   canonicalInstrumentId: string;
   exchange: CanonicalExchange;
@@ -43,7 +84,23 @@ export interface LiveTick {
    */
   symbol: string;
   instrumentToken: number;
+  /** Kite exchange_token from the canonical registry where available. */
+  providerExchangeToken: number | null;
+  /**
+   * Official exchange security id where authoritative.
+   * Explicit null until the official exchange master is integrated.
+   */
+  securityId: string | null;
+  /**
+   * ISIN where authoritative.
+   * Explicit null — Kite's instrument dump carries no ISIN.
+   */
+  isin: string | null;
+  /** Security class; UNRESOLVED until the official exchange master is integrated. */
+  securityClass: string;
   provider: QuoteProvider;
+
+  // ── Market values ─────────────────────────────────────────────────────────
   ltp: number;
   open?: number;
   high?: number;
@@ -51,7 +108,75 @@ export interface LiveTick {
   close?: number;
   volume?: number;
   changePercent?: number;
+  /** Open interest in contracts. Only present for F&O instruments. */
+  oi?: number;
+  oiDayHigh?: number;
+  oiDayLow?: number;
+  /** Buy/sell depth quantities (Kite full mode). */
+  buyQty?: number;
+  sellQty?: number;
+
+  // ── Time ─────────────────────────────────────────────────────────────────
+  /**
+   * Exchange/provider timestamp when present; null when the provider did not
+   * supply one. NEVER replaced by the receipt time.
+   */
+  exchangeTimestamp: Date | null;
+  /**
+   * Local receipt timestamp (ms since epoch). Always present.
+   * For Phase 0.8B feed ticks: the adapter translation time.
+   * For legacy kiteFeed ticks: Date.now() at write time.
+   */
+  receivedTimestamp: number;
+  /**
+   * Legacy backward-compat alias: exchangeTimestamp?.getTime() ?? receivedTimestamp.
+   * Retained so existing consumers (aggregateCoverageLive, kiteFeed SSE) do
+   * not need simultaneous changes. Do not use for new code — prefer
+   * exchangeTimestamp and receivedTimestamp explicitly.
+   */
   ts: number;
+
+  // ── Provenance ────────────────────────────────────────────────────────────
+  /**
+   * Registry generation the token was resolved under.
+   * Null for legacy writes that bypassed the 0.8B ingestion path.
+   */
+  registryGenerationId: string | null;
+  /**
+   * Shard-level subscription set hash (the shard's own shardHash).
+   * Null for legacy writes or when the shard plan is unavailable.
+   */
+  subscriptionSetHash: string | null;
+  /**
+   * Complete manifest hash across all shards.
+   * Null for legacy writes or when the plan is unavailable.
+   */
+  completeManifestHash: string | null;
+  /**
+   * Shard that delivered this tick.
+   * Null for legacy writes.
+   */
+  shardId: number | null;
+
+  // ── Status ────────────────────────────────────────────────────────────────
+  validationStatus: QuoteValidationStatus;
+  /**
+   * NOT_EVALUATED for Phase 0.8B: freshness requires a live session clock.
+   * Consumers that need freshness should compute it at read time from
+   * receivedTimestamp.
+   */
+  freshnessState: QuoteFreshnessState;
+  /**
+   * NOT_EVALUATED: cross-provider conflict was not evaluated for this quote.
+   * A default of NO_CONFLICT when conflict was never evaluated would be dishonest.
+   */
+  conflictStatus: QuoteConflictStatus;
+  /**
+   * receivedTimestamp of the previous accepted quote for this instrument.
+   * Null when this is the first accepted quote, or for legacy writes.
+   * Reflects the last ACCEPTED canonical value — never updated by a rejected tick.
+   */
+  lastValidTimestamp: number | null;
 }
 
 export interface UpsertQuoteInput {
@@ -64,7 +189,26 @@ export interface UpsertQuoteInput {
   close?: number;
   volume?: number;
   changePercent?: number;
-  ts: number;
+  oi?: number;
+  oiDayHigh?: number;
+  oiDayLow?: number;
+  buyQty?: number;
+  sellQty?: number;
+  /**
+   * Exchange/provider timestamp in epoch milliseconds.
+   * Absent when the provider did not supply one. Never replaced by receivedTimestamp.
+   */
+  exchangeTimestamp?: number;
+  /**
+   * Local receipt timestamp in epoch milliseconds. Always present for canonical writes.
+   * Defaults to Date.now() for legacy writes.
+   */
+  receivedTimestamp?: number;
+  // ── Provenance context (optional; null/absent for legacy kiteFeed writes) ──
+  registryGenerationId?: string | null;
+  subscriptionSetHash?: string | null;
+  completeManifestHash?: string | null;
+  shardId?: number | null;
 }
 
 export type UpsertRejectReason =
@@ -90,6 +234,10 @@ const liveQuotes = new Map<string, LiveTick>();
  * Resolve token -> canonical identity, then store under the canonical id.
  * Rejects anything that cannot be tied to a registered instrument, which is
  * what stops fixture/demo values from entering the production store.
+ *
+ * Provenance fields (registryGenerationId, shardId, …) are optional. When
+ * absent the write is tagged LEGACY_UNVALIDATED, which is honest for the
+ * existing kiteFeed code path that pre-dates Phase 0.8B.
  */
 export function upsertQuote(input: UpsertQuoteInput): UpsertResult {
   if (!APPROVED_PROVIDERS.has(input.provider)) {
@@ -106,18 +254,49 @@ export function upsertQuote(input: UpsertQuoteInput): UpsertResult {
   if (typeof input.ltp !== "number" || !Number.isFinite(input.ltp)) {
     return { ok: false, reason: "INVALID_PRICE", detail: String(input.ltp) };
   }
-  if (typeof input.ts !== "number" || !Number.isFinite(input.ts) || input.ts <= 0) {
-    return { ok: false, reason: "INVALID_TIMESTAMP", detail: String(input.ts) };
+
+  // receivedTimestamp must be positive and finite for canonical writes.
+  const receivedTimestamp = input.receivedTimestamp ?? Date.now();
+  if (!Number.isFinite(receivedTimestamp) || receivedTimestamp <= 0) {
+    return { ok: false, reason: "INVALID_TIMESTAMP", detail: String(receivedTimestamp) };
   }
 
+  // exchangeTimestamp: only set when a valid epoch ms was supplied.
+  const etMs = input.exchangeTimestamp;
+  const exchangeTimestamp: Date | null =
+    typeof etMs === "number" && Number.isFinite(etMs) && etMs > 0 ? new Date(etMs) : null;
+
+  // ts: backward-compat alias.
+  const ts = exchangeTimestamp?.getTime() ?? receivedTimestamp;
+
+  // lastValidTimestamp: the receivedTimestamp of the PREVIOUS accepted quote.
+  const existing = liveQuotes.get(identity.canonicalInstrumentId);
+  const lastValidTimestamp = existing?.receivedTimestamp ?? null;
+
+  // Determine validation path.
+  const hasProvenance =
+    input.registryGenerationId !== undefined &&
+    input.registryGenerationId !== null &&
+    input.shardId !== undefined &&
+    input.shardId !== null;
+
+  const validationStatus: QuoteValidationStatus = hasProvenance ? "ACCEPTED" : "LEGACY_UNVALIDATED";
+  const freshnessState: QuoteFreshnessState = hasProvenance ? "NOT_EVALUATED" : "LEGACY_UNVALIDATED";
+
   const tick: LiveTick = {
+    // Identity
     canonicalInstrumentId: identity.canonicalInstrumentId,
     exchange: identity.exchange,
     segment: identity.segment,
     tradingSymbol: identity.tradingSymbol,
     symbol: identity.primaryAlias,
     instrumentToken: token,
+    providerExchangeToken: identity.providerExchangeToken,
+    securityId: identity.securityId,
+    isin: identity.isin,
+    securityClass: identity.securityClass,
     provider: input.provider,
+    // Market values
     ltp: input.ltp,
     open: input.open,
     high: input.high,
@@ -125,7 +304,25 @@ export function upsertQuote(input: UpsertQuoteInput): UpsertResult {
     close: input.close,
     volume: input.volume,
     changePercent: input.changePercent,
-    ts: input.ts,
+    oi: input.oi,
+    oiDayHigh: input.oiDayHigh,
+    oiDayLow: input.oiDayLow,
+    buyQty: input.buyQty,
+    sellQty: input.sellQty,
+    // Time
+    exchangeTimestamp,
+    receivedTimestamp,
+    ts,
+    // Provenance
+    registryGenerationId: input.registryGenerationId ?? null,
+    subscriptionSetHash: input.subscriptionSetHash ?? null,
+    completeManifestHash: input.completeManifestHash ?? null,
+    shardId: input.shardId ?? null,
+    // Status
+    validationStatus,
+    freshnessState,
+    conflictStatus: "NOT_EVALUATED",
+    lastValidTimestamp,
   };
   liveQuotes.set(identity.canonicalInstrumentId, tick);
   return { ok: true, tick };

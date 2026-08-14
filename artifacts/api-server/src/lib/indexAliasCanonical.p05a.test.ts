@@ -29,7 +29,7 @@ function registerFinService(aliases: string[], preferredAlias = "^CNXFIN") {
 }
 
 function tick(token: number, ltp: number) {
-  return upsertQuote({ providerInstrumentToken: token, provider: "KITE", ltp, ts: Date.now() });
+  return upsertQuote({ providerInstrumentToken: token, provider: "KITE", ltp, receivedTimestamp: Date.now() });
 }
 
 beforeEach(() => {

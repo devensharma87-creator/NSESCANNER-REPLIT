@@ -6,23 +6,22 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { createFeedManager, type FeedActivationDecision } from "./feedManager";
-import { makeFakeClientHarness, makePlan, TEST_GENERATION_ID } from "./testing/p08bFixtures";
+import { createFeedManagerForTesting } from "./feedManager";
+import {
+  makeFakeClientHarness,
+  makePlan,
+  makeAllPassDecision,
+  TEST_GENERATION_ID,
+} from "./testing/p08bFixtures";
 import type { FakeClientBehavior } from "./testing/p08bFixtures";
 
 function build(behavior: FakeClientBehavior = {}, shardSizes: number[] = [3, 3, 3]) {
   const h = makeFakeClientHarness(behavior);
-  const dec: FeedActivationDecision = {
-    plan: makePlan(shardSizes),
-    gatesPass: true,
-    blockingGateIds: [],
-    registryGenerationId: TEST_GENERATION_ID,
-  };
-  const m = createFeedManager({
+  const dec = makeAllPassDecision(makePlan(shardSizes));
+  const m = createFeedManagerForTesting({
     clientFactory: h.factory,
     getActivation: () => dec,
     getCurrentGenerationId: () => TEST_GENERATION_ID,
-    _forTesting_authorizeActivation: true,
   });
   return { h, m, dec };
 }
@@ -140,13 +139,8 @@ describe("P0.8B Gate B — failure is total", () => {
 
   it("B18: a shard that drops mid-startup fails the start instead of reaching RUNNING", async () => {
     const h = makeFakeClientHarness();
-    const dec: FeedActivationDecision = {
-      plan: makePlan([2, 2, 2]),
-      gatesPass: true,
-      blockingGateIds: [],
-      registryGenerationId: TEST_GENERATION_ID,
-    };
-    const m = createFeedManager({
+    const decB18 = makeAllPassDecision(makePlan([2, 2, 2]));
+    const m = createFeedManagerForTesting({
       clientFactory: async (spec) => {
         const client = await h.factory(spec);
         return {
@@ -159,9 +153,8 @@ describe("P0.8B Gate B — failure is total", () => {
           },
         };
       },
-      getActivation: () => dec,
+      getActivation: () => decB18,
       getCurrentGenerationId: () => TEST_GENERATION_ID,
-      _forTesting_authorizeActivation: true,
     });
 
     const out = await m.start();

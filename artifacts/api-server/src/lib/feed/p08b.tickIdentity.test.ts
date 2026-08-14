@@ -21,12 +21,14 @@ function ctx(over: Partial<TickAdmissionContext> = {}): TickAdmissionContext {
     planGenerationId: GEN,
     currentGenerationId: GEN,
     tokenToShardId: new Map([[TOKEN, 0]]),
+    getShardHash: (_shardId) => "shard-hash-test",
+    completeManifestHash: "complete-hash-test",
     ...over,
   };
 }
 
 function tick(over: Partial<FeedTickEnvelope> = {}): FeedTickEnvelope {
-  return { providerToken: TOKEN, ltp: 101.5, ts: 1_700_000_000_000, ...over };
+  return { providerToken: TOKEN, ltp: 101.5, receivedTimestamp: 1_700_000_000_000, ...over };
 }
 
 beforeEach(() => {
@@ -118,9 +120,9 @@ describe("P0.8B Gate D — admission refusals", () => {
     expect(quoteCount()).toBe(0);
   });
 
-  it("D10: a non-positive or non-finite timestamp is refused", () => {
+  it("D10: a non-positive or non-finite receivedTimestamp is refused", () => {
     for (const bad of [0, -5, Number.NaN]) {
-      const res = ingestTick(tick({ ts: bad }), 0, ctx());
+      const res = ingestTick(tick({ receivedTimestamp: bad }), 0, ctx());
       expect(res.ok).toBe(false);
       if (!res.ok) expect(res.reason).toBe("INVALID_TIMESTAMP");
     }
@@ -177,8 +179,8 @@ describe("P0.8B Gate D — admission and field honesty", () => {
   });
 
   it("D16: a later valid tick replaces the earlier one under the same identity", () => {
-    ingestTick(tick({ ltp: 100, ts: 1_700_000_000_000 }), 0, ctx());
-    ingestTick(tick({ ltp: 105, ts: 1_700_000_060_000 }), 0, ctx());
+    ingestTick(tick({ ltp: 100, receivedTimestamp: 1_700_000_000_000 }), 0, ctx());
+    ingestTick(tick({ ltp: 105, receivedTimestamp: 1_700_000_060_000 }), 0, ctx());
     expect(quoteCount()).toBe(1);
     expect(getQuoteByCanonicalId(CANONICAL)?.ltp).toBe(105);
   });

@@ -200,7 +200,7 @@ describe("Phase 0.5A — pending token-reconciliation diagnostics", () => {
     });
     const tickTs = Date.now() - 5_000;
     expect(
-      upsertQuote({ providerInstrumentToken: OLD_TOKEN, provider: "KITE", ltp: 1500, ts: tickTs }).ok,
+      upsertQuote({ providerInstrumentToken: OLD_TOKEN, provider: "KITE", ltp: 1500, receivedTimestamp: tickTs }).ok,
     ).toBe(true);
 
     reconcileProviderToken({

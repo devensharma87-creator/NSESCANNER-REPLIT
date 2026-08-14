@@ -10,31 +10,30 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { createFeedManager, type FeedActivationDecision } from "./feedManager";
+import { createFeedManagerForTesting } from "./feedManager";
 import { createShutdownController } from "../lifecycle/gracefulShutdown";
 import {
   getProductionFeedManager,
   productionFeedCloseHook,
   _forTesting_resetProductionFeedManager,
 } from "./productionFeedManager";
-import { makeFakeClientHarness, makePlan, TEST_GENERATION_ID } from "./testing/p08bFixtures";
+import {
+  makeFakeClientHarness,
+  makePlan,
+  makeAllPassDecision,
+  TEST_GENERATION_ID,
+} from "./testing/p08bFixtures";
 import type { FakeClientBehavior } from "./testing/p08bFixtures";
 
 const FEED_DIR = path.dirname(fileURLToPath(import.meta.url));
 
 function build(behavior: FakeClientBehavior = {}) {
   const h = makeFakeClientHarness(behavior);
-  const dec: FeedActivationDecision = {
-    plan: makePlan([2, 2, 2]),
-    gatesPass: true,
-    blockingGateIds: [],
-    registryGenerationId: TEST_GENERATION_ID,
-  };
-  const m = createFeedManager({
+  const dec = makeAllPassDecision(makePlan([2, 2, 2]));
+  const m = createFeedManagerForTesting({
     clientFactory: h.factory,
     getActivation: () => dec,
     getCurrentGenerationId: () => TEST_GENERATION_ID,
-    _forTesting_authorizeActivation: true,
   });
   return { h, m };
 }
@@ -127,14 +126,9 @@ describe("P0.8B Gate F — a socket that could not be released is never forgotte
 
   it("F24: a retried close that succeeds clears the unreleased ledger", async () => {
     const h = makeFakeClientHarness();
-    const dec: FeedActivationDecision = {
-      plan: makePlan([2, 2, 2]),
-      gatesPass: true,
-      blockingGateIds: [],
-      registryGenerationId: TEST_GENERATION_ID,
-    };
+    const decF24 = makeAllPassDecision(makePlan([2, 2, 2]));
     let refuseClose = true;
-    const m = createFeedManager({
+    const m = createFeedManagerForTesting({
       clientFactory: async (spec) => {
         const client = await h.factory(spec);
         return {
@@ -145,9 +139,8 @@ describe("P0.8B Gate F — a socket that could not be released is never forgotte
               : client.close(),
         };
       },
-      getActivation: () => dec,
+      getActivation: () => decF24,
       getCurrentGenerationId: () => TEST_GENERATION_ID,
-      _forTesting_authorizeActivation: true,
     });
 
     await m.start();
@@ -218,9 +211,9 @@ describe("P0.8B Gate F — the production instance", () => {
     expect(out.blocker).toBe("FEED_RUNTIME_ACTIVATION_NOT_AUTHORIZED");
   });
 
-  it("F13: productionFeedManager never sets the test-only activation override", () => {
+  it("F13: productionFeedManager never calls the test-only factory", () => {
     const src = readFileSync(path.join(FEED_DIR, "productionFeedManager.ts"), "utf8");
-    expect(src).not.toContain("_forTesting_authorizeActivation");
+    expect(src).not.toContain("createFeedManagerForTesting");
   });
 
   it("F14: no production feed module imports the test fixtures", () => {
@@ -286,7 +279,7 @@ describe("P0.8B Gate F — diagnostics safety", () => {
     // Push a tick through the real client event path, for a token no shard owns.
     const spec = h.specFor(0);
     expect(spec).toBeDefined();
-    spec!.events.onTicks([{ providerToken: 424242, ltp: 10, ts: 1_700_000_000_000 }]);
+    spec!.events.onTicks([{ providerToken: 424242, ltp: 10, receivedTimestamp: 1_700_000_000_000 }]);
 
     const diag = m.diagnostics();
     expect(diag.rejectedTickCount).toBe(1);
@@ -301,7 +294,7 @@ describe("P0.8B Gate F — diagnostics safety", () => {
     await m.close("SIGTERM");
     expect(m.state()).toBe("STOPPED");
 
-    spec!.events.onTicks([{ providerToken: token, ltp: 10, ts: 1_700_000_000_000 }]);
+    spec!.events.onTicks([{ providerToken: token, ltp: 10, receivedTimestamp: 1_700_000_000_000 }]);
     const diag = m.diagnostics();
     expect(diag.acceptedTickCount).toBe(0);
     expect(diag.rejectedTickCount).toBeGreaterThan(0);

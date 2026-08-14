@@ -41,8 +41,7 @@ import type {
  * Minimal structural view of the provider ticker.
  *
  * Declared here rather than imported so this file has NO type-level dependency
- * that could tempt a value import. It also documents exactly how much of the
- * SDK this adapter is allowed to touch.
+ * that could tempt a value import.
  */
 interface ProviderTicker {
   connect(): void;
@@ -60,11 +59,28 @@ interface ProviderRawTick {
   volume?: unknown;
   change?: unknown;
   exchange_timestamp?: unknown;
+  oi?: unknown;
+  oi_day_high?: unknown;
+  oi_day_low?: unknown;
+  buy_quantity?: unknown;
+  sell_quantity?: unknown;
+  exchange_token?: unknown;
+}
+
+export interface KiteCredentials {
+  readonly apiKey: string;
+  readonly accessToken: string;
 }
 
 function num(raw: unknown): number | undefined {
   if (typeof raw !== "number" || !Number.isFinite(raw)) return undefined;
   return raw;
+}
+
+function safeToken(raw: unknown): number | undefined {
+  const n = num(raw);
+  if (n === undefined || !Number.isSafeInteger(n) || n <= 0) return undefined;
+  return n;
 }
 
 /**
@@ -73,25 +89,31 @@ function num(raw: unknown): number | undefined {
  * Returns null when the tick has no usable token or price. It NEVER
  * substitutes a value: a missing OHLC field stays undefined so that the
  * ingestion layer can tell "not reported" from "reported as zero".
+ *
+ * TIMESTAMP CONTRACT: exchangeTimestamp is ONLY set when the provider supplies
+ * a valid Date. It is NEVER replaced by receivedTimestamp (nowMs).
+ * receivedTimestamp is always nowMs — the local adapter receipt time.
  */
 export function toEnvelope(raw: ProviderRawTick, nowMs: number): FeedTickEnvelope | null {
-  const token = num(raw.instrument_token);
+  const token = safeToken(raw.instrument_token);
   const ltp = num(raw.last_price);
-  if (token === undefined || !Number.isSafeInteger(token) || token <= 0) return null;
+  if (token === undefined) return null;
   if (ltp === undefined) return null;
-
-  // exchange_timestamp is a Date in the SDK; fall back to receipt time only
-  // when the provider sent nothing at all.
-  let ts = nowMs;
-  const stamp = raw.exchange_timestamp;
-  if (stamp instanceof Date) {
-    const t = stamp.getTime();
-    if (Number.isFinite(t) && t > 0) ts = t;
-  }
 
   const envelope: {
     -readonly [K in keyof FeedTickEnvelope]: FeedTickEnvelope[K];
-  } = { providerToken: token, ltp, ts };
+  } = {
+    providerToken: token,
+    ltp,
+    receivedTimestamp: nowMs,
+  };
+
+  // exchangeTimestamp from provider — absent means absent, not nowMs.
+  const stamp = raw.exchange_timestamp;
+  if (stamp instanceof Date) {
+    const t = stamp.getTime();
+    if (Number.isFinite(t) && t > 0) envelope.exchangeTimestamp = t;
+  }
 
   const open = num(raw.ohlc?.open);
   const high = num(raw.ohlc?.high);
@@ -106,31 +128,40 @@ export function toEnvelope(raw: ProviderRawTick, nowMs: number): FeedTickEnvelop
   if (volume !== undefined) envelope.volume = volume;
   if (changePercent !== undefined) envelope.changePercent = changePercent;
 
-  return envelope;
+  const oi = num(raw.oi);
+  const oiDayHigh = num(raw.oi_day_high);
+  const oiDayLow = num(raw.oi_day_low);
+  const buyQty = num(raw.buy_quantity);
+  const sellQty = num(raw.sell_quantity);
+  if (oi !== undefined) envelope.oi = oi;
+  if (oiDayHigh !== undefined) envelope.oiDayHigh = oiDayHigh;
+  if (oiDayLow !== undefined) envelope.oiDayLow = oiDayLow;
+  if (buyQty !== undefined) envelope.buyQty = buyQty;
+  if (sellQty !== undefined) envelope.sellQty = sellQty;
+
+  const providerExchangeToken = safeToken(raw.exchange_token);
+  if (providerExchangeToken !== undefined) envelope.providerExchangeToken = providerExchangeToken;
+
+  return Object.freeze(envelope);
 }
 
-export interface KiteAdapterCredentials {
-  readonly apiKey: string;
-  readonly accessToken: string;
-}
+const DEFAULT_CONNECT_TIMEOUT_MS = 15_000;
 
 /**
- * Build a factory bound to one credential pair.
+ * The real Kite feed client adapter factory factory.
  *
- * Credentials are captured in the closure and never placed on the port, so no
- * diagnostic that serialises a client can leak them.
+ * Takes a credential provider and optional config, returns a FeedClientFactory.
+ * Each factory call produces one adapter that wraps one KiteTicker instance.
+ * The KiteTicker is constructed lazily inside `connect()` — never at factory
+ * invocation time — so importing this file is side-effect free.
+ *
+ * @param getCredentials  Called at connect() time to retrieve the current API credentials.
+ * @param nowMs           Time source, defaults to Date.now.
+ * @param connectTimeoutMs  Timeout for the initial connection handshake, defaults to 15s.
  */
-/**
- * How long to wait for the provider's `connect` event before calling the
- * attempt failed. The Kite SDK supplies no default timeout of its own, so an
- * unreachable endpoint would otherwise hang the startup sequence until the OS
- * gave up on the TCP connection.
- */
-export const DEFAULT_CONNECT_TIMEOUT_MS = 15_000;
-
 export function createKiteFeedClientFactory(
-  getCredentials: () => KiteAdapterCredentials | null,
-  now: () => number = () => Date.now(),
+  getCredentials?: () => KiteCredentials | null,
+  nowMs: () => number = Date.now,
   connectTimeoutMs: number = DEFAULT_CONNECT_TIMEOUT_MS,
 ): FeedClientFactory {
   return async (spec) => {
@@ -138,135 +169,117 @@ export function createKiteFeedClientFactory(
     let state: FeedClientState = "CONSTRUCTED";
     let subscribed: number[] = [];
 
-    const port: FeedClientPort = {
+    return Object.freeze<FeedClientPort>({
       shardId: spec.shardId,
+
       state: () => state,
+      subscribedTokenCount: () => subscribed.length,
 
       async connect(): Promise<FeedClientOpResult> {
-        const creds = getCredentials();
-        if (creds === null) {
+        if (state !== "CONSTRUCTED") {
+          return { ok: false, detail: `connect called in state ${state}` };
+        }
+
+        // Validate credentials BEFORE loading the SDK — so a missing-credentials
+        // environment can be detected without any provider side-effect.
+        const creds = getCredentials?.() ?? null;
+        if (getCredentials !== undefined && creds === null) {
           state = "FAILED";
           return { ok: false, detail: "PROVIDER_CREDENTIALS_UNAVAILABLE" };
         }
+
         state = "CONNECTING";
-        try {
-          // The deferred provider load. Nothing above this line touches the SDK.
-          const mod = (await import("kiteconnect")) as unknown as {
-            KiteTicker: new (o: { api_key: string; access_token: string }) => ProviderTicker;
-          };
-          const t = new mod.KiteTicker({ api_key: creds.apiKey, access_token: creds.accessToken });
 
-          t.on("ticks", (...args: unknown[]) => {
-            const list = args[0];
-            if (!Array.isArray(list)) return;
-            const nowMs = now();
-            const envelopes: FeedTickEnvelope[] = [];
-            for (const item of list) {
-              const env = toEnvelope(item as ProviderRawTick, nowMs);
-              if (env !== null) envelopes.push(env);
-            }
-            if (envelopes.length > 0) spec.events.onTicks(envelopes);
-          });
-          // `connect()` must not resolve until the socket is genuinely open.
-          // Returning as soon as the request was issued would let the manager
-          // subscribe to a dead socket and then declare RUNNING — a feed that
-          // reports healthy and delivers nothing. The settle-once latch below
-          // converts the provider's event callbacks into a single awaited
-          // outcome, and a timeout is a FAILURE, never an assumed success.
-          let settle: ((r: FeedClientOpResult) => void) | null = null;
-          const settleOnce = (r: FeedClientOpResult): boolean => {
-            if (settle === null) return false;
-            const resolve = settle;
-            settle = null;
-            resolve(r);
-            return true;
-          };
+        // Dynamic import: the SDK is loaded here and ONLY here.
+        const { KiteTicker } = await import("kiteconnect");
+        const resolvedCreds = creds ?? { apiKey: "", accessToken: "" };
 
-          t.on("connect", () => {
-            state = "CONNECTED";
-            settleOnce({ ok: true, detail: "CONNECTED" });
-            spec.events.onConnected();
-          });
-          t.on("disconnect", (...args: unknown[]) => {
-            state = "CLOSED";
-            const reason = String(args[0] ?? "disconnected");
-            // A disconnect BEFORE the connect handshake completed is a failed
-            // connect, not the loss of an established shard. Reporting it as a
-            // disconnect would tell the manager it lost a socket it never had.
-            if (settleOnce({ ok: false, detail: `DISCONNECTED_BEFORE_CONNECT: ${reason}` })) return;
-            spec.events.onDisconnected(reason);
-          });
-          t.on("error", (...args: unknown[]) => {
-            const message = String(args[0] ?? "error");
-            if (settleOnce({ ok: false, detail: `PROVIDER_ERROR: ${message}` })) return;
-            spec.events.onError(message);
-          });
+        const t = new KiteTicker({
+          api_key: resolvedCreds.apiKey,
+          access_token: resolvedCreds.accessToken,
+        }) as unknown as ProviderTicker;
+        t.autoReconnect(false, 0, 0);
 
-          // Provider-side auto-reconnect is left OFF: the manager owns the
-          // reconnect policy, and two independent reconnect loops would race
-          // to hold the same shard's socket.
-          t.autoReconnect(false, 0, 0);
+        type ConnectResult =
+          | { ok: true }
+          | { ok: false; detail: "PROVIDER_CONNECT_TIMEOUT" | "PROVIDER_ERROR" | "DISCONNECTED_BEFORE_CONNECT" };
 
-          // Retained BEFORE awaiting so a timed-out or refused connection can
-          // still be disconnected by close() rather than being abandoned.
-          ticker = t;
-
-          const outcome = await new Promise<FeedClientOpResult>((resolve) => {
-            const timer = setTimeout(() => {
-              settleOnce({
-                ok: false,
-                detail: `PROVIDER_CONNECT_TIMEOUT_${connectTimeoutMs}MS`,
-              });
-            }, connectTimeoutMs);
-            // Never hold the event loop open on this timer.
-            timer.unref?.();
-            settle = (r: FeedClientOpResult) => {
+        const connected = await new Promise<ConnectResult>((resolve) => {
+          let settled = false;
+          const settle = (result: ConnectResult) => {
+            if (!settled) {
+              settled = true;
               clearTimeout(timer);
-              resolve(r);
-            };
-            try {
-              t.connect();
-            } catch (err) {
-              settleOnce({
-                ok: false,
-                detail: `CONNECT_THREW: ${err instanceof Error ? err.message : String(err)}`,
-              });
+              resolve(result);
             }
-          });
-
-          if (!outcome.ok) state = "FAILED";
-          return outcome;
-        } catch (err) {
-          state = "FAILED";
-          return {
-            ok: false,
-            detail: `PROVIDER_CONNECT_FAILED: ${err instanceof Error ? err.message : String(err)}`,
           };
+
+          const timer = setTimeout(
+            () => settle({ ok: false, detail: "PROVIDER_CONNECT_TIMEOUT" }),
+            connectTimeoutMs,
+          );
+          // Unref so the timer doesn't keep the event loop alive in tests.
+          if (typeof (timer as NodeJS.Timeout).unref === "function") {
+            (timer as NodeJS.Timeout).unref();
+          }
+
+          t.on("connect", () => settle({ ok: true }));
+          t.on("disconnect", () =>
+            settle({ ok: false, detail: "DISCONNECTED_BEFORE_CONNECT" }),
+          );
+          t.on("error", () => settle({ ok: false, detail: "PROVIDER_ERROR" }));
+
+          t.connect();
+        });
+
+        void nowMs; // retained for future observation windows
+
+        if (!connected.ok) {
+          state = "FAILED";
+          ticker = t;
+          return { ok: false, detail: connected.detail };
         }
+
+        ticker = t;
+        state = "CONNECTED";
+
+        // Wire ongoing disconnect handler AFTER connect.
+        // Forward the raw provider reason so the manager/tests can inspect it.
+        t.on("disconnect", (reason: unknown) => {
+          state = "FAILED";
+          spec.events.onDisconnected(String(reason ?? "PROVIDER_DISCONNECT"));
+        });
+        t.on("error", (msg: unknown) => {
+          spec.events.onError(String(msg));
+        });
+        t.on("ticks", (ticks: unknown[]) => {
+          const receiveMs = nowMs();
+          const envelopes: FeedTickEnvelope[] = [];
+          for (const raw of ticks) {
+            const e = toEnvelope(raw as ProviderRawTick, receiveMs);
+            if (e !== null) envelopes.push(e);
+          }
+          if (envelopes.length > 0) spec.events.onTicks(envelopes);
+        });
+
+        spec.events.onConnected();
+        return { ok: true, detail: "CONNECTED" };
       },
 
       async subscribe(tokens: readonly number[]): Promise<FeedSubscribeResult> {
-        // Both conditions matter. A retained ticker proves only that a socket
-        // was once constructed; if it has since dropped, writing a subscribe
-        // to it would silently succeed and the caller would believe the shard
-        // is covered. Only a currently CONNECTED socket may be subscribed.
-        if (ticker === null || state !== "CONNECTED") {
+        if (state !== "CONNECTED") {
           return {
             ok: false,
             acceptedTokens: [],
-            detail: ticker === null ? "NOT_CONNECTED" : `NOT_CONNECTED_STATE_${state}`,
+            detail: "NOT_CONNECTED",
             confirmation: "REQUEST_ACCEPTED_UNCONFIRMED",
           };
         }
+        const list = [...tokens];
         try {
-          const list = [...tokens];
-          ticker.subscribe(list);
-          ticker.setMode("full", list);
+          ticker!.subscribe(list);
+          ticker!.setMode("full", list);
           subscribed = list;
-          // The Kite ticker never acknowledges a subscription: these calls
-          // write to an open socket and return. Echoing the request back as
-          // `acceptedTokens` is therefore the request, NOT provider truth, and
-          // it is labelled as such so no caller can mistake it for agreement.
           return {
             ok: true,
             acceptedTokens: list,
@@ -303,10 +316,12 @@ export function createKiteFeedClientFactory(
           };
         }
       },
-
-      subscribedTokenCount: () => subscribed.length,
-    };
-
-    return port;
+    });
   };
 }
+
+/**
+ * Direct FeedClientFactory — no credentials, default timeout.
+ * Used when activation is controlled by the lock (always disabled today).
+ */
+export const createKiteFeedClientAdapter: FeedClientFactory = createKiteFeedClientFactory();

@@ -57,7 +57,7 @@ function registerBseReliance() {
   });
 }
 function tickFor(token: number, ltp: number) {
-  return upsertQuote({ providerInstrumentToken: token, provider: "KITE" as const, ltp, ts: TS });
+  return upsertQuote({ providerInstrumentToken: token, provider: "KITE" as const, ltp, receivedTimestamp: TS });
 }
 
 beforeEach(() => {
@@ -275,19 +275,19 @@ describe("P0.5A-E — required tests", () => {
     registerNseReliance();
     const badProvider = upsertQuote({
       providerInstrumentToken: NSE_RELIANCE.token,
-      provider: "FIXTURE" as unknown as "KITE", ltp: 1, ts: TS,
+      provider: "FIXTURE" as unknown as "KITE", ltp: 1, receivedTimestamp: TS,
     });
     expect(badProvider.ok).toBe(false);
     if (!badProvider.ok) expect(badProvider.reason).toBe("UNAPPROVED_PROVIDER");
 
     const badPrice = upsertQuote({
-      providerInstrumentToken: NSE_RELIANCE.token, provider: "KITE", ltp: Number.NaN, ts: TS,
+      providerInstrumentToken: NSE_RELIANCE.token, provider: "KITE", ltp: Number.NaN, receivedTimestamp: TS,
     });
     expect(badPrice.ok).toBe(false);
     if (!badPrice.ok) expect(badPrice.reason).toBe("INVALID_PRICE");
 
     const badToken = upsertQuote({
-      providerInstrumentToken: 0, provider: "KITE", ltp: 1, ts: TS,
+      providerInstrumentToken: 0, provider: "KITE", ltp: 1, receivedTimestamp: TS,
     });
     expect(badToken.ok).toBe(false);
     if (!badToken.ok) expect(badToken.reason).toBe("INVALID_PROVIDER_TOKEN");

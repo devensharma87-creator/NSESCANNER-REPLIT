@@ -8,26 +8,22 @@
 import { describe, it, expect } from "vitest";
 import {
   createFeedManager,
+  createFeedManagerForTesting,
   FEED_RUNTIME_ACTIVATION_AUTHORIZED,
-  type FeedActivationDecision,
 } from "./feedManager";
 import { admitShardPlan } from "./shardPlanInvariants";
 import { MAX_SOCKETS, MAX_TOKENS_PER_SOCKET } from "../registry/feedShardPlan";
 import {
   makeFakeClientHarness,
   makePlan,
+  makeAllPassDecision,
+  makeDecisionWithFailedGate,
   withShardTokens,
   TEST_GENERATION_ID,
 } from "./testing/p08bFixtures";
 
-function decision(over: Partial<FeedActivationDecision> = {}): FeedActivationDecision {
-  return {
-    plan: makePlan([3, 2, 2]),
-    gatesPass: true,
-    blockingGateIds: [],
-    registryGenerationId: TEST_GENERATION_ID,
-    ...over,
-  };
+function decision(planOverride?: ReturnType<typeof makePlan>) {
+  return makeAllPassDecision(planOverride ?? makePlan([3, 2, 2]));
 }
 
 describe("P0.8B Gate A — the phase lock", () => {
@@ -79,11 +75,11 @@ describe("P0.8B Gate A — the phase lock", () => {
 describe("P0.8B Gate A — gates and plan admission", () => {
   it("A5: gates not passing lands in WAITING_FOR_GATES, not FAILED", async () => {
     const h = makeFakeClientHarness();
-    const m = createFeedManager({
+    const plan = makePlan([3, 2, 2]);
+    const m = createFeedManagerForTesting({
       clientFactory: h.factory,
-      getActivation: () => decision({ gatesPass: false, blockingGateIds: ["KITE_SESSION_VALID"] }),
+      getActivation: () => makeDecisionWithFailedGate(plan, "KITE_SESSION_VALID"),
       getCurrentGenerationId: () => TEST_GENERATION_ID,
-      _forTesting_authorizeActivation: true,
     });
     const out = await m.start();
     expect(out.state).toBe("WAITING_FOR_GATES");
@@ -93,11 +89,11 @@ describe("P0.8B Gate A — gates and plan admission", () => {
 
   it("A6: gates not passing constructs no client", async () => {
     const h = makeFakeClientHarness();
-    const m = createFeedManager({
+    const plan = makePlan([3, 2, 2]);
+    const m = createFeedManagerForTesting({
       clientFactory: h.factory,
-      getActivation: () => decision({ gatesPass: false, blockingGateIds: ["X"] }),
+      getActivation: () => makeDecisionWithFailedGate(plan, "REGISTRY_AUTHORITY_CURRENT"),
       getCurrentGenerationId: () => TEST_GENERATION_ID,
-      _forTesting_authorizeActivation: true,
     });
     await m.start();
     expect(h.constructed).toHaveLength(0);
@@ -105,11 +101,10 @@ describe("P0.8B Gate A — gates and plan admission", () => {
 
   it("A7: a REFUSED plan is rejected even when every gate passes", async () => {
     const h = makeFakeClientHarness();
-    const m = createFeedManager({
+    const m = createFeedManagerForTesting({
       clientFactory: h.factory,
-      getActivation: () => decision({ plan: makePlan([3, 2], { state: "REFUSED" }) }),
+      getActivation: () => decision(makePlan([3, 2], { state: "REFUSED" })),
       getCurrentGenerationId: () => TEST_GENERATION_ID,
-      _forTesting_authorizeActivation: true,
     });
     const out = await m.start();
     expect(out.state).toBe("FAILED");
@@ -180,11 +175,10 @@ describe("P0.8B Gate A — shard plan invariants", () => {
 
   it("A17: the manager never holds more clients than the socket ceiling", async () => {
     const h = makeFakeClientHarness();
-    const m = createFeedManager({
+    const m = createFeedManagerForTesting({
       clientFactory: h.factory,
-      getActivation: () => decision({ plan: makePlan([3, 3, 3]) }),
+      getActivation: () => decision(makePlan([3, 3, 3])),
       getCurrentGenerationId: () => TEST_GENERATION_ID,
-      _forTesting_authorizeActivation: true,
     });
     await m.start();
     expect(h.peakLive()).toBeLessThanOrEqual(MAX_SOCKETS);

@@ -43,19 +43,43 @@ export type FeedClientState =
  *
  * Values are passed through untouched. Absent fields stay absent — see
  * `tickIngestion.ts` for why a missing field must never become a zero.
+ *
+ * TIMESTAMP CONTRACT
+ * ------------------
+ * `exchangeTimestamp` is the provider/exchange timestamp and is ABSENT when
+ * the provider did not supply one. It is NEVER replaced by the receipt time.
+ * `receivedTimestamp` is the local adapter receipt time; it is ALWAYS present.
+ * Consumers must not treat them as interchangeable.
  */
 export interface FeedTickEnvelope {
   /** Provider instrument token. The ONLY identity the provider supplies. */
   readonly providerToken: number;
   readonly ltp: number;
-  /** Epoch milliseconds. */
-  readonly ts: number;
+  /**
+   * Exchange/provider timestamp in epoch milliseconds.
+   * Absent when the provider did not supply one. Never replaced by receipt time.
+   */
+  readonly exchangeTimestamp?: number;
+  /**
+   * Local receipt timestamp in epoch milliseconds — the moment the adapter
+   * translated the raw provider bytes. Always present.
+   */
+  readonly receivedTimestamp: number;
   readonly open?: number;
   readonly high?: number;
   readonly low?: number;
   readonly close?: number;
   readonly volume?: number;
   readonly changePercent?: number;
+  /** Open interest in contracts. Only present for F&O instruments when supplied. */
+  readonly oi?: number;
+  readonly oiDayHigh?: number;
+  readonly oiDayLow?: number;
+  /** Buy/sell depth quantities (Kite full mode). Absent for indices. */
+  readonly buyQty?: number;
+  readonly sellQty?: number;
+  /** Kite exchange_token where supplied by the provider. */
+  readonly providerExchangeToken?: number;
 }
 
 /**

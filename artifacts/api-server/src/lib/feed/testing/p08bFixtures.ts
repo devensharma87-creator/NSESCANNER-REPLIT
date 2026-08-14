@@ -26,6 +26,18 @@ import {
   PROVIDER_TOKEN_CAPACITY,
   SHARD_POLICY_VERSION,
 } from "../../registry/feedShardPlan";
+import {
+  createFeedManagerForTesting,
+  REQUIRED_ACTIVATION_GATE_IDS,
+  type FeedActivationGate,
+  type FeedActivationGateId,
+  type FeedManagerOptions,
+  type FeedManager,
+  type StructuredActivationDecision,
+} from "../feedManager";
+
+export { createFeedManagerForTesting };
+export type { FeedActivationGate, FeedActivationGateId, StructuredActivationDecision };
 
 export const TEST_GENERATION_ID = "gen-p08b-0001";
 
@@ -236,4 +248,111 @@ export function makeFakeClientHarness(behavior: FakeClientBehavior = {}): FakeCl
     callsOfKind: (kind) => calls.filter((c) => c.kind === kind),
     specFor: (shardId) => constructed.find((c) => c.shardId === shardId)?.spec,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Structured activation decision helpers
+// ---------------------------------------------------------------------------
+
+/** Return a gate array where every required gate is PASS. */
+export function makeAllPassGates(): FeedActivationGate[] {
+  return REQUIRED_ACTIVATION_GATE_IDS.map((gateId) => ({
+    gateId,
+    state: "PASS" as const,
+  }));
+}
+
+/**
+ * Build a StructuredActivationDecision where every gate is PASS and the
+ * registryGenerationId / completeManifestHash are bound to the supplied plan.
+ */
+export function makeAllPassDecision(plan: FeedShardPlan): StructuredActivationDecision {
+  return {
+    plan,
+    gates: makeAllPassGates(),
+    registryGenerationId: plan.registryGenerationId,
+    subscriptionSetHash: "sub-hash-test",
+    completeManifestHash: plan.completeManifestHash,
+  };
+}
+
+/**
+ * Build a StructuredActivationDecision with exactly one gate FAIL, all others PASS.
+ * Used to verify that every individual gate is checked.
+ */
+export function makeDecisionWithFailedGate(
+  plan: FeedShardPlan,
+  failedGateId: FeedActivationGateId,
+  blockerCode?: string,
+): StructuredActivationDecision {
+  return {
+    plan,
+    gates: REQUIRED_ACTIVATION_GATE_IDS.map((gateId) => ({
+      gateId,
+      state: (gateId === failedGateId ? "FAIL" : "PASS") as "PASS" | "FAIL",
+      blockerCode: gateId === failedGateId ? (blockerCode ?? failedGateId) : undefined,
+    })),
+    registryGenerationId: plan.registryGenerationId,
+    subscriptionSetHash: "sub-hash-test",
+    completeManifestHash: plan.completeManifestHash,
+  };
+}
+
+/**
+ * Build a StructuredActivationDecision with one gate missing from the array.
+ * The manager treats missing gates as NOT_EVALUATED — same as FAIL.
+ */
+export function makeDecisionWithMissingGate(
+  plan: FeedShardPlan,
+  missingGateId: FeedActivationGateId,
+): StructuredActivationDecision {
+  return {
+    plan,
+    gates: REQUIRED_ACTIVATION_GATE_IDS.filter((id) => id !== missingGateId).map((gateId) => ({
+      gateId,
+      state: "PASS" as const,
+    })),
+    registryGenerationId: plan.registryGenerationId,
+    subscriptionSetHash: "sub-hash-test",
+    completeManifestHash: plan.completeManifestHash,
+  };
+}
+
+/**
+ * Build a StructuredActivationDecision with one gate as NOT_EVALUATED.
+ */
+export function makeDecisionWithNotEvaluatedGate(
+  plan: FeedShardPlan,
+  gateId: FeedActivationGateId,
+): StructuredActivationDecision {
+  return {
+    plan,
+    gates: REQUIRED_ACTIVATION_GATE_IDS.map((id) => ({
+      gateId: id,
+      state: (id === gateId ? "NOT_EVALUATED" : "PASS") as "PASS" | "NOT_EVALUATED",
+    })),
+    registryGenerationId: plan.registryGenerationId,
+    subscriptionSetHash: "sub-hash-test",
+    completeManifestHash: plan.completeManifestHash,
+  };
+}
+
+/**
+ * Convenience wrapper: createFeedManagerForTesting already re-exported above.
+ * Use this to build a harness+manager combo for tests that need activation to succeed.
+ */
+export function buildTestManager(
+  opts: Partial<FeedManagerOptions> & { readonly behavior?: FakeClientBehavior; readonly shardSizes?: number[] },
+): { h: FakeClientHarness; m: FeedManager; dec: StructuredActivationDecision } {
+  const h = makeFakeClientHarness(opts.behavior ?? {});
+  const plan = makePlan(opts.shardSizes ?? [3, 2, 2]);
+  const dec = makeAllPassDecision(plan);
+  const m = createFeedManagerForTesting({
+    clientFactory: opts.clientFactory ?? h.factory,
+    getActivation: opts.getActivation ?? (() => dec),
+    getCurrentGenerationId: opts.getCurrentGenerationId ?? (() => TEST_GENERATION_ID),
+    now: opts.now,
+    onRejectedTick: opts.onRejectedTick,
+  });
+  return { h, m, dec };
 }
